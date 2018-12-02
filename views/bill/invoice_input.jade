@@ -1,0 +1,106 @@
+.row.form-horizontal(style="margin-right:10px;")
+  .col-md-4.col-sm-3
+    .form-group
+      label#lb-vehicle.control-label.col-sm-4(for='vehicle_name') 车船号
+      .input-group.col-sm-8
+        if bAdd
+          select#vehicle_name.form-control
+        else
+          input#vehicle_name.form-control(type='text', name='vehicle_name' disabled)
+  .col-md-4.col-sm-3
+    .form-group
+      label#lb-start-warehouse.control-label.col-sm-4(for='start-warehouse') 始发地
+      .input-group.col-sm-8
+        select#start-warehouse.form-control
+  .col-md-4.col-sm-3
+    .form-group
+      label#lbl-ship-to.control-label.col-sm-4(for='ship_to', data-toggle="tooltip", title="切换目的地输入方式", style='cursor:pointer;') 目的地
+      .input-group.col-sm-8
+        input#ship_to_input.form-control(type='text', name='ship_to_input', style='display:none;')
+        select#ship-to-select.form-control
+
+.row.form-horizontal(style="margin-right:10px;")
+  .col-md-4.col-sm-3
+    .form-group
+      label.control-label.col-sm-4(for='ship_name') 开单名称
+      .input-group.col-sm-8
+        if bAdd
+          select#ship_name.form-control
+        else
+          input#ship_name.form-control(type='text', name='ship_name' disabled)
+  .col-md-4.col-sm-3
+    .form-group
+      if bDeleteInv
+        label.control-label.col-sm-4(for='invoice_state') 状态
+        .input-group.col-sm-8
+          input#invoice_state.form-control(type='text', name='invoice_state' disabled)
+      else
+        label.control-label.col-sm-4(for='order_no_by_name') 订单号
+        .input-group.col-sm-8
+          select#order_no_by_name.form-control
+
+  if !bDeleteInv
+    .col-md-4.col-sm-3
+      .form-group
+        label.control-label.col-sm-4(for='bill_no') 提单号
+        .input-group.col-sm-8
+          select#bill_no.form-control
+
+.row.form-horizontal(style="margin-right:10px;")
+  .col-md-4.col-sm-3
+    .form-group
+      label.control-label.col-sm-4(for='ship_customer') 发货单位
+      .input-group.col-sm-8
+        select#ship_customer.form-control
+
+  .col-md-4.col-sm-3
+    .form-group
+      label.control-label.col-sm-4(for='ship_date') 发货日期
+      #ship-date-grp.input-group.date
+        input#ship_date.form-control(type='text', name='ship_date', data-date-format="YYYY-MM-DD HH:mm")
+        span.input-group-addon
+          i.fa.fa-calendar
+
+div#vehicle-info.row.form-horizontal(style="margin: 0px 10px 5px; display:none")
+  label(for='vehicle-no', style="margin-right:15px;") 车号
+  select#vehicle-no(style="margin-right:25px;width:200px")
+
+  label(for='origin', style="margin-right:15px;margin-left:15px") 车始发地
+  select#origin(style="margin-righ:25px; width:150px")
+
+  button#vehicle-ship-confirm.btn.btn-success.btn-sm.disabled(style="margin-left:15px;") 车配发完毕
+
+  span.pull-right(style="margin-top:5px; margin-left:10px") 配发重量:
+    code#vehicle-ship-weight 0.000
+  span.pull-right(style="margin-top:5px") 配发块数:
+    code#vehicle-ship-num 0
+
+table#inv-table-input.table.invoice-table.table-bordered.table-hover(style='margin-bottom: 0px !important')
+  thead
+    tr
+      th(style='min-width:20px;')
+      th 提单号
+      th 订单号-项次号
+      //th 牌号
+      th 发货仓库
+      th 厚度
+      th 宽度
+      th 长度
+      th 单重
+      th#real-head-text(style='text-align:center;') 实际块数
+      th#left-head-text(style='text-align:center;') 剩余块数
+      th(style='width:10%; min-width:60px; max-width:80px; text-align:center') 发运块数
+      th(style='width:10%; min-width:60px; max-width:80px; text-align:center') 发运重量
+      th(style='display:none;') 车号
+  tbody#invoice_tbody
+
+table.balance(style='margin-bottom: 0px !important')
+  tbody
+    tr
+      th 配发的总重量
+      td#total_weight_td 0.000
+      td.hide-border(colspan='3')
+    tr
+      th 配发的总块数
+      td#total_number_td 0
+      td.hide-border(colspan='3')

@@ -1,0 +1,119 @@
+extends ../layout
+block content
+  div#chart-panel.panel.panel-default
+    div.panel-heading.clearfix
+      .col-md-4
+        .form-group(style='margin-bottom:0;')
+          label(for='bill-name', style='padding-top: 7.5px;font-weight:normal;width=20%;float:left;margin-right:10px;') 开单名称
+          .input-group.col-sm-8
+            select#bill-name.form-control(multiple="multiple")
+
+      input#show-statistics-report(type='checkbox')
+      label(for='show-statistics-report', style='padding-top: 5px;font-weight:normal; margin-bottom:0;margin-right:15px') &nbsp;显示图表
+
+      input#show-zero-space(type='checkbox')
+      label(for='show-zero-space', style='padding-top: 5px;font-weight:normal; margin-bottom:0;') &nbsp;显示0为空
+
+      .btn-group.pull-right
+        button#price-detail.btn.btn-primary.btn-sm
+          i.fa.fa-list-ul
+          | &nbsp;所有明细
+        button#single-customer-detail.btn.btn-primary.btn-sm
+          i.fa.fa-list-ul
+          | &nbsp;单个客户明细
+        button#search-export.btn.btn-primary.btn-sm
+          i.fa.fa-external-link-square
+          | &nbsp;导出数据
+
+      button#statistics-condition.btn.btn-primary.btn-sm.pull-right(style='margin-right:5px;')
+        i.fa.fa-scissors
+        | &nbsp;选择统计日期
+
+    div.panel-body
+      div#stat-chartdiv(style="width:100%; height:500px; display:none;")
+      table#stat-table.table.invoice-table.table-bordered(align="center", style='text-align:center, margin-bottom: 0px !important; clear:both;')
+        caption#table-caption(style="display:none; margin-top:-5px; margin-bottom:5px;")
+        thead
+          tr
+            th(rowspan="3", style="text-align:center") 客户名称
+            th(colspan="5", style="text-align:center") 代收代付
+            th(colspan="5", style="text-align:center") 客户自提
+            th(rowspan="3", style="text-align:center") 总吨数
+            th(rowspan="3", style="text-align:center") 总金额
+          tr
+            th(colspan="2", style="text-align:center") 结算
+            th(colspan="2", style="text-align:center") 未结算
+            th(rowspan="2", style="text-align:center") 不需要结算
+            th(colspan="2", style="text-align:center") 结算
+            th(colspan="2", style="text-align:center") 未结算
+            th(rowspan="2", style="text-align:center") 不需要结算
+          tr
+            th(style="text-align:center") 重量
+            th(style="text-align:center") 金额
+            th(style="text-align:center") 重量
+            th(style="text-align:center") 金额
+            th(style="text-align:center") 重量
+            th(style="text-align:center") 金额
+            th(style="text-align:center") 重量
+            th(style="text-align:center") 金额
+
+        tbody#table-tbody
+
+  include stat_condition
+
+  div#nlContextMenu.dropdown.clearfix
+    ul.dropdown-menu(role='menu', aria-labelledby='dropdownMenu', style='display:block;position:static;margin-bottom:5px;')
+      li
+        a#show-customer-detail.btn.btn-flat.btn-success(tabindex='-1') 显示客户明细
+
+  div#choose-customer-dialog.modal.fade
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 选择客户名称
+        .container(style='width: 95%')
+          .row.margin.form-horizontal
+            label.control-label.col-sm-2(for='batch-modify-item') 名称:
+            .input-group.col-sm-8
+              select#customer-list.form-control
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#choose-customer-ok.btn.btn-primary(data-dismiss='modal') 确定
+
+  div#price-detail-dialog.modal.fade
+    .modal-dialog(style='min-width:90%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 客户明细
+        .container(style='width: 100%')
+          div(style="overflow:scroll;min-height:65%;height:65vh;min-width:80%")
+            .row.margin.form-horizontal
+              table#detail-table.table.invoice-table.table-bordered.tablesorter(style='margin-bottom: 0px !important; clear:both;')
+                thead
+                  tr
+                    th 订单号
+                    th 提单号
+                    th 开单名称
+                    th 车船号
+                    th 目的地
+                    th 代收价格
+                    th 客户价格
+                    th 价格
+                    th 发运块数
+                    th 发运重量
+                    th 发货日期
+                    th 运单号
+                    th 发货仓库
+                    th 规格
+                    th 牌号
+                    th 合同号
+                tbody#detail-tbody
+          .modal-footer(style='margin-top: 0px')
+            button#export-detail.btn.btn-primary(data-dismiss='modal') 导出到Excel
+            button.btn.btn-primary(data-dismiss='modal') 关闭
+
+  script.
+    var local_data = !{JSON.stringify(dData)};
+    var local_action = "CUSTOMER";

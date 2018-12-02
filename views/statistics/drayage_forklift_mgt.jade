@@ -1,0 +1,59 @@
+// Created by ezefjia on 2015/7/6.
+
+extends ../layout
+block content
+  div#chart-panel.panel.panel-default
+    div.panel-heading.clearfix
+      div.btn-group
+        button#data-add.btn.btn-default
+          i.fa.fa-plus-square-o
+          | &nbsp;增加
+        button#data-modify.btn.btn-default.disabled
+          i.fa.fa-pencil-square-o
+          | &nbsp;修改
+        button#data-delete.btn.btn-default.disabled
+          i.fa.fa-minus-square-o
+          | &nbsp;删除
+        button#data-export.btn.btn-default
+          i.fa.fa-external-link-square
+          | &nbsp;导出
+
+    div.panel-body
+      div(style="overflow:scroll;min-height:65%;height:65vh")
+        table#data-table.table.table-bordered(style='margin-bottom: 0px !important;')
+          thead
+            tr
+              th 月份
+              th 短驳应收款
+              th 叉车应收款
+          tbody#data-tbody
+
+  #data-dialog.modal.fade
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title.i-title 短驳叉车应收款输入
+        .container(style='width: 90%')
+          .row.margin.form-horizontal
+            .form-group
+              label.control-label.col-sm-2(for='month-choice') 选择月份
+              div.input-group.date#month-choice-grp.col-sm-8
+                input#month-choice.form-control(type='text', name='month-choice')
+                span.input-group-addon
+                  i.fa.fa-calendar
+            .form-group
+              label.control-label.col-sm-2(for='i-drayage') 短驳应收款
+              .input-group.col-sm-8
+                input#i-drayage.form-control(type='text', name='i-drayage')
+            .form-group
+              label.control-label.col-sm-2(for='i-forklift') 叉车应收款
+              .input-group.col-sm-8
+                input#i-forklift.form-control(type='text', name='i-forklift')
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#data-btn-ok.btn.btn-primary.disabled 确定
+
+  script.
+    var local_data = !{JSON.stringify(dData)};

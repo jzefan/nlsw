@@ -1,0 +1,52 @@
+#data-dialog.modal.fade
+  .modal-dialog(style='min-width:60%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title#dialog-title 增加开单名称
+      .container(style='width: 100%')
+        .row.form-horizontal.margin#data-input
+          .form-group
+            label#lbl-name(class='col-sm-2 control-label', for='dict_name') 单位名称
+            .col-sm-8
+              input.form-control(type='text', name='dict_name', id='dict_name', autofocus=true)
+              p#same-name(style='color:red;margin:0;')
+          div#need-more
+            div#veh-input(style='display:none;')
+              .form-group
+                label(class='col-sm-2 control-label', for='veh-group') 车船类型
+                .col-sm-8
+                  label(style='padding-top: 4px;padding-bottom: 4px; vertical-align:middle; margin-bottom:0; margin-right:15px;' for='veh-group')
+                    input#che(checked="checked" name="veh-group" type="radio")
+                    | &nbsp;车
+                  label
+                    input#chuan(name="veh-group" type="radio")
+                    | &nbsp;船
+              .form-group
+                label(class='col-sm-2 control-label', for='veh-category') 车船性质
+                .col-sm-8
+                  select#veh-category.form-control
+                    option 自有
+                    option 外挂
+
+            .form-group
+              label(class='col-sm-2 control-label', for='contact') 联系人
+              .col-sm-8
+                input.form-control(type='text', name='contact', id='contact')
+            .form-group
+              label(class='col-sm-2 control-label', for='phone') 联系电话
+              .col-sm-8
+                input.form-control(type='text', name='phone', id='phone')
+            .form-group#address-group
+              label(class='col-sm-2 control-label', for='address') 地址
+              .col-sm-8
+                textarea.form-control(type='text', name='address', id='address', rows='2')
+            .form-group#customer-group(style='display:none;')
+              label(class='col-sm-2 control-label', for='customer') 发货单位
+                br
+                small(style='color:red') 每个发货单位使用","隔开
+              .col-sm-8
+                textarea#customers.form-control(type='text', name='customer', rows='3')
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#data-btn-ok.btn.btn-primary.disabled 确定

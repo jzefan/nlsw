@@ -1,0 +1,70 @@
+//
+   Created by Think on 2015/4/26.
+
+extends ../layout
+block content
+  .page-header
+    include ../datamgt/tool_group
+  .row.margin
+    table#data-table.table.table-bordered.invoice-table(style='margin-bottom: 0px !important')
+      thead
+        tr
+          th 用户名
+          th 真实名字
+          th 职务
+          th 权限
+          th 联系电话
+      tbody#data-tbody
+
+  #data-dialog.modal.fade
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title#dialog-title 新建用户
+            code#pwd-hint(style='color:red') 初始密码是"123456"
+        .container(style='width: 100%')
+          .row.form-horizontal.margin
+            .form-group
+              input#u-name.form-control(type='text', name='userid', placeholder='用户名')
+              p#same-name(style='color:red;margin:0')
+            .form-group
+              input#u-real-name.form-control(type='text', name='real_name', placeholder='真实名字')
+            .form-group
+              select.form-control#employee-title(name='employee_title', placeholder='职务')
+                option(value='', disabled=true, selected=true, style='display:none;color:gray') 职务
+                option(value='ceo') 董事长
+                option(value='mgr') 经理
+                option(value='operator') 业务员
+                option(value='account') 会计
+                option(value='statistician') 统计员
+            .form-group
+              input#u-phone.form-control(type='text', name='u-phone', placeholder='电话')
+            .form-group
+              label.control-label.col-sm-2 权限选择:
+              .col-sm-10
+                label(style='color: red; font-weight:bold; padding-top: 6px;vertical-align:middle; margin-right:30px;' for='privilege')
+                  input#p-admin(name="privilege" type="checkbox")
+                  | &nbsp;管理
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px;' for='privilege')
+                  input#p-operator(name="privilege" type="checkbox")
+                  | &nbsp;业务
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px;' for='privilege')
+                  input#p-account(name="privilege" type="checkbox")
+                  | &nbsp;会计
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px;' for='privilege')
+                  input#p-statistics(name="privilege" type="checkbox")
+                  | &nbsp;统计
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px;' for='privilege')
+                  input#p-cust-revenue(name="privilege" type="checkbox")
+                  | &nbsp;客户营业额
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px;' for='privilege')
+                  input#p-vessel-revenue(name="privilege" type="checkbox")
+                  | &nbsp;车船营业额
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#data-btn-ok.btn.btn-primary.disabled 确定
+
+  script.
+    var local_data = !{JSON.stringify(dbUsers)};

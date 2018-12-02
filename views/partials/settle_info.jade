@@ -1,0 +1,82 @@
+//
+   Created by ezefjia on 12/15/2014.
+
+#filter-ui.form-horizontal(style='display:none;')
+  .row.margin
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='bf-bill-name') 开单名称
+        .input-group.col-sm-8
+          select#bf-bill-name.form-control
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='bf-serial-number') 结算流水号
+        .input-group.col-sm-8
+          select#bf-serial-number.form-control
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='bf-destination') 目的地
+        .input-group.col-sm-8
+          select#bf-destination.form-control
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='start-date') 结算日期(开始)
+        .input-group.date#start-date-grp
+          input#start-date.form-control(type='text', name='start-date', data-date-format="YYYY-MM-DD")
+          span.input-group-addon
+            i.fa.fa-calendar
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='end-date') 结算日期(结束)
+        .input-group.date#end-date-grp
+          input#end-date.form-control(type='text', name='end-date', data-date-format="YYYY-MM-DD")
+          span.input-group-addon
+            i.fa.fa-calendar
+
+table.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+  thead
+    tr
+      th#first-th(style='min-width:15px;')
+      th 状态
+      th 结算流水号
+      th 结算类型
+      th 开单名称
+      th 总价格
+      th 实收价格
+      th 总发运数
+      th 总重
+      //th 目的地
+      th 结算日期
+      th 结算人
+      th 开票日期
+      th 票号
+      th(style='min-width:15px;')
+  tbody#table-tbody
+
+#settle-detail-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='settleDetailLabel', aria-hidden='true')
+  .modal-dialog(style='min-width:90%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title 结算明细单
+      .container(style='width: 100%')
+        div(style="overflow:scroll;min-height:65%;height:65vh")
+          table#table-content.table.invoice-table.table-bordered(style='margin-top:5px; margin-bottom: 0px !important; clear:both;')
+            thead
+              tr
+                th 状态
+                th 订单号
+                th 提单号
+                th 规格
+                th 开单名称
+                th 车船
+                th 目的地
+                th 单价
+                th 发运块数
+                th 发运重量
+                th 金额
+                th 发货日期
+            tbody#settle-bill-tbody
+
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-primary(data-dismiss='modal') 关闭

@@ -1,0 +1,41 @@
+doctype html
+html.bg-black
+  head
+    meta(charset='utf-8')
+    meta(http-equiv='X-UA-Compatible', content='IE=edge')
+    meta(name='viewport', content='width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no')
+    meta(name='csrf-token', content=_csrf)
+    //link(href='css/lib/bootstrap.min.css', rel='stylesheet', type='text/css')
+    //link(href='css/lib/font-awesome.min.css', rel='stylesheet', type='text/css')
+    //!= css('lib/adminLTE/AdminLTE')
+    != css('styles')
+
+    title 鑫鸿图- 用户注册
+  body.bg-black
+    #login-box.form-box
+      .header 注册一个新用户
+      form(method='post')
+        input(type='hidden', name='_csrf', value=_csrf)
+        .body.bg-gray
+          include ../partials/flash
+          .form-group
+            input.form-control(type='text', name='userid', id='userid', placeholder='用户名')
+          .form-group
+            input.form-control(type='password', name='password', id='password', placeholder='密码')
+          .form-group
+            input.form-control(type='password', name='confirmPassword', id='confirmPassword', placeholder='密码确认')
+          .form-group
+            select.form-control#title(name='employee_title', placeholder='职务')
+              option(value='', disabled=true, selected=true, style='display:none;color:gray') 职务
+              //option(value='ceo') 董事长
+              //option(value='mgr') 经理
+              option(value='operator') 业务员
+              option(value='account') 会计
+              option(value='statistician') 统计员
+
+        .footer
+          button.btn.bg-olive.btn-block(type='submit') 注册
+          a.text-center(href='/login') 我已经注册了，有用户名
+
+    //script(src='js/lib/jquery-2.1.0.min.js', type='text/javascript')
+    //script(src='js/lib/bootstrap.min.js', type='text/javascript')

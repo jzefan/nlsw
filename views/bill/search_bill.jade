@@ -1,0 +1,19 @@
+extends ../layout
+block content
+  .page-header(style='font-size:14px;')
+    .row.form-horizontal
+      .col-sm-5
+        input#checkbox-shipping-bill(type='checkbox')
+        label.control-label(style='margin-top:-3px; font-weight:normal;' for='checkbox-shipping-bill') &nbsp;已配发提单
+
+      .btn-group.pull-right(style='margin: -3px 15px 5px 0;')
+        button#search-export.btn.btn-default
+          i.fa.fa-external-link
+          | &nbsp;导出Excel
+        button#advance-search.btn.btn-success
+          i.fa.fa-search-plus
+          | &nbsp;高级查询
+
+  include bill_table
+  include ../partials/advance_search
+  include show_invoice

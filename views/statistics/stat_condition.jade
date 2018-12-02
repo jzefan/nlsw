@@ -1,0 +1,56 @@
+//
+   Created by ezefjia on 2015/2/12.
+
+#stat-condition-dialog.modal.fade
+  .modal-dialog(style='min-width:50%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title 设置统计条件
+      .container(style='width: 95%')
+        .row.margin.form-horizontal
+          .form-group
+            span(style='padding-left: 10px;')
+              input#radio_month(type='radio', name='square-radio', checked='')
+              label.control-label(for='radio_month', style='padding-left: 5px;') 按月份
+            span(style='padding-left: 10px;')
+              input#radio_single_year(type='radio', name='square-radio')
+              label.control-label(for='radio_single_year', style='padding-left: 5px;') 选择年份
+            span(style='padding-left: 10px;')
+              input#radio_single_month(type='radio', name='square-radio')
+              label.control-label(for='radio_single_month', style='padding-left: 5px;') 选择单月
+        .row.margin.form-horizontal
+          div#non-year-choose
+            .col-md-6
+              .form-group
+                label#start-label.control-label.col-md-4(for='stat-start-date') 开始月
+                div.input-group.date#start-date-grp
+                  input#stat-start-date.form-control(type='text', name='stat-start-date')
+                  span.input-group-addon
+                    i.fa.fa-calendar
+            .col-md-6
+              .form-group
+                label#end-label.control-label.col-md-4(for='stat-end-date') 结尾月
+                div.input-group.date#end-date-grp
+                  input#stat-end-date.form-control(type='text', name='stat-end-date')
+                  span.input-group-addon
+                    i.fa.fa-calendar
+          div#year-choose(style='display:none;')
+            .col-md-8
+              .form-group
+                label.control-label.col-md-4(for='stat-choice-year') 选择年份
+                div.input-group.date#year-grp
+                  input#stat-year.form-control(type='text', name='stat-year')
+                  span.input-group-addon
+                    i.fa.fa-calendar
+          div#month-choose(style='display:none;')
+            .col-md-8
+              .form-group
+                label.control-label.col-md-4(for='stat-choice-month') 选择月份
+                div.input-group.date#month-grp
+                  input#stat-month.form-control(type='text', name='stat-month')
+                  span.input-group-addon
+                    i.fa.fa-calendar
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#stat-btn-ok.btn.btn-primary.disabled 确定

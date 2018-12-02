@@ -1,0 +1,35 @@
+extends ../layout
+block content
+  .row.form-horizontal
+    .col-md-3
+      .form-group
+        label.control-label.col-sm-4(for='waybill_no_query') 运单号
+        #div-select2.input-group.col-sm-8
+          input#waybill_no_query.form-control.bigdrop(type='hidden', name='waybill_no_query')
+        #div-my-select.input-group.col-sm-8(style='display:none')
+          select#my_waybill_query.form-control
+    .col-sm-3
+      div.checkbox
+        label.control-label
+          input#checkWaybillForMe(type='checkbox')
+          | &nbsp;本用户的运单
+    div.btn-group.pull-right(style='margin-right:20px;')
+      button#invoice_search.btn.btn-info
+        i.fa.fa-search
+        | &nbsp;查询
+      button#invoice_save.btn.btn-success
+        i.fa.fa-edit
+        | &nbsp;更新
+      button#invoice_save_shipping.btn.btn-success
+        i.fa.fa-truck
+        | &nbsp;更新并配发
+
+  #invoice-input-content(style='display:none')
+    include invoice_input
+
+  include ../partials/advance_search
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_dict_data = !{JSON.stringify(dDataDict)};
+    var local_action = 'MODIFY';

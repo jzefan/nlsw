@@ -1,0 +1,189 @@
+aside.left-side.sidebar-offcanvas
+  // sidebar: style can be found in sidebar.less
+  section.sidebar
+    // Sidebar user panel
+    .user-panel
+      .pull-left.image
+        img.img-circle(src='../img/avatar3.png', alt='User Image')
+      .pull-left.info(style='margin-top:15px')
+        p 您好！#{user.userid }
+        //i.fa.fa-circle.text-success
+          | &nbsp;&nbsp;Online
+
+    // search form
+    form.sidebar-form(action='/search', method='get')
+      .input-group
+        input.form-control(type='text', name='q', placeholder='查询...')
+        span.input-group-btn
+          button#search-btn.btn.btn-flat(type='submit', name='seach')
+            i.fa.fa-search
+
+    // sidebar menu: : style can be found in sidebar.less
+    ul.sidebar-menu
+      li.active
+        a(href='/')
+          i.fa.fa-home
+          span Home(首页)
+
+      // 00100000 = account: oper, stat, account, manager
+      if user.privilege == '00100000'
+      else if user.privilege == '00010000'
+      else if user.privilege == '00101000'
+      else if user.privilege == '00100100'
+      else if user.privilege == '00111100'
+      else if user.privilege == '00011100'
+      else
+        li.treeview
+          a(href='#')
+            i.fa.fa-umbrella
+            span 提单管理
+            i.fa.fa-angle-left.pull-right
+          ul.treeview-menu
+            li
+              a(href='/create_bill')
+                i.fa.fa-plus-circle
+                | 新建提单
+            li
+              a(href='/modify_bill')
+                i.fa.fa-pencil
+                | 修改提单
+            li
+              a(href='/delete_bill')
+                i.fa.fa-minus-circle
+                | 删除提单
+            li
+              a(href='/search_bill')
+                i.fa.fa-search
+                | 查询
+
+        li.treeview
+          a(href='#')
+            i.fa.fa-truck
+            span 运单管理
+            i.fa.fa-angle-left.pull-right
+          ul.treeview-menu
+            li
+              a(href='/build_invoice')
+                i.fa.fa-tumblr-square
+                | 配发货(新建运单)
+            li
+              a(href='/distribute_invoice')
+                i.fa.fa-pencil
+                | 修改运单
+
+            if user.privilege[1] == '1'
+                li
+                  a(href='/delete_invoice')
+                    i.fa.fa-minus-circle
+                    | 删除运单
+
+      // operator
+      if user.privilege == '10000000'
+      else if user.privilege == '00010000'
+      else if user.privilege == '10010000'
+      else if user.privilege == '10011100'
+      else if user.privilege == '00011100'
+      else
+        li.treeview
+          a(href='#')
+            i.fa.fa-cny
+            span 结算管理
+            i.fa.fa-angle-left.pull-right
+          ul.treeview-menu
+            li
+              a(href='/settle_bill')
+                i.fa.fa-tags
+                span 结算
+
+            if user.privilege != '01000000'
+              li
+                a(href='/settle_ticket')
+                  i.fa.fa-ticket
+                  span 开票
+              li
+                a(href='/settle_money')
+                  i.fa.fa-thumb-tack
+                  span 回款
+            li
+              a(href='/settle_vessel')
+                i.fa.fa-money
+                span 车船结算
+
+      li.treeview
+        a(href='#')
+          i.fa.fa-bar-chart-o
+          span 报表和统计
+          i.fa.fa-angle-left.pull-right
+        ul.treeview-menu
+          li
+            a(href='/integrated_query')
+              i.fa.fa-angle-double-right
+              | 综合查询
+          li
+            a(href='/invoice_report')
+              i.fa.fa-angle-double-right
+              | 运单报表
+
+          if user.privilege[4] == '1' || user.privilege[5] == '1'
+            li.treeview
+              a(href='#')
+                i.fa.fa-angle-double-right
+                | 营业额
+
+              ul.treeview-menu
+                if user.privilege[4] == '1'
+                  li
+                    a(href='/customer_report')
+                      i.fa.fa-angle-double-right
+                      | 客户营业额
+                if user.privilege[5] == '1'
+                  li
+                    a(href='/vessel_revenue')
+                      i.fa.fa-angle-double-right
+                      | 车船营业额
+            li
+              a(href='/shipping_charge_report')
+                i.fa.fa-angle-double-right
+                | 运输价格报表
+
+          li
+            a(href='/drayage_forklift_cost')
+              i.fa.fa-angle-double-right
+              | 短驳/叉车应收款
+
+          if user.privilege[2] == '1'
+            li
+              a(href='/vessel_fixed_cost')
+                i.fa.fa-angle-double-right
+                | 车船固定费用
+
+      li.treeview
+        a(href='#')
+          i.fa.fa-folder
+          span 数据字典
+          i.fa.fa-angle-left.pull-right
+        ul.treeview-menu
+          li
+            a(href='/datamgt/vehicle')
+              i.fa.fa-angle-double-right
+              | 车船号
+          li
+            a(href='/datamgt/company')
+              i.fa.fa-angle-double-right
+              | 发货单位
+          li
+            a(href='/datamgt/warehouse')
+              i.fa.fa-angle-double-right
+              | 仓库
+          li
+            a(href='/datamgt/destination')
+              i.fa.fa-angle-double-right
+              | 目的地
+          li
+            a(href='/datamgt/brand')
+              i.fa.fa-angle-double-right
+              | 牌号
+          li
+            a(href='/datamgt/sale_dep')
+              i.fa.fa-angle-double-right
+              | 销售部门

@@ -1,0 +1,56 @@
+header.header
+  a.logo(href='/')
+    | 鑫鸿图物流
+  // Header Navbar: style can be found in header.less
+  nav.navbar.navbar-static-top(role='navigation')
+    // Sidebar toggle button
+    a.navbar-btn.sidebar-toggle(href='#', data-toggle='offcanvas', role='button')
+      span.sr-only Toggle navigation
+      span.icon-bar
+      span.icon-bar
+      span.icon-bar
+
+    if user
+      .navbar-right
+        ul.nav.navbar-nav
+          li
+            a(href='#')
+              i.fa.fa-gear
+          li.dropdown.notifications-menu
+            a.dropdown-toggle(href="#", data-toggle="dropdown")
+              i.fa.fa-warning
+              span.label.label-warning 2
+            //ul.dropdown-menu
+              li.header 你有2个通知
+              li
+                ul.menu
+                  li
+                    a(href='#')
+                      i.ion.ion-ios7-people 今天结算个数#
+                  li
+                    a(href='#')
+                      i.fa.fa-warning 还未结算数###
+
+          // User Account: style can be found in dropdown.less
+          li.dropdown.user.user-menu
+            a.dropdown-toggle(href='#', data-toggle='dropdown')
+              i.glyphicon.glyphicon-user
+              span
+                | #{user.profile.name || user.userid }&nbsp;
+                i.caret
+            ul.dropdown-menu
+              // User image
+              li.user-header.bg-light-blue
+                img.img-circle(src='../img/avatar3.png', alt='User Image')
+                p
+                  | #{user.profile.name || user.userid } - #{user.title || '业务员'}
+                  small 注册时间:#{user.createDate}
+
+              li.user-footer
+                .pull-left
+                  a.btn.btn-default.btn-flat(href='/account') 用户设置
+                if user.privilege == '11111111'
+                  .pull-left
+                    a.btn.btn-default.btn-flat(href='/user_mgr') 管理用户
+                .pull-right
+                  a.btn.btn-default.btn-flat(href='/logout') 退出

@@ -1,0 +1,246 @@
+//
+   Created by ezefjia on 2014/12/23.
+
+extends ../layout
+block content
+  .page-header(style='margin-bottom:5px;margin-top:0')
+    .row(style="margin-left:0px;")
+      .btn-group(style="margin-right:1px;")
+        button#single-price-input.btn.btn-default.btn-sm
+          i.fa.fa-cny
+          | &nbsp;单行输入
+        button#batch-price-input.btn.btn-default.btn-sm
+          i.fa.fa-cny
+          | &nbsp;批量输入
+        button#delay-info.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="填写卸船日期和预付方式")
+          i.fa.fa-leaf
+          | &nbsp;回执滞留
+
+      .btn-group(style="margin-right:5px;")
+        button#filter.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="根据条件进行运单过滤")
+          i.fa.fa-search-plus
+          | &nbsp;过滤
+        button#search-export.btn.btn-default.btn-sm
+          i.fa.fa-external-link-square
+          | &nbsp;导出
+        button#show-detail.btn.btn-default.btn-sm
+          i.fa.fa-list
+          | &nbsp;显示明细
+
+      button#settle-bill.btn.btn-success.btn-sm
+        i.fa.fa-tags
+        | &nbsp;结算
+      button#settle-bill-cancel.btn.btn-success.btn-sm(style="margin-right:5px")
+        i.fa.fa-ban
+        | &nbsp;结算取消
+
+      button#settle-print-detail.btn.btn-success.btn-sm(style="margin-right:5px") 车船清单打印
+      button#settle-pay.btn.btn-success.btn-sm 付款
+      button#settle-pay-cancel.btn.btn-success.btn-sm 付款取消
+
+      h5.pull-right(style="margin-top:8px;margin-right:10px;") 合计金额:
+        code#lb-total-amount 0
+      h5.pull-right(style="margin-top:8px;margin-right:10px;") 重量:
+        code#lb-total-weight 0
+      h5.pull-right(style="margin-top:8px;margin-right:5px;") 记录数:
+        code#curr-number 0
+
+    #unpay-block.row(style='display:none')
+      h5.pull-right(style="margin:0 10px 5px 0;") 未付金额:
+        code#lb-unpay-amount 0
+
+
+  div#filter-ui.form-horizontal(style='display:none;')
+    .row(style="margin-right:10px")
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-bill-name') 开单名称
+          .input-group.col-sm-8
+            select#bf-bill-name.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-vehicle') 车船号
+          .input-group.col-sm-8
+            select#bf-vehicle.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-vehicle-contact') 车船联系人
+          .input-group.col-sm-8
+            select#bf-vehicle-contact.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-destination') 目的地
+          .input-group.col-sm-8
+            select#bf-destination.form-control
+    .row(style="margin-right:10px")
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='start-date') 发货日期(开始)
+          .input-group.date#start-date-grp
+            input#start-date.form-control(type='text', name='start-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='end-date') 发货日期(结束)
+          .input-group.date#end-date-grp
+            input#end-date.form-control(type='text', name='end-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+      .col-md-4
+        .form-group(style="margin-left:15px")
+          input#no-vessel-settled(type='radio', name="vessel-settled", checked=true)
+          label(for="no-vessel-settled", title="显示未结算的纪录", style="margin-top:8px;margin-right:15px") &nbsp;未结算
+          input#vessel-settled(type='radio', name="vessel-settled")
+          label(for="vessel-settled", title="显示已结算的纪录", style="margin-top:8px;margin-right:15px") &nbsp;已结算
+          input#vessel-pay(type='radio', name="vessel-settled")
+          label(for="vessel-pay", title="显示已付款的纪录", style="margin-top:8px;margin-right:15px") &nbsp;已付款
+          input#vessel-no-need-settled(type='radio', name="vessel-settled")
+          label(for="vessel-no-need-settled", title="显示不需要结算的纪录", style="margin-top:8px;margin-right:15px") &nbsp;不需要结算
+          button#settle-search.btn.btn-success.btn-sm.pull-right(style="margin-right:5px") 查询确定
+
+  table#table-content.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+    thead
+      tr
+        th#first-th(style='min-width:15px;background:white;' nowrap)
+        th 状态
+        th 运单号
+        th 车船号
+        th 开单名称/发货单位
+        th 起始地
+        th 目的地
+        th 总价格
+        th 单价
+        th 发运块数
+        th 发运重量
+        th 发货日期
+        th 结算日期
+        th 卸船日期
+        th 滞留天数
+        th(style="text-align: center" nowrap)
+          span#batch-charge-ctrl(style="cursor:pointer; line-height:1.0; padding: 3px 6px;",data-toggle="tooltip", title="批量输入预付方式和预付数").btn-sm.btn-primary 预付
+        th(style="text-align: center" nowrap)
+          span#batch-receipt-ctrl(style="cursor:pointer; line-height:1.0; padding: 3px 6px;", data-toggle="tooltip", title="对显示的纪录批量回执").btn-sm.btn-primary
+            i#receipt-icon.fa.fa-square-o(style="color: red; margin-right: 5px;")
+            | 回执
+    tbody#table-tbody
+
+  div#settle-detail-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='settleDetailLabel', aria-hidden='true')
+    .modal-dialog(style='min-width:80%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 车船结算明细单
+        .container(style='width: 100%')
+          table#tb-detail.table.invoice-table.table-bordered(style='margin-top:5px; margin-bottom: 0px !important; clear:both;')
+            thead
+              tr
+                th 提单号
+                th 订单号-项次号
+                th 发货仓库
+                th 厚度
+                th 宽度
+                th 长度
+                th 单重
+                th 总块数
+                th 总重量
+                th 发运块数
+                th 发运重量
+                th 车号
+            tbody#tb-detail-tbody
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-primary(data-dismiss='modal') 关闭
+
+  div#settle-delay-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='settleDelayLabel', aria-hidden='true')
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 结算信息填写
+        .container(style='width: 90%')
+          .row.form-horizontal.margin
+            .col-md-6
+              .form-group
+                label.control-label.col-sm-4(for='charge-cash') 预付现金
+                .input-group.col-sm-7
+                  input#charge-cash.form-control(type='text', name='charge-cash', value='0')
+            .col-md-6
+              .form-group
+                label.control-label.col-sm-4(for='charge-oil') 预付油卡
+                .input-group.col-sm-7
+                  input#charge-oil.form-control(type='text', name='charge-oil', value='0')
+            div#delay_receipt
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4(for='unship-date') 卸船日期
+                  .input-group.date#unship-date-grp
+                    input#unship-date.form-control(type='text', name='unship-date', data-date-format="YYYY-MM-DD")
+                    span.input-group-addon
+                      i.fa.fa-calendar
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4(for='delay-day') 滞留天数
+                  .input-group.col-sm-8
+                    input#delay-day.form-control(type='text', name='delay-day', value='0')
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4
+                  .input-group.col-sm-8
+                    input#sdd_receipt.form-control(type='checkbox', name='sdd_receipt')
+                    label(for='sdd_receipt') &nbsp;是否收到回执
+              .col-md-12
+                .form-group
+                  label.control-label.col-sm-2(for='delay-remark') 备注信息
+                  .input-group.col-sm-10
+                    input#delay-remark.form-control(type='text', name='delay-remark')
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#settle-delay-btn-ok.btn.btn-primary 确定
+
+  div#settle-print-dialog.modal.fade
+    .modal-dialog(style='min-width:80%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title(style='font-weight:bold') 车船结算清单
+        .container(style='width: 100%')
+          div#print-div
+            table.table.invoice-table.table-bordered(style='margin-top:5px; margin-bottom: 0px !important; clear:both; border-collapse:collapse;')
+              thead
+                tr
+                  th(style='border:1px solid black;padding:5px;') 车船号
+                  th(style='border:1px solid black;padding:5px;') 开单名称/发货单位
+                  th(style='border:1px solid black;padding:5px;') 起始地
+                  th(style='border:1px solid black;padding:5px;') 目的地
+                  th(style='border:1px solid black;padding:5px;') 发运重量
+                  th(style='border:1px solid black;padding:5px;') 单价
+                  th(style='border:1px solid black;padding:5px;') 总价格
+                  th(style='border:1px solid black;padding:5px;') 发货日期
+                  th(style='border:1px solid black;padding:5px;') 滞留天数
+                  th(style='border:1px solid black;padding:5px;') 预付
+              tbody#print-detail-tbody
+
+            //.col-xs-3.pull-right(style='margin-top:5px;')
+            table.pull-right(style='margin-top:5px;')
+              tbody
+                tr
+                  td(style='width:50%; font-weight: bold; text-align: right;') 总重量:
+                  td#print-total-weight(style='font-weight: bold; text-align: left;') 0.000
+                tr
+                  td(style='width:50%; font-weight: bold;text-align: right;') 价格:
+                  td#print-total-number(style='font-weight: bold; text-align: left;') 0.000
+                tr
+                  td(style='width:50%; font-weight: bold;text-align: right;') 未付款:
+                  td#print-unpay-number(style='font-weight: bold; text-align: left;') 0.000
+
+
+          .modal-footer(style='margin-top: 65px')
+            button.btn.btn-default(data-dismiss='modal') 关闭
+            button#print-to.btn.btn-success(data-dismiss='modal') 打印
+            button#print-and-pay.btn.btn-success(data-dismiss='modal') 打印并确定付款
+
+  script.
+    var local_user_name = !{JSON.stringify(user.userid)};
+    var local_data = !{JSON.stringify(dData)};

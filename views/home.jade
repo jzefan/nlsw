@@ -1,0 +1,50 @@
+extends layout
+
+block content
+  if title == 'Search'
+    if simple_query_result
+      include partials/search
+      script.
+        var local_user = !{JSON.stringify(user)};
+  else
+    .row
+      .col-sm-8.blog-main
+        div#editor-box.box.box-info(style='display:none;')
+          div.box-header
+            h3.box-title 消息编辑
+            div.pull-right.box-tools
+              button.btn.btn-info.btn-sm(data-widget='collapse', data-toggle='tooltip', title='Collapse')
+                i.fa.fa-minus
+              button.btn.btn-info.btn-sm(data-widget='remove', data-toggle='tooltip', title='Remove')
+                i.fa.fa-times
+          div.box-body
+            .row.form-horizontal
+              .col-md-11
+                .form-group
+                  label.control-label.col-sm-2(for='post-title', style='margin-top:-3px;font-weight:normal') 标题
+                  .input-group.col-sm-9
+                    input#post-title.form-control(type='text', name='post-title')
+
+            textarea#editor1(name='editor1', rows='10', cols='80')
+
+        div#blog-content(style='margin-top:-10px;')
+
+      .col-sm-4.blog-sidebar(style='margin-top:7px;')
+        .sidebar-module.sidebar-module-inset
+          h4 关于
+          p
+            | 鑫鸿图公司介绍.
+        .sidebar-module
+          button#post-delete.btn.btn-danger.pull-right
+            i.fa.fa-trash-o
+            | &nbsp;删除消息
+          button#post-submit.btn.btn-success.pull-right.disabled(style='margin-right:5px;')
+            i.fa.fa-share
+            | &nbsp;发布消息
+          button#post-edit.btn.btn-default.pull-right(style='margin-right:5px;')
+            i.fa.fa-edit
+            | &nbsp;新加消息
+
+    script.
+      var local_html_data = !{JSON.stringify(dHtmlText)};
+      var local_user = !{JSON.stringify(user)};

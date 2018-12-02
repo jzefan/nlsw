@@ -1,0 +1,48 @@
+extends ../layout
+block content
+  .page-header(style='margin-bottom:5px;')
+    .btn-group(role="group", aria-lable="input-group", style="margin-right:5px;")
+      button#customer-btn.btn.btn-primary.btn-sm 客户(自提)
+      button#collection-btn.btn.btn-default.btn-sm 代收代付
+
+    .btn-group(style='margin-right:5px;')
+      button#settle-ticket.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="对已结算的提单记录开票")
+        i.fa.fa-ticket
+        | &nbsp;开票
+      button#settle-ticket-cancel.btn.btn-default.btn-sm
+        i.fa.fa-mail-reply
+        | &nbsp;开票取消
+      button#settle-delete.btn.btn-default.btn-sm
+        i.fa.fa-trash-o
+        | &nbsp;删除结算
+
+    .btn-group(style='margin-right:15px;')
+      button#filter.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="根据条件进行结算过滤")
+        i.fa.fa-search-plus
+        | &nbsp;过滤
+      button#search-export.btn.btn-default.btn-sm
+        i.fa.fa-external-link-square
+        | &nbsp;导出
+      button#show-detail.btn.btn-default.btn-sm
+        i.fa.fa-list
+        | &nbsp;显示明细
+
+    input#settle-radio(type="radio", name="settle-ticket-box" checked)
+    label(for="settle-radio", style="margin-left:3px; margin-right:10px; font-size:12px; font-weight:normal") &nbsp;显示结算
+    input#ticket-radio(type="radio", name="settle-ticket-box")
+    label(for="ticket-radio", style="margin-left:3px; margin-right:15px;font-size:12px;font-weight:normal") &nbsp;显示开票
+
+    h5.pull-right(style="margin-top:8px;") 记录数:
+      code#curr-settle-num 0
+    h5.pull-right(style="margin-top:8px;margin-right:5px;") 金额:
+      code#lb-total-amount 0
+    h5.pull-right(style="margin-top:8px;margin-right:5px;") 重量:
+      code#lb-total-weight 0
+    h5.pull-right(style="margin-top:8px;margin-right:5px;") (合计) - 块数:
+      code#lb-total-num 0
+
+  include ../partials/settle_info
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_dbData = !{JSON.stringify(dbSettleData)};

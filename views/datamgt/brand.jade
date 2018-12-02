@@ -1,0 +1,20 @@
+extends ../layout
+block content
+  .page-header
+    include tool_group
+  .row.margin
+    table#data-table.table.table-bordered(style='margin-bottom: 0px !important')
+      thead
+        tr
+          th(style='width:20px;max-width:25px;min-width:10px;') 行
+          th 牌号
+      tbody#data-tbody
+        if dData
+          each brand, index in dData
+            tr
+              td= index + 1
+              td= brand.name
+  include data_dialog
+  script.
+    var local_data = !{JSON.stringify(dData)};
+    var local_operObject = !{JSON.stringify(dOperationObject)};

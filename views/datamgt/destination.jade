@@ -1,0 +1,29 @@
+extends ../layout
+block content
+  .page-header
+    include tool_group
+
+  div(style="overflow:scroll;min-height:65%;height:65vh")
+    .row.margin
+      table#data-table.table.table-bordered(style='margin-bottom: 0px !important')
+        thead
+          tr
+            th(style='width:20px;max-width:25px;min-width:10px;') 行
+            th 目的地
+            th 目的地地址
+            th 联系人
+            th 联系电话
+        tbody#data-tbody
+          if dData
+            each dest, index in dData
+              tr
+                td= index + 1
+                td= dest.name
+                td= dest.address
+                td= dest.contact_name
+                td= dest.phone
+
+  include data_dialog
+  script.
+    var local_data = !{JSON.stringify(dData)};
+    var local_operObject = !{JSON.stringify(dOperationObject)};

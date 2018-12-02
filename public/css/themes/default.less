@@ -1,0 +1,515 @@
+@font-size-base:          13px;
+//== Colors
+//
+//## Gray and brand colors for use across Bootstrap.
+
+@gray-darker:            lighten(#000, 13.5%); // #222
+@gray-dark: #333;//#7b8a8b;
+// #333
+@gray: #95a5a6;
+// #555
+@gray-light: #b4bcc2;
+// #999
+@gray-lighter: #ecf0f1;
+// #eee
+
+// Brand Colors
+// -------------------------
+
+@brand-primary: #4d90fc;
+@brand-success: #60bf60;
+@brand-warning: #ff9800;
+@brand-danger: #de4b33;
+@brand-info: #5bc0dd;
+
+
+//== Forms
+//
+//##
+
+//** `<input>` background color
+@input-bg:                       #fff;
+//** `<input disabled>` background color
+@input-bg-disabled:              @gray-lighter;
+
+//** Text color for `<input>`s
+@input-color:                    @text-color;
+//** `<input>` border color
+@input-border:                   #dce4ec;
+//** `<input>` border radius
+@input-border-radius:            @border-radius-base;
+//** Border color for inputs on focus
+@input-border-focus:             #1abc9c;
+
+//** Placeholder text color
+@input-color-placeholder:        #acb6c0;
+
+//** Default `.form-control` height
+@input-height-base:              (@line-height-computed + (@padding-base-vertical * 2) + 2);
+//** Large `.form-control` height
+@input-height-large:             (ceil(@font-size-large * @line-height-large) + (@padding-large-vertical * 2) + 2);
+//** Small `.form-control` height
+@input-height-small:             (floor(@font-size-small * @line-height-small) + (@padding-small-vertical * 2) + 2);
+
+@legend-color:                   @text-color;
+@legend-border-color:            #e5e5e5;
+
+//** Background color for textual input addons
+@input-group-addon-bg:           @gray-lighter;
+//** Border color for textual input addons
+@input-group-addon-border-color: @input-border;
+
+// Buttons
+// -------------------------
+
+@btn-primary-border: darken(@btn-primary-bg, 3.2%);
+@btn-success-border: darken(@btn-success-bg, 3.2%);
+@btn-warning-border: darken(@btn-warning-bg, 3.2%);
+@btn-danger-border: darken(@btn-danger-bg, 3.2%);
+@btn-info-border: darken(@btn-info-bg, 3.2%);
+
+.btn {
+//  border-radius: 0;
+  box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.11), 1px 1px 0 rgba(255, 255, 255, 0.21) inset;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.btn-link {
+  box-shadow: none;
+}
+
+.btn-default, .btn-default:focus {
+//  background-image: linear-gradient(to bottom, #ffffff 60%, #f8f8f8 100%);
+}
+
+// Forms
+// -------------------------
+
+@input-border-radius: 0;
+@input-border-focus: #2598f9;
+
+//.form-control:focus {
+//  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1) inset;
+//}
+
+// Form states and alerts
+// -------------------------
+
+@state-success-text: #569845;
+@state-success-bg: #dbf5d3;
+@state-success-border: #aed3a5;
+
+@state-info-text: #3a87ad;
+@state-info-bg: #d9edf7;
+@state-info-border: #98cce7;
+
+@state-warning-text: #bf9853;
+@state-warning-bg: #fdf8e2;
+@state-warning-border: #f2daab;
+
+@state-danger-text: #b94a48;
+@state-danger-bg: #f2dede;
+@state-danger-border: #e0b1b8;
+
+// Alerts
+// -------------------------
+
+.alert {
+  border-radius: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+}
+
+// Navbar
+// -------------------------
+
+.navbar-default .navbar-nav > li a {
+  transition: color 0.3s;
+}
+
+// Footer
+// -------------------------
+
+#footer {
+  background-color: #f8f8f8;
+  border-top: 1px solid #e7e7e7;
+}
+
+#drop{
+  border:2px dashed #bbb;
+  -moz-border-radius:5px;
+  -webkit-border-radius:5px;
+  border-radius:5px;
+  padding:25px;
+  text-align:center;
+  font:20pt bold,"Vollkorn";color:#bbb
+}
+#b64data{
+  width:100%;
+}
+
+table.invoice-table thead > tr > th {
+  background-color: #e37329 !important;
+  color:#fff;
+  font-size: @font-size-base;
+  border-left: 1px solid #d26b26;
+}
+
+.table > tfoot > tr > th,
+.table > tfoot > tr > td {
+  vertical-align: middle;
+  border-top: none;
+  border-bottom: 1px solid #dfe0e1;
+}
+.invoice-table > thead > tr > th,
+.invoice-table > thead > tr > td,
+.invoice-table > tbody > tr > th,
+.invoice-table > tbody > tr > td {
+  border-top: none;
+  padding: 4px;
+  line-height: 1.42857143;
+  vertical-align: middle;
+}
+table.dataTable.no-footer {
+  border-bottom: none;
+}
+.table tbody tr:hover td, .table tbody tr:hover th {
+  background: aqua;
+//  background-color: #eeeeea;
+}
+
+table.invoice-table {
+  color:#333;
+  margin: 0 0 3em;
+}
+
+table.invoice-table th:first-child {
+  border-radius: 3px 0 0 3px;
+}
+table.invoice-table th:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.invoice-table td.hide-border,
+.invoice-table th.hide-border {
+  border-style: none !important;
+}
+
+.invoice-table .line-total {
+  padding-top: 4px;
+}
+
+.invoice-table td.td-icon {
+  vertical-align: middle !important;
+}
+
+table.dataTable tbody tr.invoice-highlighted {
+  background-color: #24cf54;
+}
+
+tr.invoice-highlighted {
+  background-color: #24cf54;
+  color: white;
+  box-shadow: 0 0 1em 0.5em #DEF;
+  border: 1px dashed blue;
+}
+
+table.dataTable tbody tr.selected-highlighted {
+  background-color: #1137cf;
+}
+
+tr.selected-highlighted {
+  background-color: #ccc;//#bebfcf;
+//  color: white;
+  box-shadow: 0 0 1em 0.5em #DEF;
+  border: 1px dashed black;
+}
+
+table.inner-table tbody > tr > td {
+  padding: 3px;
+  vertical-align: middle;
+}
+
+.meta { float: right; width: 30%; margin: 0 1em 1.5em; }
+
+table.balance { float: right; width: 36%; margin: 1em; }
+.meta:after table.balance:after { clear: both; content: ""; display: table; }
+
+table.balance th, table.balance td {
+  margin: 18px 0px;
+  padding: 12px 10px;
+  border-bottom: 1px solid #dfe0e1;
+}
+table.balance td { text-align: right; }
+
+.redlink {
+  color: #da4830;
+}
+.closer-row {
+  margin-bottom: 2px;
+}
+
+.add {
+  display: block;
+  float: left;
+  text-align: center;
+  //  width: 0.6em;
+  background: #9AF;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  background-image: -moz-linear-gradient(#00ADEE 5%, #0078A5 100%);
+  background-image: -webkit-linear-gradient(#00ADEE 5%, #0078A5 100%);
+  border-radius: 0.5em;
+  border: 1px #0076A3;
+  color: #FFF;
+  cursor: pointer;
+  font-weight: bold;
+  text-shadow: 0 -1px 2px rgba(0,0,0,0.333);
+}
+
+.add:hover { background: #00ADEE; }
+
+.spinner {
+  width: auto !important;
+}
+.spinner input {
+  text-align: right;
+}
+.input-group-btn-vertical {
+  position: relative;
+  white-space: nowrap;
+  width: 1%;
+  vertical-align: middle;
+  display: table-cell;
+}
+.input-group-btn-vertical > .btn {
+  display: block;
+  float: none;
+  width: 100%;
+//  max-width: 100%;
+  padding: 8px;
+  margin-left: -1px;
+  position: relative;
+  border-radius: 0;
+}
+.input-group-btn-vertical > .btn:first-child {
+  border-top-right-radius: 4px;
+}
+.input-group-btn-vertical > .btn:last-child {
+  margin-top: -4px;
+  border-bottom-right-radius: 4px;
+}
+.input-group-btn-vertical i{
+  position: absolute;
+  top: 0;
+  left: 4px;
+}
+
+.nav-header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.common_num {
+  border-bottom:1px dotted blue;
+  font-family: @font-family-sans-serif;
+}
+
+fieldset.scheduler-border {
+  border: 2px dashed #8d1ada !important;
+  padding: 0 1em !important;
+  margin: 0 0 1.5em 1.5em !important;
+  -webkit-box-shadow:  0px 0px 0px 0px #000;
+  box-shadow:  0px 0px 0px 0px #000;
+}
+
+legend.scheduler-border {
+  width:auto; /* Or auto */
+  padding:0 10px; /* To give a bit of padding on the left and right */
+  border-bottom:none;
+  margin-bottom: 15px;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.bootBoxLargeWidth {
+  margin: 0 auto;
+  width: 75%;
+}
+
+.nl_label {
+  display: inline;
+  padding: .2em .6em .3em;
+  line-height: 1;
+  color: #ffffff;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.ship-num {
+  text-align: right;
+  color: limegreen;
+  height: 26px;
+}
+
+.option-selected {
+  color: red;
+  background-color: grey;
+}
+
+.tooltip-inner {
+  white-space:pre-wrap;
+}
+
+.center {
+  position: absolute;
+  left: 48%;
+  margin-top: 15px;
+  transform: translate(-50%, -50%); /* Yep! */
+//  width: 48%;
+  font-weight: bold;
+//  font-family: @font-family-sans-serif;
+  font-size: @font-size-base + 1;
+//  background: blue;
+//  color: white;
+  //  font-weight: bold;
+  border-bottom:1px dotted blue;
+}
+
+//canvas {
+//  height: 100vh;
+//  width: 100vw;
+//}
+
+.tooltip-inner {
+  max-width: 400px;
+  /* If max-width does not work, try using width instead */
+//  width: 350px;
+}
+
+.datepicker {z-index:1200;}
+.datepicker.dropdown-menu { height:245px; width:210px; }
+
+.lbl:hover {text-decoration: underline; color: red;}
+
+/*
+ * Globals
+ */
+
+
+/*
+ * Override Bootstrap's default container.
+ */
+
+@media (min-width: 1200px) {
+  .container {
+    width: 970px;
+  }
+}
+
+/*
+ * Blog name and description
+ */
+
+.blog-header {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+.blog-title {
+  margin-top: 30px;
+  margin-bottom: 0;
+  font-size: 60px;
+  font-weight: normal;
+}
+.blog-description {
+  font-size: 20px;
+  color: #999;
+}
+
+/*
+ * Main column and sidebar layout
+ */
+
+.blog-main {
+  font-size: 12px;
+//  line-height: 1.5;
+}
+
+/* Sidebar modules for boxing content */
+.sidebar-module {
+  padding: 15px;
+  margin: 0 15px 15px -15px;
+}
+.sidebar-module-inset {
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+.sidebar-module-inset p:last-child,
+.sidebar-module-inset ul:last-child,
+.sidebar-module-inset ol:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * Blog posts
+ */
+
+.blog-post {
+  background-color: #f5f5f5;
+  margin: 0 0 30px;
+  padding: 0px 10px 5px;
+}
+.blog-post-title {
+  margin-bottom: 5px;
+  font-size: 28px;
+}
+.blog-post-meta {
+  margin-bottom: 20px;
+  color: #999;
+}
+
+
+/*
+ * Footer
+ */
+
+.blog-footer {
+  padding: 40px 0;
+  color: #999;
+  text-align: center;
+  background-color: #f9f9f9;
+  border-top: 1px solid #e5e5e5;
+}
+.blog-footer p:last-child {
+  margin-bottom: 0;
+}
+
+
+/*
+ * tooltip
+ */
+.tooltip-inner {
+  text-align:left !important;
+}
+
+select.multiselect,
+select.multiselect + div.btn-group,
+select.multiselect + div.btn-group button.multiselect,
+select.multiselect + div.btn-group.open .multiselect-container {
+  width:100% !important;
+}
+
+#invoice-input-content .multiselect-container input[type="radio"] {
+  display: none
+}
+
+label {
+  font-weight: normal;
+}
+
+#nlContextMenu {
+  position: absolute;
+  display:none;
+}

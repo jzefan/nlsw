@@ -1,0 +1,116 @@
+extends ../layout
+block content
+  section#report-tool
+    .row.form-horizontal
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='waybill_no_query') 运单号
+          #div-select2.input-group.col-sm-8
+            input#waybill_no_query.form-control.bigdrop(type='hidden', name='waybill_no_query')
+          #div-my-select.input-group.col-sm-8(style='display:none')
+            select#my_waybill_query.form-control
+      .col-sm-3
+        div.checkbox
+          label.control-label
+            input#checkWaybillForMe(type='checkbox')
+            | &nbsp;本用户的运单
+
+      .btn-group.pull-right#waybill-tools(style='margin-right:10px;display:none;')
+        button#report-print.btn.btn-success
+          i.fa.fa-print
+          | &nbsp;打印
+        button#report-export.btn.btn-primary
+          i.fa.fa-download
+          | &nbsp;导出Excel
+
+      button#invoice_search.btn.btn-default.pull-right(style='margin-right:20px;')
+        i.fa.fa-search
+        | &nbsp;高级查询
+
+  section#report-content.content.invoice(style='display:none;')
+    .row
+      .col-xs-12
+        h2.page-header
+          i.fa.fa-globe
+          | 南京鑫鸿图储运有限公司发货单
+
+    .row.invoice-info
+      .col-sm-4.invoice-col
+        b 运单号: &nbsp;
+        code#report-waybill-no
+        br
+        b 车船号: &nbsp;
+        span#report-vehicle-name
+        br
+        b 发货日期: &nbsp;
+        span#report-ship-date
+        br
+        b 始发地: &nbsp;
+        span#report-ship-from
+        br
+        b 电话: &nbsp;
+        span#report-ship-phone
+
+
+      .col-sm-4.invoice-col
+        br
+        span#lbl-bill-name.lbl(data-toggle="tooltip", title="点击可编辑", style='cursor:pointer;') 开单名称: &nbsp;
+        //address
+        strong#report-bill-name
+        br
+        | 发货单位: &nbsp;
+        strong#report-ship-customer
+        br
+        | 电话: &nbsp;
+        span#report-bill-phone
+
+      .col-sm-4.invoice-col
+        br
+        span#lbl-destination.lbl(data-toggle="tooltip", title="点击可编辑", style='cursor:pointer;') 目的地: &nbsp;
+        //address
+        strong#report-ship-to
+        br
+        | 电话: &nbsp;
+        span#report-shipto-phone
+        br
+        | 联系人: &nbsp;
+        span#report-shipto-contact
+
+    .row(style='margin-top:5px;')
+      .col-xs-12.table-responsive
+        table#report-table.table.table-striped.table-bordered.tablesorter(style='margin-bottom: 0px !important; clear:both;')
+          thead
+            tr
+              th 提单号
+              th 订单号
+              th 牌号
+              th 厚度
+              th 宽度
+              th 长度
+              th 单重
+              th 发运数
+              th 总重
+              th 仓库
+              th 合同号
+              th#report-th-vessel 车号
+          tbody#report-table-body
+    .row
+      .col-xs-4.pull-right
+        .table-responsive
+          table.table
+            tbody
+              tr
+                th(style='width:50%') 总重量:
+                td#report-total-weight
+              tr
+                th 总发运块数:
+                td#report-total-number
+
+  include ../datamgt/data_dialog
+
+  include ../partials/advance_search
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_dict_data = !{JSON.stringify(dDataDict)};
+    var local_action = 'REPORT'

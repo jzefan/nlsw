@@ -1,0 +1,30 @@
+extends ../layout
+block content
+  .row.form-horizontal
+    .col-md-3
+      .form-group
+        label.control-label.col-sm-4(for='waybill_no_query') 运单号
+        #div-select2.input-group.col-sm-8
+          input#waybill_no_query.form-control.bigdrop(type='hidden', name='waybill_no_query')
+        #div-my-select.input-group.col-sm-8(style='display:none')
+          select#my_waybill_query.form-control
+    .col-sm-2
+      div.checkbox
+        label.control-label
+          input#checkWaybillForMe(type='checkbox')
+          | &nbsp;本用户的运单
+    button#waybill_delete.btn.btn-danger.btn.pull-right(style='margin-right:15px;')
+      i.fa.fa-trash-o
+      | &nbsp;&nbsp;删除
+    button#invoice_search.btn.btn-primary.btn.pull-right(style='margin-right:5px;')
+      i.fa.fa-search
+      | &nbsp;&nbsp;高级查询
+
+  #invoice-input-content(style='display:none')
+    include invoice_input
+  include ../partials/advance_search
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_dict_data = !{JSON.stringify(dDataDict)};
+    var local_action = 'REMOVE';

@@ -1,0 +1,40 @@
+extends ../layout
+block content
+  .row
+    .btn-group.pull-right(style='margin: 0 15px 15px 0;')
+      button#general-search.btn.btn-default
+        i.fa.fa-search
+        | &nbsp;普通查询
+      button#advance-search.btn.btn-success
+        i.fa.fa-search-plus
+        | &nbsp;高级查询
+
+    .btn-group.pull-right(style='margin: 0 15px 15px 0;')
+      button#search-export.btn.btn-default
+        i.fa.fa-external-link
+        | &nbsp;导出
+      button#remove-some.btn.btn-default.disabled.pull-right
+        i.fa.fa-trash-o
+        | &nbsp;删除
+
+  div#general-search-content.box.box-solid(style='display:none;')
+    .box-header
+      h5.box-title 订单号/提单号查询记录
+    .box-body
+      .form-horizontal
+        .row
+          .col-md-4
+            .form-group
+              label.control-label.col-sm-4(for='del_order_no') 订单号
+              .input-group.col-sm-8
+                input#del_order_no.form-control.bigdrop(type='hidden', name='del_order_no')
+          .col-md-1
+            label.control-label.col-sm-12(style='color:blue;') 或者
+          .col-md-4
+            .form-group
+              label.control-label.col-sm-4(for='del_bill_no') 提单号
+              .input-group.col-sm-8
+                input#del_bill_no.form-control.bigdrop(type='hidden', name='del_bill_no')
+
+  include bill_table
+  include ../partials/advance_search

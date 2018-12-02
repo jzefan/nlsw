@@ -1,0 +1,30 @@
+#batch-modify-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='billBatchModifyLabel', aria-hidden='true')
+  .modal-dialog(style='min-width:60%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title 批量修改
+      .container(style='width: 100%')
+        .row.form-horizontal.margin
+          .form-group.col-md-6
+            label.control-label.col-sm-4(for='batch-modify-item') 可修改项:
+            .input-group.col-sm-8
+              select#batch-modify-item.form-control(name='batch-modify-item')
+                option(value='bill_no') 提单号
+                option(value='billing_name') 开单名称
+                option(value='brand_no') 牌号
+                option(value='contract_no') 合同号
+                option(value='sales_dep') 销售部门
+                option(value='ship_warehouse') 发货仓库
+                option(value='size_type') 尺寸
+                option(value='len') 长度
+                option(value='width') 宽度
+                option(value='thickness') 厚度
+          .form-group.col-md-6
+            label.control-label.col-sm-4(for='batch-modify-item-value') 值:
+            .input-group.col-sm-8
+              input#batch-modify-item-value.form-control(type='text', name='batch-modify-item-value')
+        .row.form-horizontal.margin#batch_mod_info
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#batch-modify-btn-ok.btn.btn-primary.disabled 确定

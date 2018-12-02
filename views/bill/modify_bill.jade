@@ -1,0 +1,73 @@
+extends ../layout
+block content
+  .row
+    .btn-group(style='margin: 0 15px 15px 15px;')
+      button#left-search.btn.btn-default
+        i.fa.fa-search-minus
+        | &nbsp;剩余量查询
+      button#left-zero.btn.btn-default
+        i.fa.fa-cloud
+        | &nbsp;剩余量清零
+
+    .btn-group.pull-right(style='margin: 0 15px 15px 0;')
+      button#search-export.btn.btn-default
+        i.fa.fa-external-link
+        | &nbsp;导出Excel
+      button#single-modify.btn.btn-primary
+        i.fa.fa-edit
+        | &nbsp;单行修改
+      button#batch-modify.btn.btn-primary
+        i.fa.fa-download
+        | &nbsp;批量修改
+
+    .btn-group.pull-right(style='margin: 0 15px 15px 0;')
+      button#general-search.btn.btn-default
+        i.fa.fa-search
+        | &nbsp;普通查询
+      button#advance-search.btn.btn-success
+        i.fa.fa-search-plus
+        | &nbsp;高级查询
+
+  #general-search-content.box.box-solid(style='display:none;')
+    .box-header
+      h5.box-title 订单号/提单号查询记录
+    .box-body
+      .form-horizontal
+        .row
+          .col-md-4
+            .form-group
+              label.control-label.col-sm-4(for='mod_order_no') 订单号
+              .input-group.col-sm-8
+                input#mod_order_no.form-control.bigdrop(type='hidden', name='mod_order_no')
+          .col-md-3
+            .form-group
+              label.control-label.col-sm-6(for='order_item_no') 订单项次号
+              .input-group.col-sm-6
+                select#order_item_no.form-control
+          .col-md-3
+            .form-group
+              label.control-label.col-sm-4(for='bill_no') 提单号
+              .input-group.col-sm-8
+                select#bill_no.form-control
+
+  #left-search-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='leftsearch', aria-hidden='true')
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 剩余量设置
+        .container(style='width: 90%')
+          .row.form-horizontal(style='margin-top:15px;')
+            .form-group.col-md-10
+              label.control-label.col-sm-6(for='batch-modify-item-value') 部分配发并且剩余重量小于
+              .input-group.col-sm-6
+                input#left-search-weight.form-control(type='text', name='batch-modify-item-value')
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#left-search-btn-ok.btn.btn-primary 确定
+
+  include bill_table
+
+  include ../partials/bill_singlel_modify_dialog
+  include ../partials/bill_batch_modify_dialog
+  include ../partials/advance_search

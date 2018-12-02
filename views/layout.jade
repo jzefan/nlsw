@@ -1,0 +1,66 @@
+doctype html
+html
+  head
+    meta(charset='utf-8')
+    meta(http-equiv='X-UA-Compatible', content='IE=edge')
+    meta(name='viewport', content='width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no')
+    meta(name='description', content='')
+    meta(name='csrf-token', content=_csrf)
+    meta(name='author', content='')
+    title #{title} | 鑫鸿图-Logistics
+
+    != css('styles')
+
+    if bShowDataTable
+      link(href='/css/lib/datatables/jquery.dataTables.min.css', rel='stylesheet', type='text/css')
+      link(href='/css/lib/datatables/dataTables.bootstrap.css', rel='stylesheet', type='text/css')
+
+    if bShowTableTools
+      link(href='/css/lib/datatables/TableTools/css/dataTables.tableTools.min.css', rel='stylesheet', type='text/css')
+
+    if bUseJstree
+      link(href='/css/lib/jstree/style.min.css', rel='stylesheet', type='text/css')
+
+    if bUILayout
+      link(href='/css/lib/layout-1.3-default.css', rel='stylesheet', type='text/css')
+      link(href='/css/themes/ui_layout.css', rel='stylesheet', type='text/css')
+
+    if bMultiSelect
+      link(href='/css/lib/bootstrap-multiselect.css', rel='stylesheet', type='text/css')
+
+    if bTableSort
+      link(href='/css/lib/tablesorter/theme.blue.css', rel='stylesheet', type='text/css')
+
+    != js('application')
+
+    // HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries
+    // WARNING: Respond.js doesn't work if you view the page via file://
+
+  body.skin-blue
+    include partials/header
+    .wrapper.row-offcanvas.row-offcanvas-left
+      // Left side column. contains the logo and sidebar
+      include partials/leftsidebar
+      aside.right-side
+        // Content Header (Page header)
+        section.content-header
+          h1
+            | #{curr_page}
+
+          if page_header_right != 'notneeded'
+            ol.breadcrumb
+              li
+                a(href='#')
+                  i.fa.fa-dashboard
+                  | Home
+              li.active #{curr_page_name}
+            
+        // Main content
+        section.content
+          include partials/flash
+          block content
+
+    include partials/footer
+
+    each script in scripts
+      script(type='text/javascript', src=script)
