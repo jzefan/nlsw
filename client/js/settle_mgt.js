@@ -675,6 +675,11 @@ $(function () {
 
   elementEventRegister(btnExport, 'click', function() {
     var html_text = [];
+    var head = '<thead><tr><th>状态</th><th>订单号</th><th>提单号</th><th>开单名称</th><th>车船</th><th>目的地</th><th>价格</th><th>发运块数</th>' +
+      '<th>发运重量</th><th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th></tr></thead><tbody>';
+    html_text.push(head);
+
+    var trHtml = '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td></tr>';
     curr_show_bills.forEach(function (bill) {
       var priceText = getPriceText(action === "CUSTOMER" ? bill.price : bill.collection_price);
       var name = (bill.ship_customer ? (bill.billing_name + "/" + bill.ship_customer) : bill.billing_name);
@@ -688,14 +693,13 @@ $(function () {
         remark = '特长宽';
       }
 
-      var trHtml = '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td></tr>';
-      trHtml.format(getState(bill), getOrder(bill.order_no, bill.order_item_no), bill.bill_no,
+      html_text.push(trHtml.format(getState(bill), getOrder(bill.order_no, bill.order_item_no), bill.bill_no,
         name, bill.veh_ves_name, bill.ship_to, priceText,
         bill.send_num > 0 ? bill.send_num : '', getStrValue(bill.send_weight),
-        bill.ship_warehouse ? bill.ship_warehouse : '', date2Str(bill.inv_ship_date), bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark);
-
-      html_text.push(trHtml);
+        bill.ship_warehouse ? bill.ship_warehouse : '', date2Str(bill.inv_ship_date),
+        bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark));
     });
+    html_text.push('</tbody>');
 
     tableToExcel(html_text.join('\n'), "data");
   });

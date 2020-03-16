@@ -4,6 +4,7 @@ $(function () {
   var en_array = ['bill_no', 'order', 'brand_no', 'block_len', 'width', 'thickness', 'size_type',
     'weight', 'block_num', 'total_weight', 'warehouse', 'ship_warehouse', 'sales_dep', 'billing_name',
     'contract_no', 'shipping_address', 'order_item_no', 'dimensions', 'product_type', 'sources'];
+
   var cn_array = {
     '提单号': 0, '移拨码单号': 0, '入库单号': 0,
     '订单项次号': 1, '订单编号-项次': 1, '订单编号': 1, '订单号-项次': 1, '订单号':1,
@@ -20,7 +21,7 @@ $(function () {
     '客户名称': 13, '客户': 13, '客户信息': 13, '客户编号': 13, '现有货主': 13, '现在货主': 13,
     '合同号': 14, '合同': 14, '客户采购案号': 14,
     '收货地址': 15,
-    '订单项次': 16,
+    '订单项次': 16, '项次':16,
     '规格': 17,
     '产品型态': 18,
     '货物来源': 19

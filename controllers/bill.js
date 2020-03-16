@@ -420,7 +420,7 @@ function queryBills(queryObj, sortObj, res, getTargetData) {
             getTargetData(bills, result);
           }
 
-          res.end(JSON.stringify(result));
+          res.json(JSON.stringify(result));
         }
       })
     }

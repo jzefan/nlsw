@@ -634,15 +634,19 @@ function QueryFilterD(options, filter) {
   };
 
   this.options = options;
-  this.sDate = null;
-  this.eDate = null;
+  this.eDate = moment();
+  this.sDate = moment().subtract(3, 'months');
 
   initSelect(this.uiElems.sBfBillName, options.nameList, true);
   initSelect(this.uiElems.sBfSerialNumber, options.serials, true);
   initSelect(this.uiElems.sBfDest, options.destList, true);
 
-  this.uiElems.iStartDate.val("");
-  this.uiElems.iEndDate.val("");
+  //this.uiElems.iStartDate.val("");
+  //this.uiElems.iEndDate.val("");
+  var startGrp = self.uiElems.startDateGrp.datetimepicker(getDateTimePickerOptions());
+  var endGrp = self.uiElems.endDateGrp.datetimepicker(getDateTimePickerOptions());
+  this.uiElems.endDateGrp.data("DateTimePicker").setDate(this.eDate);
+  this.uiElems.startDateGrp.data("DateTimePicker").setDate(this.sDate);
 
   this._selectFliterFunc = function(which, filter) {
     this.currSelected = which;
@@ -676,14 +680,14 @@ function QueryFilterD(options, filter) {
   self.uiElems.sBfSerialNumber.on('change', function() { self._selectFliterFunc(2, filter); });
   self.uiElems.sBfDest.on('change', function() { self._selectFliterFunc(4, filter); });
 
-  self.uiElems.startDateGrp.datetimepicker(getDateTimePickerOptions()).on('dp.change', function(e) {
+  startGrp.on('dp.change', function(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
     self.sDate = e.date.startOf('day');
     self.uiElems.endDateGrp.data("DateTimePicker").setMinDate(e.date);
     self._dateFilterFunc(true, true, filter);
   });
-  self.uiElems.endDateGrp.datetimepicker(getDateTimePickerOptions()).on('dp.change', function(e) {
+  endGrp.on('dp.change', function(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
     self.eDate = e.date.endOf('day');

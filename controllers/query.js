@@ -81,7 +81,7 @@ exports.getInvoiceReport = function(req, res) {
   Invoice.find(obj).sort({ship_date: 'desc'}).lean().exec(function (err, db_invs) {
     if (!err && db_invs) {
       if (db_invs.length > 150) {
-        res.end(JSON.stringify({ok: true, hint: true, num:db_invs.length, invs: db_invs}));
+        res.json(JSON.stringify({ok: true, hint: true, num:db_invs.length, invs: db_invs}));
       } else {
         var ids = utils.getAllList(true, db_invs, "bills", "bill_id");
         Bill.find({_id: {$in: ids}}).lean().exec(function (err, bills) {
@@ -132,7 +132,7 @@ exports.getInvoiceReport = function(req, res) {
               }
             });
 
-            res.end(JSON.stringify({ok: true, hint:false, invs: db_invs, prices: prices}));
+            res.json(JSON.stringify({ok: true, hint:false, invs: db_invs, prices: prices}));
           }
         });
       }
@@ -338,7 +338,7 @@ exports.getVesselRevenueData = function(req, res) {
             }
           }
 
-          res.end(JSON.stringify({ ok: true, stat_data: resultData }));
+          res.json(JSON.stringify({ ok: true, stat_data: resultData }));
         })
       });
     }
@@ -469,9 +469,9 @@ exports.getVesselAllocationDetail = function(req, res) {
           });
         });
 
-        res.end(JSON.stringify({ ok: true, summary_data: summaryData }));
+        res.json(JSON.stringify({ ok: true, summary_data: summaryData }));
       } else {
-        res.end(JSON.stringify({ok: true, vessel_detail: detailObj, vehNameList: vehs}));
+        res.json(JSON.stringify({ok: true, vessel_detail: detailObj, vehNameList: vehs}));
       }
     });
   });
@@ -579,7 +579,7 @@ exports.getInvoiceBill = function(req, res) {
 
         Bill.find(obj).lean().exec(function (err, bills) {
           if (!err && bills && bills.length) {
-            res.end(JSON.stringify({
+            res.json(JSON.stringify({
               ok: true,
               bills: combineBill(bills, db_invs)}));
           } else {
@@ -631,7 +631,7 @@ exports.getInvoiceBill = function(req, res) {
           Bill.find(obj).lean().exec(function (err, bills) {
             if (!err) {
               Settle.find({status: {'$ne' : '已结算'}}).select('bills status').lean().exec(function(err, settles) {
-                res.end(JSON.stringify({
+                res.json(JSON.stringify({
                   ok: true,
                   bills: getBillArray(bills, invoices, settles, query.fVeh, showVehicles) }));
               });
@@ -658,7 +658,7 @@ exports.getInvoiceBill = function(req, res) {
         Bill.find(obj).lean().exec(function (err, bills) {
           if (!err) {
             if (showUnsend) {
-              res.end(JSON.stringify({ok: true, bills: bills }));
+              res.json(JSON.stringify({ok: true, bills: bills }));
             } else {
               var invNoList = utils.getAllList(true, bills, "invoices", "inv_no");
               if (invNoList.length) {
@@ -668,7 +668,7 @@ exports.getInvoiceBill = function(req, res) {
                   .exec(function (err, db_invs) {
                   if (!err) {
                     Settle.find({status: {'$ne' : '已结算'}}).select('bills status').lean().exec(function(err, settles) {
-                      res.end(JSON.stringify({
+                      res.json(JSON.stringify({
                         ok: true,
                         bills: getBillArray(bills, db_invs, settles, query.fVeh, showVehicles) }));
                     });
@@ -677,7 +677,7 @@ exports.getInvoiceBill = function(req, res) {
                   }
                 });
               } else {
-                res.end(JSON.stringify({
+                res.json(JSON.stringify({
                   ok: true,
                   bills: getBillArray(bills, [], [], query.fVeh, showVehicles)}));
               }
@@ -1005,7 +1005,7 @@ exports.getStatisticsDataByCondition = function(req, res) {
         item.notSettledPZT = utils.toFixedNumber(item.notSettledPZT, 3);
       }
 
-      res.end(JSON.stringify({ ok: true, names: allNames, stat_data: resultData }));
+      res.json(JSON.stringify({ ok: true, names: allNames, stat_data: resultData }));
     }
   );
 };
@@ -1055,7 +1055,7 @@ exports.getCustomerDetail = function(req, res) {
         });
       }
 
-      res.end(JSON.stringify({ ok: true, detail_data: resultData }));
+      res.json(JSON.stringify({ ok: true, detail_data: resultData }));
     }
   );
 };
@@ -1124,7 +1124,7 @@ exports.getCustomerChartData = function(req, res) {
         }
       }
 
-      res.end(JSON.stringify({ ok: true, chart_data: chartData }));
+      res.json(JSON.stringify({ ok: true, chart_data: chartData }));
     }
   );
 };

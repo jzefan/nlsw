@@ -47,7 +47,7 @@ exports.getVFCData = function(req, res) {
       res.end(JSON.stringify({ ok: false, response: err }));
     }
     else {
-      res.end(JSON.stringify({ ok: true, vvcList: vvcList }));
+      res.json(JSON.stringify({ ok: true, vvcList: vvcList }));
     }
   })
 };
@@ -59,7 +59,7 @@ exports.getOneDfData = function(req, res) {
       res.end(JSON.stringify({ ok: false, response: err }));
     }
     else {
-      res.end(JSON.stringify({ ok: true, vvc: vvc }));
+      res.json(JSON.stringify({ ok: true, vvc: vvc }));
     }
   })
 };
