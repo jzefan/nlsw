@@ -21,8 +21,8 @@ exports.createOrderPlan = function (req, res) {
   }
   else {
     res.render('order/create_plan', {
-      title: '提单管理',
-      curr_page: '新建提单',
+      title: '订单计划管理',
+      curr_page: '新建订单计划',
       curr_page_name: '新建',
       bShowDataTable: true,
       dDataDict: data,
