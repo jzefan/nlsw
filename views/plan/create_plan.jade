@@ -1,0 +1,115 @@
+extends ../layout
+
+block content
+  button#ui_input_save.btn.btn-success.pull-right
+    i.fa.fa-save
+    | &nbsp; 保存数据
+  h4.page-header
+    | 创建订单计划录入
+      small(style='margin: -10px 15px 5px 0; color:red;') (所有星号标示的为必填项)
+
+  div.row.form-horizontal.margin
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='order-no')
+          | 订单号
+          i.fa.fa-asterisk(style='color:red;')
+        .input-group.col-sm-8
+          input#order-no.form-control(type='text', name='order-no')
+      .form-group
+        label.control-label.col-sm-4(for='order-weight', title='必填项')
+          | 订单量
+          i.fa.fa-asterisk(style='color:red;')
+        .input-group.col-sm-8
+          input#order-weight.form-control(type='number', name='order-weight')
+      .form-group
+        label.control-label.col-sm-4(for='order-input-time')
+          | 录单时间
+          i.fa.fa-asterisk(style='color:red;')
+        #order-input-grp.input-group.date
+          input#order-input-time.form-control(type='text', name='order-input-time', data-date-format="YYYY-MM-DD HH:mm")
+          span.input-group-addon
+            i.fa.fa-calendar
+      .form-group
+        label.control-label.col-sm-4(for='customer-name', title='必填项')
+          | 客户名称
+          i.fa.fa-asterisk(style='color:red;')
+        .input-group.col-sm-8
+          select#customer-name.form-control
+            if dDataDict
+              each opt in dDataDict.customer_name
+                option= opt
+      .form-group
+        label.control-label.col-sm-4(for='customer-code') 客户代码
+        .input-group.col-sm-8
+          input#customer-code.form-control(type='text', name='customer-code')
+      .form-group
+        label.control-label.col-sm-4 &nbsp;
+        button#add-one.btn.btn-primary
+          i.fa.fa-plus
+          | &nbsp; 增加
+
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='destination') 发运目的地
+        .input-group.col-sm-8
+          select#destination.form-control
+            if dDataDict
+              each opt in dDataDict.destination
+                option= opt
+      .form-group
+        label.control-label.col-sm-4(for='transport-mode') 运输方式
+        .input-group.col-sm-8
+          select#transport-mode.form-control
+            option(value='船运') 船运
+            option(value='汽运') 汽运
+            option(value='汽运/船运') 汽运/船运
+      .form-group
+        label.control-label.col-sm-4(for='consignee') 收货人
+        .input-group.col-sm-8
+          input#consignee.form-control(type='text', name='consignee')
+      .form-group
+        label.control-label.col-sm-4(for='ds-client') 下游客户
+        .input-group.col-sm-8
+          input#ds-client.form-control(type='text', name='ds-client')
+      .form-group
+        label.control-label.col-sm-4(for='contract-no') 合同号
+        .input-group.col-sm-8
+          input#contract-no.form-control(type='text', name='contract-no')
+
+    .col-md-4
+      .form-group
+        label.control-label.col-sm-4(for='customer-saleman') 客户业务员
+        .input-group.col-sm-8
+          input#customer-saleman.form-control(type='text', name='customer-saleman')
+      .form-group
+        label.control-label.col-sm-4(for='consigner') 业务员
+        .input-group.col-sm-8
+          input#consigner.form-control(type='text', name='consigner')
+      .form-group
+        label.control-label.col-sm-4(for='receiving-charge') 接单价
+        .input-group.col-sm-8
+          input#receiving-charge.form-control(type='number', name='receiving-charge')
+
+  table.table.invoice-table(style='margin-bottom: 0px !important')
+    thead
+      tr
+        th
+        th 订单号
+        th 订单量
+        th 客户名称
+        th 客户代码
+        th 发运目的地
+        th 运输方式
+        th 收货人
+        th 下游客户
+        th 客户业务员
+        th 业务员
+        th 合同号
+        th 接单价
+        th 录单时间
+
+    tbody#input-plan-content
+
+  script.
+    var local_data = !{JSON.stringify(dDataDict)};

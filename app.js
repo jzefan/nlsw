@@ -22,6 +22,8 @@ var expressValidator = require('express-validator');
 var connectAssets = require('connect-assets');
 var routes = require('./routes');
 
+const dataCfg = require('./controllers/cache');
+
 /**
  * API keys.
  */

@@ -13,6 +13,7 @@ var Bill = require('../models/Bill');
 var Invoice = require('../models/Invoice');
 var Settle = require('../models/Settle');
 var utils = require('./utils');
+var test = require('./test');
 var async = require('async');
 var bunyan = require('bunyan');
 
@@ -21,24 +22,32 @@ var logger = bunyan.createLogger({
   streams: [ { level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' }]
 });
 
+const dataCfg = require('./cache');
+
 var CUSTOMER_SETTLE_FLAG   = 1; // 0001
 var COLLECTION_SETTLE_FLAG = 2; // 0010
 var VESSEL_SETTLE_FLAG     = 4; // 0100
 var EPSILON = Number.EPSILON === undefined ? Math.pow(2, -52) : Number.EPSILON;
 
-exports.createBills = function (req, res) {
+exports.createBills = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('bill', false, false, function (data) {
+    let cacheCfg = await dataCfg;
+    console.log(cacheCfg["billing_name"])
+    //if(!cacheCfg){ //无缓存数据
+    //  dataCfg = await test.getDataBaseCfg();
+    //}
+
+//    getDictDataAndRender('bill', false, false, function (data) {
       res.render('bill/create_bill', {
         title: '提单管理',
         curr_page: '新建提单',
         curr_page_name: '新建',
         bShowDataTable: true,
-        dDataDict: data,
+        dDataDict: cacheCfg,
         scripts: [
           '/js/plugins/sheetJS/shim.js',
           '/js/plugins/sheetJS/XLSX/jszip.js',
@@ -50,7 +59,7 @@ exports.createBills = function (req, res) {
           '/js/bill_import_create.js'
         ]
       });
-    })
+ //   })
   }
 };
 
