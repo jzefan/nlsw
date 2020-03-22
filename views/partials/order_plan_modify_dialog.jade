@@ -1,0 +1,111 @@
+#plan-modify-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='planModifyLabel', aria-hidden='true')
+  .modal-dialog(style='min-width:85%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title 订单计划修改
+      .container(style='width: 100%; margin-top:5px;')
+        div.box.box-solid
+          div.box-body
+            .row.margin
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 订单号
+                code#h_order_no
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 订单量
+                code#h_order_weight
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 未发量
+                code#h_left_weight
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 客户名称
+                code#h_customer_name
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 客户代码
+                code#h_customer_code
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 发运目的地
+                code#h_destination
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 运输方式
+                code#h_transport_mode
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 收货人
+                code#h_consignee
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 下游客户
+                code#h_ds_client
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 客户业务员
+                code#h_salesman
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 业务员
+                code#h_consigner
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 合同号
+                code#h_contract_no
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 接单价
+                code#h_charge
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 录单时间
+                code#h_entry_time
+              .col-md-3.col-sm-4
+                span.label.label-primary(style='margin-right:15px;') 订单状态
+                code#h_status
+
+
+        h4.page-header 可修改项
+        .row.form-horizontal(style='margin-right:15px;')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_order_weight') 订单量
+              .input-group.col-sm-8
+                input#m_order_weight.form-control(type='number', name='m_order_weight', autofocus='autofocus')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_destination') 发运目的地
+              .input-group.col-sm-8
+                select#m_destination.form-control
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_transport_mode') 运输方式
+              .input-group.col-sm-8
+                select#m_transport_mode.form-control
+                  option(value='船运') 船运
+                  option(value='汽运') 汽运
+                  option(value='汽运/船运') 汽运/船运
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_consignee') 收货人
+              .input-group.col-sm-8
+                input#m_consignee.form-control(type='text', name='m_consignee')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_ds_client') 下游客户
+              .input-group.col-sm-8
+                input#m_ds_client.form-control(type='text', name='m_ds_client')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_salesman') 客户业务员
+              .input-group.col-sm-8
+                input#m_salesman.form-control(type='text', name='m_salesman')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_consigner') 业务员
+              .input-group.col-sm-8
+                input#m_consigner.form-control(type='text', name='m_consigner')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_contract_no') 合同号
+              .input-group.col-sm-8
+                input#m_contract_no.form-control(type='text', name='m_contract_no')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_charge') 接单价
+              .input-group.col-sm-8
+                input#m_charge.form-control(type='text', name='m_charge')
+
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#update-plan-ok.btn.btn-primary 确定

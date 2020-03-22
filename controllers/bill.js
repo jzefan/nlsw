@@ -3,51 +3,43 @@
  */
 "use strict";
 
-var Vehicle = require('../models/Vehicle');
-var Company = require('../models/Company');
-var Warehouse = require('../models/Warehouse');
-var Destination = require('../models/Destination');
-var Brand = require('../models/Brand');
-var SaleDep = require('../models/SaleDep');
-var Bill = require('../models/Bill');
-var Invoice = require('../models/Invoice');
-var Settle = require('../models/Settle');
-var utils = require('./utils');
-var test = require('./test');
-var async = require('async');
-var bunyan = require('bunyan');
+let Vehicle = require('../models/Vehicle');
+let Company = require('../models/Company');
+let Warehouse = require('../models/Warehouse');
+let Destination = require('../models/Destination');
+let Brand = require('../models/Brand');
+let SaleDep = require('../models/SaleDep');
+let Bill = require('../models/Bill');
+let Invoice = require('../models/Invoice');
+let Settle = require('../models/Settle');
+let OrderPlan = require('../models/OrderPlan');
+let utils = require('./utils');
+let async = require('async');
+let bunyan = require('bunyan');
 
-var logger = bunyan.createLogger({
+let logger = bunyan.createLogger({
   name: 'XHT',
   streams: [ { level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' }]
 });
 
-const dataCfg = require('./cache');
+const CUSTOMER_SETTLE_FLAG   = 1; // 0001
+const COLLECTION_SETTLE_FLAG = 2; // 0010
+const VESSEL_SETTLE_FLAG     = 4; // 0100
+const EPSILON = Number.EPSILON === undefined ? Math.pow(2, -52) : Number.EPSILON;
 
-var CUSTOMER_SETTLE_FLAG   = 1; // 0001
-var COLLECTION_SETTLE_FLAG = 2; // 0010
-var VESSEL_SETTLE_FLAG     = 4; // 0100
-var EPSILON = Number.EPSILON === undefined ? Math.pow(2, -52) : Number.EPSILON;
-
-exports.createBills = async function (req, res) {
+exports.createBills = function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
   else {
-    let cacheCfg = await dataCfg;
-    console.log(cacheCfg["billing_name"])
-    //if(!cacheCfg){ //无缓存数据
-    //  dataCfg = await test.getDataBaseCfg();
-    //}
-
-//    getDictDataAndRender('bill', false, false, function (data) {
+    getDictDataAndRender('bill', false, false, function (data) {
       res.render('bill/create_bill', {
         title: '提单管理',
         curr_page: '新建提单',
         curr_page_name: '新建',
         bShowDataTable: true,
-        dDataDict: cacheCfg,
+        dDataDict: data,
         scripts: [
           '/js/plugins/sheetJS/shim.js',
           '/js/plugins/sheetJS/XLSX/jszip.js',
@@ -59,7 +51,7 @@ exports.createBills = async function (req, res) {
           '/js/bill_import_create.js'
         ]
       });
- //   })
+    })
   }
 };
 
@@ -525,7 +517,7 @@ exports.getSettleBill = function(req, res) {
 	.lean()
 	.exec( (err, db_invs) => {
       if (!err && db_invs.length) {
-		db_invs.forEach( (inv) => {  
+        db_invs.forEach( (inv) => {
           if ((inv.settle_flag & CUSTOMER_SETTLE_FLAG) !== CUSTOMER_SETTLE_FLAG) {
             if (bnameList.indexOf(inv.ship_name) < 0) {
               bnameList.push(inv.ship_name);
@@ -1796,139 +1788,133 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
   }
 }
 
-function updateWaybill(req, res, old_inv, new_inv) {
-  var state = old_inv.state === "已配发" ? "已配发" : new_inv.state;
-  var shipUpdated = (old_inv.ship_to != new_inv.ship_to) || (old_inv.ship_from != new_inv.ship_from);
-  var allBills = getChangedBills(old_inv, new_inv);
-  async.each(allBills, function(bill, callback) {
-    Bill.findById(bill.bill_id, function (err, db_bill) {
-      if (err || !db_bill) {
-        callback("查找提单" + bill.bill_id + "错:" + err);
-      } else {
-        var updated = false;
-        if (bill.flag === 'modify') {
-          updated = true;
-          if (db_bill.block_num > 0) {
-            db_bill.left_num += bill.old_num - bill.num;
-          } else {
-            db_bill.left_num += (bill.old_weight - bill.weight);
-            db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
-          }
-          if (db_bill.invoices.length > 0) {
-            for (var i = 0; i < db_bill.invoices.length; ++i) {
-              if (db_bill.invoices[i].inv_no === new_inv.waybill_no) {
-                db_bill.invoices[i].num = bill.num;
-                db_bill.invoices[i].weight = bill.weight;
-                db_bill.invoices[i].vehicles = bill.vehicles.slice(0);
-                db_bill.invoices[i].vehicles.forEach(function (db_inv_veh) {
-                  db_inv_veh.veh_price = 0;
-                });
-                break;
-              }
-            }
-          }
-        } else if (bill.flag === 'remove') {
-          updated = true;
-          if (db_bill.block_num > 0) {
-            db_bill.left_num += bill.num;
-          } else {
-            db_bill.left_num += bill.weight;
-            db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
-          }
-          var len = db_bill.invoices.length;
-          while (len--) {
-            if (db_bill.invoices[len].inv_no === new_inv.waybill_no) {
-              db_bill.invoices.splice(len, 1);//.remove(len);
-            }
-          }
-        } else if (bill.flag === 'add') {
-          updated = true;
-          if (db_bill.block_num > 0) {
-            db_bill.left_num -= bill.num;
-          } else {
-            db_bill.left_num -= bill.weight;
-            db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
-          }
-          addInvoiceToBill(db_bill, new_inv, bill);
-        }
+function modifyInvBill(dbBill, bill, waybillNo) {
+  if (dbBill.block_num > 0) {
+    dbBill.left_num += bill.old_num - bill.num;
+  } else {
+    dbBill.left_num += (bill.old_weight - bill.weight);
+    dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+  }
 
-        if (shipUpdated) {
-          if (db_bill.invoices.length) {
-            db_bill.invoices.forEach(function (dbInv) {
-              dbInv.ship_to = new_inv.ship_to;
-              dbInv.ship_from = new_inv.ship_from;
-            });
-          }
-        }
-
-        var statusUpdated = updateBillStatus(req.user.userid, db_bill, state);
-
-        if (updated || statusUpdated || shipUpdated) {
-          updateOneDBRecord(db_bill, "更新运单中提单出错", callback);
-        } else {
-          callback();
-        }
+  if (dbBill.invoices.length > 0) {
+    for (let i = 0; i < dbBill.invoices.length; ++i) {
+      if (dbBill.invoices[i].inv_no === waybillNo) {
+        dbBill.invoices[i].num = bill.num;
+        dbBill.invoices[i].weight = bill.weight;
+        dbBill.invoices[i].vehicles = bill.vehicles.slice(0);
+        dbBill.invoices[i].vehicles.forEach(function (veh) { veh.veh_price = 0 });
+        break;
       }
-    })
-  },
-  function (err) {
-    if (err) {
-      res.end(JSON.stringify({ok: false, response: err}));
-    } else {
-      old_inv.vehicle_vessel_name = new_inv.vehicle_vessel_name;
-      old_inv.ship_name = new_inv.ship_name;
-      old_inv.ship_customer = new_inv.ship_customer;
-      old_inv.ship_warehouse = new_inv.ship_warehouse;
-      old_inv.ship_date = new_inv.ship_date;
-      old_inv.total_weight = new_inv.total_weight;
-      old_inv.username = new_inv.username;
-      old_inv.shipper = new_inv.shipper;
-      old_inv.ship_to = new_inv.ship_to;
-      old_inv.ship_from = new_inv.ship_from;
-      old_inv.state = state;
-      old_inv.bills = new_inv.bills.slice(0);
+    }
+  }
 
-      var allInnerNo = utils.getAllList(true, new_inv.bills, "vehicles", "inner_waybill_no");
-      if (allInnerNo.length) {
-        if (isExist(old_inv.inner_settle) && !isEmpty(old_inv.inner_settle)) {
-          var len = old_inv.inner_settle.length;
-          while (len--) {
-            if (allInnerNo.indexOf(old_inv.inner_settle[len].inner_waybill_no) < 0) {
-              old_inv.inner_settle.splice(len, 1);
-            }
-          }
-        } else {
-          old_inv.inner_settle = [];
-        }
+  return dbBill;
+}
 
-        allInnerNo.forEach(function(innerNo) {
-          var found = false;
-          for (var k = 0; k < old_inv.inner_settle.length; ++k) {
-            if (old_inv.inner_settle[k].inner_waybill_no === innerNo) {
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            old_inv.inner_settle.push({
-              inner_waybill_no: innerNo, state: '未结算', price: 0, date: null,
-              unship_date: null, delay_day: 0, charge_cash:0, charge_oil:0, receipt: 0, remark: ''
-            });
-          }
-        })
-      }
+function removeInvBill(dbBill, bill, waybillNo) {
+  if (dbBill.block_num > 0) {
+    dbBill.left_num += bill.num;
+  } else {
+    dbBill.left_num += bill.weight;
+    dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+  }
 
-      old_inv.save(function (save_err) {
-        if (save_err) {
-          console.error('save error! %s', save_err);
-          res.end(JSON.stringify({ok: false, response: '更新运单中提单出错:' + save_err}));
-        } else {
-          res.end(JSON.stringify({ok: true}));
-        }
-      });
+  let invs = [];
+  dbBill.invoices.forEach(inv => {
+    if (inv.inv_no !== waybillNo) {
+      invs.push(inv);
     }
   });
+
+  dbBill.invoices = invs;
+  return dbBill;
 }
+
+function assignInvoice(dbInv, inv, state) {
+  dbInv.vehicle_vessel_name = inv.vehicle_vessel_name;
+  dbInv.ship_name = inv.ship_name;
+  dbInv.ship_customer = inv.ship_customer;
+  dbInv.ship_warehouse = inv.ship_warehouse;
+  dbInv.ship_date = inv.ship_date;
+  dbInv.total_weight = inv.total_weight;
+  dbInv.username = inv.username;
+  dbInv.shipper = inv.shipper;
+  dbInv.ship_to = inv.ship_to;
+  dbInv.ship_from = inv.ship_from;
+  dbInv.state = state;
+  dbInv.bills = inv.bills.slice(0);
+}
+
+const updateWaybill = async function(dbInv, new_inv, userId) {
+  let state = dbInv.state === "已配发" ? "已配发" : new_inv.state;
+  let shipUpdated = (dbInv.ship_to != new_inv.ship_to) || (dbInv.ship_from != new_inv.ship_from);
+  let allBills = getChangedBills(dbInv, new_inv);
+
+  for (let idx = 0; idx < allBills.length; ++idx) {
+    let bill = allBills[idx];
+    let db_bill = await Bill.findById(bill.bill_id).exec();
+    if (db_bill) {
+      let updated = true;
+      if (bill.flag === 'modify') {
+        db_bill = modifyInvBill(db_bill, bill, new_inv.waybill_no);
+      } else if (bill.flag === 'remove') {
+        db_bill = removeInvBill(db_bill, bill, new_inv.waybill_no);
+      } else if (bill.flag === 'add') {
+        if (db_bill.block_num > 0) {
+          db_bill.left_num -= bill.num;
+        } else {
+          db_bill.left_num -= bill.weight;
+          db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
+        }
+        addInvoiceToBill(db_bill, new_inv, bill);
+      } else {
+        updated = false;
+      }
+
+      if (shipUpdated && db_bill.invoices.length) {
+        db_bill.invoices.forEach(function (dbInv) {
+          dbInv.ship_to = new_inv.ship_to;
+          dbInv.ship_from = new_inv.ship_from;
+        });
+      }
+
+      if (updated || shipUpdated || updateBillStatus(userId, db_bill, state)) {
+        await db_bill.save();
+      }
+    }
+  }
+
+  assignInvoice(dbInv, new_inv, state);
+
+  let allInnerNo = utils.getAllList(true, new_inv.bills, "vehicles", "inner_waybill_no");
+  if (allInnerNo.length) {
+    if (isExist(dbInv.inner_settle) && !isEmpty(dbInv.inner_settle)) {
+      let len = dbInv.inner_settle.length;
+      while (len--) {
+        if (allInnerNo.indexOf(dbInv.inner_settle[len].inner_waybill_no) < 0) {
+          dbInv.inner_settle.splice(len, 1);
+        }
+      }
+    } else {
+      dbInv.inner_settle = [];
+    }
+
+    allInnerNo.forEach(function(innerNo) {
+      let found = false;
+      for (let k = 0; k < dbInv.inner_settle.length; ++k) {
+        if (dbInv.inner_settle[k].inner_waybill_no === innerNo) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        dbInv.inner_settle.push({inner_waybill_no: innerNo, state: '未结算', price: 0, date: null, unship_date: null, delay_day: 0, charge_cash:0, charge_oil:0, receipt: 0, remark: '' });
+      }
+    })
+  }
+
+  await dbInv.save();
+};
 
 function buildInnerSettleData(invoice) {
   var allInnerNo = utils.getAllList(true, invoice.bills, "vehicles", "inner_waybill_no");
@@ -1945,74 +1931,106 @@ function buildInnerSettleData(invoice) {
   }
 }
 
-function saveWaybill(req, res, invoice) {
+let saveWaybill = async function(res, invoice, userId) {
   buildInnerSettleData(invoice);
 
-  invoice.save(function (err) {
-    if (err) {
-      res.end(JSON.stringify({ok: false, response: '保存运单出错:' + err}));
-    } else {
-      async.each(invoice.bills,
-        function (bill, callback) {
-          Bill.findById(bill.bill_id, function (find_err, db_bill) {
-            if (find_err) {
-              console.error('find error! %s', find_err);
-              callback('保存运单出错:' + find_err);
-            } else {
-              if (db_bill.block_num > 0) {
-                db_bill.left_num -= bill.num;
-              } else {
-                db_bill.left_num -= bill.weight;
-                db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
-              }
+  let order = {};
+  let savedBills = [];
+  for (let i = 0; i < invoice.bills.length; ++i) {
+    let bill = invoice.bills[i];
+    let dbBill = await Bill.findById(bill.bill_id).exec();
+    if (dbBill) {
+      let w = 0;
+      if (dbBill.block_num > 0) {
+        dbBill.left_num -= bill.num;
+        w = bill.num * dbBill.weight;
+      } else {
+        dbBill.left_num -= bill.weight;
+        dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+        w = bill.weight;
+      }
 
-              updateBillStatus(req.user.userid, db_bill, invoice.state);
+      if (order[dbBill.order_no]) {
+        order[dbBill.order_no] += w;
+      } else {
+        order[dbBill.order_no] = w;
+      }
 
-              addInvoiceToBill(db_bill, invoice, bill);
+      updateBillStatus(userId, dbBill, invoice.state);
+      addInvoiceToBill(dbBill, invoice, bill);
 
-              updateOneDBRecord(db_bill, '保存运单出错:', callback);
-            }
-          });
-        },
-        function (err) {
-          if (err) {
-            res.end(JSON.stringify({ok: false, response: err}));
-          } else {
-            res.end(JSON.stringify({ok: true}));
-          }
-        });
+      savedBills.push(dbBill);
     }
-  });
+  }
+
+  let ok = true;
+  let savedPlans = [];
+  for (let orderNo in order) {
+    let plan = await OrderPlan.findOne({order_no: orderNo}).exec();
+    if (plan) {
+      if (plan.left_weight < order[orderNo]) {
+        ok = false;
+        res.end(JSON.stringify({ok: ok, response: '订单计划的剩余量' + plan.left_weight + '小于要配发的重量' + order[orderNo]}));
+        break;
+      } else {
+        plan.left_weight -= order[orderNo];
+        if (plan.left_weight > 0) {
+          plan.status = 1;
+        } else if (plan.left_weight === 0) {
+          plan.status = 2;
+        }
+        savedPlans.push(plan);
+      }
+    } else {
+      console.log('no plan');
+    }
+  }
+
+  if (ok) {
+    for (let i = 0; i < savedBills.length; ++i) {
+      await savedBills[i].save();
+    }
+
+    for (let i = 0; i < savedPlans.length; ++i) {
+      await savedPlans[i].save();
+    }
+
+    await invoice.save();
+    res.end(JSON.stringify({ok: true}));
+  }
+};
+
+function makeInvoiceData(inv, userId) {
+  return {
+    waybill_no: inv.waybill_no,
+    vehicle_vessel_name: inv.vehicle_vessel_name,
+    ship_warehouse: inv.ship_warehouse,
+    ship_name: inv.ship_name,
+    ship_customer: inv.ship_customer,
+    ship_date: inv.ship_date,
+    ship_to: inv.ship_to,
+    ship_from: inv.ship_from,
+    bills: inv.bills.slice(0),
+    total_weight: inv.total_weight,
+    username: inv.username,
+    shipper: userId,
+    state: inv.state
+  };
 }
 
-exports.postBuildInvoice = function (req, res) {
-  var inv = req.body;
-  Invoice.findOne({ waybill_no: inv.waybill_no }, function(err, invoice) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: '数据库操作错!' + err }));
+exports.postBuildInvoice = async function (req, res) {
+  try {
+    let data = makeInvoiceData(req.body, req.user.userid);
+    let dbInv = await Invoice.findOne({ waybill_no: req.body.waybill_no }).exec();
+    if (!dbInv) {
+      await saveWaybill(res, new Invoice(data), req.user.userid);
     } else {
-      var data = {
-        waybill_no: inv.waybill_no,
-        vehicle_vessel_name: inv.vehicle_vessel_name,
-        ship_warehouse: inv.ship_warehouse,
-        ship_name: inv.ship_name,
-        ship_customer: inv.ship_customer,
-        ship_date: inv.ship_date,
-        ship_to: inv.ship_to,
-        ship_from: inv.ship_from,
-        bills: inv.bills.slice(0),
-        total_weight: inv.total_weight,
-        username: inv.username,
-        shipper: req.user.userid,
-        state: inv.state
-      };
-      if (!invoice) {
-        saveWaybill(req, res, new Invoice(data));
-      } else {
-        updateWaybill(req, res, invoice, data);
-      }
+      await updateWaybill(dbInv, data, req.user.userid);
+      res.end(JSON.stringify({ok: true}));
     }
-  });
+  } catch (e) {
+    res.end(JSON.stringify({ ok: false, response: '数据库操作错!' + e.toString() }));
+  }
 };
 
 function queryInvoices(queryObj, res) {
@@ -2189,15 +2207,18 @@ exports.distributeInvoice = function (req, res) {
   }
 };
 
-exports.postDistributeInvoice = function (req, res) {
-  var inv = req.body;
-  Invoice.findOne({ waybill_no: inv.waybill_no }, function(err, invoice) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: 'Not Found!' }));
+exports.postDistributeInvoice = async function (req, res) {
+  try {
+    let dbInv = await Invoice.findOne({waybill_no: req.body.waybill_no}).exec();
+    if (dbInv) {
+      await updateWaybill(dbInv, req.body, req.user.userid);
+      res.end(JSON.stringify({ok: true}));
     } else {
-      updateWaybill(req, res, invoice, inv);
+      res.end(JSON.stringify({ok: false, response: 'Not Found!'}));
     }
-  });
+  } catch (e) {
+    res.end(JSON.stringify({ok: false, response: e.toString()}));
+  }
 };
 
 exports.deleteInvoice = function (req, res) {

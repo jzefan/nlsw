@@ -2,15 +2,16 @@
  * Load controllers.
  */
 
-var homeController = require('./controllers/home');
-var userController = require('./controllers/user');
-var contactController = require('./controllers/contact');
-var passportConf = require('./config/passport');
-var billController = require('./controllers/bill');
-var nlDataController = require('./controllers/nldata');
-var vehvesController = require('./controllers/vehves');
-var drayageForkliftController = require('./controllers/drayage_forklift');
-var queryController = require('./controllers/query');
+let homeController = require('./controllers/home');
+let userController = require('./controllers/user');
+let contactController = require('./controllers/contact');
+let passportConf = require('./config/passport');
+let billController = require('./controllers/bill');
+let nlDataController = require('./controllers/nldata');
+let vehvesController = require('./controllers/vehves');
+let drayageForkliftController = require('./controllers/drayage_forklift');
+let queryController = require('./controllers/query');
+let planController = require('./controllers/order_plan');
 
 /**
  * Application routes.
@@ -138,5 +139,16 @@ module.exports = function (app) {
 
   app.post('/initial_settle_flag', billController.postInitSettleFlag);
   app.get('/get_settle_bill', billController.getSettleInvoiceBill);
+
+  app.get('/create_plan', planController.getCreateOrderPlan);
+  app.get('/order_plan_exist', planController.orderPlanExist);
+  app.post('/create_order_plan', planController.postCreateOrderPlan);
+
+  app.get('/plan_list', planController.getPlanList);
+  app.get('/search_plans', planController.searchPlans);
+  app.post('/plan/update', planController.postUpdatePlan);
+  app.post('/plan/delete', planController.postDeletePlan);
+  app.post('/plan/status_close', planController.postPlanStatusClosed);
+  app.post('/plan/status_unclose', planController.postPlanStatusUnClosed);
 };
  

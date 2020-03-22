@@ -92,3 +92,5 @@
 {"name":"XHT","hostname":"jzefan-PC","pid":1440,"level":50,"msg":"bill number: 76","time":"2018-11-11T16:35:48.548Z","v":0}
 {"name":"XHT","hostname":"jzefan-PC","pid":9160,"level":50,"msg":"bill number: 76","time":"2018-11-11T16:37:20.068Z","v":0}
 {"name":"XHT","hostname":"jzefan-PC","pid":10472,"level":50,"msg":"bill number: 76","time":"2018-11-11T16:41:44.196Z","v":0}
+{"name":"XHT","hostname":"jzefan-PC","pid":8328,"level":50,"msg":"保存出错！(订单号:undefined, 原因:ReferenceError: utils is not defined","time":"2020-03-21T00:20:11.717Z","v":0}
+{"name":"XHT","hostname":"jzefan-PC","pid":6668,"level":50,"msg":"保存出错！(订单号:undefined, 原因:ReferenceError: Bill is not defined","time":"2020-03-21T00:22:25.262Z","v":0}

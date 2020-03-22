@@ -1,0 +1,108 @@
+extends ../layout
+block content
+  .page-header(style='margin-bottom:5px;')
+    .btn-group(style="margin-right:15px;")
+      button#plan-update.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="对选择的订单进行修改")
+        i.fa.fa-edit
+        | &nbsp;修改
+      button#plan-delete.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="删除选择的订单")
+        i.fa.fa-trash-o
+        | &nbsp;删除
+      button#filter.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="根据条件进行订单过滤")
+        i.fa.fa-search-plus
+        | &nbsp;过滤
+      button#search-export.btn.btn-default.btn-sm
+        i.fa.fa-external-link-square
+        | &nbsp;导出
+
+    .btn-group(style="margin-right:5px;")
+      button#plan-end.btn.btn-primary.btn-sm
+        i.fa.fa-clock-o
+        | &nbsp;订单终结
+      button#undo-plan-end.btn.btn-success.btn-sm
+        i.fa.fa-undo
+        | &nbsp;取消订单终结
+
+  #filter-ui.form-horizontal(style='display:none;')
+    .row(style='margin-right:5px')
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='order-no') 订单号
+          .input-group.col-sm-8
+            input#order-no.form-control(type='text', name='order-no')
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='customer-name') 客户名称
+          .input-group.col-sm-8
+            select#customer-name.form-control
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='transport-mode') 运输方式
+          .input-group.col-sm-8
+            select#transport-mode.form-control
+              option(value='船运') 船运
+              option(value='汽运') 汽运
+              option(value='汽运/船运') 汽运/船运
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='status') 订单状态
+          .input-group.col-sm-8
+            select#status.form-control
+              option(value='未发运') 未发运
+              option(value='发运中') 发运中
+              option(value='发运完') 发运完
+              option(value='发运终结') 发运终结
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='start-date') 录单起始日期
+          .input-group.date#start-date-grp
+            input#start-date.form-control(type='text', name='start-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4(for='end-date') 录单结束日期
+          .input-group.date#end-date-grp
+            input#end-date.form-control(type='text', name='end-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+    .row
+      .col-md-4
+        .form-group
+          label.control-label.col-sm-4
+          h5.pull-left(style="margin-top:8px;margin-right:15px;") 记录数:
+            code#curr-plans-number 0
+          h5.pull-left(style="margin-top:8px;margin-right:10px;") 订单量:
+            code#lb-total-weight 0
+          button#show-data.btn.btn-primary.btn-sm.pull-right(style='margin-right:6px;')
+            i.fa.fa-list
+            | &nbsp; 显示数据
+
+  table#table-plan-content.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+    thead
+      tr
+        th#first-th(style='min-width:15px;')
+        th 订单号
+        th 订单量
+        th 已发量
+        th 未发量
+        th 客户名称
+        th 客户代码
+        th 发运目的地
+        th 运输方式
+        th 收货人
+        th 下游客户
+        th 客户业务员
+        th 业务员
+        th 合同号
+        th 接单价
+        th 录单时间
+        th 订单状态
+
+    tbody#table-tbody
+
+  include ../partials/order_plan_modify_dialog
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_data = !{JSON.stringify(dData)};

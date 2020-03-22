@@ -25,6 +25,21 @@ aside.left-side.sidebar-offcanvas
           i.fa.fa-home
           span Home(首页)
 
+      li.treeview
+        a(href='#')
+          i.fa.fa-umbrella
+          span 订单计划
+          i.fa.fa-angle-left.pull-right
+        ul.treeview-menu
+          li
+            a(href='/create_plan')
+              i.fa.fa-plus-circle
+              | 新建计划
+          li
+            a(href='/plan_list')
+              i.fa.fa-minus-circle
+              | 计划列表
+
       // 00100000 = account: oper, stat, account, manager
       if user.privilege == '00100000'
       else if user.privilege == '00010000'
@@ -71,11 +86,17 @@ aside.left-side.sidebar-offcanvas
                 i.fa.fa-pencil
                 | 修改运单
 
-            if user.privilege[1] == '1'
-                li
-                  a(href='/delete_invoice')
-                    i.fa.fa-minus-circle
-                    | 删除运单
+      if user.privilege[2] == '1'
+        li.treeview
+          a(href='#')
+            i.fa.fa-truck
+            span 删除运单
+            i.fa.fa-angle-left.pull-right
+          ul.treeview-menu
+            li
+              a(href='/delete_invoice')
+                i.fa.fa-minus-circle
+                | 删除运单
 
       // operator
       if user.privilege == '10000000'
@@ -187,3 +208,4 @@ aside.left-side.sidebar-offcanvas
             a(href='/datamgt/sale_dep')
               i.fa.fa-angle-double-right
               | 销售部门
+
