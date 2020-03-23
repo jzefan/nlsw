@@ -1,6 +1,7 @@
 $(function () {
   "use strict";
 
+  var planTable  = $('#table-plan-content');
   var tableBody  = $('#table-tbody');
   var btnFilter  = $('#filter');
   var btnExport  = $('#search-export');
@@ -18,6 +19,9 @@ $(function () {
   var qFilter = new PlanQueryFilterD(local_data.customer_name, filterData);
   destination.select2();
   initSelect(destination, local_data.destination, false, '');
+
+  $.extend($.tablesorter.defaults, {theme: 'blue'});
+  planTable.tablesorter({widgets: ['stickyHeaders']});
 
   $('#first-th').html('<input id="select-all" type="checkbox" data-toggle="tooltip" data-placement="bottom" title="选择所有记录" />');
   enableButtons();
@@ -59,6 +63,7 @@ $(function () {
           }
         }
       });
+      planTable.trigger("update");
     })
   });
 
@@ -81,6 +86,7 @@ $(function () {
           }
         }
       });
+      planTable.trigger("update");
     })
   });
 
@@ -117,9 +123,14 @@ $(function () {
       charge : $('#m_charge').val()
     };
 
+    var w = +obj.orderWeight;
+    var l = w - plan.order_weight + plan.left_weight;
+
     ajaxRequestHandle('/plan/update', 'POST', obj, '订单更新', function() {
       var tr = getRowChildren(tableBody, selectedIdx);
       tr.find("td").eq(2).html(getStrValue(obj.orderWeight));
+      tr.find("td").eq(3).html(getStrValue(obj.orderWeight - l));
+      tr.find("td").eq(4).html(getStrValue(l));
       tr.find("td").eq(7).html(obj.destination); // 7 destination
       tr.find("td").eq(8).html(obj.transportMode); // 8 transport mode
       tr.find("td").eq(9).html(obj.consignee ? obj.consignee : ''); // 9 收货人
@@ -129,7 +140,18 @@ $(function () {
       tr.find("td").eq(13).html(obj.contractNo ? obj.contractNo : ''); // 13 contract no
       tr.find("td").eq(14).html(getStrValue(obj.charge)); // 14 charge
 
+      if (l === 0) {
+        plan.status = 2;
+      } else if (l === w) {
+        plan.status = 0;
+      } else {
+        plan.status = 1;
+      }
+
+      tr.find("td").eq(16).html(getStrStatus(plan.status));
+
       plan.order_weight = obj.orderWeight;
+      plan.left_weight = l;
       plan.destination = obj.destination;
       plan.transport_mode = obj.transportMode;
       plan.consignee = obj.consignee;
@@ -140,6 +162,7 @@ $(function () {
       plan.receiving_charge = obj.charge;
 
       $('#plan-modify-dialog').modal('hide');
+      planTable.trigger("update");
     });
   });
 
@@ -223,6 +246,8 @@ $(function () {
       e.stopImmediatePropagation();
       selectRow($(this).closest('tr'), false);
     });
+
+    planTable.trigger("update");
   }
 
   function selectRow(me, needUpdateCheckbox) {
@@ -254,6 +279,16 @@ $(function () {
   }
 
   function showSelectedTotalValue() {
+    var weight = 0;
+    var left = 0;
+    selectedPlans.forEach(function(p) {
+      weight += p.order_weight;
+      left += p.left_weight;
+    });
+
+    $('#lb-total-weight').text(getStrValue(weight));
+    $('#lb-sent-weight').text(getStrValue(weight - left));
+    $('#lb-left-weight').text(getStrValue(left));
   }
 
   function getStrStatus(state) {
@@ -323,18 +358,22 @@ $(function () {
         if (result.ok) {
           dbPlans = result.plans;
           $('#lb-total-weight').text(getStrValue(result.totalWeight));
+          $('#lb-sent-weight').text(getStrValue(result.totalWeight - result.leftWeight));
+          $('#lb-left-weight').text(getStrValue(result.leftWeight));
         } else {
           $('#lb-total-weight').text('0.00');
+          $('#lb-sent-weight').text('0.00');
+          $('#lb-left-weight').text('0.00');
         }
 
-        $('#curr-plans-number').text(dbPlans.length);
         $('body').css({'cursor':'default'});
       });
     } else {
       if (emptyDbData) {
         dbPlans = [];
         $('#lb-total-weight').text('0.00');
-        $('#curr-plans-number').text(dbPlans.length);
+        $('#lb-sent-weight').text('0.00');
+        $('#lb-left-weight').text('0.00');
       }
     }
   }

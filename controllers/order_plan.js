@@ -100,20 +100,13 @@ exports.getPlanList = async function (req, res) {
   else {
     let cacheCfg = await dataCfg;
     let destination = await cacheCfg['destination'];
-    let company = await cacheCfg['company'];
-    let customer_name = [];
-    company.forEach(c => {
-      if (!utils.isEmpty(c.name)) {
-        customer_name.push(c.name)
-      }
-    });
+    let customer_name = await cacheCfg['plan_cu_name'];
 
-    company.forEach(c => customer_name.push(c.name));
     res.render('plan/plan_list', {
       title: '订单计划管理',
       curr_page: '订单列表',
       curr_page_name: '订单操作',
-      bShowDataTable: true,
+      bTableSort: true,
       dData: {
         customer_name,
         destination
@@ -122,6 +115,8 @@ exports.getPlanList = async function (req, res) {
         '/js/plugins/select2/select2.min.js',
         '/js/plugins/select2/select2_locale_zh-CN.js',
         '/js/lib/bootstrap-multiselect.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
         '/js/plan_list.js'
       ]
     });
@@ -135,12 +130,16 @@ exports.postUpdatePlan = async function(req, res) {
     if (plan.order_weight !== data.orderWeight) {
       let undo = plan.order_weight - plan.left_weight;
       if (data.orderWeight < undo) {
-        return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量比已发量还少'} + data.orderNo));
+        return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量比已发量还少' + data.orderNo}));
       }
 
       plan.left_weight = data.orderWeight - undo;
       if (plan.left_weight === 0) {
         plan.status = 2;
+      } else if (plan.left_weight === data.orderWeight) {
+        plan.status = 0;
+      } else {
+        plan.status = 1;
       }
 
       plan.order_weight = data.orderWeight;
@@ -244,11 +243,15 @@ exports.searchPlans = async function(req, res) {
     obj["$and"].push({ status: st });
   }
 
-  let plans = await OrderPlan.find(obj).lean().sort({entry_time: -1}).exec();
+  let plans = await OrderPlan.find(obj).lean().sort({order_no: 1}).exec();
   if (plans.length > 0) {
-    let w = 0;
-    plans.forEach(p => w += p.order_weight);
-    res.json(JSON.stringify({ok: true, plans: plans, totalWeight: w}));
+    let w = 0, left = 0;
+    plans.forEach(p => {
+      w += p.order_weight;
+      left += p.left_weight;
+    });
+    console.log(left)
+    res.json(JSON.stringify({ok: true, plans: plans, totalWeight: w, leftWeight: left}));
   } else {
     res.json(JSON.stringify({ok: false}));
   }

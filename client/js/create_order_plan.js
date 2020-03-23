@@ -119,10 +119,14 @@ $(function () {
         });
 
         var html = "";
+        var weight = 0;
         allOrders.forEach(function(order) {
           html += makeTableBodyTr(order);
+          weight += +order.orderWeight;
         });
         inputTbody.html(html);
+
+        setElementValue($('#total-weight'), getStrValue(weight));
 
         $('.redlink').on('click', function (e) {
           e.stopImmediatePropagation();
