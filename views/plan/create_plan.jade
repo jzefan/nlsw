@@ -74,6 +74,11 @@ block content
         button#add-one.btn.btn-primary
           i.fa.fa-plus
           | &nbsp; 增加
+        .btn-group(style='margin-left:10px;')
+          input#import-file(type='file', name='import-file', style='visibility: hidden; width: 1px; height: 1px', accept=".xlsx, .xls")
+          label.btn.btn-primary(for='import-file')
+            i.fa.fa-external-link-square
+            | &nbsp 导入
 
     .col-md-4
       .form-group

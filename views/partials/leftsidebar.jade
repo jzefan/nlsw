@@ -27,7 +27,7 @@ aside.left-side.sidebar-offcanvas
 
       li.treeview
         a(href='#')
-          i.fa.fa-umbrella
+          i.fa.fa-calendar
           span 订单计划
           i.fa.fa-angle-left.pull-right
         ul.treeview-menu
@@ -37,7 +37,7 @@ aside.left-side.sidebar-offcanvas
               | 新建计划
           li
             a(href='/plan_list')
-              i.fa.fa-minus-circle
+              i.fa.fa-list
               | 计划列表
 
       // 00100000 = account: oper, stat, account, manager
@@ -89,7 +89,7 @@ aside.left-side.sidebar-offcanvas
       if user.privilege[2] == '1'
         li.treeview
           a(href='#')
-            i.fa.fa-truck
+            i.fa.fa-trash-o
             span 删除运单
             i.fa.fa-angle-left.pull-right
           ul.treeview-menu

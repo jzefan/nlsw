@@ -36,6 +36,10 @@ exports.getCreateOrderPlan = async function (req, res) {
         destination
       },
       scripts: [
+        '/js/plugins/sheetJS/shim.js',
+        '/js/plugins/sheetJS/XLSX/jszip.js',
+        '/js/plugins/sheetJS/XLSX/xlsx.core.min.js',
+        '/js/plugins/sheetJS/XLS/xls.min.js',
         '/js/plugins/select2/select2.min.js',
         '/js/plugins/select2/select2_locale_zh-CN.js',
         '/js/lib/bootstrap-multiselect.js',

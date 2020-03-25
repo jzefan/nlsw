@@ -357,13 +357,13 @@ $(function () {
         dbPlans = [];
         if (result.ok) {
           dbPlans = result.plans;
-          $('#lb-total-weight').text(getStrValue(result.totalWeight));
-          $('#lb-sent-weight').text(getStrValue(result.totalWeight - result.leftWeight));
-          $('#lb-left-weight').text(getStrValue(result.leftWeight));
+//          $('#lb-total-weight').text(getStrValue(result.totalWeight));
+//          $('#lb-sent-weight').text(getStrValue(result.totalWeight - result.leftWeight));
+//          $('#lb-left-weight').text(getStrValue(result.leftWeight));
         } else {
-          $('#lb-total-weight').text('0.00');
-          $('#lb-sent-weight').text('0.00');
-          $('#lb-left-weight').text('0.00');
+//          $('#lb-total-weight').text('0.00');
+//          $('#lb-sent-weight').text('0.00');
+//          $('#lb-left-weight').text('0.00');
         }
 
         $('body').css({'cursor':'default'});
@@ -371,9 +371,9 @@ $(function () {
     } else {
       if (emptyDbData) {
         dbPlans = [];
-        $('#lb-total-weight').text('0.00');
-        $('#lb-sent-weight').text('0.00');
-        $('#lb-left-weight').text('0.00');
+//        $('#lb-total-weight').text('0.00');
+//        $('#lb-sent-weight').text('0.00');
+//        $('#lb-left-weight').text('0.00');
       }
     }
   }
