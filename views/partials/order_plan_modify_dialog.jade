@@ -105,6 +105,13 @@
               label.col-sm-4.control-label(for='m_charge') 接单价
               .input-group.col-sm-8
                 input#m_charge.form-control(type='text', name='m_charge')
+          .col-md-4
+            .form-group
+              label.col-sm-4.control-label(for='m_entry_time') 录单时间
+              #m_entry_time_grp.input-group.date
+                input#m_entry_time.form-control(type='text', name='m_entry_time', data-date-format="YYYY-MM-DD HH:mm")
+                span.input-group-addon
+                  i.fa.fa-calendar
 
         .modal-footer(style='margin-top: 0px')
           button.btn.btn-default(data-dismiss='modal') 取消

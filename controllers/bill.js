@@ -1644,7 +1644,7 @@ function getChangedBills(old_inv, new_inv) {
       var new_bill = new_inv.bills[i];
       var isModified = false;
       if (!new_bill.passed && String(old_bill.bill_id) === String(new_bill.bill_id)) {
-        if (old_bill.num != new_bill.num || old_bill.weight != new_bill.weight) {
+        if (old_bill.num != new_bill.num || Math.abs(old_bill.weight - new_bill.weight) > 0.00001) {
           isModified = true;
         } else {
           if (old_bill.vehicles.length === new_bill.vehicles.length) {
@@ -1654,7 +1654,7 @@ function getChangedBills(old_inv, new_inv) {
               for (var n = 0; n < old_bill.vehicles.length; ++n) {
                 var ovo = old_bill.vehicles[n];
                 if (vo.veh_name === ovo.veh_name && vo.inner_waybill_no === ovo.inner_waybill_no && vo.send_num === ovo.send_num &&
-                    vo.send_weight === ovo.send_weight && vo.veh_ship_from === ovo.veh_ship_from) {
+                    Math.abs(vo.send_weight - ovo.send_weight) < 0.00001 && vo.veh_ship_from === ovo.veh_ship_from) {
                   find_veh_obj = true;
                   break;
                 }

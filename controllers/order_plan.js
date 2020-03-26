@@ -5,27 +5,24 @@
 "use strict";
 
 let OrderPlan = require('../models/OrderPlan');
-let dataCfg = require('./cache');
+let Company = require('../models/Company');
+let Destination = require('../models/Destination');
 let utils = require('./utils');
-//var Bill = require('../models/Bill');
 
 let bunyan = require('bunyan');
 let logger = bunyan.createLogger({
   name: 'XHT',
   streams: [ { level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' } ]
 });
-
+const DELTA = 1e-5; // 定义精度精确到0.00001
 
 exports.getCreateOrderPlan = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') {
     res.status.render(404);
   }
   else {
-    let cacheCfg = await dataCfg;
-    let company = await cacheCfg['company'];
-    let destination = await cacheCfg['destination'];
-    let customer_name = [];
-    company.forEach(c => customer_name.push(c.name));
+    let customer_name = await Company.distinct('name').lean().exec();
+    let destination = await Destination.distinct('name').lean().exec();
 
     res.render('plan/create_plan', {
       title: '订单计划管理',
@@ -88,7 +85,7 @@ exports.postCreateOrderPlan = async function (req, res) {
         await plan.save();
         res.end(JSON.stringify({ok: true}));
       } else {
-        res.end(JSON.stringify({ok: false, response: 'order exist!'}));
+        res.end(JSON.stringify({ok: false, response: 'order exist! ' + orderNo}));
       }
     } catch (err) {
       logger.error('保存出错！(订单号:' + orderNo + ', 原因:' + err);
@@ -102,9 +99,8 @@ exports.getPlanList = async function (req, res) {
     res.status.render(404);
   }
   else {
-    let cacheCfg = await dataCfg;
-    let destination = await cacheCfg['destination'];
-    let customer_name = await cacheCfg['plan_cu_name'];
+    let customer_name = await Company.distinct('name').lean().exec();
+    let destination = await Destination.distinct('name').lean().exec();
 
     res.render('plan/plan_list', {
       title: '订单计划管理',
@@ -131,17 +127,20 @@ exports.postUpdatePlan = async function(req, res) {
   let data = req.body;
   let plan = await OrderPlan.findOne({order_no: data.orderNo}).exec();
   if (plan) {
-    if (plan.order_weight !== data.orderWeight) {
+
+    if (Math.abs(plan.order_weight - data.orderWeight) > DELTA) {
       let undo = plan.order_weight - plan.left_weight;
       if (data.orderWeight < undo) {
         return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量比已发量还少' + data.orderNo}));
       }
 
       plan.left_weight = data.orderWeight - undo;
-      if (plan.left_weight === 0) {
+      if (plan.left_weight < DELTA) {
+        plan.left_weight = 0;
         plan.status = 2;
-      } else if (plan.left_weight === data.orderWeight) {
+      } else if (plan.left_weight - data.orderWeight < DELTA) {
         plan.status = 0;
+        plan.left_weight = data.orderWeight;
       } else {
         plan.status = 1;
       }
@@ -156,6 +155,7 @@ exports.postUpdatePlan = async function(req, res) {
     plan.customer_saleman = data.salesman;
     plan.contract_no = data.contractNo;
     plan.receiving_charge = data.charge;
+    plan.entry_time = data.entryTime;
     await plan.save();
 
     res.end(JSON.stringify({ok: true}));
@@ -202,9 +202,10 @@ exports.postPlanStatusUnClosed = async function(req, res) {
     for (let i = 0; i < data.length; ++i) {
       let plan = await OrderPlan.findOne({order_no: data[i]}).exec();
       if (plan) {
-        if (plan.left_weight == plan.order_weight) {
+        if (plan.left_weight - plan.order_weight < DELTA) {
           plan.status = 0;
-        } else if (plan.left_weight == 0) {
+        } else if (plan.left_weight < DELTA) {
+          plan.left_weight = 0;
           plan.status = 2;
         } else {
           plan.status = 1;

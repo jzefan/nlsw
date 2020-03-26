@@ -20,34 +20,32 @@ $(function () {
   destination.select2();
   initSelect(destination, local_data.destination, false, '');
 
+  $('#m_entry_time_grp').datetimepicker(getDateTimePickerOptions());
+
   $.extend($.tablesorter.defaults, {theme: 'blue'});
   planTable.tablesorter({widgets: ['stickyHeaders']});
 
   $('#first-th').html('<input id="select-all" type="checkbox" data-toggle="tooltip" data-placement="bottom" title="选择所有记录" />');
   enableButtons();
 
-  elementEventRegister(updatePlan, 'click', function() {
-    showUpdateForm();
-  });
+  elementEventRegister(updatePlan, 'click', function() { showUpdateForm() });
 
   elementEventRegister(deletePlan, 'click', function() {
-    if (selectedPlans.length) {
-      bootbox.confirm('危险!您确定要删除? 删除后不能恢复!', function (result) {
-        if (result) {
-          ajaxRequestHandle('/plan/delete', 'POST', selectedPlans, '删除', function () {
-            selectedPlans.forEach( function(p) {
-              for (var k = 0; k < dbPlans.length; ++k) {
-                if (p.order_no === dbPlans[k].order_no) {
-                  dbPlans.splice(k, 1);
-                  break;
-                }
+    bootbox.confirm('危险!您确定要删除? 删除后不能恢复!', function (result) {
+      if (result) {
+        ajaxRequestHandle('/plan/delete', 'POST', selectedPlans, '删除', function () {
+          selectedPlans.forEach( function(p) {
+            for (var k = 0; k < dbPlans.length; ++k) {
+              if (p.order_no === dbPlans[k].order_no) {
+                dbPlans.splice(k, 1);
+                break;
               }
-            });
-            resetTableRow();
+            }
           });
-        }
-      });
-    }
+          resetTableRow();
+        });
+      }
+    });
   });
 
   elementEventRegister(closePlan, 'click', function() {
@@ -120,7 +118,8 @@ $(function () {
       salesman : $('#m_salesman').val(),
       consigner : $('#m_consigner').val(),
       contractNo : $('#m_contract_no').val(),
-      charge : $('#m_charge').val()
+      charge : $('#m_charge').val(),
+      entryTime: $('#m_entry_time_grp').data("DateTimePicker").getDate()
     };
 
     var w = +obj.orderWeight;
@@ -139,6 +138,7 @@ $(function () {
       tr.find("td").eq(12).html(obj.consigner ? obj.consigner : ''); // 12 consigner
       tr.find("td").eq(13).html(obj.contractNo ? obj.contractNo : ''); // 13 contract no
       tr.find("td").eq(14).html(getStrValue(obj.charge)); // 14 charge
+      tr.find("td").eq(15).html(date2Str(obj.entryTime)); // 14 charge
 
       if (l === 0) {
         plan.status = 2;
@@ -160,6 +160,7 @@ $(function () {
       plan.consigner = obj.consigner;
       plan.contract_no = obj.contractNo;
       plan.receiving_charge = obj.charge;
+      plan.entry_time = obj.entryTime;
 
       $('#plan-modify-dialog').modal('hide');
       planTable.trigger("update");
@@ -220,6 +221,7 @@ $(function () {
     $('#m_consigner').val(plan.consigner);
     $('#m_contract_no').val(plan.contract_no);
     $('#m_charge').val(plan.receiving_charge);
+    $('#m_entry_time_grp').data("DateTimePicker").setDate(plan.entry_time);
 
     $('#plan-modify-dialog').modal({ backdrop: 'static', keyboard: false}).modal('show');
   }
@@ -304,12 +306,21 @@ $(function () {
   }
 
   function trData(plan, tr) {
+    var left = plan.left_weight;
+    var text = '';
+    if (left > 0.00001) {
+      text = '<code style="color:blue">' + getStrValue(left) + '</code>';
+    } else {
+      text = '<code style="color:green">0.00</code>';
+    }
+
     return tr.format(
       plan.order_no,
-      getStrValue(plan.order_weight), getStrValue(plan.order_weight - plan.left_weight), getStrValue(plan.left_weight),
+      getStrValue(plan.order_weight), getStrValue(plan.order_weight - left), text,
       plan.customer_name,
       plan.customer_code ? plan.customer_code : '',
-      plan.destination, plan.transport_mode,
+      plan.destination ? plan.destination : '',
+      plan.transport_mode,
       plan.consignee ? plan.consignee : '',
       plan.ds_client ? plan.ds_client : '',
       plan.customer_saleman ? plan.customer_saleman : '',
@@ -357,13 +368,13 @@ $(function () {
         dbPlans = [];
         if (result.ok) {
           dbPlans = result.plans;
-//          $('#lb-total-weight').text(getStrValue(result.totalWeight));
-//          $('#lb-sent-weight').text(getStrValue(result.totalWeight - result.leftWeight));
-//          $('#lb-left-weight').text(getStrValue(result.leftWeight));
+          $('#lb-total-weight').text(getStrValue(result.totalWeight));
+          $('#lb-sent-weight').text(getStrValue(result.totalWeight - result.leftWeight));
+          $('#lb-left-weight').text(getStrValue(result.leftWeight));
         } else {
-//          $('#lb-total-weight').text('0.00');
-//          $('#lb-sent-weight').text('0.00');
-//          $('#lb-left-weight').text('0.00');
+          $('#lb-total-weight').text('0.00');
+          $('#lb-sent-weight').text('0.00');
+          $('#lb-left-weight').text('0.00');
         }
 
         $('body').css({'cursor':'default'});
@@ -371,9 +382,9 @@ $(function () {
     } else {
       if (emptyDbData) {
         dbPlans = [];
-//        $('#lb-total-weight').text('0.00');
-//        $('#lb-sent-weight').text('0.00');
-//        $('#lb-left-weight').text('0.00');
+        $('#lb-total-weight').text('0.00');
+        $('#lb-sent-weight').text('0.00');
+        $('#lb-left-weight').text('0.00');
       }
     }
   }
