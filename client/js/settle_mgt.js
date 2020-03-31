@@ -892,12 +892,26 @@ var QueryFilterD = function(options, options_2, action, filter) {
   self.uiElems.sBfBillName.on('change', function() { self._selectFliterFunc(1, filter); });
 
   self.uiElems.sBfVehicle.on('change', function(e) {
-    self.selectedVeh = this.value;
+    if (e.added) {
+      self.selectedVeh.push(e.added.text)
+    } else if (e.removed) {
+      var index = self.selectedVeh.indexOf(e.removed.text);
+      if (index > -1) {
+        self.selectedVeh.splice(index, 1);
+      }
+    }
     self._selectFliterFunc(3, filter);
   });
 
   self.uiElems.sBfDest.on('change', function(e) {
-    self.selectedDest = this.value;
+    if (e.added) {
+      self.selectedDest.push(e.added.text)
+    } else if (e.removed) {
+      var index = self.selectedDest.indexOf(e.removed.text);
+      if (index > -1) {
+        self.selectedDest.splice(index, 1);
+      }
+    }
     self._selectFliterFunc(4, filter);
   });
 

@@ -29,10 +29,8 @@ block content
         label.control-label.col-sm-4(for='order-input-time')
           | 录单时间
           i.fa.fa-asterisk(style='color:red;')
-        #order-input-grp.input-group.date
-          input#order-input-time.form-control(type='text', name='order-input-time', data-date-format="YYYY-MM-DD HH:mm")
-          span.input-group-addon
-            i.fa.fa-calendar
+        .input-group.col-sm-8
+          input#order-input-time.form-control(type='text', name='order-input-time', readonly=true)
       .form-group
         label.control-label.col-sm-4(for='customer-name', title='必填项')
           | 客户名称

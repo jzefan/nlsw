@@ -25,7 +25,7 @@ let logger = bunyan.createLogger({
 const CUSTOMER_SETTLE_FLAG   = 1; // 0001
 const COLLECTION_SETTLE_FLAG = 2; // 0010
 const VESSEL_SETTLE_FLAG     = 4; // 0100
-const EPSILON = Number.EPSILON === undefined ? Math.pow(2, -52) : Number.EPSILON;
+const EPSILON = 1e-5; //Number.EPSILON === undefined ? 0.000001 : Number.EPSILON;
 
 exports.createBills = function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
@@ -800,7 +800,8 @@ exports.postSettleCollectionNotRequire = function(req, res) {
             }
           }
 
-          if (db_bill.settle_flag === 0 && db_bill.left_num === 0) {
+          if (db_bill.settle_flag === 0 && db_bill.left_num < EPSILON) {
+            db_bill.left_num = 0;
             db_bill.status = "已配发";
           }
 
@@ -874,7 +875,8 @@ exports.postDeleteSettle = async function(req, res) {
           }
         }
 
-        if (bill.settle_flag === 0 && bill.left_num === 0) {
+        if (bill.settle_flag === 0 && bill.left_num < EPSILON) {
+          bill.left_num = 0;
           bill.status = '已配发';
         }
 
@@ -1636,15 +1638,20 @@ exports.getBuildInvoice = function (req, res) {
   }
 };
 
+function waybillModified(old_bill, new_bill) {
+  return old_bill.num != new_bill.num ||
+    Math.abs(old_bill.weight - new_bill.weight) > EPSILON ||
+    old_bill.vehicles.length !== new_bill.vehicles.length;
+}
+
 function getChangedBills(old_inv, new_inv) {
-  var allBills = [];
-  old_inv.bills.forEach(function(old_bill) {
-    var found = false;
-    for (var i = 0; i < new_inv.bills.length; ++i) {
-      var new_bill = new_inv.bills[i];
-      var isModified = false;
+  let allBills = [];
+  for (let old_bill of old_inv.bills) {
+    let found = false;
+    for (let new_bill of new_inv.bills) {
+      let isModified = false;
       if (!new_bill.passed && String(old_bill.bill_id) === String(new_bill.bill_id)) {
-        if (old_bill.num != new_bill.num || Math.abs(old_bill.weight - new_bill.weight) > 0.00001) {
+        if (old_bill.num != new_bill.num || Math.abs(old_bill.weight - new_bill.weight) > EPSILON) {
           isModified = true;
         } else {
           if (old_bill.vehicles.length === new_bill.vehicles.length) {
@@ -1654,7 +1661,7 @@ function getChangedBills(old_inv, new_inv) {
               for (var n = 0; n < old_bill.vehicles.length; ++n) {
                 var ovo = old_bill.vehicles[n];
                 if (vo.veh_name === ovo.veh_name && vo.inner_waybill_no === ovo.inner_waybill_no && vo.send_num === ovo.send_num &&
-                    Math.abs(vo.send_weight - ovo.send_weight) < 0.00001 && vo.veh_ship_from === ovo.veh_ship_from) {
+                    Math.abs(vo.send_weight - ovo.send_weight) < EPSILON && vo.veh_ship_from === ovo.veh_ship_from) {
                   find_veh_obj = true;
                   break;
                 }
@@ -1690,7 +1697,7 @@ function getChangedBills(old_inv, new_inv) {
       old_bill.flag = 'remove';
       allBills.push(old_bill);
     }
-  });
+  }
 
   new_inv.bills.forEach(function(bill) {
     if (!bill.passed) {
@@ -1845,41 +1852,73 @@ function assignInvoice(dbInv, inv, state) {
   dbInv.bills = inv.bills.slice(0);
 }
 
-const updateWaybill = async function(dbInv, new_inv, userId) {
+function getDeltaWeight(leftNum, prevLeftNum, blockNum, weight) {
+  if (blockNum > 0) {
+    return (leftNum - prevLeftNum) * weight;
+  } else {
+    return leftNum - prevLeftNum;
+  }
+}
+
+const updateWaybill = async function(res, dbInv, new_inv, userId) {
   let state = dbInv.state === "已配发" ? "已配发" : new_inv.state;
   let shipUpdated = (dbInv.ship_to != new_inv.ship_to) || (dbInv.ship_from != new_inv.ship_from);
   let allBills = getChangedBills(dbInv, new_inv);
 
-  for (let idx = 0; idx < allBills.length; ++idx) {
-    let bill = allBills[idx];
-    let db_bill = await Bill.findById(bill.bill_id).exec();
-    if (db_bill) {
+  let savedBills = [];
+  let savedPlans = [];
+  for (let bill of allBills) {
+    let dbBill = await Bill.findById(bill.bill_id).exec();
+    if (dbBill) {
+      let prevLeftNum = dbBill.left_num;
       let updated = true;
       if (bill.flag === 'modify') {
-        db_bill = modifyInvBill(db_bill, bill, new_inv.waybill_no);
+        dbBill = modifyInvBill(dbBill, bill, new_inv.waybill_no);
       } else if (bill.flag === 'remove') {
-        db_bill = removeInvBill(db_bill, bill, new_inv.waybill_no);
+        dbBill = removeInvBill(dbBill, bill, new_inv.waybill_no);
       } else if (bill.flag === 'add') {
-        if (db_bill.block_num > 0) {
-          db_bill.left_num -= bill.num;
+        if (dbBill.block_num > 0) {
+          dbBill.left_num -= bill.num;
         } else {
-          db_bill.left_num -= bill.weight;
-          db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
+          dbBill.left_num -= bill.weight;
+          dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
         }
-        addInvoiceToBill(db_bill, new_inv, bill);
+        addInvoiceToBill(dbBill, new_inv, bill);
       } else {
         updated = false;
       }
 
-      if (shipUpdated && db_bill.invoices.length) {
-        db_bill.invoices.forEach(function (dbInv) {
+      if (shipUpdated && dbBill.invoices.length) {
+        dbBill.invoices.forEach(function (dbInv) {
           dbInv.ship_to = new_inv.ship_to;
           dbInv.ship_from = new_inv.ship_from;
         });
       }
 
-      if (updated || shipUpdated || updateBillStatus(userId, db_bill, state)) {
-        await db_bill.save();
+      if (updated || shipUpdated || updateBillStatus(userId, dbBill, state)) {
+        if (Math.abs(prevLeftNum - dbBill.left_num) > EPSILON) {
+          let plan = await OrderPlan.findOne({order_no: dbBill.order_no}).exec();
+          if (plan) {
+            plan.left_weight += getDeltaWeight(dbBill.left_num, prevLeftNum, dbBill.left_num, dbBill.weight);
+            if (plan.left_weight < 0) {
+              res.end(JSON.stringify({ok: false, response: '[' + dbBill.order_no + ']修改运单后，订单计划的剩余量小于零:' + plan.left_weight}));
+              return;
+            } else {
+              if (plan.left_weight > EPSILON) {
+                plan.status = 0;
+              } else if (plan.left_weight < EPSILON) {
+                plan.left_weight = 0;
+                plan.status = 1;
+              }
+
+              savedPlans.push(plan);
+            }
+          } else {
+            console.log('no plan:' + dbBill.order_no);
+          }
+        }
+
+        savedBills.push(dbBill);
       }
     }
   }
@@ -1913,7 +1952,10 @@ const updateWaybill = async function(dbInv, new_inv, userId) {
     })
   }
 
+  for (let b of savedBills) { await b.save() }
+  for (let p of savedPlans) { await p.save() }
   await dbInv.save();
+  res.end(JSON.stringify({ok: true}));
 };
 
 function buildInnerSettleData(invoice) {
@@ -1974,10 +2016,11 @@ let saveWaybill = async function(res, invoice, userId) {
         break;
       } else {
         plan.left_weight -= order[orderNo];
-        if (plan.left_weight > 0) {
+        if (plan.left_weight > EPSILON) {
+          plan.status = 0;
+        } else if (plan.left_weight < EPSILON) {
+          plan.left_weight = 0;
           plan.status = 1;
-        } else if (plan.left_weight === 0) {
-          plan.status = 2;
         }
         savedPlans.push(plan);
       }
@@ -2025,8 +2068,7 @@ exports.postBuildInvoice = async function (req, res) {
     if (!dbInv) {
       await saveWaybill(res, new Invoice(data), req.user.userid);
     } else {
-      await updateWaybill(dbInv, data, req.user.userid);
-      res.end(JSON.stringify({ok: true}));
+      await updateWaybill(res, dbInv, data, req.user.userid);
     }
   } catch (e) {
     res.end(JSON.stringify({ ok: false, response: '数据库操作错!' + e.toString() }));
@@ -2211,8 +2253,7 @@ exports.postDistributeInvoice = async function (req, res) {
   try {
     let dbInv = await Invoice.findOne({waybill_no: req.body.waybill_no}).exec();
     if (dbInv) {
-      await updateWaybill(dbInv, req.body, req.user.userid);
-      res.end(JSON.stringify({ok: true}));
+      await updateWaybill(res, dbInv, req.body, req.user.userid);
     } else {
       res.end(JSON.stringify({ok: false, response: 'Not Found!'}));
     }
@@ -2248,91 +2289,69 @@ exports.deleteInvoice = function (req, res) {
   }
 };
 
-exports.postDeleteInvoice = function (req, res) {
-  var waybill = req.body;
-  Invoice.findOne({ waybill_no: waybill.waybill_no }, function(err, invoice) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: 'Not Found!' }));
-    } else {
-      async.each(waybill.bills,
-        function (bill, callback) {
-          Bill.findById(bill.bill_id, function (find_err, db_bill) {
-            if (find_err) {
-              console.error('find error! %s', find_err);
-              callback('删除运单出错:' + find_err);
-            } else {
-              if (db_bill.block_num > 0) {
-                db_bill.left_num += bill.num;
-              } else {
-                db_bill.left_num += bill.weight;
-                db_bill.left_num = utils.toFixedNumber(db_bill.left_num, 3);
-              }
-              updateBillStatus(req.user.userid, db_bill, undefined);
-
-              var len = db_bill.invoices.length;
-              while (len--) {
-                if (db_bill.invoices[len].inv_no === waybill.waybill_no) {
-                  db_bill.invoices.splice(len, 1);//.remove(len);
-                }
-              }
-
-              updateOneDBRecord(db_bill, "删除运单", callback);
-            }
-          });
-        },
-        function (err) {
-          if (err) {
-            res.end(JSON.stringify({ok: false, response: err}));
+exports.postDeleteInvoice = async function (req, res) {
+  let waybill = req.body;
+  let invoice = await Invoice.findOne({ waybill_no: waybill.waybill_no }).exec();
+  if (!invoice) {
+    res.end(JSON.stringify({ ok: false, response: 'Not Found!' }));
+  } else {
+    try {
+      for (let wbill of waybill.bills) {
+        let bill = await Bill.findById(wbill.bill_id).exec();
+        if (bill) {
+          if (bill.block_num > 0) {
+            bill.left_num += wbill.num;
           } else {
-            Invoice.remove({ waybill_no: waybill.waybill_no }, function(remove_err, invoice) {
-              if (remove_err) {
-                console.error('remove invoice error! %s', remove_err);
-                res.end(JSON.stringify({ ok: false, response: '删除运单出错:' + remove_err }));
-              } else {
-                res.end(JSON.stringify({ ok: true }));
-              }
-            });
+            bill.left_num += wbill.weight;
+            bill.left_num = utils.toFixedNumber(bill.left_num, 3);
           }
-        });
+
+          updateBillStatus(req.user.userid, bill, undefined);
+
+          let len = bill.invoices.length;
+          while (len--) {
+            if (bill.invoices[len].inv_no === waybill.waybill_no) {
+              bill.invoices.splice(len, 1);
+            }
+          }
+
+          await bill.save();
+        }
+      }
+
+      await Invoice.remove({waybill_no: waybill.waybill_no}).exec();
+      res.end(JSON.stringify({ok: true}));
+    } catch (e) {
+      console.error("delete error! " + e.toString());
+      res.end(JSON.stringify({ ok: false, response: e.toString() }));
     }
-  });
+  }
 };
 
 
-exports.getInvoiceReport = function(req, res) {
-  Destination.find({}).exec(function (err, dest) {
-    if (err) { req.flash('errors', err); }
-
-    Company.find({}).exec(function (err, companies) {
-      if (err) { req.flash('errors', err); }
-
-      Vehicle.find({}).exec(function (err, vehs) {
-        if (err) { req.flash('errors', err); }
-
-        var data = {
-          company: companies,
-          destination: dest,
-          vehInfo: vehs
-        };
-
-        res.render('statistics/invoice_report', {
-          title: '报表和打印',
-          curr_page: '运单报表',
-          curr_page_name: '报表',
-          bUseJstree: true,
-          bTableSort: true,
-          dDataDict: data,
-          scripts: [
-            '/js/lib/jstree.min.js',
-            '/js/plugins/select2/select2.min.js',
-            '/js/plugins/select2/select2_locale_zh-CN.js',
-            '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-            '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-            '/js/inv_utils.js',
-            '/js/invoice_mgt.js' ]
-        });
-      })
-    });
+exports.getInvoiceReport = async function(req, res) {
+  let destination = await Destination.find({}).exec();
+  let company = await Company.find({}).exec();
+  let vehInfo = await Vehicle.find({}).exec();
+  res.render('statistics/invoice_report', {
+    title: '报表和打印',
+    curr_page: '运单报表',
+    curr_page_name: '报表',
+    bUseJstree: true,
+    bTableSort: true,
+    dDataDict: {
+      company,
+      destination,
+      vehInfo
+    },
+    scripts: [
+      '/js/lib/jstree.min.js',
+      '/js/plugins/select2/select2.min.js',
+      '/js/plugins/select2/select2_locale_zh-CN.js',
+      '/js/plugins/tablesorter/jquery.tablesorter.min.js',
+      '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
+      '/js/inv_utils.js',
+      '/js/invoice_mgt.js' ]
   });
 };
 
@@ -2356,155 +2375,83 @@ exports.getIntegratedQuery = function(req, res) {
 };
 
 /////////////////////////////////////////////////////////////////
-exports.postInitSettleFlag = function(req, res) {
-/*
-	Invoice.find({ship_name: '天津市供销商贸集团有限公司',
-ship_date:{$gte:'2018-08-01'}}, 
-function(err, invs) {
-    if (!err && invs.length > 0) {
-		console.log('invs.length = ' + invs.length)
-		for (var k = 0; k < invs.length; ++k) {
-      async.each(invs[k].bills,
-        function (bill, callback) {
-          Bill.findById(bill.bill_id, function(err, db) {
-            //if (!err) {
-			var update  = false;
-				if (checkFlag(db.settle_flag, 'CUSTOMER')) {
-					update = true;
-					db.settle_flag = clearFlag(db.settle_flag, 'CUSTOMER');
-				}
-				
-			    db.invoices.forEach(function(inv) {
-					if (checkFlag(inv.inv_settle_flag, 'CUSTOMER')) {
-						inv.inv_settle_flag = clearFlag(inv.inv_settle_flag, 'CUSTOMER');
-						update = true;
-					}
-				});
-				
-				if (update) {updateOneDBRecord(db, "", callback); console.log('update it');}
-				else callback();
-          //} else {callback() }
-        })},
-        function (err) {
-          if (err) {
-            res.end(JSON.stringify({ok: false, response: err}));
-          } else {
-            res.end(JSON.stringify({ ok: true }));
-          }
-        });
-		}
-    } else {
-      res.end(JSON.stringify({ ok: true }));
-    }
-  })
-  */
-
-Invoice.find({waybill_no:'01201810080016002'}, function(err, invs) {
-  let v = invs[0];
+exports.postInitSettleFlag = async function(req, res) {
+  let inv = await Invoice.findOne({waybill_no:'01201810080016002'}).exec();
   let ids = [];
-  v.bills.forEach(function(vb) {
+  inv.bills.forEach(vb => {
     if (!ids.includes(vb.bill_id)) {
       ids.push(vb.bill_id);
     }
-  })
+  });
 
-  Bill.find({ _id: { $in: ids } }, function (err, bills) {
-    if (!err) {
-      bills.forEach(function (b) {
-        b.invoices.forEach(function (binv) {
-          if (binv.inv_no === v.waybill_no) {
-            if (binv.inv_settle_flag != 0) {
-              //console.log(binv.inv_settle_flag)
-              console.log(binv.num + ", weight = " + binv.weight > 0 ? binv.weight : binv.num * b.weight)
-              binv.inv_settle_flag = 0;
-            }
-          }
-        })
+  let bills = await Bill.find({ _id: { $in: ids } }).exec();
+  for (let b of bills) {
+    b.invoices.forEach(binv => {
+      if (binv.inv_no === v.waybill_no) {
+        console.log(binv.num + ", weight = " + binv.weight > 0 ? binv.weight : binv.num * b.weight);
+        binv.inv_settle_flag = 0;
+      }
+    });
 
-       b.save();
-      })
-      res.end(JSON.stringify({ok: true}));
-    } else {
-      res.end(JSON.stringify({ok: true}));
-    }
-  })
-})
-/*
-  // initial settle flag
-  Bill.find({billing_name:'苏州钢圣进出口贸易有限公司'}, function(err, bills) {
-    if (!err) {
-      async.each(bills,
-        function (bill, callback) {
-          bill.invoices.forEach(function(inv) {
-//            inv.inv_settle_flag = clearFlag(inv.inv_settle_flag, 'COLLECTION');;
-          });
-//          bill.settle_flag = clearFlag(bill.settle_flag, 'COLLECTION');;
-          updateOneDBRecord(bill, "", callback);
-        },
-        function (err) {
-          if (err) {
-            res.end(JSON.stringify({ok: false, response: err}));
-          } else {
-            res.end(JSON.stringify({ ok: true }));
-            //Invoice.find({}, function(err, invoices) {
-            //  if (!err) {
-            //    invoices.forEach(function(inv) {
-            //      inv.settle_flag = 0;
-            //      inv.save(err, function() {});
-            //    });
-            //  }
-            //  res.end(JSON.stringify({ ok: true }));
-            //});
-          }
-        });
-    } else {
-      res.end(JSON.stringify({ ok: true }));
-    }
-  })*/
+    await b.save();
+  }
+
+  res.end(JSON.stringify({ok: true}));
 };
 
-exports.postInvoiceChargeData = function(req, res) {
-  Invoice.find({}, function(err, invs) {
-    if (!err) {
-      async.each(invs,
-        function (inv, callback) {
-          if (inv.advance_charge > 0) {
-            if (inv.advance_charge_mode === '现金') {
-              inv.charge_cash = inv.advance_charge;
-            } else {
-              inv.charge_oil = inv.advance_charge;
-            }
-          }
-
-          callback();
-        },
-        function (err) {
-          if (err) {
-            res.end(JSON.stringify({ok: false, response: err}));
-          } else {
-            res.end(JSON.stringify({ ok: true }));
-          }
-        });
-    } else {
-      res.end(JSON.stringify({ ok: true }));
+exports.postInvoiceChargeData = async function(req, res) {
+  let invs = await Invoice.find({}).exec();
+  for (let inv of invs) {
+    if (inv.advance_charge > 0) {
+      if (inv.advance_charge_mode === '现金') {
+        inv.charge_cash = inv.advance_charge;
+      } else {
+        inv.charge_oil = inv.advance_charge;
+      }
     }
-  })
+
+    await inv.save();
+  }
+
+  res.end(JSON.stringify({ ok: true }));
 };
 
 exports.getVehicles = function (req, res) {
   Vehicle.find({ }).lean().exec(function(err, vehs) {
     res.end(JSON.stringify({ vehicles: vehs }));
   });
-  /*
-  let q = req.query.q;
-  if (q === '车船') {
-    Vehicle.find({ }, function(err, vehs) {
-      res.end(JSON.stringify({ vehicles: vehs }));
-    })
-  } else {
-    Vehicle.find({veh_type: q}, function(err, vehs) {
-      res.end(JSON.stringify({ vehicles: vehs }));
-    })
+};
+
+exports.updateStatus = async function (req, res) {
+  let plans = await OrderPlan.find({}).exec();
+  for (let plan of plans) {
+    let bills = await Bill.find({order_no: plan.order_no}).exec();
+    if (bills.length > 0) {
+      let w = 0, left = 0;
+      bills.forEach(b => {
+        w += b.total_weight;
+        if (b.block_num > 0) {
+          left += b.left_num * b.weight;
+        } else {
+          left += b.left_num;
+        }
+      });
+
+      plan.left_weight = plan.order_weight - w + left;
+      if (plan.left_weight < EPSILON) {
+        plan.left_weight = 0;
+        plan.status = 1;
+      } else {
+        plan.status = 0;
+      }
+
+      if (w > plan.order_weight) {
+        console.log(plan.order_no + ": total weight > order weight " + w.toFixed(3) + " > " + plan.order_weight);
+      }
+    }
+
+    await plan.save();
   }
-  */
-}
+
+  res.end(JSON.stringify({ ok: true }));
+};

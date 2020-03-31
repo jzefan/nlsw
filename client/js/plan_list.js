@@ -12,7 +12,7 @@ $(function () {
   var unClosePlan = $('#undo-plan-end');
   var destination = $('#m_destination');
 
-  var dbPlans = [];
+  var dbPlans = local_data.plans;
   var selectedPlans = [];
   var selectedIdx = 0;
 
@@ -27,10 +27,18 @@ $(function () {
 
   $('#first-th').html('<input id="select-all" type="checkbox" data-toggle="tooltip" data-placement="bottom" title="选择所有记录" />');
   enableButtons();
+  resetTableRow();
 
   elementEventRegister(updatePlan, 'click', function() { showUpdateForm() });
 
   elementEventRegister(deletePlan, 'click', function() {
+    for (var i = 0; i < selectedPlans.length; ++i) {
+      if (selectedPlans[i].order_weight - selectedPlans[i].left_weight > 0.00001) {
+        bootbox.alert('订单已经开始配发，不能删除！' + selectedPlans.order_no);
+        return;
+      }
+    }
+
     bootbox.confirm('危险!您确定要删除? 删除后不能恢复!', function (result) {
       if (result) {
         ajaxRequestHandle('/plan/delete', 'POST', selectedPlans, '删除', function () {
@@ -52,16 +60,7 @@ $(function () {
     var ordersNo = [];
     selectedPlans.forEach(function (plan) { ordersNo.push(plan.order_no); });
     ajaxRequestHandle('/plan/status_close', 'POST', ordersNo, '订单终结', function() {
-      selectedPlans.forEach(function (p) {
-        for (var k = 0; k < dbPlans.length; ++k) {
-          if (p.order_no === dbPlans[k].order_no) {
-            var tr = getRowChildren(tableBody, k);
-            tr.find("td").eq(16).html('订单终结');
-            break;
-          }
-        }
-      });
-      planTable.trigger("update");
+      closePlan('结案');
     })
   });
 
@@ -69,24 +68,23 @@ $(function () {
     var ordersNo = [];
     selectedPlans.forEach(function (plan) { ordersNo.push(plan.order_no); });
     ajaxRequestHandle('/plan/status_unclose', 'POST', ordersNo, '取消订单终结', function() {
-      selectedPlans.forEach(function (p) {
-        for (var k = 0; k < dbPlans.length; ++k) {
-          if (p.order_no === dbPlans[k].order_no) {
-            var tr = getRowChildren(tableBody, k);
-            if (p.left_weight == p.order_weight) {
-              tr.find("td").eq(16).html('未发运');
-            } else if (p.left_weight == 0) {
-              tr.find("td").eq(16).html('发运完');
-            } else {
-              tr.find("td").eq(16).html('发运中');
-            }
-            break;
-          }
-        }
-      });
-      planTable.trigger("update");
+      closePlan('生效');
     })
   });
+
+
+  function closePlan(str) {
+    selectedPlans.forEach(function (p) {
+      for (var k = 0; k < dbPlans.length; ++k) {
+        if (p.order_no === dbPlans[k].order_no) {
+          var tr = getRowChildren(tableBody, k);
+          tr.find("td").eq(16).html(str);
+          break;
+        }
+      }
+    })
+    planTable.trigger("update");
+  }
 
   elementEventRegister($('#select-all'), 'click', function() {
     if (dbPlans.length > 0) {
@@ -209,11 +207,11 @@ $(function () {
     $('#h_consigner').text(plan.consigner);
     $('#h_contract_no').text(plan.contract_no);
     $('#h_charge').text(plan.receiving_charge);
-    $('#h_entry_time').text(plan.entry_time);
+    $('#h_entry_time').text(date2Str(plan.entry_time, true));
     $('#h_status').text(getStrStatus(plan.status));
 
     $('#m_order_weight').val(plan.order_weight);
-    $('#m_destination').val(plan.destination);
+    $('#m_destination').select2('val', plan.destination);
     $('#m_transport_mode').val(plan.transport_mode);
     $('#m_consignee').val(plan.consignee);
     $('#m_ds_client').val(plan.ds_client);
@@ -221,7 +219,7 @@ $(function () {
     $('#m_consigner').val(plan.consigner);
     $('#m_contract_no').val(plan.contract_no);
     $('#m_charge').val(plan.receiving_charge);
-    $('#m_entry_time_grp').data("DateTimePicker").setDate(plan.entry_time);
+    $('#m_entry_time_grp').data("DateTimePicker").setDate(date2Str(plan.entry_time, true));
 
     $('#plan-modify-dialog').modal({ backdrop: 'static', keyboard: false}).modal('show');
   }
@@ -293,17 +291,7 @@ $(function () {
     $('#lb-left-weight').text(getStrValue(left));
   }
 
-  function getStrStatus(state) {
-    var status = '未发运';
-    if (state == 1) {
-      status = '发运中';
-    } else if (state == 2) {
-      status = '发运完';
-    } else if (state == 3) {
-      status = '发运终结';
-    }
-    return status;
-  }
+  function getStrStatus(state) { return state === 0 ? '生效' : '结案'; }
 
   function trData(plan, tr) {
     var left = plan.left_weight;
@@ -327,13 +315,13 @@ $(function () {
       plan.consigner ? plan.consigner : '',
       plan.contract_no ? plan.contract_no : '',
       getStrValue(plan.receiving_charge),
-      date2Str(plan.entry_time), getStrStatus(plan.status));
+      date2Str(plan.entry_time, true), getStrStatus(plan.status));
   }
 
   function makeTableBodyTr(plan) {
     var trHtml = '<tr><td align="center"><input class="select-order" type="checkbox"></td>' +
       '<td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td>' +
-      '<td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td><td>{15}</td></tr>';
+      '<td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td><td style="text-align: center">{15}</td></tr>';
     return trData(plan, trHtml);
   }
 

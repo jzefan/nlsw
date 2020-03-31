@@ -6,6 +6,7 @@
 
 let OrderPlan = require('../models/OrderPlan');
 let Company = require('../models/Company');
+let Bill = require('../models/Bill');
 let Destination = require('../models/Destination');
 let utils = require('./utils');
 
@@ -14,7 +15,7 @@ let logger = bunyan.createLogger({
   name: 'XHT',
   streams: [ { level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' } ]
 });
-const DELTA = 1e-5; // 定义精度精确到0.00001
+const DELTA = 1e-6; // 定义精度精确到0.00001
 
 exports.getCreateOrderPlan = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') {
@@ -82,6 +83,35 @@ exports.postCreateOrderPlan = async function (req, res) {
           creator: req.user.userid
         });
 
+        let bills = await Bill.find({order_no: orderNo}).exec();
+        if (bills.length > 0) {
+          let w = 0, left = 0;
+          bills.forEach(b => {
+            w += b.total_weight;
+            if (b.block_num > 0) {
+              left += b.block_num * b.weight;
+            } else {
+              left += b.left_num;
+            }
+          });
+
+          if (Math.abs(w - weight) < DELTA) {
+            plan.left_weight = left;
+            if (left < DELTA) {
+              plan.left_weight = 0;
+              plan.status = 1;
+            }
+          } else if (w < weight) {
+            plan.left_weight = weight - w + left;
+            plan.status = 0;
+          } else {
+            plan.left_weight = left;
+            let str = plan.order_no + ":  存在的总重量大于保存的计划订单量, " + w.toFixed(3) + " > " + weight;
+            res.end(JSON.stringify({ok: false, response: str}));
+            return;
+          }
+        }
+
         await plan.save();
         res.end(JSON.stringify({ok: true}));
       } else {
@@ -101,6 +131,7 @@ exports.getPlanList = async function (req, res) {
   else {
     let customer_name = await Company.distinct('name').lean().exec();
     let destination = await Destination.distinct('name').lean().exec();
+    let plans = await OrderPlan.find({status: 0}).lean().sort({order_no: 1}).exec();
 
     res.render('plan/plan_list', {
       title: '订单计划管理',
@@ -109,7 +140,8 @@ exports.getPlanList = async function (req, res) {
       bTableSort: true,
       dData: {
         customer_name,
-        destination
+        destination,
+        plans,
       },
       scripts: [
         '/js/plugins/select2/select2.min.js',
@@ -137,12 +169,12 @@ exports.postUpdatePlan = async function(req, res) {
       plan.left_weight = data.orderWeight - undo;
       if (plan.left_weight < DELTA) {
         plan.left_weight = 0;
-        plan.status = 2;
+        plan.status = 1; // 结案
       } else if (plan.left_weight - data.orderWeight < DELTA) {
         plan.status = 0;
         plan.left_weight = data.orderWeight;
       } else {
-        plan.status = 1;
+        plan.status = 0;
       }
 
       plan.order_weight = data.orderWeight;
@@ -185,7 +217,7 @@ exports.postPlanStatusClosed = async function(req, res) {
     for (let i = 0; i < data.length; ++i) {
       let plan = await OrderPlan.findOne({order_no: data[i]}).exec();
       if (plan) {
-        plan.status = 3;
+        plan.status = 1;
         await plan.save();
       }
     }
@@ -199,21 +231,20 @@ exports.postPlanStatusClosed = async function(req, res) {
 exports.postPlanStatusUnClosed = async function(req, res) {
   let data = req.body;
   try {
+    let plans = [];
     for (let i = 0; i < data.length; ++i) {
-      let plan = await OrderPlan.findOne({order_no: data[i]}).exec();
+      let plan = await OrderPlan.findOne({order_no: data[i], status: 1}).exec();
       if (plan) {
-        if (plan.left_weight - plan.order_weight < DELTA) {
-          plan.status = 0;
-        } else if (plan.left_weight < DELTA) {
-          plan.left_weight = 0;
-          plan.status = 2;
-        } else {
-          plan.status = 1;
-        }
-        await plan.save();
+        plan.status = 0;
+        plans.push(plan);
+      } else {
+        return res.end(JSON.stringify({ok: false, response: '订单未找到' + data[i]}));
       }
     }
 
+    for (let i = 0; i < plans.length; ++i) {
+      await plans[i].save();
+    }
     res.end(JSON.stringify({ok: true}));
   } catch (e) {
     res.end(JSON.stringify({ok: false, response: e.toString()}));
@@ -237,14 +268,7 @@ exports.searchPlans = async function(req, res) {
 
   if (!utils.isEmpty(query.fTransportMode)) obj["$and"].push({ transport_mode: query.fTransportMode });
   if (!utils.isEmpty(query.fStatus)) {
-    let st = 0;
-    if (query.fStatus == '发运中') {
-      st = 1;
-    } else if (query.fStatus == '发运完') {
-      st = 2;
-    } else if (query.fStatus == '发运终结') {
-      st = 3;
-    }
+    let st = (query.fStatus == '生效') ? 0 : 1;
     obj["$and"].push({ status: st });
   }
 
@@ -255,13 +279,12 @@ exports.searchPlans = async function(req, res) {
       w += p.order_weight;
       left += p.left_weight;
     });
-    console.log(left)
+
     res.json(JSON.stringify({ok: true, plans: plans, totalWeight: w, leftWeight: left}));
   } else {
     res.json(JSON.stringify({ok: false}));
   }
 };
-
 
 function getStartEndDate(start, end, isDay) {
   if (start === end) {

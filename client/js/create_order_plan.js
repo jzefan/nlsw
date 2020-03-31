@@ -19,11 +19,11 @@ $(function () {
   var iReceivingCharge = $('#receiving-charge');
   var iConsigner     = $('#consigner');
   var inputTbody     = $('#input-plan-content');
-  var iInputDate     = $('#order-input-grp');
+  var iInputDate     = $('#order-input-time');
 
   var allOrders = [];
 
-  iInputDate.datetimepicker(getDateTimePickerOptions());
+  //iInputDate.datetimepicker(getDateTimePickerOptions());
   sCustomerName.select2();
   sDestination.select2();
 
@@ -266,12 +266,16 @@ $(function () {
       }
     }
 
+    var order = json['order_no'];
+    var year = parseInt('20' + order.substr(3, 2));
+    var month = parseInt(order.substr(5, 2));
+
     allOrders.push({
       orderNo: json['order_no'],
       orderWeight : json['order_weight'],
       leftWeight: json['order_weight'],
       customerName : isEmpty(json['customer_name']) ? '' : json['customer_name'],
-      entryTime : new Date(),
+      entryTime : new Date(year, month),
       customerCode : isEmpty(json['customer_code']) ? '' : json['customer_code'],
       destination : isEmpty(json['destination']) ? '' : json['destination'],
       transportMode : isEmpty(json['transport_mode']) ? '' : json['transport_mode'],
@@ -303,9 +307,7 @@ $(function () {
     unselected(sDestination);
     inputTbody.empty();
     allOrders = [];
-    if (iInputDate.length) {
-      iInputDate.data("DateTimePicker").setDate('');
-    }
+    iInputDate.val('');
   }
 
   initInputUIValues();
@@ -319,6 +321,15 @@ $(function () {
     if (order_no.length != 11) {
       bootbox.alert('当前输入的订单号的长度是' + order_no.length + '位，长度必须为11位');
     } else {
+      try {
+        var year = parseInt('20' + order_no.substr(3, 2));
+        var month = parseInt(order_no.substr(5, 2));
+        iInputDate.val(year + '-' + month);
+      } catch (e) {
+        bootbox.alert('订单号格式不对，不能读取日期');
+        return;
+      }
+
       $.get('/order_plan_exist', {q: order_no}, function (data) {
         var obj = jQuery.parseJSON(data);
         if (obj.exist) {
@@ -346,7 +357,7 @@ $(function () {
     var orderNo = iOrderNo.val();
     var orderWeight = iOrderWeight.val();
     var customerName = sCustomerName.val();
-    var inputDate = iInputDate.data("DateTimePicker").getDate();
+    var inputDate = iInputDate.val();//.data("DateTimePicker").getDate();
     if (isEmpty(orderNo)) {
       bootbox.alert('请输入订单号');
     } else if (orderNo.length != 11) {
@@ -426,6 +437,6 @@ $(function () {
       order.consigner ? order.consigner : '',
       order.contractNo ? order.contractNo : '',
       getStrValue(order.receivingCharge),
-      date2Str(order.entryTime));
+      order.entryTime);
   }
 });
