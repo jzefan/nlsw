@@ -43,7 +43,7 @@
     "serve-favicon": "2.2.0",
     "stream-combiner2": "^1.1.1",
     "uglify-js": "^2.8.29",
-    "underscore": "^1.9.1"
+    "underscore": "^1.12.1"
   },
   "devDependencies": {}
 }
