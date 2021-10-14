@@ -676,16 +676,16 @@ $(function () {
   elementEventRegister(btnExport, 'click', function() {
     var html_text = [];
     var head = '<thead><tr><th>状态</th><th>订单号</th><th>提单号</th><th>开单名称</th><th>车船</th><th>目的地</th><th>价格</th><th>发运块数</th>' +
-      '<th>发运重量</th><th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th><th>规格大小</th></tr></thead><tbody>';
+      '<th>发运重量</th><th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th><th>规格大小</th><th>合同号</th></tr></thead><tbody>';
     html_text.push(head);
 
-    var trHtml = '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td></tr>';
+    var trHtml = '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td><td>{15}</td></tr>';
     curr_show_bills.forEach(function (bill) {
       var priceText = getPriceText(action === "CUSTOMER" ? bill.price : bill.collection_price);
       var name = (bill.ship_customer ? (bill.billing_name + "/" + bill.ship_customer) : bill.billing_name);
 
       var remark = '';
-      var spec = bill.len + '*' + bill.width + '*' + bill.height;
+      var spec = bill.thickness + '*' + bill.width + '*' + bill.len;
       if (bill.width < 3000 && bill.len < 13500) {
         remark = '正常';
       } else if ((bill.width >= 3000 && bill.width < 3300) || (bill.len >= 13500 && bill.len < 16500)) {
@@ -698,7 +698,7 @@ $(function () {
         name, bill.veh_ves_name, bill.ship_to, priceText,
         bill.send_num > 0 ? bill.send_num : '', getStrValue(bill.send_weight),
         bill.ship_warehouse ? bill.ship_warehouse : '', date2Str(bill.inv_ship_date),
-        bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark, spec));
+        bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark, spec, bill.contract_no));
     });
     html_text.push('</tbody>');
 

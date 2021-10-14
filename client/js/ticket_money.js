@@ -364,6 +364,14 @@ $(function () {
           (radioFlag === 1 && settle.status === "已开票") ||
           (radioFlag === 2 && settle.status === "已回款")) ) {
 
+        if (radioFlag === 2) {
+          html_text.push(makeTableBodyTr(settle));
+          curr_settles.push(settle);
+          tn += settle.ship_number;
+          tw += settle.ship_weight;
+          tp += settle.price;
+        } else {
+
         if (//btnMoneyOk.length ||
           (action === "CUSTOMER" && settle.settle_type === "客户结算") ||
           (action === "COLLECTION" && settle.settle_type === "代收代付结算")) {
@@ -372,6 +380,7 @@ $(function () {
           tn += settle.ship_number;
           tw += settle.ship_weight;
           tp += settle.price;
+        }
         }
       }
     });

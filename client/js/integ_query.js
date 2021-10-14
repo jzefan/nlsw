@@ -253,10 +253,12 @@ $(function () {
       bills.forEach(function (bill) {
         var w = (bill.block_num > 0 ? (bill.left_num * bill.weight) : bill.left_num);
         tableBody.append(str.format('', getStrByStatus(bill.status, bill.status), getOrder(bill.order_no, bill.order_item_no), bill.bill_no, bill.billing_name,
-          '', '', 0, getStrValue(w), '', '', '', '', '',
+          '', '', 0, 0, getStrValue(w), '', '', '', '', '',
           bill.ship_warehouse ? bill.ship_warehouse : '', bill.brand_no ? bill.brand_no : "",
-          getStrValue(bill.thickness), getStrValue(bill.width), getStrValue(bill.len), bill.size_type, bill.block_num, getStrValue(bill.total_weight),
-          bill.contract_no ? bill.contract_no : '', bill.sales_dep ? bill.sales_dep : '',
+          bill.thickness + '*' + bill.width + '*' + bill.len,
+          bill.size_type, bill.block_num, getStrValue(bill.total_weight),
+          bill.contract_no ? bill.contract_no : '',
+          bill.sales_dep ? bill.sales_dep : '',
           date2Str(bill.create_date), bill.creater ? bill.creater : ''));
         totWeight += w;
       });
@@ -290,11 +292,16 @@ $(function () {
         var name = (bill.ship_customer ? (bill.billing_name + "/" + bill.ship_customer) : bill.billing_name);
         tableBody.append(str.format(settleState, getStrByStatus(bill.status, bill.status), getOrder(bill.order_no, bill.order_item_no), bill.bill_no, name,
           bill.veh_ves_name, bill.ship_to, bill.send_num, getStrValue(bill.send_weight),
-          getStrValue(bill.price), getStrValue(bill.veh_ves_price),
+          getStrValue(bill.price),
+          getStrValue(bill.collection_price),
+          getStrValue(bill.veh_ves_price),
           date2Str(bill.inv_ship_date), bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no ? bill.inv_no : "",
           bill.ship_warehouse ? bill.ship_warehouse : '', bill.brand_no ? bill.brand_no : "",
-          getStrValue(bill.thickness), getStrValue(bill.width), getStrValue(bill.len), bill.size_type, bill.block_num, getStrValue(bill.total_weight),
-          bill.contract_no ? bill.contract_no : '', bill.sales_dep ? bill.sales_dep : '',
+          bill.thickness + '*' + bill.width + '*' + bill.len,
+          //getStrValue(bill.thickness), getStrValue(bill.width), getStrValue(bill.len),
+          bill.size_type, bill.block_num, getStrValue(bill.total_weight),
+          bill.contract_no ? bill.contract_no : '',
+          bill.sales_dep ? bill.sales_dep : '',
           date2Str(bill.create_date), bill.creater ? bill.creater : ''));
 
         totNum += bill.send_num;

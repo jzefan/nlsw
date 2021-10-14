@@ -6,7 +6,7 @@ $(function () {
     'contract_no', 'shipping_address', 'order_item_no', 'dimensions', 'product_type', 'sources'];
 
   var cn_array = {
-    '提单号': 0, '移拨码单号': 0, '入库单号': 0,
+    '提单号': 0, '移拨码单号': 0, '入库单号': 0, '发货通知单号': 0,
     '订单项次号': 1, '订单编号-项次': 1, '订单编号': 1, '订单号-项次': 1, '订单号':1,
     '牌号': 2, '标准全名': 2, '标准号': 2, '标准名': 2, '钢号': 2,
     '长度': 3, '长': 3,
@@ -18,10 +18,10 @@ $(function () {
     '计划出货重量': 9, '发货重量': 9, '可发货重量': 9, '计划重量': 9, '重量（T）':9, '重量(T)': 9, '重量':9,
     '发货库别': 11, '发货仓库': 11, '仓库': 11, '始发库': 11,
     '销售部门': 12, '销售组别': 12,
-    '客户名称': 13, '客户': 13, '客户信息': 13, '客户编号': 13, '现有货主': 13, '现在货主': 13,
+    '客户名称': 13, '客户': 13, '客户信息': 13, '客户编号': 13, '现有货主': 13, '现在货主': 13, 
     '合同号': 14, '合同': 14, '客户采购案号': 14,
     '收货地址': 15,
-    '订单项次': 16, '项次':16,
+    '订单项次': 16, '项次':16, '项次号':16,
     '规格': 17,
     '产品型态': 18,
     '货物来源': 19
@@ -192,7 +192,7 @@ $(function () {
               $.each(head, function (idx, field) {
                 if (field) {
                   html += '<th>' + field + '</th>';
-                  if (field === '承运单位') {
+                  if (field === '承运单位' || field === '二级运输单位') {
                     departmentIdx = idx;
                   } else if (field === '货物来源') {
                     existSources = true;
@@ -277,7 +277,9 @@ $(function () {
 
     var iLen = items.length;
     var hLen = head.length;
-    if (departmentIdx >= 0 && departmentIdx < iLen && $.trim(items[departmentIdx]) != '南京鑫鸿图储运有限公司') {
+    // 鑫鸿图:   JSB682
+    // 南京卓景: JS7031
+    if (departmentIdx >= 0 && departmentIdx < iLen && $.trim(items[departmentIdx]) != 'JS7031') {
       return ""; // skip non-hongyuntu's record
     }
 

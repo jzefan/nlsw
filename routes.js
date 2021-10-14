@@ -151,8 +151,7 @@ module.exports = function (app) {
   app.post('/plan/status_close', planController.postPlanStatusClosed);
   app.post('/plan/status_unclose', planController.postPlanStatusUnClosed);
 
-
   // test
-  app.get('/plan/update_status', billController.updateStatus);
+  app.get('/plan/update_status', billController.updateStatus1);
 };
  

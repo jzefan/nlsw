@@ -1,2 +1,1165 @@
-$(function(){"use strict";var a=$("#table-tbody"),e=$("#customer-btn"),t=$("#collection-btn"),i=$("#filter"),l=$("#search-export"),s=$("#single-price-input"),n=$("#batch-price-input"),r=$("#settle-bill"),o=$("#non-settle-bill"),c=[],h=[],d=[],u=[],m="CUSTOMER",f=1,_=2,p=new QueryFilterD(local_data,local_data_2,m,function(e,t){if(e){$("body").css({cursor:"wait"});var i=p.getQueryParams();$.get("/get_invoices_bill",i,function(e){var t=jQuery.parseJSON(e);c=[],t.ok&&(c=sortByKey(t.bills,"inv_ship_date","DSC")),h=p.updateOptions(c,!1),k(),$("body").css({cursor:"default"})})}else t&&(c=[]),h=p.updateOptions(c,t),k()});function v(){var t=[];return"CUSTOMER"===m?d.forEach(function(e){e.inv_settle_flag&=~f,e.price=-1,t.push({bid:e._id,inv_no:e.inv_no})}):d.forEach(function(e){e.inv_settle_flag&=~_,e.collection_price=-1,t.push({bid:e._id,inv_no:e.inv_no,settle_flag:e.inv_settle_flag})}),t}$("#first-th").html('<input id="select-all" type="checkbox" data-toggle="tooltip" data-placement="bottom" title="选择所有记录" />'),E(),showHtmlElement($("#lb-selected-group"),!1),elementEventRegister(e,"click",function(){"CUSTOMER"!=m&&(m="CUSTOMER",e.removeClass("btn-default"),e.addClass("btn-primary"),t.removeClass("btn-primary"),t.addClass("btn-default"),p.reset(m),k())}),elementEventRegister(t,"click",function(){"COLLECTION"!=m&&(m="COLLECTION",t.removeClass("btn-default"),t.addClass("btn-primary"),e.removeClass("btn-primary"),e.addClass("btn-default"),p.reset(m),k())}),elementEventRegister(s,"click",function(){1===d.length?function(o){var l="",e='<div class="row form-horizontal"><div class="col-md-10">',t='<div class="form-group"><label for="{0}" class="control-label col-sm-4">{1}</label><div class="input-group col-sm-8"><input id="{2}" type="text" name="{3}" class="form-control" value="{4}"><span style="font-size: 11px">始发: {5}, 目的地: {6}</span></div></div>';"COLLECTION"===m?(l=o.bill_no+"_"+o.order,e+=t.format(l,"代收代付价格",l,l,getStrValue(o.collection_price,"",""))):o.veh_ves_name&&(l=o.inv_no,e+=t.format(l,o.veh_ves_name,l,l,getStrValue(o.price),o.ship_from,o.ship_to));e+="</div>",bootbox.dialog({message:e,title:"单行价格输入",buttons:{cancel:{label:"取消",className:"btn-default"},main:{label:"确定",className:"btn-primary",callback:function(){var e={bid:o._id,inv_no:o.inv_no,price:0},t=!1,i=-1;"COLLECTION"===m?(0<=(i=y(o.bill_no+"_"+o.order))||-1===i)&&o.collection_price!=i&&(o.collection_price=i,e.price=i,t=!0):o.veh_ves_name&&(l=o.inv_no,(0<=(i=y(l))||-1===i)&&o.price!=i&&(o.price=i,e.price=i,t=!0));t&&ajaxRequestHandle("/price_input","POST",{data:[e],act:m},"no_message",function(){for(var e=a.find("tr").length,t=0;t<e;++t){var i=getRowChildren(a,t),l=getTableCellChildren(i,3).text(),s=getTableCellChildren(i,2).text(),n=getTableCellChildren(i,13).text();if(o.bill_no===l&&getOrder(o.order_no,o.order_item_no)===s&&o.inv_no===n){D(i,o);break}}})}}}})}(d[0]):1<d.length?bootbox.alert("您选择了多行，请使用批量输入！"):bootbox.alert("请先选定某一行才能输入价格")}),elementEventRegister(n,"click",function(){d.length?"COLLECTION"===m?O(d):B(d):"COLLECTION"===m?O(u):B(u)}),elementEventRegister($("#select-all"),"click",function(){if(0<u.length){var e=$(".select-bill");d.length===u.length?(e.prop("checked",!1),d=[],a.find("tr").removeClass("invoice-highlighted")):(e.prop("checked",!0),d=u.slice(0),a.find("tr").addClass("invoice-highlighted")),E(),C()}}),elementEventRegister(r,"click",function(){if(d.length){for(var e=[],t=[],i=0;i<d.length;++i){var l=d[i];if(e.indexOf(l.billing_name)<0&&(e.push(l.billing_name),1<e.length))return void bootbox.alert("您选择的提单中存在多个开单名称, 一次只能结算一个开单名称的提单");if(t.indexOf(l.ship_to)<0&&t.push(l.ship_to),"COLLECTION"===m){if(-1===l.collection_price)return void bootbox.alert("您选择的提单:"+l.bill_no+"_"+l.order+" 已经确定为不需要结算!");if(0===l.collection_price)return void bootbox.alert("您选择的提单:"+l.bill_no+"_"+l.order+" 还没有完全输入价格,不能结算")}else{if(-1===l.price)return void bootbox.alert("您选择的提单:"+l.bill_no+"_"+l.order+" 已经确定为不需要结算!");if(0===l.price)return void bootbox.alert("您选择的提单:"+l.bill_no+"_"+l.order+" 还没有完全输入价格,不能结算")}}var s=[],n=0;d.forEach(function(e){"COLLECTION"===m?(n+=e.collection_price*e.send_weight,e.inv_settle_flag|=_,e.settle_flag|=_):(n+=e.price*e.send_weight,e.inv_settle_flag|=f),s.push({bid:e._id,inv_no:e.inv_no,num:e.send_num,weight:e.send_weight,settle_flag:e.inv_settle_flag})});var o=d[0].ship_customer?d[0].billing_name+"/"+d[0].ship_customer:d[0].billing_name;setHtmlElementDisabled(r,!0),ajaxRequestHandle("/settle_bill","POST",{settleObj:s,price:n,settle_type:m,billName:o,shipTo:t.join(",")},"结算",function(){L(),setHtmlElementDisabled(r,!1)})}else bootbox.alert("请先选择您要结算的提单")}),elementEventRegister(o,"click",function(){if(d.length){var i=!1,t=!1;if(d.forEach(function(e){"CUSTOMER"===m?(0<e.price&&(i=!0),e.collection_price<0&&(t=!0)):(0<e.collection_price&&(i=!0),e.price<0&&(t=!0))}),t)"11111111"!==local_user.privilege?bootbox.alert("点击此不需要结算后，存在客户和代收代付都不需要结算的情况，你并没有相应权限，请联系管理员！"):bootbox.confirm("点击此不需要结算后，存在客户和代收代付都不需要结算的情况，确定不需要结算？",function(){var t=[];i?bootbox.confirm("您选择的提单中已经输入过价格, 不结算后这些价格都会清除为0, 确认吗?",function(e){e&&(t=v(),ajaxRequestHandle("/collection_not_require_settle","POST",{nonSettleObj:t,settle_type:m},"不需结算",function(){L()}))}):(t=v(),ajaxRequestHandle("/collection_not_require_settle","POST",{nonSettleObj:t,settle_type:m},"不需结算",function(){L()}))});else{var l=[];i?bootbox.confirm("您选择的提单中已经输入过价格, 不结算后这些价格都会清除为0, 确认吗?",function(e){e&&(l=v(),ajaxRequestHandle("/collection_not_require_settle","POST",{nonSettleObj:l,settle_type:m},"不需结算",function(){L()}))}):(l=v(),ajaxRequestHandle("/collection_not_require_settle","POST",{nonSettleObj:l,settle_type:m},"不需结算",function(){L()}))}}else bootbox.alert("请先选择您不打算进行结算的提单")}),elementEventRegister($("#update-bill"),"click",function(){ajaxRequestHandle("/initial_settle_flag","POST",{},"初始化数据",function(){})});var b=!1,g=$("#show-hide-non-settle");function E(){u.length?(setHtmlElementDisabled(l,!1),setHtmlElementDisabled(n,!1)):(setHtmlElementDisabled(l,!0),setHtmlElementDisabled(n,!0)),d.length?(1===d.length?setHtmlElementDisabled(s,!1):setHtmlElementDisabled(s,!0),setHtmlElementDisabled(r,!1),setHtmlElementDisabled(o,!1)):(setHtmlElementDisabled(r,!0),setHtmlElementDisabled(o,!0),setHtmlElementDisabled(s,!0))}function S(e){return 0<e?'<code style="color:green">'+getStrValue(e)+"</code>":e<0?'<code style="color:blue">不需要结算</code>':'<code style="color:red">0</code>'}function D(e,t){e.find("td").eq(1).html(V(t)),e.find("td").eq(7).html(S("CUSTOMER"===m?t.price:t.collection_price))}function O(e){bootbox.dialog({message:'<div class="row form-horizontal"><div class="col-md-10"><div class="form-group"><label for="collection_00001" class="control-label col-sm-4">批量输入代收代付价格</label><div class="input-group col-sm-8"><input id="collection_00001" type="text" name="collection_00001" class="form-control"></div></div></div></div>',title:"批量价格输入",buttons:{cancel:{label:"取消",className:"btn-default"},main:{label:"确定",className:"btn-primary",callback:function(){var t=y("collection_00001");if(0<=t||-1===t){var i=[];e.forEach(function(e){e.collection_price=t,i.push({bid:e._id,inv_no:e.inv_no,price:t})}),ajaxRequestHandle("/price_input","POST",{data:i,act:m},"no_message",function(){a.find("tr").each(function(e){D($(this),u[e])})})}}}}})}function B(o){var i={};o.forEach(function(e){if(isExist(i[e.billing_name])||(i[e.billing_name]=[]),e.veh_ves_name&&e.ship_to){var t=e.veh_ves_name+"-"+e.ship_to;i[e.billing_name].indexOf(t)<0&&i[e.billing_name].push(t)}});var e='<div class="row form-horizontal">',l="";for(var s in i)if(i.hasOwnProperty(s)&&i[s].length){var n='<div class="col-md-10"><label>'+s+"</label>";i[s].forEach(function(e){var t=e.split("-");l=s.replace(/[\s\(\)#]+/g,"")+"__"+e.replace(/[\s\(\)#]+/g,"999"),n+='<div class="form-group"><label for="{0}" class="control-label col-sm-4">{1}</label><div class="input-group col-sm-8"><input id="{2}" type="text" name="{3}" class="form-control"><span style="font-size: 11px">目的地: {4}</span></div></div>'.format(l,t[0],l,l,t[1])}),e+=n+"</div>"}e+="</div>",bootbox.dialog({message:e,title:"批量输入价格",buttons:{cancel:{label:"取消",className:"btn-default",callback:function(){}},main:{label:"确定",className:"btn-primary",callback:function(){var s=[];for(var n in i)i.hasOwnProperty(n)&&i[n].forEach(function(e){var i=e.split("-"),l=y(n.replace(/[\s\(\)#]+/g,"")+"__"+e.replace(/[\s\(\)#]+/g,"999"));(0<=l||-1===l)&&$.each(o,function(e,t){t.billing_name===n&&t.veh_ves_name===i[0]&&t.ship_to===i[1]&&(t.price=l,s.indexOf(e)<0&&s.push(e))})});if(s.length){var t=[];s.forEach(function(e){t.push({bid:o[e]._id,inv_no:o[e].inv_no,price:o[e].price})}),ajaxRequestHandle("/price_input","POST",{data:t,act:m},"no_message",function(){a.find("tr").each(function(e){D($(this),u[e])})})}}}}})}function y(e){var t="#"+e;if($(t).val()){var i=parseFloatHTML($(t).val());return isNaN(i)||0==i?0:i}return 0}function L(){a.empty(),d=[],u=[];var t=[];h.forEach(function(e){"CUSTOMER"===m?b?-1===e.price&&(t.push(N(e)),u.push(e)):(e.inv_settle_flag&f)!=f&&0<=e.price&&(t.push(N(e)),u.push(e)):"COLLECTION"===m&&(b?-1===e.collection_price&&(t.push(N(e)),u.push(e)):(e.inv_settle_flag&_)!=_&&0<=e.collection_price&&(t.push(N(e)),u.push(e)))}),a.append(t.join("\n")),$("#select-all").prop("checked",!1),E(),a.find("tr").on("click",function(){x($(this),!0)}),$(".select-bill").on("click",function(e){e.stopImmediatePropagation(),x($(this).closest("tr"),!1)})}function x(e,t){for(var i=u[e.index()],l=!1,s=0;s<d.length;++s)if(sameBill(d[s],i)&&i.inv_no===d[s].inv_no&&i.veh_ves_name===d[s].veh_ves_name){d.remove(s),l=!0;break}l?e.removeClass("invoice-highlighted"):(d.push(i),e.addClass("invoice-highlighted")),t&&e.find('input[type="checkbox"]').prop("checked",!l),$("#select-all").prop("checked",d.length===a.find("tr").length),E(),C()}function C(){var t=0,i=0;d.forEach(function(e){t+=e.send_num,i+=e.send_weight}),0<t?(showHtmlElement($("#lb-selected-group"),!0),setElementValue($("#lb-selected-total-num"),getStrValue(t)),setElementValue($("#lb-selected-total-weight"),getStrValue(i))):showHtmlElement($("#lb-selected-group"),!1)}function V(e){var t="";if(isEmpty(e.inv_settle_flag)||0===e.inv_settle_flag)t=-1===e.price&&-1===e.collection_price?getStrByStatus("客户,代收不需结算",e.status):-1===e.price?getStrByStatus("客户不需结算",e.status):-1===e.collection_price?getStrByStatus("代收不需结算",e.status):getStrByStatus("未结算",e.status);else{var i=[];(e.inv_settle_flag&f)===f&&i.push("客户"),(e.inv_settle_flag&_)===_&&i.push("代收付"),t=getStrByStatus(i.join(",")+"已结算",e.status)}return t}function N(e){var t='<tr><td align="center"><input class="select-bill" type="checkbox"></td>',i=S("CUSTOMER"===m?e.price:e.collection_price),l=e.ship_customer?e.billing_name+"/"+e.ship_customer:e.billing_name,s="";return e.width<3e3&&e.len<13500?s="正常":3e3<=e.width&&e.width<3300||13500<=e.len&&e.len<16500?s="超长宽":(3300<=e.width||16500<=e.len)&&(s="特长宽"),(t+="<td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td></tr>").format(V(e),getOrder(e.order_no,e.order_item_no),e.bill_no,l,e.veh_ves_name,e.ship_to,i,0<e.send_num?e.send_num:"",getStrValue(e.send_weight),e.ship_warehouse?e.ship_warehouse:"",date2Str(e.inv_ship_date),e.inv_shipper?e.inv_shipper:"",e.inv_no,s)}g.iCheck("uncheck"),g.on("ifChecked",function(){b=!0,k()}),g.on("ifUnchecked",function(){b=!1,k()}),elementEventRegister(l,"click",function(){var n=[];n.push("<thead><tr><th>状态</th><th>订单号</th><th>提单号</th><th>开单名称</th><th>车船</th><th>目的地</th><th>价格</th><th>发运块数</th><th>发运重量</th><th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th><th>规格大小</th></tr></thead><tbody>");u.forEach(function(e){var t=S("CUSTOMER"===m?e.price:e.collection_price),i=e.ship_customer?e.billing_name+"/"+e.ship_customer:e.billing_name,l="",s=e.len+"*"+e.width+"*"+e.height;e.width<3e3&&e.len<13500?l="正常":3e3<=e.width&&e.width<3300||13500<=e.len&&e.len<16500?l="超长宽":(3300<=e.width||16500<=e.len)&&(l="特长宽"),n.push("<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td></tr>".format(V(e),getOrder(e.order_no,e.order_item_no),e.bill_no,i,e.veh_ves_name,e.ship_to,t,0<e.send_num?e.send_num:"",getStrValue(e.send_weight),e.ship_warehouse?e.ship_warehouse:"",date2Str(e.inv_ship_date),e.inv_shipper?e.inv_shipper:"",e.inv_no,l,s))}),n.push("</tbody>"),tableToExcel(n.join("\n"),"data")});var T=!1,w=!1;function k(){a.empty(),d=[],u=[];var t=0,i=0,l=0,s=0;"CUSTOMER"===m?h.forEach(function(e){b?-1===e.price&&(t+=e.send_num,i+=e.send_weight,++l):(e.inv_settle_flag&f)!=f&&0<=e.price&&(t+=e.send_num,i+=e.send_weight,++l,s+=e.price*e.send_weight)}):"COLLECTION"===m&&h.forEach(function(e){b?-1===e.collection_price&&(t+=e.send_num,i+=e.send_weight,++l):(e.inv_settle_flag&_)!=_&&0<=e.collection_price&&(t+=e.send_num,i+=e.send_weight,++l,s+=e.collection_price*e.send_weight)}),$("#lb-total-amount").text(getStrValue(s)),$("#lb-total-weight").text(getStrValue(i)),$("#lb-total-num").text(getStrValue(t)),$("#curr-bills-number").text(l)}elementEventRegister(i,"click",function(){$("#filter-ui").toggle(),(T=!T)&&!w&&$.get("/settle_vehicle_list",{},function(e){var t=JSON.parse(e);p.setAllVehicles(t.vehicles),w=!0})}),elementEventRegister($("#show-data"),"click",function(){L(),showHtmlElement($("#lb-selected-group"),!1)})});var QueryFilterD=function(e,t,i,l){this.currSelected=0;var s=this;this.uiElems={sBfOrder:new FilterElementD($("#bf-order-no"),[],!1,!0,function(){s.currSelected=2,l(!1,s.isAllEmpty())}),sBfBillName:$("#bf-bill-name"),sBfDest:$("#bf-destination"),sBfVehicle:$("#bf-vehicle"),startDateGrp:$("#start-date-grp"),endDateGrp:$("#end-date-grp"),iStartDate:$("#start-date"),iEndDate:$("#end-date"),sBfVehType:$("#bf-vehtype"),sBfBillNo:new FilterElementD($("#bf-bill-no"),[],!1,!0,function(){s.currSelected=6,l(!1,s.isAllEmpty())})},this.options=e,this.options_2=t,this.action=i,this.selectedVeh=[],this.selectedDest=[],this.veh_list=null,this.allVehicles=null,this.veh_type=0,"CUSTOMER"===i?(initSelect(this.uiElems.sBfBillName,e.nameList,!0),initSelect(this.uiElems.sBfVehicle,e.vehList,!1),initSelect(this.uiElems.sBfDest,e.destList,!1),this.veh_list=e.vehList):"COLLECTION"===i&&(initSelect(this.uiElems.sBfBillName,t.nameList,!0),initSelect(this.uiElems.sBfVehicle,t.vehList,!1),initSelect(this.uiElems.sBfDest,t.destList,!1),this.veh_list=t.vehList),this.uiElems.sBfBillName.select2(),this.uiElems.sBfVehicle.select2(),this.uiElems.sBfDest.select2(),this.eDate=moment(),this.sDate=moment().subtract(1,"months");var n=s.uiElems.startDateGrp.datetimepicker(getDateTimePickerOptions()),o=s.uiElems.endDateGrp.datetimepicker(getDateTimePickerOptions());this.uiElems.endDateGrp.data("DateTimePicker").setDate(this.eDate),this.uiElems.startDateGrp.data("DateTimePicker").setDate(this.sDate),this._selectFliterFunc=function(e,t){this.currSelected=e,this.isAllEmpty()?t(!1,!0):t(!0,!1)},this._dateFilterFunc=function(e,t,i){var l=this.uiElems.iStartDate.val(),s=this.uiElems.iEndDate.val(),n=!1;e&&t?n=!isEmpty(l)&&!isEmpty(s):e?n=isEmpty(this.uiElems.iStartDate.val()):t&&(n=isEmpty(this.uiElems.iEndDate.val())),n&&i(!0,!(this.currSelected=5))},s.uiElems.sBfBillName.on("change",function(){s._selectFliterFunc(1,l)}),s.uiElems.sBfVehicle.on("change",function(e){if(e.added)s.selectedVeh.push(e.added.text);else if(e.removed){var t=s.selectedVeh.indexOf(e.removed.text);-1<t&&s.selectedVeh.splice(t,1)}s._selectFliterFunc(3,l)}),s.uiElems.sBfDest.on("change",function(e){if(e.added)s.selectedDest.push(e.added.text);else if(e.removed){var t=s.selectedDest.indexOf(e.removed.text);-1<t&&s.selectedDest.splice(t,1)}s._selectFliterFunc(4,l)}),s.uiElems.sBfVehType.on("change",function(e){var t=this.value;if(s.veh_type="车"===t?1:"船"===t?2:0,1==s.veh_type){var i=[];s.allVehicles.forEach(function(e){for(var t=0;t<s.veh_list.length;++t)if(s.veh_list[t]===e.name&&"车"===e.veh_type){i.push(s.veh_list[t]);break}}),initSelect(s.uiElems.sBfVehicle,i,!1)}else if(2===s.veh_type){i=[];s.allVehicles.forEach(function(e){for(var t=0;t<s.veh_list.length;++t)if(s.veh_list[t]===e.name&&"船"===e.veh_type){i.push(s.veh_list[t]);break}}),initSelect(s.uiElems.sBfVehicle,i,!1)}else initSelect(s.uiElems.sBfVehicle,s.veh_list,!1)}),n.on("dp.change",function(e){e.preventDefault(),e.stopImmediatePropagation(),s.sDate=e.date.startOf("day"),s.uiElems.endDateGrp.data("DateTimePicker").setMinDate(e.date),s._dateFilterFunc(!0,!0,l)}),o.on("dp.change",function(e){e.preventDefault(),e.stopImmediatePropagation(),s.eDate=e.date.endOf("day"),s.uiElems.startDateGrp.data("DateTimePicker").setMaxDate(e.date),s._dateFilterFunc(!0,!0,l)}),s.uiElems.iStartDate.on("change",function(e){e.stopImmediatePropagation(),s._dateFilterFunc(!0,!1,l)}),s.uiElems.iEndDate.on("change",function(e){e.stopImmediatePropagation(),s._dateFilterFunc(!1,!0,l)})};QueryFilterD.prototype.setAllVehicles=function(e){this.allVehicles=e},QueryFilterD.prototype.getQueryParams=function(){var e=this.uiElems.sBfBillName.val(),t=this.uiElems.iStartDate.val(),i=this.uiElems.iEndDate.val(),l=!isEmpty(t)&&!isEmpty(i);return{fName:e?[e]:null,fVeh:this.selectedVeh,fDest:this.selectedDest,fOrder:null,fBno:null,fDate1:l?this.sDate.toISOString():null,fDate2:l?this.eDate.toISOString():null,fType:"invoice-first"}},QueryFilterD.prototype.isAllEmpty=function(){var e=this.uiElems.sBfOrder.selected,t=this.uiElems.sBfBillNo.selected,i=getSelectValue(this.uiElems.sBfBillName),l=this.uiElems.iStartDate.val(),s=this.uiElems.iEndDate.val();return 0===e.length&&0===t.length&&0===this.selectedVeh.length&&0===this.selectedDest.length&&isEmpty(i)&&isEmpty(l)&&isEmpty(s)},QueryFilterD.prototype.updateOptions=function(e,t){var o=this.uiElems.sBfOrder.selected,a=this.uiElems.sBfBillNo.selected,r=getSelectValue(this.uiElems.sBfBillName),c={orderList:[],vehList:[],destList:[],billNoList:[]},h=[];if(t)c="CUSTOMER"===this.action?this.options:this.options_2,(h=e).forEach(function(e){e.ship_to&&c.destList.indexOf(e.ship_to)<0&&c.destList.push(e.ship_to)}),c.destList=sort_pinyin(c.destList);else{var d=this.selectedVeh,u=this.selectedDest,m=this.action;e.forEach(function(e){var t=!o.length||0<=o.indexOf(e.order_no),i=0===d.length||0<=d.indexOf(e.veh_ves_name),l=0===u.length||0<=u.indexOf(e.ship_to),s=!r||r===e.billing_name,n=!a.length||0<=a.indexOf(e.bill_no);i&&l&&s&&("CUSTOMER"===m?1!=(1&e.inv_settle_flag)&&(c.orderList.indexOf(e.order_no)<0&&c.orderList.push(e.order_no),c.billNoList.indexOf(e.bill_no)<0&&c.billNoList.push(e.bill_no)):2!=(2&e.inv_settle_flag)&&(c.orderList.indexOf(e.order_no)<0&&c.orderList.push(e.order_no),c.billNoList.indexOf(e.bill_no)<0&&c.billNoList.push(e.bill_no)),t&&n&&(e.veh_ves_name&&c.vehList.indexOf(e.veh_ves_name)<0&&c.vehList.push(e.veh_ves_name),e.ship_to&&c.destList.indexOf(e.ship_to)<0&&c.destList.push(e.ship_to),h.push(e)))}),c.destList=sort_pinyin(c.destList),c.orderList.sort(),c.billNoList=sort_pinyin(c.billNoList),c.vehList=sort_pinyin(c.vehList)}return vehList=c.vehList,2===this.currSelected?(this.uiElems.sBfBillNo.rebuild(c.billNoList.sort(),a),initSelect(this.uiElems.sBfVehicle,vehList,!1),this.uiElems.sBfVehicle.select2("val",this.selectedVeh),initSelect(this.uiElems.sBfDest,c.destList,!1),this.uiElems.sBfDest.select2("val",this.selectedDest)):3===this.currSelected?(this.uiElems.sBfOrder.rebuild(c.orderList.sort(),o),this.uiElems.sBfBillNo.rebuild(c.billNoList.sort(),a),initSelect(this.uiElems.sBfDest,c.destList,!1),this.uiElems.sBfDest.select2("val",this.selectedDest)):4===this.currSelected?(this.uiElems.sBfOrder.rebuild(c.orderList.sort(),o),this.uiElems.sBfBillNo.rebuild(c.billNoList.sort(),a),initSelect(this.uiElems.sBfVehicle,vehList,!1),this.uiElems.sBfVehicle.select2("val",this.selectedVeh)):6===this.currSelected?(initSelect(this.uiElems.sBfVehicle,vehList,!1),this.uiElems.sBfVehicle.select2("val",this.selectedVeh),initSelect(this.uiElems.sBfDest,c.destList,!1),this.uiElems.sBfDest.select2("val",this.selectedDest),this.uiElems.sBfOrder.rebuild(c.orderList.sort(),o)):(this.uiElems.sBfBillNo.rebuild(c.billNoList.sort(),a),this.uiElems.sBfOrder.rebuild(c.orderList.sort(),o),initSelect(this.uiElems.sBfVehicle,vehList,!1),this.uiElems.sBfVehicle.select2("val",this.selectedVeh),initSelect(this.uiElems.sBfDest,c.destList,!1),this.uiElems.sBfDest.select2("val",this.selectedDest)),h},QueryFilterD.prototype.reset=function(e){var t=getSelectValue(this.uiElems.sBfBillName);"CUSTOMER"===e?(initSelect(this.uiElems.sBfBillName,this.options.nameList,!0,t),initSelect(this.uiElems.sBfVehicle,this.options.vehList,!1),initSelect(this.uiElems.sBfDest,this.options.destList,!1)):"COLLECTION"===e&&(initSelect(this.uiElems.sBfBillName,this.options_2.nameList,!0,t),initSelect(this.uiElems.sBfVehicle,this.options_2.vehList,!1),initSelect(this.uiElems.sBfDest,this.options_2.destList,!1)),this.action=e,this.uiElems.sBfBillName.select2("val",t),this.uiElems.sBfVehicle.select2("val",this.selectedVeh),this.uiElems.sBfDest.select2("val",this.selectedDest)};
-//# sourceMappingURL=settle_mgt.js.map
+/**
+ * Created by ezefjia on 12/4/2014.
+ */
+
+$(function () {
+  "use strict";
+
+  var tableBody        = $('#table-tbody');
+  var btnCustomer      = $('#customer-btn');
+  var btnCollection    = $('#collection-btn');
+  var btnFilter        = $('#filter');
+  var btnExport        = $('#search-export');
+  var singlePriceInput = $('#single-price-input');
+  var batchPriceInput  = $('#batch-price-input');
+  var btnSettle        = $('#settle-bill');
+  var btnNonSettle     = $('#non-settle-bill');
+
+  var dbBills = [];
+  var curr_bills = []; // 存放查询得到的所有提单
+  var selected_bills = [];
+  var curr_show_bills = [];
+
+  var action = "CUSTOMER";
+
+  var CUSTOMER_SETTLE_FLAG   = 1; // 0001
+  var COLLECTION_SETTLE_FLAG = 2; // 0010
+
+  var qFilter = new QueryFilterD(local_data, local_data_2, action, filterData);
+
+  $('#first-th').html('<input id="select-all" type="checkbox" data-toggle="tooltip" data-placement="bottom" title="选择所有记录" />');
+  enableButtons();
+  showHtmlElement($('#lb-selected-group'), false);
+
+  elementEventRegister(btnCustomer, 'click', function() {
+    if (action != "CUSTOMER") {
+      action = "CUSTOMER";
+      btnCustomer.removeClass("btn-default");
+      btnCustomer.addClass("btn-primary");
+      btnCollection.removeClass("btn-primary");
+      btnCollection.addClass("btn-default");
+      qFilter.reset(action);
+      showHintText();
+    }
+  });
+
+  elementEventRegister(btnCollection, 'click', function() {
+    if (action != "COLLECTION") {
+      action = "COLLECTION";
+      btnCollection.removeClass("btn-default");
+      btnCollection.addClass("btn-primary");
+      btnCustomer.removeClass("btn-primary");
+      btnCustomer.addClass("btn-default");
+      qFilter.reset(action);
+      showHintText();
+    }
+  });
+
+  elementEventRegister(singlePriceInput, 'click', function() {
+    if (selected_bills.length === 1) {
+      buildPriceDialog(selected_bills[0]);
+    } else if (selected_bills.length > 1) {
+      bootbox.alert("您选择了多行，请使用批量输入！");
+    } else {
+      bootbox.alert("请先选定某一行才能输入价格");
+    }
+  });
+
+  elementEventRegister(batchPriceInput, 'click', function() {
+    if (selected_bills.length) {
+      if (action === 'COLLECTION') {
+        buildBatchInputForCollection(selected_bills);
+      } else {
+        buildPriceBatchInputDialog(selected_bills);
+      }
+    } else {
+      if (action === 'COLLECTION') {
+        buildBatchInputForCollection(curr_show_bills);
+      } else {
+        buildPriceBatchInputDialog(curr_show_bills);
+      }
+    }
+  });
+
+  elementEventRegister($('#select-all'), 'click', function() {
+    if (curr_show_bills.length > 0) {
+      var checkBox = $('.select-bill');
+      if (selected_bills.length === curr_show_bills.length) { // 之前已经选择
+        checkBox.prop("checked", false);
+        selected_bills = [];
+        tableBody.find("tr").removeClass('invoice-highlighted');
+      } else {
+        checkBox.prop("checked", true);
+        selected_bills = curr_show_bills.slice(0);
+        tableBody.find("tr").addClass('invoice-highlighted');
+      }
+      enableButtons();
+      showSelectedTotalValue();
+    }
+  });
+
+  elementEventRegister(btnSettle, 'click', function() {
+    if (selected_bills.length) {
+      var allName = [];
+      var shipToList = [];
+      for (var i = 0; i < selected_bills.length; ++i) {
+        var b = selected_bills[i];
+        if (allName.indexOf(b.billing_name) < 0) {
+          allName.push(b.billing_name);
+          if (allName.length > 1) {
+            bootbox.alert("您选择的提单中存在多个开单名称, 一次只能结算一个开单名称的提单");
+            return;
+          }
+        }
+
+        if (shipToList.indexOf(b.ship_to) < 0) {
+          shipToList.push(b.ship_to);
+        }
+
+        if (action === "COLLECTION") {
+          if (b.collection_price === -1) {
+            bootbox.alert("您选择的提单:" + b.bill_no + "_" + b.order + " 已经确定为不需要结算!");
+            return;
+          } else if (b.collection_price === 0) {
+            bootbox.alert("您选择的提单:" + b.bill_no + "_" + b.order + " 还没有完全输入价格,不能结算");
+            return;
+          }
+        } else {
+          if (b.price === -1) {
+            bootbox.alert("您选择的提单:" + b.bill_no + "_" + b.order + " 已经确定为不需要结算!");
+            return;
+          } else if (b.price === 0) {
+            bootbox.alert("您选择的提单:" + b.bill_no + "_" + b.order + " 还没有完全输入价格,不能结算");
+            return;
+          }
+        }
+      }
+
+      var settleObj = [];
+      var totPrice = 0;
+      selected_bills.forEach(function(b) {
+        if (action === "COLLECTION") {
+          totPrice += b.collection_price * b.send_weight;
+          b.inv_settle_flag |= COLLECTION_SETTLE_FLAG;
+          b.settle_flag |= COLLECTION_SETTLE_FLAG;
+        } else {
+          totPrice += b.price * b.send_weight;
+          b.inv_settle_flag |= CUSTOMER_SETTLE_FLAG;
+        }
+
+        settleObj.push({
+          bid: b._id,
+          inv_no: b.inv_no,
+          num: b.send_num,
+          weight: b.send_weight,
+          settle_flag: b.inv_settle_flag // (action === "COLLECTION") ? b.settle_flag : b.inv_settle_flag
+        });
+      });
+
+      var bname = (selected_bills[0].ship_customer ? (selected_bills[0].billing_name + "/" + selected_bills[0].ship_customer) : selected_bills[0].billing_name);
+      setHtmlElementDisabled(btnSettle, true);
+      ajaxRequestHandle('/settle_bill', 'POST',
+        { settleObj: settleObj,
+          price: totPrice,
+          settle_type: action,
+          billName: bname,
+          shipTo: shipToList.join(",")
+        }, '结算', function () {
+          resetTableRow();
+          setHtmlElementDisabled(btnSettle, false);
+        });
+    } else {
+      bootbox.alert("请先选择您要结算的提单");
+    }
+  });
+
+  function getNonSettleParamObj() {
+    var res = [];
+    if (action === "CUSTOMER") {
+      selected_bills.forEach(function (b) {
+        b.inv_settle_flag &= ~CUSTOMER_SETTLE_FLAG;
+        b.price = -1;
+        res.push({ bid: b._id, inv_no: b.inv_no });
+      });
+    } else {
+      selected_bills.forEach(function (b) {
+        b.inv_settle_flag &= ~COLLECTION_SETTLE_FLAG;
+        b.collection_price = -1;
+        res.push({ bid: b._id, inv_no: b.inv_no, settle_flag: b.inv_settle_flag });
+      });
+    }
+
+    return res;
+  }
+
+  elementEventRegister(btnNonSettle, 'click', function() {
+    if (selected_bills.length) {
+      var hasPrice = false;
+      var bothNotSettle = false;
+      selected_bills.forEach(function(b) {
+        if (action === "CUSTOMER") {
+          if (b.price > 0) hasPrice = true;
+
+          if (b.collection_price < 0) {
+            bothNotSettle = true;
+          }
+        } else {
+          if (b.collection_price > 0) hasPrice = true;
+
+          if (b.price < 0) {
+            bothNotSettle = true;
+          }
+        }
+      });
+
+      if (bothNotSettle) {
+        if (local_user.privilege !== '11111111') {
+          bootbox.alert('点击此不需要结算后，存在客户和代收代付都不需要结算的情况，你并没有相应权限，请联系管理员！');
+        } else {
+          bootbox.confirm('点击此不需要结算后，存在客户和代收代付都不需要结算的情况，确定不需要结算？', function() {
+            var nonSettleObj = [];
+            if (hasPrice) {
+              bootbox.confirm("您选择的提单中已经输入过价格, 不结算后这些价格都会清除为0, 确认吗?", function(result) {
+                if (result) {
+                  nonSettleObj = getNonSettleParamObj();
+                  ajaxRequestHandle('/collection_not_require_settle', 'POST',
+                    { nonSettleObj: nonSettleObj, settle_type: action }, '不需结算', function () {
+                      resetTableRow();
+                    });
+                }
+              })
+            } else {
+              nonSettleObj = getNonSettleParamObj();
+              ajaxRequestHandle('/collection_not_require_settle', 'POST',
+                { nonSettleObj: nonSettleObj, settle_type: action }, '不需结算', function () {
+                  resetTableRow();
+                });
+            }
+          });
+        }
+      } else {
+        var nonSettleObj = [];
+        if (hasPrice) {
+          bootbox.confirm("您选择的提单中已经输入过价格, 不结算后这些价格都会清除为0, 确认吗?", function (result) {
+            if (result) {
+              nonSettleObj = getNonSettleParamObj();
+              ajaxRequestHandle('/collection_not_require_settle', 'POST',
+                {nonSettleObj: nonSettleObj, settle_type: action}, '不需结算', function () {
+                  resetTableRow();
+                });
+            }
+          })
+        } else {
+          nonSettleObj = getNonSettleParamObj();
+          ajaxRequestHandle('/collection_not_require_settle', 'POST',
+            {nonSettleObj: nonSettleObj, settle_type: action}, '不需结算', function () {
+              resetTableRow();
+            });
+        }
+      }
+
+    } else {
+      bootbox.alert("请先选择您不打算进行结算的提单");
+    }
+  });
+
+  elementEventRegister($('#update-bill'), 'click', function() {
+    ajaxRequestHandle('/initial_settle_flag', 'POST', {}, '初始化数据', function () { });
+  });
+
+  var showNonSettle = false;
+  var showHideNotSettle = $('#show-hide-non-settle');
+  showHideNotSettle.iCheck('uncheck');
+  showHideNotSettle.on('ifChecked', function() {
+    showNonSettle = true;
+    showHintText();
+  });
+  showHideNotSettle.on('ifUnchecked', function() {
+    showNonSettle = false;
+    showHintText();
+  });
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////
+  /// Function list
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////
+  function enableButtons() {
+    if (curr_show_bills.length) {
+      setHtmlElementDisabled(btnExport, false);
+      setHtmlElementDisabled(batchPriceInput, false);
+    } else {
+      setHtmlElementDisabled(btnExport, true);
+      setHtmlElementDisabled(batchPriceInput, true);
+    }
+
+    if (selected_bills.length) {
+      if (selected_bills.length === 1) {
+        setHtmlElementDisabled(singlePriceInput, false);
+      } else {
+        setHtmlElementDisabled(singlePriceInput, true);
+      }
+
+      setHtmlElementDisabled(btnSettle, false);
+      setHtmlElementDisabled(btnNonSettle, false);
+    } else {
+      setHtmlElementDisabled(btnSettle, true);
+      setHtmlElementDisabled(btnNonSettle, true);
+      setHtmlElementDisabled(singlePriceInput, true);
+    }
+  }
+
+  function getPriceText(price) {
+    var priceText = "";
+    if (price > 0) {
+      priceText = '<code style="color:green">' + getStrValue(price) + '</code>';
+    } else if (price < 0) {
+      priceText = '<code style="color:blue">不需要结算</code>';
+    } else {
+      priceText = '<code style="color:red">0</code>';
+    }
+
+    return priceText;
+  }
+
+  function updatePriceColumn(tr, bill) {
+    tr.find("td").eq(1).html(getState(bill));
+    tr.find("td").eq(7).html(getPriceText(action === "CUSTOMER" ? bill.price : bill.collection_price));
+    //tr.popover('hide').attr('data-content', getBillTooltip(bill));
+  }
+
+  function buildPriceDialog(bill) {
+    var id = "";
+    var msg = '<div class="row form-horizontal"><div class="col-md-10">';
+    var str = '<div class="form-group"><label for="{0}" class="control-label col-sm-4">{1}</label><div class="input-group col-sm-8"><input id="{2}" type="text" name="{3}" class="form-control" value="{4}"><span style="font-size: 11px">始发: {5}, 目的地: {6}</span></div></div>';
+    if (action === 'COLLECTION') {
+      id = bill.bill_no + '_' + bill.order;
+      msg += str.format(id, '代收代付价格', id, id, getStrValue(bill.collection_price, "", ""));
+    } else {
+      if (bill.veh_ves_name) { // 正常有运单一定有运单车船，需要再检查？
+        id = bill.inv_no;
+        msg += str.format(id, bill.veh_ves_name, id, id, getStrValue(bill.price), bill.ship_from, bill.ship_to);
+      }
+    }
+    msg += '</div>';
+
+    bootbox.dialog({
+      message: msg,
+      title: "单行价格输入",
+      buttons: {
+        cancel: { label: "取消", className: "btn-default" },
+        main:   { label: "确定", className: "btn-primary", callback: ok }
+      }
+    });
+
+    function ok() {
+      var obj = {
+        bid : bill._id,
+        inv_no: bill.inv_no,
+        price: 0
+      };
+      var updated = false;
+      var price = -1;
+      if (action === 'COLLECTION') {
+        price = getPriceValue(bill.bill_no + '_' + bill.order);
+        if ((price >= 0 || price === -1) && bill.collection_price != price) {
+          bill.collection_price = price;
+          obj.price = price;
+          updated = true;
+        }
+      } else {
+        if (bill.veh_ves_name) {
+          id = bill.inv_no;
+          price = getPriceValue(id);
+          if ((price >= 0 || price === -1) && bill.price != price) {
+            bill.price = price;
+            obj.price = price;
+            updated = true;
+          }
+        }
+      }
+
+      if (updated) {
+        ajaxRequestHandle('/price_input', 'POST', { data: [ obj ], act: action }, 'no_message', function() {
+          var numOfRow = tableBody.find("tr").length;
+          for (var i = 0; i < numOfRow; ++i) {
+            var tr = getRowChildren(tableBody, i);
+            var b = getTableCellChildren(tr, 3).text();
+            var o = getTableCellChildren(tr, 2).text();
+            var no = getTableCellChildren(tr, 13).text();
+            if (bill.bill_no === b && getOrder(bill.order_no, bill.order_item_no) === o && bill.inv_no === no) {
+              updatePriceColumn(tr, bill);
+              break;
+            }
+          }
+        });
+      }
+    }
+  }
+
+  function buildBatchInputForCollection(bills) {
+    bootbox.dialog({
+      message: '<div class="row form-horizontal"><div class="col-md-10"><div class="form-group"><label for="collection_00001" class="control-label col-sm-4">批量输入代收代付价格</label><div class="input-group col-sm-8"><input id="collection_00001" type="text" name="collection_00001" class="form-control"></div></div></div></div>',
+      title: "批量价格输入",
+      buttons: {
+        cancel: { label: "取消", className: "btn-default" },
+        main:   { label: "确定", className: "btn-primary", callback: function() {
+          var price = getPriceValue("collection_00001");
+          if (price >= 0 || price === -1) {
+            var obj = [];
+            bills.forEach(function(b) {
+              b.collection_price = price;
+              obj.push({
+                bid : b._id,
+                inv_no: b.inv_no,
+                price: price
+              })
+            });
+            ajaxRequestHandle('/price_input', 'POST', { data: obj, act: action }, 'no_message', function() {
+              tableBody.find('tr').each(function(idx) {
+              //$('#table-tbody tr').each(function(idx) {
+                updatePriceColumn($(this), curr_show_bills[idx]);
+              });
+            });
+          }
+        } }
+      }
+    });
+  }
+
+  function buildPriceBatchInputDialog(bills) {
+    var idata = {}; // { billname : { veh_ves_name: [] }  }
+    bills.forEach(function(bill) {
+      if (!isExist(idata[bill.billing_name])) {
+        idata[bill.billing_name] = [];
+      }
+
+      if (bill.veh_ves_name && bill.ship_to) {
+        var vv2dest = bill.veh_ves_name + '-' + bill.ship_to;
+        if (idata[bill.billing_name].indexOf(vv2dest) < 0) {
+          idata[bill.billing_name].push(vv2dest);
+        }
+      }
+    });
+
+    var msg = '<div class="row form-horizontal">';
+    var str = '<div class="form-group"><label for="{0}" class="control-label col-sm-4">{1}</label><div class="input-group col-sm-8"><input id="{2}" type="text" name="{3}" class="form-control"><span style="font-size: 11px">目的地: {4}</span></div></div>';
+    var id = "";
+    for (var name in idata) {
+      if (idata.hasOwnProperty(name) && idata[name].length) {
+        var html = '<div class="col-md-10"><label>' + name + '</label>';
+        idata[name].forEach(function(item) {
+          var temp = item.split('-');
+          id = name.replace(/[\s\(\)#]+/g, '') + '__' + item.replace(/[\s\(\)#]+/g, "999");
+          html += str.format(id, temp[0], id, id, temp[1]);
+        });
+        msg += html + '</div>';
+      }
+    }
+    msg += '</div>';
+
+    bootbox.dialog({
+      message: msg,
+      title: "批量输入价格",
+      buttons: {
+        cancel: { label: "取消", className: "btn-default", callback: function() { }},
+        main:   { label: "确定", className: "btn-primary", callback: ok }
+      }
+    });
+
+    function ok() {
+      var id = "";
+      var idxList = [];
+      for (var name in idata) {
+        if (idata.hasOwnProperty(name)) {
+          idata[name].forEach(function (item) {
+            var temp = item.split('-');
+            id = name.replace(/[\s\(\)#]+/g, '') + '__' + item.replace(/[\s\(\)#]+/g, "999");
+            var price = getPriceValue(id);
+            if (price >= 0 || price === -1) {
+              $.each(bills, function (index, b) {
+                if (b.billing_name === name && b.veh_ves_name === temp[0] && b.ship_to === temp[1]) {
+                  b.price = price;
+                  if (idxList.indexOf(index) < 0) {
+                    idxList.push(index);
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+
+      if (idxList.length) {
+        var obj = [];
+        idxList.forEach(function(idx) {
+          obj.push({
+            bid : bills[idx]._id,
+            inv_no: bills[idx].inv_no,
+            price: bills[idx].price
+          });
+        });
+        ajaxRequestHandle('/price_input', 'POST', { data: obj, act: action }, 'no_message', function() {
+          tableBody.find('tr').each(function(idx) {
+          //$('#table-tbody tr').each(function(idx) {
+            updatePriceColumn($(this), curr_show_bills[idx]);
+          });
+        });
+      }
+    }
+  }
+
+  function getPriceValue(id) {
+    var jqId = '#' + id;
+    var v = $(jqId).val();
+    if (v) {
+      var value = parseFloatHTML($(jqId).val());
+      if (isNaN(value) || value == 0) {
+        return 0;
+      } else {
+        return value;
+      }
+    } else {
+      return 0;
+    }
+  }
+
+  function resetTableRow() {
+    tableBody.empty();
+    selected_bills = [];
+    curr_show_bills = [];
+    var html_text = [];
+    curr_bills.forEach(function (bill) {
+      if (action === 'CUSTOMER') {
+        if (showNonSettle) {
+          if (bill.price === -1) {
+            html_text.push(makeTableBodyTr(bill));
+            curr_show_bills.push(bill);
+          }
+        }
+        else {
+          if ((bill.inv_settle_flag & CUSTOMER_SETTLE_FLAG) != CUSTOMER_SETTLE_FLAG && bill.price >= 0) {
+            html_text.push(makeTableBodyTr(bill));
+            curr_show_bills.push(bill);
+          }
+        }
+      } else if (action === "COLLECTION") {
+        if (showNonSettle) {
+          if (bill.collection_price === -1) {
+            html_text.push(makeTableBodyTr(bill));
+            curr_show_bills.push(bill);
+          }
+        }
+        else {
+          if ((bill.inv_settle_flag & COLLECTION_SETTLE_FLAG) != COLLECTION_SETTLE_FLAG && bill.collection_price >= 0) {
+            html_text.push(makeTableBodyTr(bill));
+            curr_show_bills.push(bill);
+          }
+        }
+      }
+    });
+
+    tableBody.append(html_text.join('\n'));
+
+    //$('#lb-total-weight').text(getStrValue(totalWeight));
+    //$('#lb-total-num').text(getStrValue(totalNumber));
+    //$('#curr-bills-number').text(tableBody.find("tr").length);
+
+    $('#select-all').prop("checked", false);
+    enableButtons();
+
+    tableBody.find('tr').on('click', function () {
+      selectRow($(this), true);
+    });
+
+    $('.select-bill').on('click', function(e) {
+      e.stopImmediatePropagation();
+      selectRow($(this).closest('tr'), false);
+    });
+
+//    $('[data-toggle="popover"]').popover({ trigger: "hover", html: true, placement: "bottom" });
+  }
+
+  function selectRow(me, needUpdateCheckbox) {
+    var b = curr_show_bills[me.index()];
+    var found = false;
+    for (var i = 0; i < selected_bills.length; ++i) {
+      if (sameBill(selected_bills[i], b) && b.inv_no === selected_bills[i].inv_no && b.veh_ves_name === selected_bills[i].veh_ves_name) {
+        selected_bills.remove(i);
+        found = true;
+        break;
+      }
+    }
+
+    if (found) {
+      me.removeClass('invoice-highlighted');
+    } else {
+      selected_bills.push(b);
+      me.addClass('invoice-highlighted');
+    }
+
+    if (needUpdateCheckbox) {
+      me.find('input[type="checkbox"]').prop("checked", !found);
+    }
+
+    $('#select-all').prop("checked", selected_bills.length === tableBody.find("tr").length);
+    enableButtons();
+    showSelectedTotalValue();
+  }
+
+  function showSelectedTotalValue() {
+    var selectedTotalNumber = 0;
+    var selectedTotalWeight = 0;
+    selected_bills.forEach(function (sb) {
+      selectedTotalNumber += sb.send_num; // priceInfoObj.totalNumber;
+      selectedTotalWeight += sb.send_weight; // bill.total_weight;
+    });
+
+    if (selectedTotalNumber > 0) {
+      showHtmlElement($('#lb-selected-group'), true);
+      setElementValue($('#lb-selected-total-num'), getStrValue(selectedTotalNumber));
+      setElementValue($('#lb-selected-total-weight'), getStrValue(selectedTotalWeight));
+    } else {
+      showHtmlElement($('#lb-selected-group'), false);
+    }
+  }
+
+  function getState(bill) {
+    var statusStr = "";
+    if (isEmpty(bill.inv_settle_flag) || bill.inv_settle_flag === 0) {
+      if (bill.price === -1 && bill.collection_price === -1) {
+        statusStr = getStrByStatus("客户,代收不需结算", bill.status);
+      } else if (bill.price === -1) {
+        statusStr = getStrByStatus("客户不需结算", bill.status);
+      } else if (bill.collection_price === -1) {
+        statusStr = getStrByStatus("代收不需结算", bill.status);
+      } else {
+        statusStr = getStrByStatus("未结算", bill.status);
+      }
+    } else {
+      var statusText = [];
+      if ((bill.inv_settle_flag & CUSTOMER_SETTLE_FLAG) === CUSTOMER_SETTLE_FLAG) {
+        statusText.push("客户");
+      }
+      if ((bill.inv_settle_flag & COLLECTION_SETTLE_FLAG) === COLLECTION_SETTLE_FLAG) {
+        statusText.push("代收付");
+      }
+      statusStr = getStrByStatus(statusText.join(',') + '已结算', bill.status);
+    }
+
+    return statusStr;
+  }
+
+  function makeTableBodyTr(bill) {
+    var trHtml = '<tr><td align="center"><input class="select-bill" type="checkbox"></td>';
+
+    //totalNumber += bill.send_num; // priceInfoObj.totalNumber;
+    //totalWeight += bill.send_weight; // bill.total_weight;
+
+    var priceText = getPriceText(action === "CUSTOMER" ? bill.price : bill.collection_price);
+    var name = (bill.ship_customer ? (bill.billing_name + "/" + bill.ship_customer) : bill.billing_name);
+
+    var remark = '';
+    if (bill.width < 3000 && bill.len < 13500) {
+      remark = '正常';
+    } else if ((bill.width >= 3000 && bill.width < 3300) || (bill.len >= 13500 && bill.len < 16500)) {
+      remark = '超长宽';
+    } else if (bill.width >= 3300 || bill.len >= 16500) {
+      remark = '特长宽';
+    }
+
+    trHtml += '<td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td></tr>';
+    return trHtml.format(getState(bill), getOrder(bill.order_no, bill.order_item_no), bill.bill_no,
+      name, bill.veh_ves_name, bill.ship_to, priceText,
+      bill.send_num > 0 ? bill.send_num : '', getStrValue(bill.send_weight),
+      bill.ship_warehouse ? bill.ship_warehouse : '', date2Str(bill.inv_ship_date), bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark);
+  }
+
+  elementEventRegister(btnExport, 'click', function() {
+    var html_text = [];
+    var head = '<thead><tr><th>状态</th><th>订单号</th><th>提单号</th><th>开单名称</th><th>车船</th><th>目的地</th><th>价格</th><th>发运块数</th>' +
+      '<th>发运重量</th><th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th><th>规格大小</th><th>合同号</th></tr></thead><tbody>';
+    html_text.push(head);
+
+    var trHtml = '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td><td>{9}</td><td>{10}</td><td>{11}</td><td>{12}</td><td>{13}</td><td>{14}</td><td>{15}</td></tr>';
+    curr_show_bills.forEach(function (bill) {
+      var priceText = getPriceText(action === "CUSTOMER" ? bill.price : bill.collection_price);
+      var name = (bill.ship_customer ? (bill.billing_name + "/" + bill.ship_customer) : bill.billing_name);
+
+      var remark = '';
+      var spec = bill.thickness + '*' + bill.width + '*' + bill.len;
+      if (bill.width < 3000 && bill.len < 13500) {
+        remark = '正常';
+      } else if ((bill.width >= 3000 && bill.width < 3300) || (bill.len >= 13500 && bill.len < 16500)) {
+        remark = '超长宽';
+      } else if (bill.width >= 3300 || bill.len >= 16500) {
+        remark = '特长宽';
+      }
+
+      html_text.push(trHtml.format(getState(bill), getOrder(bill.order_no, bill.order_item_no), bill.bill_no,
+        name, bill.veh_ves_name, bill.ship_to, priceText,
+        bill.send_num > 0 ? bill.send_num : '', getStrValue(bill.send_weight),
+        bill.ship_warehouse ? bill.ship_warehouse : '', date2Str(bill.inv_ship_date),
+        bill.inv_shipper ? bill.inv_shipper : '', bill.inv_no, remark, spec, bill.contract_no));
+    });
+    html_text.push('</tbody>');
+
+    tableToExcel(html_text.join('\n'), "data");
+  });
+
+  var showFilter = false;
+  var acquireVehicles = false;
+  elementEventRegister(btnFilter, 'click', function() {
+    $('#filter-ui').toggle();
+    showFilter = !showFilter;
+    if (showFilter && !acquireVehicles) {
+      $.get('/settle_vehicle_list', { }, function (data) {
+        var result = JSON.parse(data);
+        qFilter.setAllVehicles(result.vehicles);
+        acquireVehicles = true;
+      })
+    }
+  });
+
+  elementEventRegister($('#show-data'), 'click', function() {
+    resetTableRow();
+    showHtmlElement($('#lb-selected-group'), false);
+  });
+
+  function filterData(needUpdateDbData, emptyDbData) {
+    if (needUpdateDbData) {
+      $('body').css({'cursor':'wait'});
+      var obj = qFilter.getQueryParams();
+      $.get('/get_invoices_bill', obj, function (data) {
+        var result = jQuery.parseJSON(data);
+        dbBills = [];
+        if (result.ok) {
+          dbBills = sortByKey(result.bills, "inv_ship_date", "DSC");
+        }
+        curr_bills = qFilter.updateOptions(dbBills, false);
+        showHintText();
+        $('body').css({'cursor':'default'});
+      });
+    } else {
+      if (emptyDbData) {
+        dbBills = [];
+      }
+      curr_bills = qFilter.updateOptions(dbBills, emptyDbData);
+      showHintText();
+    }
+  }
+
+  function showHintText() {
+    tableBody.empty();
+    selected_bills = [];
+    curr_show_bills = [];
+    var totalNumber = 0;
+    var totalWeight = 0;
+    var num = 0;
+    var price = 0;
+    if (action === 'CUSTOMER') {
+      curr_bills.forEach(function (bill) {
+        if (showNonSettle) {
+          if (bill.price === -1) {
+            totalNumber += bill.send_num;
+            totalWeight += bill.send_weight;
+            ++num;
+          }
+        }
+        else {
+          //console.log(bill);
+          if ((bill.inv_settle_flag & CUSTOMER_SETTLE_FLAG) != CUSTOMER_SETTLE_FLAG && bill.price >= 0) {
+            totalNumber += bill.send_num;
+            totalWeight += bill.send_weight;
+            ++num;
+            price += bill.price * bill.send_weight;
+          }
+        }
+      });
+    } else if (action === "COLLECTION") {
+      curr_bills.forEach(function (bill) {
+        if (showNonSettle) {
+          if (bill.collection_price === -1) {
+            totalNumber += bill.send_num;
+            totalWeight += bill.send_weight;
+            ++num;
+          }
+        }
+        else {
+          if ((bill.inv_settle_flag & COLLECTION_SETTLE_FLAG) != COLLECTION_SETTLE_FLAG && bill.collection_price >= 0) {
+            totalNumber += bill.send_num;
+            totalWeight += bill.send_weight;
+            ++num;
+            price += bill.collection_price * bill.send_weight;
+          }
+        }
+      });
+    }
+
+    $('#lb-total-amount').text(getStrValue(price));
+    $('#lb-total-weight').text(getStrValue(totalWeight));
+    $('#lb-total-num').text(getStrValue(totalNumber));
+    $('#curr-bills-number').text(num);
+  }
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+var QueryFilterD = function(options, options_2, action, filter) {
+  this.currSelected = 0;
+  var self = this;
+
+  this.uiElems = {
+    sBfOrder : new FilterElementD($('#bf-order-no'), [], false, true, function() {
+      self.currSelected = 2;
+      filter(false, self.isAllEmpty());
+    }),
+
+    sBfBillName :  $('#bf-bill-name'),
+    sBfDest :      $('#bf-destination'),
+    sBfVehicle :   $('#bf-vehicle'),
+    startDateGrp : $('#start-date-grp'),
+    endDateGrp :   $('#end-date-grp'),
+    iStartDate :   $('#start-date'),
+    iEndDate :     $('#end-date'),
+    sBfVehType :   $('#bf-vehtype'),
+
+    sBfBillNo: new FilterElementD($('#bf-bill-no'), [], false, true, function() {
+      self.currSelected = 6;
+      filter(false, self.isAllEmpty());
+    })
+  };
+
+  this.options = options;
+  this.options_2 = options_2;
+  this.action = action;
+  this.selectedVeh = [];
+  this.selectedDest = [];
+  this.veh_list = null;
+  this.allVehicles = null;
+  this.veh_type = 0; // 0: both, 1: che, 2: chuan
+
+  if (action === "CUSTOMER") {
+    initSelect(this.uiElems.sBfBillName, options.nameList, true);
+    initSelect(this.uiElems.sBfVehicle, options.vehList, false);
+    initSelect(this.uiElems.sBfDest, options.destList, false);
+    this.veh_list = options.vehList;
+  }
+  else if (action === "COLLECTION") {
+    initSelect(this.uiElems.sBfBillName, options_2.nameList, true);
+    initSelect(this.uiElems.sBfVehicle, options_2.vehList, false);
+    initSelect(this.uiElems.sBfDest, options_2.destList, false);
+    this.veh_list = options_2.vehList;
+  }
+
+  this.uiElems.sBfBillName.select2();
+  this.uiElems.sBfVehicle.select2();
+  this.uiElems.sBfDest.select2();
+
+  this.eDate = moment();
+  this.sDate = moment().subtract(1, 'months');
+  var startGrp = self.uiElems.startDateGrp.datetimepicker(getDateTimePickerOptions());
+  var endGrp = self.uiElems.endDateGrp.datetimepicker(getDateTimePickerOptions());
+  this.uiElems.endDateGrp.data("DateTimePicker").setDate(this.eDate);
+  this.uiElems.startDateGrp.data("DateTimePicker").setDate(this.sDate);
+
+  this._selectFliterFunc = function(which, filter) {
+    this.currSelected = which;
+    if (this.isAllEmpty()) {
+      filter(false, true);       // return to initial state
+    }
+    else {
+      filter(true, false);
+    }
+  };
+
+  this._dateFilterFunc = function(isStart, isEnd, filter) {
+    var d1 = this.uiElems.iStartDate.val();
+    var d2 = this.uiElems.iEndDate.val();
+    var b = false;
+    if (isStart && isEnd) {
+      b = !isEmpty(d1) && !isEmpty(d2);
+    } else if (isStart) {
+      b = isEmpty(this.uiElems.iStartDate.val());
+    } else if (isEnd) {
+      b = isEmpty(this.uiElems.iEndDate.val());
+    }
+
+    if (b) {
+      this.currSelected = 5;
+      filter(true, false);
+    }
+  };
+
+  self.uiElems.sBfBillName.on('change', function() { self._selectFliterFunc(1, filter); });
+
+  self.uiElems.sBfVehicle.on('change', function(e) {
+    if (e.added) {
+      self.selectedVeh.push(e.added.text)
+    } else if (e.removed) {
+      var index = self.selectedVeh.indexOf(e.removed.text);
+      if (index > -1) {
+        self.selectedVeh.splice(index, 1);
+      }
+    }
+    self._selectFliterFunc(3, filter);
+  });
+
+  self.uiElems.sBfDest.on('change', function(e) {
+    if (e.added) {
+      self.selectedDest.push(e.added.text)
+    } else if (e.removed) {
+      var index = self.selectedDest.indexOf(e.removed.text);
+      if (index > -1) {
+        self.selectedDest.splice(index, 1);
+      }
+    }
+    self._selectFliterFunc(4, filter);
+  });
+
+  self.uiElems.sBfVehType.on('change', function(e) {
+    var t = this.value;
+    if (t === '车') {
+      self.veh_type = 1;
+    } else if (t === '船') {
+      self.veh_type = 2;
+    } else {
+      self.veh_type = 0;
+    }
+
+    if (self.veh_type == 1) {
+      var vehList = [];
+      self.allVehicles.forEach(function(vs) {
+        for (var i = 0; i < self.veh_list.length; ++i) {
+          if (self.veh_list[i] === vs.name && vs.veh_type === '车') {
+            vehList.push(self.veh_list[i]);
+            break;
+          }
+        }
+      })
+      initSelect(self.uiElems.sBfVehicle, vehList, false);
+    } else if (self.veh_type === 2) {
+      var vehList = [];
+      self.allVehicles.forEach(function(vs) {
+        for (var i = 0; i < self.veh_list.length; ++i) {
+          if (self.veh_list[i] === vs.name && vs.veh_type === '船') {
+            vehList.push(self.veh_list[i]);
+            break;
+          }
+        }
+      });
+      initSelect(self.uiElems.sBfVehicle, vehList, false);
+    } else {
+      initSelect(self.uiElems.sBfVehicle, self.veh_list, false);
+    }
+  });
+
+  startGrp.on('dp.change', function(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    self.sDate = e.date.startOf('day');
+    self.uiElems.endDateGrp.data("DateTimePicker").setMinDate(e.date);
+    self._dateFilterFunc(true, true, filter);
+  });
+  endGrp.on('dp.change', function(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    self.eDate = e.date.endOf('day');
+    self.uiElems.startDateGrp.data("DateTimePicker").setMaxDate(e.date);
+    self._dateFilterFunc(true, true, filter);
+  });
+  self.uiElems.iStartDate.on('change', function(e) {
+    e.stopImmediatePropagation();
+    self._dateFilterFunc(true, false, filter);
+  });
+  self.uiElems.iEndDate.on('change', function(e) {
+    e.stopImmediatePropagation();
+    self._dateFilterFunc(false, true, filter);
+  });
+
+};
+
+QueryFilterD.prototype.setAllVehicles = function(vehicles) {
+  this.allVehicles = vehicles;
+};
+
+QueryFilterD.prototype.getQueryParams = function() {
+  var name = this.uiElems.sBfBillName.val();
+  var d1 = this.uiElems.iStartDate.val();
+  var d2 = this.uiElems.iEndDate.val();
+  var b = !isEmpty(d1) && !isEmpty(d2);
+
+  return {
+    fName: name ? [ name ] : null,
+    fVeh: this.selectedVeh,
+    fDest: this.selectedDest,
+    fOrder: null, fBno: null,
+    fDate1: b ? this.sDate.toISOString() : null,
+    fDate2: b ? this.eDate.toISOString() : null,
+    fType: "invoice-first"
+  };
+};
+
+QueryFilterD.prototype.isAllEmpty = function() {
+  var order = this.uiElems.sBfOrder.selected;
+  var bno = this.uiElems.sBfBillNo.selected;
+  var name = getSelectValue(this.uiElems.sBfBillName);
+  var d1 = this.uiElems.iStartDate.val();
+  var d2 = this.uiElems.iEndDate.val();
+
+  return order.length === 0 && bno.length === 0 && this.selectedVeh.length === 0 && this.selectedDest.length === 0 &&
+    isEmpty(name) && isEmpty(d1) && isEmpty(d2);
+};
+
+QueryFilterD.prototype.updateOptions = function(bills, reset) {
+  var order = this.uiElems.sBfOrder.selected;
+  var billNo = this.uiElems.sBfBillNo.selected;
+  var name = getSelectValue(this.uiElems.sBfBillName);
+  var nOptions = { orderList: [], vehList: [], destList: [], billNoList: [] };
+  var visibleBills = [];
+  if (reset) {
+    if (this.action === "CUSTOMER") {
+      nOptions = this.options;
+    } else {
+      nOptions = this.options_2;
+    }
+    visibleBills = bills;
+    bills.forEach(function (bill) {
+      if (bill.ship_to && nOptions.destList.indexOf(bill.ship_to) < 0) {
+        nOptions.destList.push(bill.ship_to);
+      }
+    });
+    nOptions.destList = sort_pinyin(nOptions.destList);
+  }
+  else {
+    var vehs = this.selectedVeh;
+    var ds = this.selectedDest;
+    var act = this.action;
+
+    bills.forEach(function (bill) {
+      var b1 = !order.length || (order.indexOf(bill.order_no) >= 0);
+      var b2 = vehs.length === 0 || (vehs.indexOf(bill.veh_ves_name) >= 0);
+      var b3 = ds.length === 0 || (ds.indexOf(bill.ship_to) >= 0);
+      var b4 = !name || name === bill.billing_name;
+      var b6 = !billNo.length || (billNo.indexOf(bill.bill_no) >= 0);
+
+      if (b2 && b3 && b4) {
+        if (act === 'CUSTOMER') {
+          if ((bill.inv_settle_flag & 1) !== 1) {
+            if (nOptions.orderList.indexOf(bill.order_no) < 0) {
+              nOptions.orderList.push(bill.order_no);
+            }
+            if (nOptions.billNoList.indexOf(bill.bill_no) < 0) {
+              nOptions.billNoList.push(bill.bill_no);
+            }
+          }
+        } else {
+          if ((bill.inv_settle_flag & 2) !== 2) {
+            if (nOptions.orderList.indexOf(bill.order_no) < 0) {
+              nOptions.orderList.push(bill.order_no);
+            }
+            if (nOptions.billNoList.indexOf(bill.bill_no) < 0) {
+              nOptions.billNoList.push(bill.bill_no);
+            }
+          }
+        }
+
+        if (b1 && b6) {
+          if (bill.veh_ves_name && nOptions.vehList.indexOf(bill.veh_ves_name) < 0) {
+            nOptions.vehList.push(bill.veh_ves_name);
+          }
+          if (bill.ship_to && nOptions.destList.indexOf(bill.ship_to) < 0) {
+            nOptions.destList.push(bill.ship_to);
+          }
+          visibleBills.push(bill);
+        }
+      }
+    });
+
+    nOptions.destList = sort_pinyin(nOptions.destList);
+    nOptions.orderList.sort();
+    nOptions.billNoList = sort_pinyin(nOptions.billNoList);
+    nOptions.vehList = sort_pinyin(nOptions.vehList);
+  }
+
+  vehList = nOptions.vehList;
+  /*
+  var vehList = [];
+  if (this.veh_type == 1) {
+    this.allVehicles.forEach(function(vs) {
+      for (var i = 0; i < nOptions.vehList.length; ++i) {
+        if (nOptions.vehList[i] === vs.name && vs.veh_type === '车') {
+          vehList.push(nOptions.vehList[i]);
+          break;
+        }
+      }
+    })
+  } else if (this.veh_type === 2) {
+    this.allVehicles.forEach(function(vs) {
+      for (var i = 0; i < nOptions.vehList.length; ++i) {
+        if (nOptions.vehList[i] === vs.name && vs.veh_type === '船') {
+          vehList.push(nOptions.vehList[i]);
+          break;
+        }
+      }
+    })
+  } else {
+    vehList = nOptions.vehList;
+  }
+  */
+
+  if (this.currSelected === 2) {
+    this.uiElems.sBfBillNo.rebuild(nOptions.billNoList.sort(), billNo);
+    initSelect(this.uiElems.sBfVehicle, vehList, false);
+    this.uiElems.sBfVehicle.select2('val', this.selectedVeh);
+    initSelect(this.uiElems.sBfDest, nOptions.destList, false);
+    this.uiElems.sBfDest.select2('val', this.selectedDest);
+  }
+  else if (this.currSelected === 3) {
+    this.uiElems.sBfOrder.rebuild(nOptions.orderList.sort(), order);
+    this.uiElems.sBfBillNo.rebuild(nOptions.billNoList.sort(), billNo);
+    initSelect(this.uiElems.sBfDest, nOptions.destList, false);
+    this.uiElems.sBfDest.select2('val', this.selectedDest);
+  }
+  else if (this.currSelected === 4) {
+    this.uiElems.sBfOrder.rebuild(nOptions.orderList.sort(), order);
+    this.uiElems.sBfBillNo.rebuild(nOptions.billNoList.sort(), billNo);
+
+    initSelect(this.uiElems.sBfVehicle, vehList, false);
+    this.uiElems.sBfVehicle.select2('val', this.selectedVeh);
+  }
+  else if (this.currSelected === 6) {
+    initSelect(this.uiElems.sBfVehicle, vehList, false);
+    this.uiElems.sBfVehicle.select2('val', this.selectedVeh);
+    initSelect(this.uiElems.sBfDest, nOptions.destList, false);
+    this.uiElems.sBfDest.select2('val', this.selectedDest);
+    this.uiElems.sBfOrder.rebuild(nOptions.orderList.sort(), order);
+  }
+  else {
+    this.uiElems.sBfBillNo.rebuild(nOptions.billNoList.sort(), billNo);
+    this.uiElems.sBfOrder.rebuild(nOptions.orderList.sort(), order);
+    initSelect(this.uiElems.sBfVehicle, vehList, false);
+    this.uiElems.sBfVehicle.select2('val', this.selectedVeh);
+    initSelect(this.uiElems.sBfDest, nOptions.destList, false);
+    this.uiElems.sBfDest.select2('val', this.selectedDest);
+  }
+
+  return visibleBills;
+};
+
+QueryFilterD.prototype.reset = function(action) {
+  var name = getSelectValue(this.uiElems.sBfBillName);
+
+  if (action === "CUSTOMER") {
+    initSelect(this.uiElems.sBfBillName, this.options.nameList, true, name);
+    initSelect(this.uiElems.sBfVehicle, this.options.vehList, false);
+    initSelect(this.uiElems.sBfDest, this.options.destList, false);
+  } else if (action === "COLLECTION") {
+    initSelect(this.uiElems.sBfBillName, this.options_2.nameList, true, name);
+    initSelect(this.uiElems.sBfVehicle, this.options_2.vehList, false);
+    initSelect(this.uiElems.sBfDest, this.options_2.destList, false);
+  }
+
+  this.action = action;
+  this.uiElems.sBfBillName.select2("val", name);
+  this.uiElems.sBfVehicle.select2("val", this.selectedVeh);
+  this.uiElems.sBfDest.select2("val", this.selectedDest);
+};

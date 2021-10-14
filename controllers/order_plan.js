@@ -57,14 +57,15 @@ exports.orderPlanExist = async function(req, res) {
 };
 
 exports.postCreateOrderPlan = async function (req, res) {
-  for (let row_data of req.body) {
-    let orderNo = row_data.orderNo;
+  try {
+    for (let row_data of req.body) {
+      let orderNo = row_data.orderNo;
+      let weight = utils.getFloatValue(row_data.orderWeight, 3);
+      let price = utils.getFloatValue(row_data.receivingCharge, 3);
+      let exist = false;
 
-    try {
       let plan = await OrderPlan.findOne({order_no: orderNo}).exec();
       if (!plan) {
-        let weight = utils.getFloatValue(row_data.orderWeight, 3);
-        let price = utils.getFloatValue(row_data.receivingCharge, 3);
         plan = new OrderPlan({
           order_no: orderNo,
           order_weight: weight,
@@ -79,22 +80,41 @@ exports.postCreateOrderPlan = async function (req, res) {
           consigner:       row_data.consigner,
           contract_no:     row_data.contractNo,
           receiving_charge:price,
-          entry_time:      row_data.entryTime,
+          entry_time:      new Date(),
           creator: req.user.userid
         });
+      } else {
+        exist = true;
+        console.log("Order exist. " + orderNo);
+        plan.left_weight  = weight - (plan.order_weight - plan.left_weight);
+        plan.order_weight = weight;
+        plan.destination  = row_data.destination;
+        plan.consignee    = row_data.consignee;
+        plan.customer_name=row_data.customerName;
+        plan.customer_code=row_data.customerCode;
+        plan.ds_client    = row_data.dsClient;
+        plan.transport_mode   = row_data.transportMode;
+        plan.customer_saleman = row_data.salesman;
+        plan.consigner        = row_data.consigner;
+        plan.contract_no      = row_data.contractNo;
+        plan.receiving_charge = price;
+        plan.entry_time       = new Date();
+        plan.creator = req.user.userid
+      }
 
-        let bills = await Bill.find({order_no: orderNo}).exec();
-        if (bills.length > 0) {
-          let w = 0, left = 0;
-          bills.forEach(b => {
-            w += b.total_weight;
-            if (b.block_num > 0) {
-              left += b.block_num * b.weight;
-            } else {
-              left += b.left_num;
-            }
-          });
+      let bills = await Bill.find({order_no: orderNo}).exec();
+      if (bills.length > 0) {
+        let w = 0, left = 0;
+        bills.forEach(b => {
+          w += b.total_weight;
+          if (b.block_num > 0) {
+            left += b.block_num * b.weight;
+          } else {
+            left += b.left_num;
+          }
+        });
 
+        if (!exist) {
           if (Math.abs(w - weight) < DELTA) {
             plan.left_weight = left;
             if (left < DELTA) {
@@ -105,22 +125,28 @@ exports.postCreateOrderPlan = async function (req, res) {
             plan.left_weight = weight - w + left;
             plan.status = 0;
           } else {
-            plan.left_weight = left;
-            let str = plan.order_no + ":  存在的总重量大于保存的计划订单量, " + w.toFixed(3) + " > " + weight;
-            res.end(JSON.stringify({ok: false, response: str}));
-            return;
+            let str = plan.order_no + ":  存在的总重量大于要保存的计划订单量, " + w.toFixed(3) + " > " + weight;
+            return res.end(JSON.stringify({ok: false, response: str}));
+          }
+        } else {
+          if (w > weight) {
+            let str = plan.order_no + ":  存在的总重量大于要保存的计划订单量, " + w.toFixed(3) + " > " + weight;
+            return res.end(JSON.stringify({ok: false, response: str}));
+          } else if (weight - w < DELTA) {
+          } else {
+            plan.status = 0;
           }
         }
-
-        await plan.save();
-        res.end(JSON.stringify({ok: true}));
-      } else {
-        res.end(JSON.stringify({ok: false, response: 'order exist! ' + orderNo}));
       }
-    } catch (err) {
-      logger.error('保存出错！(订单号:' + orderNo + ', 原因:' + err);
-      res.end(JSON.stringify({ok: false, response: err}));
+
+      await plan.save();
+      console.log("save successful. " + orderNo);
     }
+
+    res.end(JSON.stringify({ok: true}));
+  } catch (err) {
+    logger.error('保存出错！(订单号:' + orderNo + ', 原因:' + err);
+    res.end(JSON.stringify({ok: false, response: err}));
   }
 };
 
@@ -162,7 +188,9 @@ exports.postUpdatePlan = async function(req, res) {
 
     if (Math.abs(plan.order_weight - data.orderWeight) > DELTA) {
       let undo = plan.order_weight - plan.left_weight;
-      if (data.orderWeight < undo) {
+      let d = data.orderWeight - undo;
+      if (d < 0 && Math.abs(d) > DELTA) {
+//      if (data.orderWeight < undo) {
         return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量比已发量还少' + data.orderNo}));
       }
 

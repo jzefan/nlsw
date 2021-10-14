@@ -2,7 +2,6 @@ var _ = require('underscore');
 var passport = require('passport');
 var LocalStrategy = require('passport-local').Strategy;
 var User = require('../models/User');
-var secrets = require('./secrets');
 
 passport.serializeUser(function(user, done) {
   done(null, user.id);
@@ -16,8 +15,6 @@ passport.deserializeUser(function(id, done) {
 
 // Sign in using userid and Password.
 passport.use(new LocalStrategy({ usernameField: 'userid' }, function(userid, password, done) {
-  console.log('enter local strategy');
-  console.log('password = ' + password);
   User.findOne({ userid: userid }, function(err, user) {
     if (!user) return done(null, false, { message: '用户名 ' + userid + ' 不存在!'});
     user.comparePassword(password, function(err, isMatch) {

@@ -257,17 +257,15 @@ $(function () {
   }
 
   $('#data-add').on('click', function() {
-    ajaxRequestHandle('/initial_settle_flag', 'POST', {}, 'update', function() {
-      bootbox.alert("OK");
-    })
-    /*
+    // ajaxRequestHandle('/initial_settle_flag', 'POST', {}, 'update', function() {
+    //   bootbox.alert("OK");
+    // })
     action = 'add';
     dialogInit();
     $('#dialog-title').text('新建用户');
     showHtmlElement($('#pwd-hint'), true);
     setHtmlElementDisabled(uname, false);
     $('#data-dialog').modal({ backdrop: 'static', keyboard: false}).modal('show');
-    */
   });
 
   $('#data-delete').on('click', function() {

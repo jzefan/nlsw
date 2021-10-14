@@ -1,15 +1,15 @@
 module.exports = {
-  db: process.env.MONGODB|| 'mongodb://localhost:27017/test',
-  port: process.env.PORT || 3000,
+  db: process.env.MONGODB|| 'mongodb://localhost:27027/test',
+  port: process.env.PORT || 80,
   env: process.env.NODE_ENV || 'development',
 
   development: {
-    port: 3000,
+    port: 80,
     host: "127.0.0.1",
     errorHandlerOptions: {"dumpExceptions": true, "showStack": true}
   },
   production: {
-    port: 3000,
+    port: 80,
     host: "127.0.0.1",
     errorHandlerOptions: {"dumpExceptions": false, "showStack": false}
   },

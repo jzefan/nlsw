@@ -39,7 +39,7 @@ exports.index = function (req, res) {
   var html	= fs.readFileSync("views/post.html", "UTF-8");
   res.render('home', {
     title: 'Home',
-    curr_page: '欢迎进入鑫鸿图物流管理系统',
+    curr_page: '欢迎进入南京卓景物流管理系统',
     curr_page_name: '欢迎',
 //    carousel_width: 1079,
     dHtmlText: html,

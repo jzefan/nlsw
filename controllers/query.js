@@ -167,182 +167,197 @@ exports.getVesselStatistics = function(req, res) {
   }
 };
 
-exports.getVesselRevenueData = function(req, res) {
-  var query = req.query;
-  var months = query.fMonths;
-  var dLen = months.length;
-  var resultData = [];
-  //console.log(query);
-
-  for (var i = 0; i < dLen; ++i) {
-    var nnv = { month: months[i],
+exports.getVesselRevenueData = async function(req, res) {
+  let query = req.query;
+  let months = query.fMonths;
+  let dLen = months.length;
+  let resultData = [];
+  
+  for (let i = 0; i < dLen; ++i) {
+    let nnv = { month: months[i],
       vhTotal: 0, vhRevenue: 0, vhOwnWeight: 0, vhOwnIncome: 0, vhOwnDeposit: 0, vhOwnProfit: 0, vhNonOwnWeight: 0, vhNonOwnIncome: 0, vhNonOwnDeposit: 0, vhProfit: 0, vhFixedCost: 0,   // 车
       vsTotal: 0, vsRevenue: 0, vsOwnWeight: 0, vsOwnIncome: 0, vsOwnDeposit: 0, vsOwnProfit: 0, vsNonOwnWeight: 0, vsNonOwnIncome: 0, vsNonOwnDeposit: 0, vsProfit: 0, vsFixedCost: 0 }; // 船
 
     resultData.push(nnv);
   }
+  
+  let vehList = await Vehicle.find({}).select('name veh_category').exec();
+  if (!vehList) {
+    return res.end(JSON.stringify( { ok: false }));
+  }
+  
+  let vehObject = {};
+  vehList.forEach(vl => { vehObject[vl.name] = vl.veh_category; });
+  
+  let vvcList = await VehVesCost.find({month: { $gte: query.fDate1, $lte: query.fDate2 }}).select('name total month').exec();
+  if (!vvcList) {
+    return res.end(JSON.stringify( { ok: false }));
+  }
 
-  searchDbData(res, query, 'waybill_no vehicle_vessel_name ship_date bills total_weight', 'block_num weight collection_price invoices',
-    function(res, db_invs, bills) {
-      Vehicle.find({}).select('name veh_category').lean().exec(function (err, vehList) {
-        if (err) {
-          return res.end(JSON.stringify( { ok: false }));
-        }
-        //console.log('size = ' + bills.length);
+  let cost = {};
+  vvcList.forEach(elem => {
+    if (cost[elem.month]) {
+      cost[elem.month].push({ name: elem.name, total: elem.total, used: false });
+    } else {
+      cost[elem.month] = [ { name: elem.name, total: elem.total, used: false } ];
+    }
+  })
+  
+  let obj = { $and: [ ] };
 
-        var vehObject = {};
-        vehList.forEach(function(vl) {
-          vehObject[vl.name] = vl.veh_category;
-        });
+  if (query.fDate1 && query.fDate2) {
+    let qDate = getStartEndDate(query.fDate1, query.fDate2, false);
+    obj["$and"].push({ship_date: { $gte: query.fDate1, $lt: query.fDate2 }});
+    //obj["$and"].push({ship_date: { $gte: qDate.s, $lt: qDate.e }});
+  }
 
-        VehVesCost.find({month: { $gte: query.fDate1, $lte: query.fDate2 }}).select('name total month').lean().exec(function(err, vvcList) {
-          if (err) {
-            return res.end(JSON.stringify( { ok: false }));
+  if (query.fName && query.fName.length) {
+    obj["$and"].push({ ship_name: { $in: query.fName } });
+  }
+
+  let db_invs = await Invoice.find(obj).select('waybill_no vehicle_vessel_name ship_date bills total_weight').exec();
+  if (!db_invs) {
+    return res.end(JSON.stringify({ ok: false }));
+  }
+  
+  for (let i = 0; i < db_invs.length; ++i) {
+    let db_inv = db_invs[i];
+    
+    let date = db_inv.ship_date.format('yyyy-MM');
+    let invIdxObj = { index: months.indexOf(date), fixed_cost: cost[date], vvName: db_inv.vehicle_vessel_name };
+
+    let ids = [];
+    db_inv.bills.forEach( inv_bill => { ids.push(inv_bill.bill_id) } );
+    
+    let bills = await Bill.find({ _id: { $in: ids } }).select('block_num weight collection_price invoices').exec();
+    //if (ids.length !== bills.length) {
+    //  console.log("why!!!!!")
+    //} else {
+    //  console.log("ids = " + ids.length);
+    //}
+
+    bills.forEach(b => {
+      
+      b.invoices.forEach(inv => {
+        
+        if (inv.inv_no === db_inv.waybill_no) {
+        
+        let vehType = vehObject[inv.veh_ves_name];
+        //let invIdxObj = invDate[inv.inv_no];
+
+        if (vehType && invIdxObj.index >= 0) {
+          let tmp = resultData[invIdxObj.index];
+          let fc = invIdxObj.fixed_cost;
+          let fcTrue = fc && fc.length;
+          let weight = (b.block_num > 0) ? inv.num * b.weight : inv.weight;
+          let price = b.collection_price > 0 ? b.collection_price * weight : 0;
+
+          if (inv.price > 0) {
+            price += inv.price * weight;
           }
 
-          var cost = {};
-          for (var i = 0, len = vvcList.length; i < len; ++i) {
-            var elem = vvcList[i];
-            if (cost[elem.month]) {
-              cost[elem.month].push({ name: elem.name, total: elem.total, used: false });
-            } else {
-              cost[elem.month] = [ { name: elem.name, total: elem.total, used: false } ];
+          let veh_price = inv.veh_ves_price > 0 ? inv.veh_ves_price * weight : 0;
+
+          if (inv.vehicles.length) { // vessel
+            tmp.vsTotal += weight;
+            tmp.vsRevenue += price;
+
+            if (vehType === '自有') {
+              tmp.vsOwnWeight += weight;
+              tmp.vsOwnIncome += price;
+              // tmp.vsOwnDeposit += veh_price;
             }
-          }
+            else if (vehType === '外挂') {
+              tmp.vsNonOwnWeight += weight;
+              tmp.vsNonOwnIncome += price;
+              tmp.vsNonOwnDeposit += veh_price;  // 外付金额
+            } else {
+              logger.error("No type and category!");
+            }
 
-          var invDate = {};
-          //var inv_weight = {}; // for test
-          for (i = 0, len = db_invs.length; i < len; ++i) {
-            var date = db_invs[i].ship_date.format('yyyy-MM');
-            //inv_weight[db_invs[i].waybill_no] = db_invs[i].total_weight;
-            invDate[db_invs[i].waybill_no] = { index: months.indexOf(date), fixed_cost: cost[date], vvName: db_invs[i].vehicle_vessel_name };
-          }
+            let vnameList = [];
+            // 针对每辆装船的车, 算入到车的应付金额中
+            let w = 0;
+            inv.vehicles.forEach(function (veh) {
+              tmp.vhTotal += veh.send_weight;
+              w += veh.send_weight;
 
-          for (i = 0, len = bills.length; i < len; ++i) {
-            var b = bills[i];
-            for (var j = 0, jLen = b.invoices.length; j < jLen; ++j) {
-              var inv = b.invoices[j];
-              var vehType = vehObject[inv.veh_ves_name];
-              var invIdxObj = invDate[inv.inv_no];
+              veh_price = (veh.veh_price > 0) ? veh.veh_price * veh.send_weight : 0;
+              vehType = vehObject[veh.veh_name];
+              if (vehType === '自有') {
+                tmp.vhOwnWeight += veh.send_weight;
+                // tmp.vhOwnDeposit += veh_price;  // 应付
 
-              if (vehType && invIdxObj && invIdxObj.index >= 0) {
-                var tmp = resultData[invIdxObj.index];
-                var fc = invIdxObj.fixed_cost;
-                var fcTrue = fc && fc.length;
-                var weight = (b.block_num > 0) ? inv.num * b.weight : inv.weight;
-                var price = b.collection_price > 0 ? b.collection_price * weight : 0;
-
-                if (inv.price > 0) {
-                  price += inv.price * weight;
+                if (veh.veh_name && vnameList.indexOf(veh.veh_name) < 0) {
+                  vnameList.push(veh.veh_name);
                 }
-
-                //inv_weight[inv.inv_no] -= weight; // for test
-
-                var veh_price = inv.veh_ves_price > 0 ? inv.veh_ves_price * weight : 0;
-
-                if (inv.vehicles.length) { // vessel
-                  tmp.vsTotal += weight;
-                  tmp.vsRevenue += price;
-
-                  if (vehType === '自有') {
-                    tmp.vsOwnWeight += weight;
-                    tmp.vsOwnIncome += price;
-                    // tmp.vsOwnDeposit += veh_price;
-                  }
-                  else if (vehType === '外挂') {
-                    tmp.vsNonOwnWeight += weight;
-                    tmp.vsNonOwnIncome += price;
-                    tmp.vsNonOwnDeposit += veh_price;  // 外付金额
-                  } else {
-                    logger.error("No type and category!");
-                  }
-
-                  var vnameList = [];
-                  // 针对每辆装船的车, 算入到车的应付金额中
-                  var w = 0;
-                  inv.vehicles.forEach(function (veh) {
-                    tmp.vhTotal += veh.send_weight;
-                    w += veh.send_weight;
-
-                    veh_price = (veh.veh_price > 0) ? veh.veh_price * veh.send_weight : 0;
-                    vehType = vehObject[veh.veh_name];
-                    if (vehType === '自有') {
-                      tmp.vhOwnWeight += veh.send_weight;
-                      // tmp.vhOwnDeposit += veh_price;  // 应付
-
-                      if (veh.veh_name && vnameList.indexOf(veh.veh_name) < 0) {
-                        vnameList.push(veh.veh_name);
-                      }
-                    }
-                    else if (vehType === '外挂') {
-                      tmp.vhNonOwnWeight += veh.send_weight;
-                      tmp.vhNonOwnDeposit += veh_price;
-                    } else {
-                      logger.error("vehicles: No type and category!");
-                    }
-                  });
-
-                  if (fcTrue) {
-                    for (var k = 0; k < fc.length; ++k) {
-                      if (!fc[k].used && fc[k].name === 'chuan') {
-                        tmp.vsFixedCost += fc[k].total;
-                        fc.remove(k);
-                        break;
-                      }
-                    }
-
-                    if (vnameList.length > 0) {
-                      for (k = 0; k < fc.length; ++k) {
-                        if (!fc[k].used && fc[k].name && vnameList.indexOf(fc[k].name) >= 0) {
-                          fc[k].used = true;
-                          tmp.vhFixedCost += fc[k].total;
-                        }
-                      }
-                    }
-                  }
-                }
-                else { // 非船
-                  if (fcTrue) {
-                    for (k = 0; k < fc.length; ++k) {
-                      console.log("fc.name = " + fc[k].name + ", vvName = " + invIdxObj.vvName);
-                      if (!fc[k].used && fc[k].name === invIdxObj.vvName) {
-                        console.log("vvname = " + invIdxObj.vvName);
-                        tmp.vhFixedCost += fc[k].total;
-                        fc.remove(k);
-                        break;
-                      }
-                    }
-                  }
-
-                  tmp.vhTotal += weight;
-                  tmp.vhRevenue += price;
-
-                  if (vehType === '自有') {
-                    tmp.vhOwnWeight += weight;
-                    tmp.vhOwnIncome += price;
-                    // tmp.vhOwnDeposit += veh_price;
-                  }
-                  else if (vehType === '外挂') {
-                    tmp.vhNonOwnWeight += weight;
-                    tmp.vhNonOwnIncome += price;
-                    tmp.vhNonOwnDeposit += veh_price;
-                  } else {
-                    logger.error("VH: No type and category!");
-                  }
-                }
+              }
+              else if (vehType === '外挂') {
+                tmp.vhNonOwnWeight += veh.send_weight;
+                //tmp.vhNonOwnDeposit += veh_price; // 2020.06.20
               } else {
-                if (!vehType) {
-                  logger.error(inv.veh_ves_name + ' not found!');
+                logger.error("vehicles: No type and category!");
+              }
+            });
+
+            if (fcTrue) {
+              for (var k = 0; k < fc.length; ++k) {
+                if (!fc[k].used && fc[k].name === 'chuan') {
+                  tmp.vsFixedCost += fc[k].total;
+                  fc.remove(k);
+                  break;
+                }
+              }
+
+              if (vnameList.length > 0) {
+                for (k = 0; k < fc.length; ++k) {
+                  if (!fc[k].used && fc[k].name && vnameList.indexOf(fc[k].name) >= 0) {
+                    fc[k].used = true;
+                    tmp.vhFixedCost += fc[k].total;
+                  }
                 }
               }
             }
           }
+          else { // 非船
+            if (fcTrue) {
+              for (k = 0; k < fc.length; ++k) {
+                //console.log("fc.name = " + fc[k].name + ", vvName = " + invIdxObj.vvName);
+                if (!fc[k].used && fc[k].name === invIdxObj.vvName) {
+                  //console.log("vvname = " + invIdxObj.vvName);
+                  tmp.vhFixedCost += fc[k].total;
+                  fc.remove(k);
+                  break;
+                }
+              }
+            }
 
-          res.json(JSON.stringify({ ok: true, stat_data: resultData }));
-        })
-      });
-    }
-  );
+            tmp.vhTotal += weight;
+            tmp.vhRevenue += price;
+
+            if (vehType === '自有') {
+              tmp.vhOwnWeight += weight;
+              tmp.vhOwnIncome += price;
+              // tmp.vhOwnDeposit += veh_price;
+            }
+            else if (vehType === '外挂') {
+              tmp.vhNonOwnWeight += weight;
+              tmp.vhNonOwnIncome += price;
+              tmp.vhNonOwnDeposit += veh_price;
+            } else {
+              logger.error("VH: No type and category!");
+            }
+          }
+        } else {
+          logger.error(inv.veh_ves_name + ' not found!');
+        }
+        }
+      })
+    })
+    
+  }
+  
+  res.json(JSON.stringify({ ok: true, stat_data: resultData }));
 };
 
 exports.getVesselAllocationDetail = function(req, res) {
@@ -521,8 +536,8 @@ function combineBill(bills, invs) {
     settle_flag: bill.settle_flag,
     product_type: bill.product_type,
     //ship_customer: bill.ship_customer,
-    //inv_ship_date: bill.inv_ship_date,
-    //inv_shipper: bill.inv_shipper,
+    // inv_ship_date: bill.inv_ship_date,
+    // inv_shipper: bill.inv_shipper,
     //status_2: bill.status_2,
     //inv_settle_flag : bill.inv_settle_flag,			
           inv_no: binv.inv_no,
