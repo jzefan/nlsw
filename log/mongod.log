@@ -1,0 +1,158 @@
+2021-05-28T23:42:46.325+0800 I CONTROL  [initandlisten] MongoDB starting : pid=13660 port=27027 dbpath=/root/nlsw2021/data/db 64-bit host=VM-4-9-centos
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] db version v3.4.24
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] git version: 865b4f6a96d0f5425e39a18337105f33e8db504d
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] OpenSSL version: OpenSSL 1.0.1e-fips 11 Feb 2013
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] allocator: tcmalloc
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] modules: none
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] build environment:
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten]     distmod: rhel70
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten]     distarch: x86_64
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten]     target_arch: x86_64
+2021-05-28T23:42:46.326+0800 I CONTROL  [initandlisten] options: { net: { port: 27027 }, processManagement: { fork: true }, storage: { dbPath: "/root/nlsw2021/data/db" }, systemLog: { destination: "file", path: "/root/nlsw2021/log/mongod.log" } }
+2021-05-28T23:42:46.327+0800 W -        [initandlisten] Detected unclean shutdown - /root/nlsw2021/data/db/mongod.lock is not empty.
+2021-05-28T23:42:46.338+0800 I -        [initandlisten] Detected data files in /root/nlsw2021/data/db created by the 'mmapv1' storage engine, so setting the active storage engine to 'mmapv1'.
+2021-05-28T23:42:46.346+0800 I STORAGE  [initandlisten] 
+2021-05-28T23:42:46.346+0800 I STORAGE  [initandlisten] ** WARNING: Readahead for /root/nlsw2021/data/db is set to 4096KB
+2021-05-28T23:42:46.346+0800 I STORAGE  [initandlisten] **          We suggest setting it to 256KB (512 sectors) or less
+2021-05-28T23:42:46.346+0800 I STORAGE  [initandlisten] **          http://dochub.mongodb.org/core/readahead
+2021-05-28T23:42:46.350+0800 I JOURNAL  [initandlisten] journal dir=/root/nlsw2021/data/db/journal
+2021-05-28T23:42:46.350+0800 I JOURNAL  [initandlisten] recover begin
+2021-05-28T23:42:46.351+0800 I JOURNAL  [initandlisten] recover lsn: 35766717315
+2021-05-28T23:42:46.351+0800 I JOURNAL  [initandlisten] recover /root/nlsw2021/data/db/journal/j._2
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21982555169 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21982975072 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21983095095 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21983155151 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21984797567 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21984802886 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21984806261 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21984808204 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section seq:21984835106 < lsn:35766717315
+2021-05-28T23:42:46.360+0800 I JOURNAL  [initandlisten] recover skipping application of section more...
+2021-05-28T23:42:53.908+0800 I JOURNAL  [initandlisten] recover /root/nlsw2021/data/db/journal/j._3
+2021-05-28T23:42:54.888+0800 I JOURNAL  [initandlisten] recover final skipped journal section had sequence number 35766668827
+2021-05-28T23:42:54.888+0800 I JOURNAL  [initandlisten] recover applying initial journal section with sequence number 35766712794
+2021-05-28T23:42:55.407+0800 I JOURNAL  [initandlisten] recover cleaning up
+2021-05-28T23:42:55.407+0800 I JOURNAL  [initandlisten] removeJournalFiles
+2021-05-28T23:42:55.407+0800 I JOURNAL  [initandlisten] old journal file will be removed: /root/nlsw2021/data/db/journal/j._2
+2021-05-28T23:42:55.463+0800 I JOURNAL  [initandlisten] old journal file will be removed: /root/nlsw2021/data/db/journal/j._3
+2021-05-28T23:42:55.482+0800 I JOURNAL  [initandlisten] recover done
+2021-05-28T23:42:55.694+0800 I JOURNAL  [initandlisten] preallocateIsFaster=true 2.24
+2021-05-28T23:42:55.908+0800 I JOURNAL  [durability] Durability thread started
+2021-05-28T23:42:55.909+0800 I JOURNAL  [journal writer] Journal writer thread started
+2021-05-28T23:42:55.912+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:55.912+0800 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2021-05-28T23:42:55.912+0800 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2021-05-28T23:42:55.912+0800 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
+2021-05-28T23:42:55.912+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/enabled is 'always'.
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] ** WARNING: soft rlimits too low. rlimits set to 3873 processes, 100001 files. Number of processes should be at least 50000.5 : 0.5 times number of files.
+2021-05-28T23:42:55.913+0800 I CONTROL  [initandlisten] 
+2021-05-28T23:42:56.260+0800 I FTDC     [initandlisten] Initializing full-time diagnostic data capture with directory '/root/nlsw2021/data/db/diagnostic.data'
+2021-05-28T23:42:56.263+0800 I NETWORK  [thread1] waiting for connections on port 27027
+2021-05-28T23:42:57.009+0800 I FTDC     [ftdc] Unclean full-time diagnostic data capture shutdown detected, found interim file, some metrics may have been lost. OK
+2021-05-28T23:43:36.176+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52618 #1 (1 connection now open)
+2021-05-28T23:43:36.176+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52620 #2 (2 connections now open)
+2021-05-28T23:43:36.178+0800 I NETWORK  [conn1] received client metadata from 127.0.0.1:52618 conn1: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:43:36.189+0800 I NETWORK  [conn2] received client metadata from 127.0.0.1:52620 conn2: { driver: { name: "nodejs", version: "2.2.36" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE, mongodb-core: 2.1.20" }
+2021-05-28T23:43:36.205+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52622 #3 (3 connections now open)
+2021-05-28T23:43:36.207+0800 I NETWORK  [conn3] received client metadata from 127.0.0.1:52622 conn3: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:43:36.211+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52624 #4 (4 connections now open)
+2021-05-28T23:43:36.214+0800 I NETWORK  [conn4] received client metadata from 127.0.0.1:52624 conn4: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:43:36.217+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52626 #5 (5 connections now open)
+2021-05-28T23:43:36.218+0800 I NETWORK  [conn5] received client metadata from 127.0.0.1:52626 conn5: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:43:36.223+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52628 #6 (6 connections now open)
+2021-05-28T23:43:36.224+0800 I NETWORK  [conn6] received client metadata from 127.0.0.1:52628 conn6: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:43:39.249+0800 I COMMAND  [conn1] command test.bills command: distinct { distinct: "bills", key: "billing_name", query: { left_num: { $gt: 0 } } } planSummary: COLLSCAN keysExamined:0 docsExamined:364090 numYields:2978 reslen:34769 locks:{ Global: { acquireCount: { r: 5958 } }, MMAPV1Journal: { acquireCount: { r: 2979 } }, Database: { acquireCount: { r: 2979 } }, Collection: { acquireCount: { R: 2979 } } } protocol:op_query 3041ms
+2021-05-28T23:46:06.047+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52784 #7 (7 connections now open)
+2021-05-28T23:46:06.085+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:52786 #8 (8 connections now open)
+2021-05-28T23:47:05.027+0800 I -        [conn4] end connection 127.0.0.1:52624 (8 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn1] end connection 127.0.0.1:52618 (7 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn2] end connection 127.0.0.1:52620 (6 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn3] end connection 127.0.0.1:52622 (5 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn5] end connection 127.0.0.1:52626 (4 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn6] end connection 127.0.0.1:52628 (3 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn7] end connection 127.0.0.1:52784 (2 connections now open)
+2021-05-28T23:47:05.028+0800 I -        [conn8] end connection 127.0.0.1:52786 (1 connection now open)
+2021-05-28T23:58:05.283+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53482 #9 (1 connection now open)
+2021-05-28T23:58:05.283+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53484 #10 (2 connections now open)
+2021-05-28T23:58:05.283+0800 I NETWORK  [conn9] received client metadata from 127.0.0.1:53482 conn9: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:58:05.294+0800 I NETWORK  [conn10] received client metadata from 127.0.0.1:53484 conn10: { driver: { name: "nodejs", version: "2.2.36" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE, mongodb-core: 2.1.20" }
+2021-05-28T23:58:05.310+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53486 #11 (3 connections now open)
+2021-05-28T23:58:05.315+0800 I NETWORK  [conn11] received client metadata from 127.0.0.1:53486 conn11: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:58:05.318+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53488 #12 (4 connections now open)
+2021-05-28T23:58:05.321+0800 I NETWORK  [conn12] received client metadata from 127.0.0.1:53488 conn12: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:58:05.322+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53490 #13 (5 connections now open)
+2021-05-28T23:58:05.323+0800 I NETWORK  [conn13] received client metadata from 127.0.0.1:53490 conn13: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:58:05.330+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53492 #14 (6 connections now open)
+2021-05-28T23:58:05.332+0800 I NETWORK  [conn14] received client metadata from 127.0.0.1:53492 conn14: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-28T23:58:07.689+0800 I COMMAND  [conn9] command test.bills command: distinct { distinct: "bills", key: "billing_name", query: { left_num: { $gt: 0 } } } planSummary: COLLSCAN keysExamined:0 docsExamined:364090 numYields:2886 reslen:34769 locks:{ Global: { acquireCount: { r: 5774 } }, MMAPV1Journal: { acquireCount: { r: 2887 } }, Database: { acquireCount: { r: 2887 } }, Collection: { acquireCount: { R: 2887 } } } protocol:op_query 2374ms
+2021-05-29T00:05:44.826+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:53944 #15 (7 connections now open)
+2021-05-29T00:05:44.826+0800 I NETWORK  [conn15] received client metadata from 127.0.0.1:53944 conn15: { application: { name: "MongoDB Shell" }, driver: { name: "MongoDB Internal Client", version: "3.4.24" }, os: { type: "Linux", name: "CentOS Linux release 7.9.2009 (Core)", architecture: "x86_64", version: "Kernel 3.10.0-1127.19.1.el7.x86_64" } }
+2021-05-29T00:06:25.140+0800 I WRITE    [conn15] remove test.bills appName: "MongoDB Shell" planSummary: COLLSCAN keysExamined:0 docsExamined:364090 ndeleted:364090 keysDeleted:2548630 numYields:3331 locks:{ Global: { acquireCount: { r: 3332, w: 3332 } }, MMAPV1Journal: { acquireCount: { w: 367428 }, acquireWaitCount: { w: 179 }, timeAcquiringMicros: { w: 1910223 } }, Database: { acquireCount: { w: 3332 } }, Collection: { acquireCount: { W: 3332 }, acquireWaitCount: { W: 6 }, timeAcquiringMicros: { W: 95 } } } 23616ms
+2021-05-29T00:06:25.141+0800 I COMMAND  [conn15] command test.$cmd appName: "MongoDB Shell" command: delete { delete: "bills", deletes: [ { q: {}, limit: 0.0 } ], ordered: true } numYields:0 reslen:29 locks:{ Global: { acquireCount: { r: 3332, w: 3332 } }, MMAPV1Journal: { acquireCount: { w: 367428 }, acquireWaitCount: { w: 179 }, timeAcquiringMicros: { w: 1910223 } }, Database: { acquireCount: { w: 3332 } }, Collection: { acquireCount: { W: 3332 }, acquireWaitCount: { W: 6 }, timeAcquiringMicros: { W: 95 } } } protocol:op_command 23620ms
+2021-05-29T00:06:53.598+0800 I WRITE    [conn15] remove test.invoices appName: "MongoDB Shell" planSummary: COLLSCAN keysExamined:0 docsExamined:45209 ndeleted:45209 keysDeleted:271254 numYields:434 locks:{ Global: { acquireCount: { r: 435, w: 435 } }, MMAPV1Journal: { acquireCount: { w: 45645 }, acquireWaitCount: { w: 19 }, timeAcquiringMicros: { w: 122674 } }, Database: { acquireCount: { w: 435 } }, Collection: { acquireCount: { W: 435 }, acquireWaitCount: { W: 1 }, timeAcquiringMicros: { W: 20 } } } 2342ms
+2021-05-29T00:06:53.598+0800 I COMMAND  [conn15] command test.$cmd appName: "MongoDB Shell" command: delete { delete: "invoices", deletes: [ { q: {}, limit: 0.0 } ], ordered: true } numYields:0 reslen:29 locks:{ Global: { acquireCount: { r: 435, w: 435 } }, MMAPV1Journal: { acquireCount: { w: 45645 }, acquireWaitCount: { w: 19 }, timeAcquiringMicros: { w: 122674 } }, Database: { acquireCount: { w: 435 } }, Collection: { acquireCount: { W: 435 }, acquireWaitCount: { W: 1 }, timeAcquiringMicros: { W: 20 } } } protocol:op_command 2342ms
+2021-05-29T00:07:17.578+0800 I WRITE    [conn15] remove test.settles appName: "MongoDB Shell" planSummary: COLLSCAN keysExamined:0 docsExamined:3723 ndeleted:3723 keysDeleted:11169 numYields:33 locks:{ Global: { acquireCount: { r: 34, w: 34 } }, MMAPV1Journal: { acquireCount: { w: 3757 }, acquireWaitCount: { w: 2 }, timeAcquiringMicros: { w: 2693 } }, Database: { acquireCount: { w: 34 } }, Collection: { acquireCount: { W: 34 } } } 281ms
+2021-05-29T00:07:17.579+0800 I COMMAND  [conn15] command test.$cmd appName: "MongoDB Shell" command: delete { delete: "settles", deletes: [ { q: {}, limit: 0.0 } ], ordered: true } numYields:0 reslen:29 locks:{ Global: { acquireCount: { r: 34, w: 34 } }, MMAPV1Journal: { acquireCount: { w: 3757 }, acquireWaitCount: { w: 2 }, timeAcquiringMicros: { w: 2693 } }, Database: { acquireCount: { w: 34 } }, Collection: { acquireCount: { W: 34 } } } protocol:op_command 281ms
+2021-05-29T00:07:45.740+0800 I -        [conn15] end connection 127.0.0.1:53944 (7 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn12] end connection 127.0.0.1:53488 (6 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn9] end connection 127.0.0.1:53482 (5 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn10] end connection 127.0.0.1:53484 (4 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn11] end connection 127.0.0.1:53486 (3 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn13] end connection 127.0.0.1:53490 (2 connections now open)
+2021-05-29T00:11:12.149+0800 I -        [conn14] end connection 127.0.0.1:53492 (1 connection now open)
+2021-05-29T00:11:22.991+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54268 #16 (1 connection now open)
+2021-05-29T00:11:22.991+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54270 #17 (2 connections now open)
+2021-05-29T00:11:23.000+0800 I NETWORK  [conn16] received client metadata from 127.0.0.1:54268 conn16: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T00:11:23.000+0800 I NETWORK  [conn17] received client metadata from 127.0.0.1:54270 conn17: { driver: { name: "nodejs", version: "2.2.36" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE, mongodb-core: 2.1.20" }
+2021-05-29T00:11:23.025+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54272 #18 (3 connections now open)
+2021-05-29T00:11:23.026+0800 I NETWORK  [conn18] received client metadata from 127.0.0.1:54272 conn18: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T00:11:23.030+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54274 #19 (4 connections now open)
+2021-05-29T00:11:23.033+0800 I NETWORK  [conn19] received client metadata from 127.0.0.1:54274 conn19: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T00:11:23.037+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54276 #20 (5 connections now open)
+2021-05-29T00:11:23.037+0800 I NETWORK  [conn20] received client metadata from 127.0.0.1:54276 conn20: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T00:11:23.044+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54278 #21 (6 connections now open)
+2021-05-29T00:11:23.045+0800 I NETWORK  [conn21] received client metadata from 127.0.0.1:54278 conn21: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T00:11:33.259+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:54288 #22 (7 connections now open)
+2021-05-29T08:42:19.390+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:55790 #23 (8 connections now open)
+2021-05-29T08:42:19.390+0800 I NETWORK  [conn23] received client metadata from 127.0.0.1:55790 conn23: { application: { name: "MongoDB Shell" }, driver: { name: "MongoDB Internal Client", version: "3.4.24" }, os: { type: "Linux", name: "CentOS Linux release 7.9.2009 (Core)", architecture: "x86_64", version: "Kernel 3.10.0-1127.19.1.el7.x86_64" } }
+2021-05-29T08:42:35.009+0800 I -        [conn23] end connection 127.0.0.1:55790 (8 connections now open)
+2021-05-29T08:46:35.455+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:56072 #24 (8 connections now open)
+2021-05-29T09:11:46.468+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57528 #25 (9 connections now open)
+2021-05-29T09:12:01.374+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57544 #26 (10 connections now open)
+2021-05-29T09:15:09.528+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57736 #27 (11 connections now open)
+2021-05-29T09:15:09.528+0800 I NETWORK  [conn27] received client metadata from 127.0.0.1:57736 conn27: { application: { name: "MongoDB Shell" }, driver: { name: "MongoDB Internal Client", version: "3.4.24" }, os: { type: "Linux", name: "CentOS Linux release 7.9.2009 (Core)", architecture: "x86_64", version: "Kernel 3.10.0-1127.19.1.el7.x86_64" } }
+2021-05-29T09:16:35.095+0800 I -        [conn27] end connection 127.0.0.1:57736 (11 connections now open)
+2021-05-29T09:19:02.538+0800 I -        [conn18] end connection 127.0.0.1:54272 (10 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn16] end connection 127.0.0.1:54268 (9 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn17] end connection 127.0.0.1:54270 (8 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn19] end connection 127.0.0.1:54274 (7 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn20] end connection 127.0.0.1:54276 (6 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn21] end connection 127.0.0.1:54278 (5 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn22] end connection 127.0.0.1:54288 (4 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn25] end connection 127.0.0.1:57528 (3 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn24] end connection 127.0.0.1:56072 (2 connections now open)
+2021-05-29T09:19:02.539+0800 I -        [conn26] end connection 127.0.0.1:57544 (1 connection now open)
+2021-05-29T09:19:06.780+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57962 #28 (1 connection now open)
+2021-05-29T09:19:06.780+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57964 #29 (2 connections now open)
+2021-05-29T09:19:06.783+0800 I NETWORK  [conn28] received client metadata from 127.0.0.1:57962 conn28: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T09:19:06.783+0800 I NETWORK  [conn29] received client metadata from 127.0.0.1:57964 conn29: { driver: { name: "nodejs", version: "2.2.36" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE, mongodb-core: 2.1.20" }
+2021-05-29T09:19:06.809+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57966 #30 (3 connections now open)
+2021-05-29T09:19:06.809+0800 I NETWORK  [conn30] received client metadata from 127.0.0.1:57966 conn30: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T09:19:06.814+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57968 #31 (4 connections now open)
+2021-05-29T09:19:06.814+0800 I NETWORK  [conn31] received client metadata from 127.0.0.1:57968 conn31: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T09:19:06.816+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57970 #32 (5 connections now open)
+2021-05-29T09:19:06.816+0800 I NETWORK  [conn32] received client metadata from 127.0.0.1:57970 conn32: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T09:19:06.818+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:57972 #33 (6 connections now open)
+2021-05-29T09:19:06.818+0800 I NETWORK  [conn33] received client metadata from 127.0.0.1:57972 conn33: { driver: { name: "nodejs|Mongoose", version: "3.4.1|5.8.3" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1127.19.1.el7.x86_64" }, platform: "Node.js v12.22.1, LE" }
+2021-05-29T09:19:52.117+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:58018 #34 (7 connections now open)
+2021-05-29T09:22:58.995+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:58196 #35 (8 connections now open)
+2021-06-11T11:29:32.571+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:55268 #36 (9 connections now open)
+2021-07-04T00:34:42.219+0800 I NETWORK  [thread1] connection accepted from 127.0.0.1:51174 #37 (10 connections now open)
