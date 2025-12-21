@@ -1,0 +1,36 @@
+extends layout
+
+block content
+  .page-header
+    h3 Contact Form
+
+  //form.form-horizontal(role='form', method='POST')
+    //input(type='hidden', name='_csrf', value=_csrf)
+    .form-group
+      label(class='col-sm-2 control-label', for='name') Name
+      .col-sm-8
+        input.form-control(type='text', name='name', id='name', autofocus=true)
+    .form-group
+      label(class='col-sm-2 control-label', for='email') Email
+      .col-sm-8
+        input.form-control(type='text', name='email', id='email')
+    .form-group
+      label(class='col-sm-2 control-label', for='message') Body
+      .col-sm-8
+        textarea.form-control(type='text', name='message', id='message', rows='7')
+    .form-group
+      .col-sm-offset-2.col-sm-8
+        button.btn.btn-default(type='submit')
+          i.fa.fa-mail-forward
+          | Send
+
+  div.panel.panel-primary
+    div.panel-heading.clearfix
+      h4.panel-title.pull-left(style='padding-top: 7.5px;') User Information
+      div.btn-group.pull-right
+        a.btn.btn-default.btn-sm(href='#') ## Lock
+        a.btn.btn-default.btn-sm(href='#') ## Delete
+        a.btn.btn-default.btn-sm(href='#') ## Move
+    div.panel-body
+      p The following table contains some personal information about users.
+      canvas#myChart(width='400', height='400')

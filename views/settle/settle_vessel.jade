@@ -1,0 +1,344 @@
+// Created by ezefjia on 2024/03/17.
+
+extends ../layout
+block content
+  style.
+    .blurred-price {
+      position: relative;
+      display: inline-block;
+      color: transparent;
+      text-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+      letter-spacing: 2px;
+      background: rgba(0, 0, 0, 0.1);
+      padding: 2px 10px;
+      border-radius: 5px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+
+  .page-header(style='margin-bottom:5px;margin-top:0')
+    .row(style="margin-left:0px;")
+      .btn-group(style="margin-right:1px;")
+        button#single-price-input.btn.btn-default.btn-sm
+          i.fa.fa-cny
+          | &nbsp;单行输入
+        button#batch-price-input.btn.btn-default.btn-sm
+          i.fa.fa-cny
+          | &nbsp;批量输入
+        button#delay-info.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="填写卸船日期和预付方式")
+          i.fa.fa-leaf
+          | &nbsp;回执滞留
+
+      .btn-group(style="margin-right:5px;")
+        button#filter.btn.btn-default.btn-sm(data-toggle="tooltip", data-placement='bottom', title="根据条件进行运单过滤")
+          i.fa.fa-search-plus
+          | &nbsp;过滤
+        button#search-export.btn.btn-default.btn-sm
+          i.fa.fa-external-link-square
+          | &nbsp;导出
+        button#show-detail.btn.btn-default.btn-sm
+          i.fa.fa-list
+          | &nbsp;显示明细
+
+      button#settle-bill.btn.btn-success.btn-sm
+        i.fa.fa-tags
+        | &nbsp;结算
+      button#settle-bill-cancel.btn.btn-success.btn-sm(style="margin-right:5px")
+        i.fa.fa-ban
+        | &nbsp;结算取消
+
+      button#settle-print-detail.btn.btn-success.btn-sm(style="margin-right:5px") 车船清单打印
+      button#settle-pay.btn.btn-success.btn-sm 付款
+      button#settle-pay-cancel.btn.btn-success.btn-sm 付款取消
+
+      div.pull-right(style="display: flex; align-items: center")
+        div#selected-summary(style="margin-right: 30px; display: flex; align-items: center")
+          h5(style="margin-top:8px;margin-right:10px;") 已选重量:
+            code#lb-selected-total-weight 0
+          h5(style="margin-top:8px;margin-right:10px;") 已选金额:
+            code#lb-selected-total-amount 0
+
+        h5(style="margin-top:8px;margin-right:5px;") 记录数:
+          code#curr-number 0
+        h5(style="margin-top:8px;margin-right:10px;") 重量:
+          code#lb-total-weight 0
+        h5(style="margin-top:8px;margin-right:10px;") 合计金额:
+          code#lb-total-amount 0
+
+    #unpay-block.row(style='display:none')
+      h5.pull-right(style="margin:0 10px 5px 0;") 未付金额:
+        code#lb-unpay-amount 0
+
+
+  div#filter-ui.form-horizontal
+    .row(style="margin-right:10px")
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-vehicle') 车船号
+          .input-group.col-sm-8
+            select#bf-vehicle.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-vehicle-contact') 承运单位
+          .input-group.col-sm-8
+            select#bf-vehicle-contact.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-bill-name') 开单名称
+          .input-group.col-sm-8
+            select#bf-bill-name.form-control
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='bf-destination') 目的地
+          .input-group.col-sm-8
+            select#bf-destination.form-control
+    .row(style="margin-right:10px")
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='start-date') 发货日期(开始)
+          .input-group.date#start-date-grp
+            input#start-date.form-control(type='text', name='start-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+      .col-md-3
+        .form-group
+          label.control-label.col-sm-4(for='end-date') 发货日期(结束)
+          .input-group.date#end-date-grp
+            input#end-date.form-control(type='text', name='end-date', data-date-format="YYYY-MM-DD")
+            span.input-group-addon
+              i.fa.fa-calendar
+      .col-md-6(style="display: flex; align-item:center; justify-content: flex-end; gap: 10px;")
+        .form-group(style="display: flex; align-items: center; justify-content: flex-end;font-size:12px;")
+          select#settle-select.form-control(style="width: 120px; line-height: 40px")
+            option(value='未结算' style="padding: 10px") 未结算
+            option(value='已结算') 已结算
+            option(value='已付款') 已付款
+            option(value='不需要结算') 不需要结算
+            option(value='全部' style="padding: 10px") 全部
+
+        .form-group(style="display: flex; align-items: center; justify-content: flex-end; margin-left: 20px")
+          select#receipt-select.form-control(style="width: 120px; line-height: 40px")
+            option(value='2' style="padding: 10px") 全部
+            option(value='1') 已回执
+            option(value='0') 未回执
+          input#q-amount.form-control(type='text', name='amount', placeholder="单价金额", style="width: 100px; margin-left:10px;", oninput="value=value.replace(/[^0-9|.]/g,'')")
+          input#q-weight.form-control(type='text', name='amount', placeholder="吨位", style="width: 100px; margin-left:10px;", oninput="value=value.replace(/[^0-9|.]/g,'')")
+          button#settle-search.btn.btn-success.btn-sm(style="margin-left: 15px; height: 32px;") 查询确定
+
+  div.sticky-table(style="height: calc(100vh - 280px); overflow: auto")
+    table#table-content.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+      thead
+        tr
+          th#first-th(style='min-width:15px;background:white;' nowrap)
+          th 状态
+          th 运单号
+          th 车船号
+          th 承运单位
+          th 开单名称/发货单位
+          th 起始地
+          th 目的地
+          th 总价格
+          th 单价
+          th 发运块数
+          th 发运重量
+          th 发货日期
+          th 结算日期
+          th 卸船日期
+          th 滞留天数
+          th(style="text-align: center; width: 50px" nowrap)
+            span#batch-charge-ctrl(style="cursor:pointer; line-height:1.0; padding: 3px 6px;",data-toggle="tooltip", data-placement='bottom', title="批量输入预付方式和预付数").btn-sm.btn-primary 预付
+          th(style="text-align: center; min-width:80px; padding: 0;" nowrap)
+            span#batch-receipt-ctrl(style="cursor:pointer; line-height:1.0; padding: 3px 6px;", data-toggle="tooltip", data-placement='bottom', title="对显示的纪录批量设置回执").btn-sm.btn-primary
+              i#receipt-icon.fa.fa-square-o(style="color: red; margin-right: 5px;")
+              | 回执
+      tbody#table-tbody
+
+  div#settle-detail-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='settleDetailLabel', aria-hidden='true')
+    .modal-dialog(style='min-width:80%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 车船结算明细单
+        .container(style='width: 100%')
+          table#tb-detail.table.invoice-table.table-bordered(style='margin-top:5px; margin-bottom: 0px !important; clear:both;')
+            thead
+              tr
+                th 提单号
+                th 订单号-项次号
+                th 发货仓库
+                th 厚度
+                th 宽度
+                th 长度
+                th 单重
+                th 总块数
+                th 总重量
+                th 发运块数
+                th 发运重量
+                th 车号
+            tbody#tb-detail-tbody
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-primary(data-dismiss='modal') 关闭
+
+  div#settle-delay-dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='settleDelayLabel', aria-hidden='true')
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 结算信息填写
+        .container(style='width: 90%')
+          .row.form-horizontal.margin
+            .col-md-6
+              .form-group
+                label.control-label.col-sm-4(for='charge-cash') 预付现金
+                .input-group.col-sm-8
+                  input#charge-cash.form-control(type='text', name='charge-cash', value='0')
+            .col-md-6
+              .form-group
+                label.control-label.col-sm-4(for='charge-oil') 预付油卡
+                .input-group.col-sm-8
+                  input#charge-oil.form-control(type='text', name='charge-oil', value='0')
+            div#delay_receipt
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4(for='unship-date') 卸船日期
+                  .input-group.date#unship-date-grp
+                    input#unship-date.form-control(type='text', name='unship-date', data-date-format="YYYY-MM-DD")
+                    span.input-group-addon
+                      i.fa.fa-calendar
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4(for='delay-day') 滞留天数
+                  .input-group.col-sm-8
+                    input#delay-day.form-control(type='text', name='delay-day', value='0')
+            div.col-md-12(style='display: flex; align-items: center;')
+              .col-md-6
+                .form-group
+                  label.control-label.col-sm-4
+                  .input-group.col-sm-8
+                    input#sdd_receipt.form-control(type='checkbox', name='sdd_receipt')
+                    label(for='sdd_receipt') &nbsp;是否收到回执
+              .col-md-6 
+                .form-group 
+                  label.custum-file-upload(for="receipt-file")
+                    #upload-hint
+                      .icon
+                        svg( viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg")
+                          g( id="SVGRepo_bgCarrier" stroke-width="0")
+                          g( id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round")
+                          g(id="SVGRepo_iconCarrier")
+                            path(
+                              fill-rule="evenodd" 
+                              clip-rule="evenodd" 
+                              d="M10 1C9.73478 1 9.48043 1.10536 9.29289 1.29289L3.29289 7.29289C3.10536 7.48043 3 7.73478 3 8V20C3 21.6569 4.34315 23 6 23H7C7.55228 23 8 22.5523 8 22C8 21.4477 7.55228 21 7 21H6C5.44772 21 5 20.5523 5 20V9H10C10.5523 9 11 8.55228 11 8V3H18C18.5523 3 19 3.44772 19 4V9C19 9.55228 19.4477 10 20 10C20.5523 10 21 9.55228 21 9V4C21 2.34315 19.6569 1 18 1H10ZM9 7H6.41421L9 4.41421V7ZM14 15.5C14 14.1193 15.1193 13 16.5 13C17.8807 13 19 14.1193 19 15.5V16V17H20C21.1046 17 22 17.8954 22 19C22 20.1046 21.1046 21 20 21H13C11.8954 21 11 20.1046 11 19C11 17.8954 11.8954 17 13 17H14V16V15.5ZM16.5 11C14.142 11 12.2076 12.8136 12.0156 15.122C10.2825 15.5606 9 17.1305 9 19C9 21.2091 10.7909 23 13 23H20C22.2091 23 24 21.2091 24 19C24 17.1305 22.7175 15.5606 20.9844 15.122C20.7924 12.8136 18.858 11 16.5 11Z" 
+                              fill=""
+                              )
+                      .text(style='margin-top: 10px;')
+                        span
+                          | 点击上传回执图片
+                          br
+                          span(style='font-size: 12px; font-weight: bold; color: blue;') (最大不超过8M)
+
+                    input#receipt-file(type="file" accept="image/*")
+                    img#previewImage(style="max-width: 100%; max-height: 300px; margin-top: 20px; display: none;")
+
+            .col-md-12
+              .form-group
+                label.control-label.col-sm-2(for='delay-remark') 备注信息
+                .input-group.col-sm-10
+                  input#delay-remark.form-control(type='text', name='delay-remark')
+
+        .modal-footer(style='margin-top: 0px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#settle-delay-btn-ok.btn.btn-primary 确定
+
+  div#upload-receipt-image-dialog.modal.fade
+    .modal-dialog(style='width:50%; height: 60vh')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title(style='font-weight:bold') 上传执清单图片
+        .container(style='width: 100%; height:100%; max-height:70vh; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 20px 10px 0')
+          label.custum-file-upload(for="upload-receipt-file" style="text-align: center; height: 100%; width: 90%")
+            #upload-receipt-hint
+              .icon
+                svg(viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg")
+                  g( id="SVGRepo_bgCarrier" stroke-width="0")
+                  g( id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round")
+                  g(id="SVGRepo_iconCarrier")
+                    path(
+                      fill-rule="evenodd" 
+                      clip-rule="evenodd" 
+                      d="M10 1C9.73478 1 9.48043 1.10536 9.29289 1.29289L3.29289 7.29289C3.10536 7.48043 3 7.73478 3 8V20C3 21.6569 4.34315 23 6 23H7C7.55228 23 8 22.5523 8 22C8 21.4477 7.55228 21 7 21H6C5.44772 21 5 20.5523 5 20V9H10C10.5523 9 11 8.55228 11 8V3H18C18.5523 3 19 3.44772 19 4V9C19 9.55228 19.4477 10 20 10C20.5523 10 21 9.55228 21 9V4C21 2.34315 19.6569 1 18 1H10ZM9 7H6.41421L9 4.41421V7ZM14 15.5C14 14.1193 15.1193 13 16.5 13C17.8807 13 19 14.1193 19 15.5V16V17H20C21.1046 17 22 17.8954 22 19C22 20.1046 21.1046 21 20 21H13C11.8954 21 11 20.1046 11 19C11 17.8954 11.8954 17 13 17H14V16V15.5ZM16.5 11C14.142 11 12.2076 12.8136 12.0156 15.122C10.2825 15.5606 9 17.1305 9 19C9 21.2091 10.7909 23 13 23H20C22.2091 23 24 21.2091 24 19C24 17.1305 22.7175 15.5606 20.9844 15.122C20.7924 12.8136 18.858 11 16.5 11Z" 
+                      fill=""
+                      )
+              .text(style='margin-top: 10px;')
+                span
+                  | 点击上传回执图片
+                  br
+                  span(style='font-size: 12px; font-weight: bold; color: blue;') (最大不超过8M)
+
+            input#upload-receipt-file(type="file" accept="image/*")
+            img#preview-receipt-image(style="max-width: 100%; max-height: 100%; padding-top: 5px; display: none; overflow: auto")
+
+        .modal-footer(style='margin-top: 20px')
+          button.btn.btn-default(data-dismiss='modal') 取消
+          button#upload-receipt-ok.btn.btn-primary 确定
+
+  div#receipt-image-dialog.modal.fade
+    .modal-dialog(style='width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title(style='font-weight:bold') 查看回执清单图片
+        .container(style='width: 100%; height:100%; max-height:85vh; overflow: auto')
+          img#display-receipt-image(src='' style='margin-top: 20px;')
+
+          .modal-footer(style='margin-top: 20px')
+            button.btn.btn-default(data-dismiss='modal') 关闭
+
+  div#settle-print-dialog.modal.fade
+    .modal-dialog(style='min-width:80%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title(style='font-weight:bold') 车船结算清单
+        .container(style='width: 100%')
+          div#print-div
+            table.table.invoice-table.table-bordered(style='margin-top:5px; margin-bottom: 0px !important; clear:both; border-collapse:collapse;')
+              thead
+                tr
+                  th(style='border:1px solid black;padding:5px;') 车船号
+                  th(style='border:1px solid black;padding:5px;') 开单名称/发货单位
+                  th(style='border:1px solid black;padding:5px;') 起始地
+                  th(style='border:1px solid black;padding:5px;') 目的地
+                  th(style='border:1px solid black;padding:5px;') 发运重量
+                  th(style='border:1px solid black;padding:5px;') 单价
+                  th(style='border:1px solid black;padding:5px;') 总价格
+                  th(style='border:1px solid black;padding:5px;') 发货日期
+                  th(style='border:1px solid black;padding:5px;') 滞留天数
+                  th(style='border:1px solid black;padding:5px;') 预付
+              tbody#print-detail-tbody
+
+            //.col-xs-3.pull-right(style='margin-top:5px;')
+            table.pull-right(style='margin-top:5px;')
+              tbody
+                tr
+                  td(style='width:50%; font-weight: bold; text-align: right;') 总重量:
+                  td#print-total-weight(style='font-weight: bold; text-align: left;') 0.000
+                tr
+                  td(style='width:50%; font-weight: bold;text-align: right;') 价格:
+                  td#print-total-number(style='font-weight: bold; text-align: left;') 0.000
+                tr
+                  td(style='width:50%; font-weight: bold;text-align: right;') 未付款:
+                  td#print-unpay-number(style='font-weight: bold; text-align: left;') 0.000
+
+
+          .modal-footer(style='margin-top: 65px')
+            button.btn.btn-default(data-dismiss='modal') 关闭
+            button#print-to.btn.btn-success(data-dismiss='modal') 打印
+            button#print-and-pay.btn.btn-success(data-dismiss='modal') 打印并确定付款
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_data = !{JSON.stringify(dData)};

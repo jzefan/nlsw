@@ -1,0 +1,197 @@
+// Created by Think on 2015/4/26.
+
+extends ../layout
+block content
+  style.
+    .permissions-container {
+      padding: 10px 0 0;
+    }
+    .group-title {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eaeaea;
+      color: #2c3e50;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .group-title i {
+      margin-right: 10px;
+      font-size: 16px;
+      color: #3498db;
+    }
+    .permissions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 6px;
+    }
+    .permission-item {
+      position: relative;
+    }
+    .permission-item input[type="checkbox"] {
+      display: none;
+    }
+    .permission-item label {
+      display: flex;
+      align-items: center;
+      padding: 6px 10px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+      border: 2px solid #e9ecef;
+      position: relative;
+      overflow: hidden;
+    }
+    .permission-item label:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+      border-color:rgb(13, 148, 238);
+    }
+    .permission-item label::before {
+      content: '';
+      display: inline-block;
+      width: 22px;
+      height: 22px;
+      border: 2px solid #95a5a6;
+      border-radius: 5px;
+      margin-right: 15px;
+      transition: all 0.3s ease;
+    }
+    .permission-item input[type="checkbox"]:checked + label {
+      background: rgba(52, 152, 219, 0.1);
+      border-color: #3498db;
+      color: #2980b9;
+      font-weight: 500;
+    }
+    .permission-item input[type="checkbox"]:disabled + label {
+      background: rgba(92, 95, 98, 0.1);
+      border: 1px solid rgb(130, 136, 140);
+      color:rgb(193, 213, 226);
+      font-weight: 500;
+      cursor: not-allowed;
+    }
+    .permission-item input[type="checkbox"]:checked + label::before {
+      background: #3498db;
+      border-color: #3498db;
+      box-shadow: inset 0 0 0 3px white;
+    }
+    .permission-item label::after {
+      content: '';
+      position: absolute;
+      left: 16px;
+      width: 6px;
+      height: 12px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform-origin: bottom left;
+      transition: transform 0.3s ease;
+      opacity: 0;
+    }
+    .permission-item input[type="checkbox"]:checked + label::after {
+      transform: translateY(-65%) rotate(45deg) scale(1);
+      opacity: 1;
+    }
+        
+  .page-header
+    include ../datamgt/tool_group
+  .row(style="padding: 10px 30px; margin: 0 auto; width: 1200px")
+    table#data-table.table.table-bordered.invoice-table(style='margin-bottom: 0px !important')
+      thead
+        tr
+          th 用户名
+          th 真实名字
+          th 职务
+          th 权限
+          th 联系电话
+      tbody#data-tbody
+
+  #data-dialog.modal.fade
+    .modal-dialog(style='min-width:40%; width: 680px')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title#dialog-title 新建用户
+            code#pwd-hint(style='color:red') 初始密码是"123456"
+        .container(style='width: 90%')
+          .row.form-horizontal.margin(style="padding-top:15px; padding-bottom: 10px;")
+            .form-group
+              input#u-name.form-control(type='text', name='userid', placeholder='用户名')
+              p#same-name(style='color:red;margin:0')
+            .form-group
+              input#u-real-name.form-control(type='text', name='real_name', placeholder='真实名字')
+            .form-group
+              select.form-control#employee-title(name='employee_title', placeholder='职务')
+                option(value='', disabled=true, selected=true, style='display:none;color:gray') 职务
+                option(value='ceo') 董事长
+                option(value='mgr') 经理
+                option(value='operator') 业务员
+                option(value='account') 会计
+                option(value='statistician') 统计员
+            .form-group
+              input#u-phone.form-control(type='text', name='u-phone', placeholder='电话')
+            .form-group 
+              .permissions-container 
+                .permission-group
+                  .group-title
+                    i.fas.fa-cogs
+                    | 选择权限
+                  .permissions-grid
+                    .permission-item
+                      input#p-admin(type='checkbox' class='no-icheck')
+                      label(for='p-admin') 管理员
+                    .permission-item
+                      input#p-operator(type='checkbox' class='no-icheck')
+                      label(for='p-operator') 业务
+                    .permission-item
+                      input#p-account(type='checkbox' class='no-icheck')
+                      label(for='p-account') 会计  
+                    .permission-item
+                      input#p-statistics(type='checkbox' class='no-icheck')
+                      label(for='p-statistics') 统计
+                    .permission-item
+                      input#p-cust-revenue(type='checkbox' class='no-icheck')
+                      label(for='p-cust-revenue') 客户营业额  
+                    .permission-item
+                      input#p-vessel-revenue(type='checkbox' class='no-icheck')
+                      label(for='p-vessel-revenue') 车船营业额
+                    .permission-item
+                      input#p-self-vehicle(type='checkbox' class='no-icheck')
+                      label(for='p-self-vehicle') 自有车管理  
+                    .permission-item
+                      input#p-see-price(type='checkbox' class='no-icheck')
+                      label(for='p-see-price') 查看价格  
+
+            //- .form-group
+              label.control-label.col-sm-2 权限选择:
+              .col-sm-10
+                label(style='color: red; font-weight:bold; padding-top: 6px;vertical-align:middle; margin-right:30px; cursor: pointer' for='privilege')
+                  input#p-admin(name="privilege" type="checkbox")
+                  | &nbsp;管理
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-operator(name="privilege" type="checkbox")
+                  | &nbsp;业务
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-account(name="privilege" type="checkbox")
+                  | &nbsp;会计
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-statistics(name="privilege" type="checkbox")
+                  | &nbsp;统计
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-cust-revenue(name="privilege" type="checkbox")
+                  | &nbsp;客户营业额
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-vessel-revenue(name="privilege" type="checkbox")
+                  | &nbsp;车船营业额
+                label(style='padding-top: 6px;vertical-align:middle; margin-right:10px; cursor: pointer' for='privilege')
+                  input#p-self-vehicle(name="privilege" type="checkbox")
+                  | &nbsp;自有车管理
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#data-btn-ok.btn.btn-primary.disabled 确定
+
+  script.
+    var local_data = !{JSON.stringify(dbUsers)};

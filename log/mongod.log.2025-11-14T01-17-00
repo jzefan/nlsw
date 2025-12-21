@@ -1,0 +1,67 @@
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] MongoDB starting : pid=10662 port=27027 dbpath=/home/juntie/nlsw/data/db 64-bit host=iZf8zc5m10xts28t4c2qd9Z
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] db version v3.6.23
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] git version: d352e6a4764659e0d0350ce77279de3c1f243e5c
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] OpenSSL version: OpenSSL 1.0.1e-fips 11 Feb 2013
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] allocator: tcmalloc
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] modules: none
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] build environment:
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten]     distmod: rhel70
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten]     distarch: x86_64
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten]     target_arch: x86_64
+2025-11-14T09:11:34.932+0800 I CONTROL  [initandlisten] options: { net: { port: 27027 }, storage: { dbPath: "/home/juntie/nlsw/data/db" }, systemLog: { destination: "file", path: "/home/juntie/nlsw/log/mongod.log" } }
+2025-11-14T09:11:34.932+0800 W -        [initandlisten] Detected unclean shutdown - /home/juntie/nlsw/data/db/mongod.lock is not empty.
+2025-11-14T09:11:34.933+0800 I -        [initandlisten] Detected data files in /home/juntie/nlsw/data/db created by the 'wiredTiger' storage engine, so setting the active storage engine to 'wiredTiger'.
+2025-11-14T09:11:34.933+0800 W STORAGE  [initandlisten] Recovering data from the last clean checkpoint.
+2025-11-14T09:11:34.933+0800 I STORAGE  [initandlisten] 
+2025-11-14T09:11:34.933+0800 I STORAGE  [initandlisten] ** WARNING: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine
+2025-11-14T09:11:34.933+0800 I STORAGE  [initandlisten] **          See http://dochub.mongodb.org/core/prodnotes-filesystem
+2025-11-14T09:11:34.933+0800 I STORAGE  [initandlisten] wiredtiger_open config: create,cache_size=3326M,cache_overflow=(file_max=0M),session_max=20000,eviction=(threads_min=4,threads_max=4),config_base=false,statistics=(fast),compatibility=(release="3.0",require_max="3.0"),log=(enabled=true,archive=true,path=journal,compressor=snappy),file_manager=(close_idle_time=100000),statistics_log=(wait=0),verbose=(recovery_progress),
+2025-11-14T09:11:35.560+0800 I STORAGE  [initandlisten] WiredTiger message [1763082695:560753][10662:0x7f065ff7b2c0], txn-recover: Main recovery loop: starting at 562/94062336
+2025-11-14T09:11:35.561+0800 I STORAGE  [initandlisten] WiredTiger message [1763082695:561036][10662:0x7f065ff7b2c0], txn-recover: Recovering log 562 through 563
+2025-11-14T09:11:35.569+0800 I STORAGE  [initandlisten] WiredTiger message [1763082695:569785][10662:0x7f065ff7b2c0], txn-recover: Recovering log 563 through 563
+2025-11-14T09:11:35.622+0800 I STORAGE  [initandlisten] WiredTiger message [1763082695:622355][10662:0x7f065ff7b2c0], txn-recover: Set global recovery timestamp: 0
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] ** WARNING: This server is bound to localhost.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          Remote systems will be unable to connect to this server. 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          Start the server with --bind_ip <address> to specify which IP 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          addresses it should serve responses from, or with --bind_ip_all to
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          bind to all interfaces. If this behavior is desired, start the
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **          server with --bind_ip 127.0.0.1 to disable this warning.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/enabled is 'always'.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] ** WARNING: soft rlimits too low. rlimits set to 4096 processes, 65535 files. Number of processes should be at least 32767.5 : 0.5 times number of files.
+2025-11-14T09:11:35.637+0800 I CONTROL  [initandlisten] 
+2025-11-14T09:11:35.648+0800 I FTDC     [initandlisten] Initializing full-time diagnostic data capture with directory '/home/juntie/nlsw/data/db/diagnostic.data'
+2025-11-14T09:11:35.649+0800 I NETWORK  [initandlisten] listening via socket bound to 127.0.0.1
+2025-11-14T09:11:35.649+0800 I NETWORK  [initandlisten] listening via socket bound to /tmp/mongodb-27027.sock
+2025-11-14T09:11:35.649+0800 I NETWORK  [initandlisten] waiting for connections on port 27027
+2025-11-14T09:11:43.977+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59292 #1 (1 connection now open)
+2025-11-14T09:11:43.977+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59294 #2 (2 connections now open)
+2025-11-14T09:11:43.980+0800 I NETWORK  [conn1] received client metadata from 127.0.0.1:59292 conn1: { driver: { name: "nodejs", version: "3.7.4" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "'Node.js v14.21.3, LE (legacy)" }
+2025-11-14T09:11:43.982+0800 I NETWORK  [conn2] received client metadata from 127.0.0.1:59294 conn2: { driver: { name: "nodejs", version: "2.2.36" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "Node.js v14.21.3, LE, mongodb-core: 2.1.20" }
+2025-11-14T09:11:43.998+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59296 #3 (3 connections now open)
+2025-11-14T09:11:44.005+0800 I NETWORK  [conn3] received client metadata from 127.0.0.1:59296 conn3: { driver: { name: "nodejs", version: "3.7.4" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "'Node.js v14.21.3, LE (legacy)" }
+2025-11-14T09:11:44.006+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59298 #4 (4 connections now open)
+2025-11-14T09:11:44.007+0800 I NETWORK  [conn4] received client metadata from 127.0.0.1:59298 conn4: { driver: { name: "nodejs", version: "3.7.4" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "'Node.js v14.21.3, LE (legacy)" }
+2025-11-14T09:11:44.008+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59300 #5 (5 connections now open)
+2025-11-14T09:11:44.009+0800 I NETWORK  [conn5] received client metadata from 127.0.0.1:59300 conn5: { driver: { name: "nodejs", version: "3.7.4" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "'Node.js v14.21.3, LE (legacy)" }
+2025-11-14T09:11:44.010+0800 I NETWORK  [listener] connection accepted from 127.0.0.1:59302 #6 (6 connections now open)
+2025-11-14T09:11:44.010+0800 I NETWORK  [conn6] received client metadata from 127.0.0.1:59302 conn6: { driver: { name: "nodejs", version: "3.7.4" }, os: { type: "Linux", name: "linux", architecture: "x64", version: "3.10.0-1160.108.1.el7.x86_64" }, platform: "'Node.js v14.21.3, LE (legacy)" }
+2025-11-14T09:11:44.130+0800 I COMMAND  [conn1] command jun_db.bills command: distinct { distinct: "bills", key: "billing_name", query: { left_num: { $gt: 0 } }, lsid: { id: UUID("2e899892-db07-4089-ba94-2a1c05642be6") }, $db: "jun_db" } planSummary: COLLSCAN keysExamined:0 docsExamined:41380 numYields:323 reslen:15709 locks:{ Global: { acquireCount: { r: 648 } }, Database: { acquireCount: { r: 324 } }, Collection: { acquireCount: { r: 324 } } } protocol:op_msg 124ms
+2025-11-14T09:14:30.740+0800 I CONTROL  [signalProcessingThread] got signal 1 (Hangup), will terminate after current cmd ends
+2025-11-14T09:14:30.743+0800 I NETWORK  [signalProcessingThread] shutdown: going to close listening sockets...
+2025-11-14T09:14:30.743+0800 I NETWORK  [signalProcessingThread] removing socket file: /tmp/mongodb-27027.sock
+2025-11-14T09:14:30.743+0800 I FTDC     [signalProcessingThread] Shutting down full-time diagnostic data capture
+2025-11-14T09:14:30.747+0800 I STORAGE  [signalProcessingThread] WiredTigerKVEngine shutting down
+2025-11-14T09:14:30.770+0800 I STORAGE  [signalProcessingThread] shutdown: removing fs lock...
+2025-11-14T09:14:30.770+0800 I CONTROL  [signalProcessingThread] now exiting
+2025-11-14T09:14:30.770+0800 I CONTROL  [signalProcessingThread] shutting down with code:0

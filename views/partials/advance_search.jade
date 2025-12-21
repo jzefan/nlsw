@@ -1,0 +1,63 @@
+#search_dialog.modal.fade(tabindex='-1', role='dialog', aria-labelledby='invSearchLabel', aria-hidden='true')
+  .modal-dialog(style='min-width:90%')
+    .modal-content
+      .modal-header
+        button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+        h4.modal-title 高级查询
+      .container(style='width: 100%; margin-top:8px')
+        div.box.box-solid
+          div.box-body
+            .row
+              .col-md-4
+                .form-group
+                  label(for='all_search_fields') 查询字段列表
+                  select#all_search_fields.form-control(name='all_search_fields', size=12)
+              .col-md-4
+                .form-group
+                  label(for='field_oper') 字段操作
+                  select#field_oper.form-control(name='field_oper')
+                .form-group
+                  label(for='field_val') 字段值
+                  input#field_val.form-control(type='text', name='field_val')
+                  select#field-val.form-control(style='display:none;')
+                  .input-group.date#field-val-date-group(style='display:none;')
+                    input#field-val-date.form-control(type='text', name='field-val-date')
+                    span.input-group-addon
+                      i.fa.fa-calendar
+
+                .form-group#field_val_grp2(style='display:none')
+                  label(for='field_val2') 值2
+                  input#field_val2.form-control(type='text', name='field_val2')
+                  select#field-val2.form-control(style='display:none;')
+                  .input-group.date#field-val-date-group2(style='display:none;')
+                    input#field-val-date2.form-control(type='text', name='field-val-date', data-date-format="YYYY-MM-DD")
+                    span.input-group-addon
+                      i.fa.fa-calendar
+
+                .form-group
+                  button#field_apply.btn.btn-success.disabled 运用
+
+              .col-md-4(style='border-left: 1px dashed #8d1ada !important;')
+                .form-group(style='padding-left: 10px;')
+                  div.btn-group
+                    button#search_and.btn.btn-default.btn-sm 并且
+                    button#search_or.btn.btn-default.btn-sm 或者
+                  div.btn-group.margin-left
+                    button#search_del.btn.btn-default.btn-sm 删除
+                    button#search_exec.btn.btn-default.btn-sm 运行
+
+
+                  fieldset(style='margin-top:10px;')
+                    legend(style='font-size:15px') 查询条件
+                    div#search_condition_tree(style='margin-bottom:8px')
+            .row(style='margin-left:5px;margin-right:5px')
+              #search_table
+                table.table.table-bordered(style='margin-bottom: 0px !important')
+                  thead#search_thead
+                  tbody#search_tbody
+              #search_result(style='display:none')
+                code#search_result_show
+
+      .modal-footer(style='margin-top: 0px')
+        button.btn.btn-default(data-dismiss='modal') 取消
+        button#search_ok.btn.btn-primary.disabled 确定

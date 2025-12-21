@@ -1,0 +1,151 @@
+//
+   Created by ezefjia on 2015/2/12.
+
+extends ../layout
+block content
+  div#chart-panel.panel.panel-default
+    div.panel-heading.clearfix
+      button#statistics-condition.btn.btn-success.btn-sm(style='margin-right:15px;')
+        i.fa.fa-search-plus
+        | &nbsp;选择统计日期
+
+      input#show-statistics-report(type='checkbox')
+      label(for='show-statistics-report', style='padding-top: 5px;font-weight:normal; margin-bottom:0;') &nbsp;显示图表
+
+      button#search-export.btn.btn-primary.btn-sm.pull-right(style='margin-right: 5px;')
+        i.fa.fa-external-link-square
+        | &nbsp;导出数据
+      .btn-group.pull-right(style='margin-right: 5px;')
+        button#deposit-detail.btn.btn-primary.btn-sm
+          i.fa.fa-eye
+          | &nbsp;外付车船费用统计
+        button#vessel-deposit-detail.btn.btn-primary.btn-sm
+          i.fa.fa-list-ul
+          | &nbsp;外付车船费用清单
+      .btn-group.pull-right(style='margin-right: 5px;')
+        button#own-detail.btn.btn-default.btn-sm
+          i.fa.fa-eye
+          | &nbsp;自有车船应付费用统计
+        button#vessel-own-detail.btn.btn-default.btn-sm
+          i.fa.fa-list-ul
+          | &nbsp;自有车船应付费用清单
+
+
+    div.panel-body
+      div#chart-option(style="display:none;")
+        span(style='padding-left: 10px;')
+          input#chart-weight(type='radio', name='chart-radio', checked)
+          label.control-label(for='chart-weight', style='padding-left: 5px;') 显示吨位
+        span(style='padding-left: 10px;')
+          input#chart-amount(type='radio', name='chart-radio')
+          label.control-label(for='chart-amount', style='padding-left: 5px;') 显示金额
+
+      div#stat-chartdiv(style="width:100%; height:500px; display:none;")
+
+      table#stat-table.table.table-striped.table-bordered(align="center", style='margin: 0px auto;text-align: center')
+        thead
+          tr
+            th(colspan="2", rowspan="2", style='text-align:center;vertical-align:middle') 月份
+            th(colspan="2", style='text-align:center;') 总营业额
+            th(colspan="4", style='text-align:center;') 自有车
+            th(colspan="4", style='text-align:center;') 外挂车
+            th(rowspan="2", style='text-align:center;vertical-align:middle') 固定成本
+            th(rowspan="2", style='text-align:center;vertical-align:middle') 短驳应收款
+            th(rowspan="2", style='text-align:center;vertical-align:middle') 叉车应收款
+            th(rowspan="2", style='text-align:center;vertical-align:middle') 总利润
+          tr
+            th(style='text-align:center;') 总吨位
+            th(style='text-align:center;') 总金额
+            th(style='text-align:center;') 吨位
+            th(style='text-align:center;') 应收金额
+            th(style='text-align:center;') 应付金额
+            th(style='text-align:center;') 利润
+            th(style='text-align:center;') 吨位
+            th(style='text-align:center;') 应收金额
+            th(style='text-align:center;') 应付金额
+            th(style='text-align:center;') 利润
+        tbody#table-tbody
+
+  include stat_condition
+
+  #stat-detail-dialog.modal.fade
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4#summary-dialog-title.modal-title 车船外付统计
+        .container(style='width: 80%')
+          div(style="overflow:scroll;min-height:65%;height:65vh")
+            .row.margin.form-horizontal
+              table#detail-table.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+                thead
+                  tr
+                    th 车船号
+                    th 顿位
+                    th 金额
+                    th 车船联系人
+                tbody#detail-tbody
+
+          .modal-footer(style='margin-top: 0px')
+            button#export-detail.btn.btn-primary(data-dismiss='modal') 导出到Excel
+            button.btn.btn-primary(data-dismiss='modal') 关闭
+
+  #choose-month-dialog.modal.fade
+    .modal-dialog(style='min-width:50%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4.modal-title 选择月份
+        .container(style='width: 95%')
+          .row.margin.form-horizontal
+            label.control-label.col-sm-2(for='batch-modify-item') 月份:
+            .input-group.col-sm-8
+              select#detail-month.form-control
+
+          .modal-footer(style='margin-top: 0px')
+            button.btn.btn-default(data-dismiss='modal') 取消
+            button#choose-month-ok.btn.btn-primary(data-dismiss='modal') 确定
+
+  #vessel-detail-dialog.modal.fade
+    .modal-dialog(style='min-width:90%')
+      .modal-content
+        .modal-header
+          button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+          h4#detail-title.modal-title 车船外付清单
+        .container(style='width: 100%')
+          div(style="overflow:scroll;min-height:65%;height:65vh")
+            .row.margin.form-horizontal
+              table#vessel-detail-table.table.invoice-table.table-bordered(style='margin-bottom: 0px !important; clear:both;')
+                thead
+                  tr
+                    th 车船号
+                    th 开单名称/发货单位
+                    th 起始地
+                    th 目的地
+                    th 价格
+                    th 单价
+                    th 发运块数
+                    th 发运重量
+                    th 发货日期
+                    th 预付
+                    th 滞留天数
+                tbody#vessel-detail-tbodys
+
+          .modal-footer(style='margin-top: 0px')
+            button#export-vessel-detail.btn.btn-primary(data-dismiss='modal') 导出到Excel
+            button.btn.btn-primary(data-dismiss='modal') 关闭
+
+  div#nlContextMenu.dropdown.clearfix
+    ul.dropdown-menu(role='menu', aria-labelledby='dropdownMenu', style='display:block;position:static;margin-bottom:5px;')
+      li
+        a#show-own-summary.btn.btn-flat(tabindex='-1') 显示自有统计
+      li
+        a#show-own-detail.btn.btn-flat(tabindex='-1') 显示自有明细
+      li
+        a#show-deposit-summary.btn.btn-flat(tabindex='-1') 显示外挂统计
+      li
+        a#show-deposit-detail.btn.btn-flat(tabindex='-1') 显示外挂明细
+
+  script.
+    var local_action = "VESSEL";
+    var local_data = !{JSON.stringify(dData)};

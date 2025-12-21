@@ -1,0 +1,55 @@
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] MongoDB starting : pid=22210 port=27027 dbpath=/home/juntie/nlsw/data/db 64-bit host=iZf8zc5m10xts28t4c2qd9Z
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] db version v3.6.23
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] git version: d352e6a4764659e0d0350ce77279de3c1f243e5c
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] OpenSSL version: OpenSSL 1.0.1e-fips 11 Feb 2013
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] allocator: tcmalloc
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] modules: none
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] build environment:
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten]     distmod: rhel70
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten]     distarch: x86_64
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten]     target_arch: x86_64
+2024-12-04T09:38:44.503+0800 I CONTROL  [initandlisten] options: { net: { port: 27027 }, storage: { dbPath: "/home/juntie/nlsw/data/db" }, systemLog: { destination: "file", path: "/home/juntie/nlsw/log/mongod.log" } }
+2024-12-04T09:38:44.503+0800 W -        [initandlisten] Detected unclean shutdown - /home/juntie/nlsw/data/db/mongod.lock is not empty.
+2024-12-04T09:38:44.504+0800 I -        [initandlisten] Detected data files in /home/juntie/nlsw/data/db created by the 'wiredTiger' storage engine, so setting the active storage engine to 'wiredTiger'.
+2024-12-04T09:38:44.504+0800 W STORAGE  [initandlisten] Recovering data from the last clean checkpoint.
+2024-12-04T09:38:44.504+0800 I STORAGE  [initandlisten] 
+2024-12-04T09:38:44.504+0800 I STORAGE  [initandlisten] ** WARNING: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine
+2024-12-04T09:38:44.504+0800 I STORAGE  [initandlisten] **          See http://dochub.mongodb.org/core/prodnotes-filesystem
+2024-12-04T09:38:44.504+0800 I STORAGE  [initandlisten] wiredtiger_open config: create,cache_size=3326M,cache_overflow=(file_max=0M),session_max=20000,eviction=(threads_min=4,threads_max=4),config_base=false,statistics=(fast),compatibility=(release="3.0",require_max="3.0"),log=(enabled=true,archive=true,path=journal,compressor=snappy),file_manager=(close_idle_time=100000),statistics_log=(wait=0),verbose=(recovery_progress),
+2024-12-04T09:38:45.172+0800 I STORAGE  [initandlisten] WiredTiger message [1733276325:172451][22210:0x7fa57fb332c0], txn-recover: Main recovery loop: starting at 73/54210560
+2024-12-04T09:38:45.172+0800 I STORAGE  [initandlisten] WiredTiger message [1733276325:172751][22210:0x7fa57fb332c0], txn-recover: Recovering log 73 through 74
+2024-12-04T09:38:45.206+0800 I STORAGE  [initandlisten] WiredTiger message [1733276325:206131][22210:0x7fa57fb332c0], txn-recover: Recovering log 74 through 74
+2024-12-04T09:38:45.258+0800 I STORAGE  [initandlisten] WiredTiger message [1733276325:258666][22210:0x7fa57fb332c0], txn-recover: Set global recovery timestamp: 0
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] ** WARNING: This server is bound to localhost.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          Remote systems will be unable to connect to this server. 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          Start the server with --bind_ip <address> to specify which IP 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          addresses it should serve responses from, or with --bind_ip_all to
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          bind to all interfaces. If this behavior is desired, start the
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **          server with --bind_ip 127.0.0.1 to disable this warning.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/enabled is 'always'.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] ** WARNING: soft rlimits too low. rlimits set to 4096 processes, 65535 files. Number of processes should be at least 32767.5 : 0.5 times number of files.
+2024-12-04T09:38:45.271+0800 I CONTROL  [initandlisten] 
+2024-12-04T09:38:45.281+0800 I FTDC     [initandlisten] Initializing full-time diagnostic data capture with directory '/home/juntie/nlsw/data/db/diagnostic.data'
+2024-12-04T09:38:45.282+0800 I NETWORK  [initandlisten] listening via socket bound to 127.0.0.1
+2024-12-04T09:38:45.282+0800 I NETWORK  [initandlisten] listening via socket bound to /tmp/mongodb-27027.sock
+2024-12-04T09:38:45.282+0800 I NETWORK  [initandlisten] waiting for connections on port 27027
+2024-12-04T09:38:46.016+0800 I FTDC     [ftdc] Unclean full-time diagnostic data capture shutdown detected, found interim file, some metrics may have been lost. OK
+2024-12-04T09:38:49.386+0800 I CONTROL  [signalProcessingThread] got signal 2 (Interrupt), will terminate after current cmd ends
+2024-12-04T09:38:49.386+0800 I NETWORK  [signalProcessingThread] shutdown: going to close listening sockets...
+2024-12-04T09:38:49.386+0800 I NETWORK  [signalProcessingThread] removing socket file: /tmp/mongodb-27027.sock
+2024-12-04T09:38:49.386+0800 I FTDC     [signalProcessingThread] Shutting down full-time diagnostic data capture
+2024-12-04T09:38:49.387+0800 I STORAGE  [signalProcessingThread] WiredTigerKVEngine shutting down
+2024-12-04T09:38:49.483+0800 I STORAGE  [signalProcessingThread] shutdown: removing fs lock...
+2024-12-04T09:38:49.483+0800 I CONTROL  [signalProcessingThread] now exiting
+2024-12-04T09:38:49.483+0800 I CONTROL  [signalProcessingThread] shutting down with code:0

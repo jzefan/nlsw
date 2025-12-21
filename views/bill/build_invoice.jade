@@ -1,0 +1,36 @@
+extends ../layout
+block content
+  div.btn-group.pull-right(style='margin-right:5px;margin-top:4px;')
+    button#invoice_save.btn.btn-primary(data-toggle="tooltip", title="保存运单")
+      i.fa.fa-save
+      | &nbsp;保存
+    button#invoice_save_shipping.btn.btn-primary
+      i.fa.fa-truck
+      | &nbsp;保存并配发
+
+  div.btn-group.pull-right(style='margin-right:5px;margin-top:4px;')
+    button#invoice_new.btn.btn-default(data-toggle="tooltip", title="创建一个新的运单")
+      i.fa.fa-plus
+      | &nbsp;新建
+    button#invoice_search.btn.btn-default(data-toggle="tooltip", title="打开运单进行累积配发")
+      i.fa.fa-folder-open-o
+      | &nbsp;打开运单
+    button#invoice_import.btn.btn-default(data-toggle="tooltip", title="从文件中导入运单数据")
+      i.fa.fa-share
+      | &nbsp;导入运单数据
+
+
+  h4.page-header#inv-head-info(style='padding-bottom:15px;display:none;') &nbsp;
+    .col-md-4
+      small#waybill_oper_text 运单号:&nbsp;
+      code#waybill_no(style='border-bottom:1px dotted blue;')
+
+  div#invoice-input-content(style='display:none;')
+    include invoice_input
+
+  include ../partials/advance_search
+
+  script.
+    var local_user = !{JSON.stringify(user)};
+    var local_dict_data = !{JSON.stringify(dDataDict)};
+    var local_action = 'ADD';
