@@ -54,6 +54,74 @@ $(function () {
   var qFilter = new QueryFilterD(local_data);
   qFilter.eventHandler(filterData);
 
+  // 发货单位筛选
+  var shipFilterSelected = []; // 存放被选中的发货单位名称（空字符串代表空）
+
+  function buildBillNameFilterPanel() {
+    var panel = $('#bill-name-filter-panel');
+    var list = panel.find('.bill-filter-list').empty();
+    var map = {};
+
+    // 从当前记录中收集唯一的发货单位
+    curr_records.forEach(function(inv) {
+      var val = inv.ship_customer ? inv.ship_customer : '';
+      if (!map.hasOwnProperty(val)) {
+        map[val] = true;
+        var label = val === '' ? '（空）' : val;
+        var checked = shipFilterSelected.length ? (shipFilterSelected.indexOf(val) >= 0) : true;
+        var item = $('<div/>');
+        var chk = $('<input type="checkbox" class="bill-filter-item">').attr('data-value', val).prop('checked', checked);
+        item.append($('<label/>').append(chk).append(' ' + label));
+        list.append(item);
+      }
+    });
+
+    // 全选控制
+    $('#bill-filter-select-all').prop('checked', list.find('.bill-filter-item').length === list.find('.bill-filter-item:checked').length);
+    $('#bill-filter-select-all').off('change').on('change', function() { list.find('.bill-filter-item').prop('checked', $(this).is(':checked')); });
+
+    // 申请与清除按钮由外部绑定
+  }
+
+  function applyBillNameFilter() {
+    shipFilterSelected = [];
+    $('#bill-name-filter-panel .bill-filter-item:checked').each(function() { shipFilterSelected.push($(this).attr('data-value')); });
+    if (shipFilterSelected.length) {
+      $('#bill-name-filter-icon').css('color', '#337ab7');
+    } else {
+      $('#bill-name-filter-icon').css('color', 'gray');
+    }
+    resetTableRow();
+  }
+
+  function clearBillNameFilter() {
+    shipFilterSelected = [];
+    $('#bill-name-filter-icon').css('color', 'gray');
+    resetTableRow();
+  }
+
+  // 打开面板并初始化列表
+  $('#bill-name-filter-icon').on('click', function(e) {
+    e.stopPropagation();
+    buildBillNameFilterPanel();
+    var panel = $('#bill-name-filter-panel');
+    // 位置对齐到图标右下方
+    var offset = $(this).position();
+    panel.css({ left: offset.left - 10 + 'px', top: (offset.top + 18) + 'px' });
+    panel.toggle();
+  });
+
+  // 文档点击隐藏面板
+  $(document).on('click', function(e) {
+    if (!$(e.target).closest('#bill-name-filter-panel, #bill-name-filter-icon').length) {
+      $('#bill-name-filter-panel').hide();
+    }
+  });
+
+  // 面板内按钮
+  $(document).on('click', '#bill-filter-apply', function(e) { e.stopPropagation(); applyBillNameFilter(); $('#bill-name-filter-panel').hide(); });
+  $(document).on('click', '#bill-filter-clear', function(e) { e.stopPropagation(); clearBillNameFilter(); $('#bill-name-filter-panel').hide(); });
+
   showHtmlElement(btnSettle, true);
   showHtmlElement(btnSettleCancel, false);
   showHtmlElement(btnPay, false);
@@ -1607,6 +1675,14 @@ $(function () {
     var allNotNeed = true;
     allReceipts = [];
     curr_records.forEach(function (inv) {
+      // 如果有发货单位筛选，则跳过不在选中列表中的记录
+      if (shipFilterSelected.length) {
+        var sc = inv.ship_customer ? inv.ship_customer : '';
+        if (shipFilterSelected.indexOf(sc) < 0) {
+          return; // 相当于跳过此条记录
+        }
+      }
+
       let { isVessel, vehObj, number } = getVesselVehInfo(inv)
       if (needMakeTr(inv.waybill_no, local_data.vehPersonMap[inv.vehicle_vessel_name], isVessel, vehObj)) {
         var res = makeTableTrHtml(inv, isVessel, vehObj, number);
