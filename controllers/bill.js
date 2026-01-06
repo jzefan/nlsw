@@ -1162,7 +1162,7 @@ exports.getSettleVesselSelf = async function (req, res) {
         scripts: [
           '/js/plugins/select2/select2.min.js',
           '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/settle_vessel_23.js'
+          '/js/settle_vessel_24.js'
         ]
       });
     } catch (e) {
@@ -1188,7 +1188,7 @@ exports.getSettleVessel = async function (req, res) {
         scripts: [
           '/js/plugins/select2/select2.min.js',
           '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/settle_vessel_23.js'
+          '/js/settle_vessel_24.js'
         ]
       });
     } catch (err) {

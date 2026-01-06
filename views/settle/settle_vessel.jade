@@ -16,10 +16,15 @@ block content
       -webkit-backdrop-filter: blur(4px);
     }
 
+    .filter-icon:hover {
+      color: #e6f7ff !important;
+    }
+
+
     /* 筛选发货单位面板样式 */
     .bill-name-filter-panel {
       position: absolute;
-      z-index: 1100;
+      z-index: 99999;
       display: none;
       background: #fff;
       border: 1px solid #ddd;
@@ -35,8 +40,16 @@ block content
       overflow: auto;
       margin-top: 6px;
     }
+    .bill-name-filter-panel .bill-filter-list .filter-item-row {
+      padding: 4px;
+    }
+    .bill-name-filter-panel .bill-filter-list .filter-item-row:hover {
+      background-color: #e6f7ff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
 
-    .bill-name-filter-panel .form-group { margin-top: 8px; text-align: right; }
+    .bill-name-filter-panel .form-group { margin-top: 8px; margin-bottom: 8px; text-align: right; }
 
     /* 小屏幕下使面板自适应 */
     @media (max-width: 480px) {
@@ -162,16 +175,18 @@ block content
           th 车船号
           th 承运单位
           th(style="position:relative") 开单名称/发货单位
-            i#bill-name-filter-icon.fa.fa-filter.pull-right(style="cursor:pointer; color:gray; margin-top:3px", data-toggle="tooltip", title="筛选发货单位")
+            i#bill-name-filter-icon.filter-icon.fa.fa-filter.pull-right(style="cursor:pointer; color:gray; margin-top:3px; width: 16px", data-placement="bottom", data-toggle="tooltip", title="筛选发货单位")
 
             //- 发货单位筛选面板
             .bill-name-filter-panel#bill-name-filter-panel
-              input#bill-filter-select-all(type="checkbox")&nbsp;全选
+              // label(style="cursor:pointer; user-select:none; color: #000;")
+                input#bill-filter-select-all(type="checkbox")
+                | &nbsp;全选
               .bill-filter-list
                 // 列表由脚本动态生成
               .form-group
-                button#bill-filter-apply.btn.btn-primary.btn-xs 确定
-                button#bill-filter-clear.btn.btn-default.btn-xs(style="margin-left:6px") 清除
+                button#bill-filter-apply.btn.btn-primary 确定
+                button#bill-filter-clear.btn.btn-default(style="margin-left:6px") 清除
           th 起始地
           th 目的地
           th 总价格

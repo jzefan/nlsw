@@ -69,16 +69,16 @@ $(function () {
         map[val] = true;
         var label = val === '' ? '（空）' : val;
         var checked = shipFilterSelected.length ? (shipFilterSelected.indexOf(val) >= 0) : true;
-        var item = $('<div/>');
+        var item = $('<div class="filter-item-row" />');
         var chk = $('<input type="checkbox" class="bill-filter-item">').attr('data-value', val).prop('checked', checked);
-        item.append($('<label/>').append(chk).append(' ' + label));
+        item.append($('<label style="color: #1a1a1a;"/>').append(chk).append(' ' + label));
         list.append(item);
       }
     });
 
     // 全选控制
-    $('#bill-filter-select-all').prop('checked', list.find('.bill-filter-item').length === list.find('.bill-filter-item:checked').length);
-    $('#bill-filter-select-all').off('change').on('change', function() { list.find('.bill-filter-item').prop('checked', $(this).is(':checked')); });
+    // $('#bill-filter-select-all').prop('checked', list.find('.bill-filter-item').length === list.find('.bill-filter-item:checked').length);
+    // $('#bill-filter-select-all').off('change').on('change', function() { list.find('.bill-filter-item').prop('checked', $(this).is(':checked')); });
 
     // 申请与清除按钮由外部绑定
   }
@@ -107,7 +107,7 @@ $(function () {
     var panel = $('#bill-name-filter-panel');
     // 位置对齐到图标右下方
     var offset = $(this).position();
-    panel.css({ left: offset.left - 10 + 'px', top: (offset.top + 18) + 'px' });
+    panel.css({ left: offset.left - 10 + 'px', top: (offset.top + 24) + 'px' });
     panel.toggle();
   });
 
