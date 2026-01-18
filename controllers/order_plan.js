@@ -18,8 +18,12 @@ let logger = bunyan.createLogger({
 const DELTA = 1e-6; // 定义精度精确到0.00001
 
 exports.getCreateOrderPlan = async function (req, res) {
+  if (!req.user || !req.user.privilege) {
+    return res.status(403).render('404');
+  }
+
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
-    res.status.render(404);
+    res.status(404).render('404');
   }
   else {
     let customer_name = await Company.distinct('name').lean().exec();
@@ -57,8 +61,14 @@ exports.orderPlanExist = async function(req, res) {
 };
 
 exports.postCreateOrderPlan = async function (req, res) {
+  if (!req.user) {
+    return res.end(JSON.stringify({ok: false, response: 'User not authenticated'}));
+  }
+
+  let currentOrderNo = '';
   try {
     for (let row_data of req.body) {
+      currentOrderNo = row_data.orderNo;
       let orderNo = row_data.orderNo;
       let weight = utils.getFloatValue(row_data.orderWeight, 3);
       let price = utils.getFloatValue(row_data.receivingCharge, 3);
@@ -145,14 +155,18 @@ exports.postCreateOrderPlan = async function (req, res) {
 
     res.end(JSON.stringify({ok: true}));
   } catch (err) {
-    logger.error('保存出错！(订单号:' + orderNo + ', 原因:' + err);
-    res.end(JSON.stringify({ok: false, response: err}));
+    logger.error('保存出错！(订单号:' + currentOrderNo + ', 原因:' + err);
+    res.end(JSON.stringify({ok: false, response: err.toString()}));
   }
 };
 
 exports.getPlanList = async function (req, res) {
+  if (!req.user || !req.user.privilege) {
+    return res.status(403).render('404');
+  }
+
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
-    res.status.render(404);
+    res.status(404).render('404');
   }
   else {
     let customer_name = await Company.distinct('name').lean().exec();

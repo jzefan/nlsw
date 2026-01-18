@@ -13,8 +13,9 @@ var logger = require('morgan');
 var errorHandler = require('errorhandler');
 //var csrf = require('csurf');
 var methodOverride = require('method-override');
+var cors = require('cors');
 
-var MongoStore = require('connect-mongo')({ session: session });
+var MongoStore = require('connect-mongo');
 var flash = require('express-flash');
 var path = require('path');
 var mongoose = require('mongoose');
@@ -44,10 +45,10 @@ var app = express();
  */
 
 //mongoose.set('debug', true);
-mongoose.connect(secrets.db);
-mongoose.connection.on('error', function (err) {
+mongoose.connect(secrets.db).catch(err => {
   console.error('✗ MongoDB Connection Error: %s', err);
 });
+
 
 /**
  * Express configuration.
@@ -63,6 +64,10 @@ app.set('view engine', 'jade');
 if (secrets.env === 'production') {
   app.enable('view cache');
 }
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}));
 app.use('/', connectAssets({
   paths: ['public/css', 'public/js'],
   helperContext: app.locals
@@ -77,12 +82,15 @@ app.use(methodOverride());
 app.use(cookieParser());
 app.use(session({
   secret: secrets.sessionSecret,
-  store: new MongoStore({
-    url: secrets.db,
-    autoReconnect: true
+  store: MongoStore.create({
+    mongoUrl: secrets.db
   }),
   resave: true,
-  saveUninitialized: true
+  saveUninitialized: true,
+  cookie: {
+    httpOnly: true,
+    maxAge: week
+  }
 }));
 
 //app.use(csrf());
@@ -103,6 +111,8 @@ app.use(function (req, res, next) {
   if (req.method !== 'GET') return next();
   var path = req.path.split('/')[1];
   if (/(auth|login|logout|signup)$/i.test(path)) return next();
+  // Exclude .well-known paths
+  if (req.path.startsWith('/.well-known')) return next();
   req.session.returnTo = req.path;
   next();
 });

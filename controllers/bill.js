@@ -32,13 +32,13 @@ function pushArr(arr, elem) {
   }
 };
 
-exports.createBills = function (req, res) {
+exports.createBills = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('bill', false, false, false, function (data) {
+    await getDictDataAndRender('bill', false, false, false, function (data) {
       res.render('bill/create_bill', {
         title: '提单管理',
         curr_page: '新建提单',
@@ -287,26 +287,21 @@ const updateInvoiceStatus = async function (res, allInvNo, settle_type) {
   }
 }
 
-exports.postModifySingleBill = function (req, res) {
-  Bill.findByIdAndUpdate(req.body._id, req.body, null, function (err) {
-    if (err) {
-      logger.error("postModifySingleBill: Cannot find bill! %s", err, req.body._id);
-      res.end(JSON.stringify({ ok: false, response: '修改失败' }));
-    } else {
-      Company.findOne({ name: req.body.billing_name }).exec(function (err, company) {
-        if (!err && !company) {
-          company = new Company({ name: req.body.billing_name });
-          company.save(function (err) {
-            if (err) {
-              logger.error("postModifySingleBill: save company error! %s", err);
-            }
-          })
-        }
-      });
-
-      res.end(JSON.stringify({ ok: true }));
+exports.postModifySingleBill = async function (req, res) {
+  try {
+    await Bill.findByIdAndUpdate(req.body._id, req.body, null).exec();
+    
+    let company = await Company.findOne({ name: req.body.billing_name }).exec();
+    if (!company) {
+      company = new Company({ name: req.body.billing_name });
+      await company.save();
     }
-  });
+    
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    logger.error("postModifySingleBill: error! %s", err);
+    res.end(JSON.stringify({ ok: false, response: '修改失败' }));
+  }
 };
 
 exports.postBatchModifyBill = async function (req, res) {
@@ -333,15 +328,15 @@ exports.postBatchModifyBill = async function (req, res) {
   }
 };
 
-exports.getBillsByNo = function (req, res) {
+exports.getBillsByNo = async function (req, res) {
   var reg = new RegExp(req.query.q, 'gi');
-  queryBills({ order_no: { $regex: reg } }, { order_no: 'asc' }, res, function (bills, result) {
+  await queryBills({ order_no: { $regex: reg } }, { order_no: 'asc' }, res, function (bills, result) {
     var list = utils.getAllList(true, bills, "order_no");
     result.targetData = buildTargetData(list);
   });
 };
 
-exports.getBillsByBillName = function (req, res) {
+exports.getBillsByBillName = async function (req, res) {
   var dt = new Date();
   if (req.query.q === '南京钢铁集团国际经济贸易有限公司') {
     dt.setMonth(dt.getMonth() - 12);
@@ -362,36 +357,36 @@ exports.getBillsByBillName = function (req, res) {
 
   // console.log(obj['$and'])
 
-  Bill.countDocuments(obj, function (err, count) {
-    if (err || count === 0) {
+  try {
+    const count = await Bill.countDocuments(obj).exec();
+    if (count === 0) {
       res.end(JSON.stringify({ ok: false, number: 0 }));
     } else {
+      let query = Bill.find(obj, {
+        settle_flag: 0, contract_no: 0, product_type: 0, creater: 0,
+        customer_price: 0, collection_price: 0, brand_no: 0, shipper: 0, shipping_date: 0,
+        size_type: 0, warehouse: 0,
+      });
+
       if (count > 20000) {
         console.log('count = ' + count);
         // query.limit(20000);
       }
 
-      Bill.find(obj, {
-        settle_flag: 0, contract_no: 0, product_type: 0, creater: 0,
-        customer_price: 0, collection_price: 0, brand_no: 0, shipper: 0, shipping_date: 0,
-        size_type: 0, warehouse: 0,
-      }).sort({ create_date: -1 }).lean().exec(function (err, bills) {
-        if (err) {
-          res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
-        } else {
-          var result = { ok: true, bills: bills, number: count };
-          // var list = utils.getAllList(true, bills, "order_no");
-          // result.targetData = buildTargetData(list);
+      const bills = await query.sort({ create_date: -1 }).lean().exec();
+      var result = { ok: true, bills: bills, number: count };
+      // var list = utils.getAllList(true, bills, "order_no");
+      // result.targetData = buildTargetData(list);
 
-          res.json(result);
-        }
-      })
+      res.json(result);
     }
-  });
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
+  }
 };
 
-exports.getBillsByOrder = function (req, res) {
-  queryBills({ order_no: { $regex: new RegExp(req.query.q, 'gi') } }, { order_no: 'asc' }, res, function (bills, result) {
+exports.getBillsByOrder = async function (req, res) {
+  await queryBills({ order_no: { $regex: new RegExp(req.query.q, 'gi') } }, { order_no: 'asc' }, res, function (bills, result) {
     var order_map = {};
     var order_list = [];
 
@@ -413,9 +408,10 @@ exports.getBillsByOrder = function (req, res) {
   });
 };
 
-function queryBills(queryObj, sortObj, res, getTargetData) {
-  Bill.countDocuments(queryObj, function (err, count) {
-    if (err || count === 0) {
+async function queryBills(queryObj, sortObj, res, getTargetData) {
+  try {
+    const count = await Bill.countDocuments(queryObj).exec();
+    if (count === 0) {
       res.end(JSON.stringify({ ok: false, number: 0 }));
     } else {
       var query = Bill.find(queryObj);
@@ -424,26 +420,23 @@ function queryBills(queryObj, sortObj, res, getTargetData) {
         // query.limit(20000);
       }
 
-      query.sort(sortObj).lean().exec(function (err, bills) {
-        if (err) {
-          res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
-        } else {
-          var result = { ok: true, bills: bills, number: count };
-          if (getTargetData) {
-            getTargetData(bills, result);
-          }
+      const bills = await query.sort(sortObj).lean().exec();
+      var result = { ok: true, bills: bills, number: count };
+      if (getTargetData) {
+        getTargetData(bills, result);
+      }
 
-          res.json(JSON.stringify(result));
-        }
-      })
+      res.json(JSON.stringify(result));
     }
-  });
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
+  }
 }
 
-exports.getBillsWithCondition = function (req, res) {
+exports.getBillsWithCondition = async function (req, res) {
   var query = req.query;
   if (query.search_left == 1) {
-    queryBills({
+    await queryBills({
       $and: [
         { status: { $regex: new RegExp('已配发', 'gi') } },
         { block_num: 0 },
@@ -455,12 +448,12 @@ exports.getBillsWithCondition = function (req, res) {
     if (query.isNeedAnalysis == 'true') {
       var obj = getQueryFromNodes(q, query.field);
       if (Object.keys(obj).length > 0) {
-        queryBills(obj, { order_no: 'asc' }, res);
+        await queryBills(obj, { order_no: 'asc' }, res);
       } else {
         res.end(JSON.stringify({ ok: false, response: '查询条件为空!' }));
       }
     } else {
-      queryBills(q, { order_no: 'asc' }, res);
+      await queryBills(q, { order_no: 'asc' }, res);
     }
   }
 };
@@ -489,7 +482,7 @@ exports.deleteBill = function (req, res) {
 exports.postDeleteBill = async function (req, res) {
   try {
     for (let bill of req.body) {
-      await Bill.findByIdAndRemove(bill._id).exec();
+      await Bill.findByIdAndDelete(bill._id).exec();
     }
     res.end(JSON.stringify({ ok: true }));
   } catch (e) {
@@ -960,96 +953,98 @@ exports.postDeleteSettle = async function (req, res) {
   }
 };
 
-exports.getSettleTicket = function (req, res) {
+exports.getSettleTicket = async function (req, res) {
   if (req.user.privilege[2] !== '1') {
     res.status(404);
     res.render('404');
   } else {
-    ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 0 }, "settle/settle_ticket", "开票", false);
+    await ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 0 }, "settle/settle_ticket", "开票", false);
   }
 };
 
-exports.getSettleTicketSelf = function (req, res) {
+exports.getSettleTicketSelf = async function (req, res) {
   if (req.user.privilege[6] !== '1') {
     res.status(404);
     res.render('404');
   } else {
-    ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 1 }, "settle/settle_ticket", "开票", true);
+    await ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 1 }, "settle/settle_ticket", "开票", true);
   }
 };
 
-exports.getSettleMoney = function (req, res) {
+exports.getSettleMoney = async function (req, res) {
   if (req.user.privilege[2] !== '1') {
     res.status(404);
     res.render('404');
   }
   else {
-    ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 0 }, "settle/settle_money", "回款", false);
+    await ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 0 }, "settle/settle_money", "回款", false);
   }
 };
 
-exports.getSettleMoneySelf = function (req, res) {
+exports.getSettleMoneySelf = async function (req, res) {
   if (req.user.privilege[6] !== '1') {
     res.status(404);
     res.render('404');
   }
   else {
-    ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 1 }, "settle/settle_money", "回款", true);
+    await ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 1 }, "settle/settle_money", "回款", true);
   }
 };
 
-function ticket_money_render(res, search_obj, route, title, forSelf) {
+async function ticket_money_render(res, search_obj, route, title, forSelf) {
   const tit = forSelf ? '自有车' : '';
-  Settle.find(search_obj, { bills: 0 }).lean().sort({ settle_date: -1 }).exec(function (err, settles) {
-    if (err) {
-      res.render(route, {
-        title: tit + '结算管理',
-        curr_page: tit + '结算管理-' + title,
-        curr_page_name: title,
-        forSelf: forSelf,
-        scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-          '/js/ticket_money_03.js'
-        ]
-      });
-    } else {
-      res.render(route, {
-        title: tit + '结算管理',
-        curr_page: tit + '结算管理-' + title,
-        curr_page_name: title,
-        dbSettleData: { settles: settles, forSelf: forSelf },
-        forSelf: forSelf,
-        scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-          '/js/ticket_money_03.js'
-        ]
-      });
-    }
-  })
+  try {
+    const settles = await Settle.find(search_obj, { bills: 0 }).lean().sort({ settle_date: -1 }).exec();
+    res.render(route, {
+      title: tit + '结算管理',
+      curr_page: tit + '结算管理-' + title,
+      curr_page_name: title,
+      dbSettleData: { settles: settles, forSelf: forSelf },
+      forSelf: forSelf,
+      scripts: [
+        '/js/plugins/select2/select2.min.js',
+        '/js/plugins/select2/select2_locale_zh-CN.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
+        '/js/ticket_money_03.js'
+      ]
+    });
+  } catch (err) {
+    res.render(route, {
+      title: tit + '结算管理',
+      curr_page: tit + '结算管理-' + title,
+      curr_page_name: title,
+      forSelf: forSelf,
+      scripts: [
+        '/js/plugins/select2/select2.min.js',
+        '/js/plugins/select2/select2_locale_zh-CN.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
+        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
+        '/js/ticket_money_03.js'
+      ]
+    });
+  }
 }
 
-exports.getSettleInvoiceBill = function (req, res) {
+exports.getSettleInvoiceBill = async function (req, res) {
   var query = req.query;
-  Settle.findOne({ serial_number: query.fSerial }).exec(function (err, settle) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false }));
-    } else {
-      var allIds = utils.getAllList(true, settle.bills, "bill_id");
-      Bill.find({ _id: { $in: allIds } }).exec(function (err, billArr) {
-        if (!err && billArr) {
-          res.end(JSON.stringify({ ok: true, bills: billArr, settle_bills: settle.bills }));
-        } else {
-          res.end(JSON.stringify({ ok: false }));
-        }
-      });
+  try {
+    const settle = await Settle.findOne({ serial_number: query.fSerial }).exec();
+    if (!settle) {
+        return res.end(JSON.stringify({ ok: false }));
     }
-  });
+    
+    var allIds = utils.getAllList(true, settle.bills, "bill_id");
+    const billArr = await Bill.find({ _id: { $in: allIds } }).exec();
+    
+    if (billArr) {
+      res.end(JSON.stringify({ ok: true, bills: billArr, settle_bills: settle.bills }));
+    } else {
+      res.end(JSON.stringify({ ok: false }));
+    }
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false }));
+  }
 };
 
 exports.postSettleTicketMoney = async function (req, res) {
@@ -1529,111 +1524,93 @@ exports.searchBill = function (req, res) {
 ////////////////////////////////////////////////////////////////////////////
 //////////// INVOICE
 ////////////////////////////////////////////////////////////////////////////
-function getDataAndRender(type, data, forSelf, render) {
+async function getDataAndRender(type, data, forSelf, render) {
   data.warehouse = [];
-  Warehouse.find({}).lean().exec(function (err, result) {
-    if (err) {
+  try {
+    const result = await Warehouse.find({}).lean().exec();
+    data.warehouse = utils.getAllList(false, result, "name");
+    data.warehouse.push('南钢');
+
+    if (type === 'bill') {
+      data.brand = [];
+      data.sale_dep = [];
+      
+      const brands = await Brand.find({}).lean().sort({ name: 'asc' }).exec();
+      data.brand = utils.getAllList(false, brands, "name");
+
+      const saleDeps = await SaleDep.find({}).lean().sort({ name: 'asc' }).exec();
+      if (saleDeps) {
+        data.sale_dep = utils.getAllList(false, saleDeps, "name");
+      }
       render(data);
     } else {
-      data.warehouse = utils.getAllList(false, result, "name");
-      data.warehouse.push('南钢');
+      data.vehicles = [];
+      data.destination = [];
 
-      if (type === 'bill') {
-        data.brand = [];
-        data.sale_dep = [];
-        Brand.find({}).lean().sort({ name: 'asc' }).exec(function (err, result) {
-          if (err) {
-            render(data);
-          } else {
-            data.brand = utils.getAllList(false, result, "name");
+      const vehs = await Vehicle.find({}).lean().exec();
+      data.vehicles = utils.getAllList(false, vehs, "name");
+      data.vehInfo = vehs;
 
-            SaleDep.find({}).lean().sort({ name: 'asc' }).exec(function (err, result) {
-              if (!err && result) {
-                data.sale_dep = utils.getAllList(false, result, "name");
-              }
-              render(data);
-            });
-          }
-        });
-      } else {
-        data.vehicles = [];
-        data.destination = [];
-
-        Vehicle.find({}).lean().exec(function (err, vehs) {
-          if (err) {
-            render(data);
-          } else {
-            data.vehicles = utils.getAllList(false, vehs, "name");
-            data.vehInfo = vehs;
-
-            Destination.distinct('name', function (err, dnames) {
-              data.destination = dnames;
-              render(data);
-            });
-          }
-        });
-      }
+      const dnames = await Destination.distinct('name').exec();
+      data.destination = dnames;
+      render(data);
     }
-  });
+  } catch (err) {
+    console.error("getDataAndRender error:", err);
+    render(data);
+  }
 }
 
-function getDictDataAndRender(type, fromBill, fromInvoice, forSelf, render) {
+async function getDictDataAndRender(type, fromBill, fromInvoice, forSelf, render) {
   var data = { selfOwned: forSelf ? 1 : 0, company: [] };
-  if (fromBill) {
-    Bill.distinct('billing_name', { left_num: { $gt: 0 } }).lean().exec(function (err, names) {
-      if (!err) {
-        Company.find({ name: { $in: names } }).lean().exec(function (err, companies) {
-          if (!err) { data.company = companies; }
-          getDataAndRender(type, data, forSelf, render);
-        })
-      } else {
-        getDataAndRender(type, data, forSelf, render);
-      }
-    })
+  try {
+    if (fromBill) {
+      const names = await Bill.distinct('billing_name', { left_num: { $gt: 0 } }).lean().exec();
+      const companies = await Company.find({ name: { $in: names } }).lean().exec();
+      data.company = companies;
+    } else if (fromInvoice) {
+      const names = await Invoice.distinct('ship_name').lean().exec();
+      const companies = await Company.find({ name: { $in: names } }).exec();
+      data.company = companies;
+    } else {
+      const companies = await Company.find({}).lean().exec();
+      data.company = companies;
+    }
+  } catch (err) {
+    console.error("getDictDataAndRender error:", err);
   }
-  else if (fromInvoice) {
-    Invoice.distinct('ship_name').lean().exec(function (err, names) {
-      Company.find({ name: { $in: names } }, function (err, companies) {
-        if (!err) { data.company = companies; }
-        getDataAndRender(type, data, forSelf, render);
-      })
-    });
-  }
-  else {
-    Company.find({}).lean().exec(function (err, companies) {
-      if (!err) { data.company = companies; }
-      getDataAndRender(type, data, forSelf, render);
-    });
-  }
+  
+  await getDataAndRender(type, data, forSelf, render);
 }
 
-exports.getMaxWaybillNo = function (req, res) {
+exports.getMaxWaybillNo = async function (req, res) {
   let uno = utils.leftPad(req.user.no, 4);
   let date_no = new Date().yyyymmdd() + uno;
   let reg = new RegExp('^01' + date_no + '.*', 'g');
-  Invoice.find({ waybill_no: { $regex: reg } }).select('waybill_no').sort({ waybill_no: 'desc' }).exec(function (err, inv_wnos) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err }));
-    } else {
-      let no = utils.leftPad(1, 3);
-      if (inv_wnos.length) {
-        var str = inv_wnos[0].waybill_no.substring(14);
-        no = utils.leftPad((+str) + 1, 3);
-      }
-
-      let max = '01' + date_no + no;
-      res.end(JSON.stringify({ ok: true, max_no: max }));
+  
+  try {
+    const inv_wnos = await Invoice.find({ waybill_no: { $regex: reg } }).select('waybill_no').sort({ waybill_no: 'desc' }).exec();
+    
+    let no = utils.leftPad(1, 3);
+    if (inv_wnos.length) {
+      var str = inv_wnos[0].waybill_no.substring(14);
+      no = utils.leftPad((+str) + 1, 3);
     }
-  });
+
+    let max = '01' + date_no + no;
+    res.end(JSON.stringify({ ok: true, max_no: max }));
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err }));
+  }
 };
 
-exports.getBuildInvoice = function (req, res) {
+exports.getBuildInvoice = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('invoice', true, false, false, function (data) {
+    await getDictDataAndRender('invoice', true, false, false, function (data) {
       res.render('bill/build_invoice', {
         title: '运单管理',
         curr_page: '运单管理-配发货',
@@ -1654,13 +1631,13 @@ exports.getBuildInvoice = function (req, res) {
   }
 };
 
-exports.getBuildInvoiceSelf = function (req, res) {
+exports.getBuildInvoiceSelf = async function (req, res) {
   if (req.user.privilege[6] === '0') {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('invoice', true, false, true, function (data) {
+    await getDictDataAndRender('invoice', true, false, true, function (data) {
       res.render('bill/build_invoice', {
         title: '运单管理',
         curr_page: '运单管理-自有车配发货',
@@ -2198,141 +2175,58 @@ exports.postBuildInvoice = async function (req, res) {
   }
 };
 
-function queryInvoices(queryObj, res) {
-  Invoice.countDocuments(queryObj, function (err, count) {
-    if (err || count === 0) {
+async function queryInvoices(queryObj, res) {
+  try {
+    const count = await Invoice.countDocuments(queryObj).exec();
+    if (count === 0) {
       res.end(JSON.stringify({ ok: false, number: 0 }));
     } else {
-      var query = Invoice.find(queryObj);
+      let query = Invoice.find(queryObj);
       if (count > 2000) {
         query.limit(2000);
       }
 
-      query.sort({ waybill_no: 'asc' }).lean().exec(function (err, invoices) {
-        if (!err && invoices.length) {
-          var ids = [];
-          var list = [];
-          invoices.forEach(function (inv) {
-            list.push(inv.waybill_no);
-            inv.bills.forEach(function (bill) {
-              pushArr(ids, bill.bill_id);
-              // if (ids.indexOf(bill.bill_id) < 0) {
-              //   ids.push(bill.bill_id);
-              // }
-            })
-          });
+      const invoices = await query.sort({ waybill_no: 'asc' }).lean().exec();
+      if (invoices.length) {
+        var ids = [];
+        var list = [];
+        invoices.forEach(function (inv) {
+          list.push(inv.waybill_no);
+          inv.bills.forEach(function (bill) {
+            pushArr(ids, bill.bill_id);
+          })
+        });
 
-          Bill.find({ _id: { $in: ids } }).lean().exec(function (err, bills) {
-            if (!err) {
-              res.end(JSON.stringify({ ok: true, bills: bills, invoices: invoices, targetData: buildTargetData(list), number: count }));
-            } else {
-              res.end(JSON.stringify({ ok: false, number: 0 }));
-            }
-          });
-        } else {
-          res.end(JSON.stringify({ ok: false, number: 0 }));
-        }
-      });
-    }
-  });
-}
-
-function getQueryFromNodes(obj, fieldData) {
-  var text = obj.text;
-  var len = obj.children.length;
-  if (len) {
-    if (len == 1) {
-      return getQueryFromNodes(obj.children[0], fieldData);
-    } else {
-      var childs = [];
-      for (var i = 0; i < len; ++i) {
-        var res = getQueryFromNodes(obj.children[i], fieldData);
-        if (Object.keys(res).length > 0) {
-          childs.push(res);
-        }
-      }
-
-      if (childs.length) {
-        if (childs.length == 1) {
-          return childs[0];
-        } else {
-          if (text.indexOf('OR') >= 0) {
-            return { $or: childs };
-          } else { // if (text.indexOf('AND') >= 0) {
-            return { $and: childs };
-          }
-        }
+        const bills = await Bill.find({ _id: { $in: ids } }).lean().exec();
+        res.end(JSON.stringify({ ok: true, bills: bills, invoices: invoices, targetData: buildTargetData(list), number: count }));
       } else {
-        return {};
+        res.end(JSON.stringify({ ok: false, number: 0 }));
       }
     }
-  } else if ((text.indexOf('并且') >= 0) || text.indexOf('或者') >= 0) {
-    return {};
-  } else {
-    return queryAnalysis(text, fieldData);
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, number: 0, response: 'Error: ' + err }));
   }
 }
 
-function queryAnalysis(text, fieldData) {
-  var res = {};
-  var items = text.split(' ');
-  var oper = items[1];
-  var value = items[2];
-  var field = fieldData[items[0]];
-  var idx = field.indexOf('date');
-
-  var value2 = new Date();
-  var eq = value;
-  if (idx >= 0) {
-    value = utils.convertDateToUTC(new Date(items[2]));
-    if (oper === '等于') {
-      value2 = utils.convertDateToUTC(new Date(items[2]));
-      value2.setDate(value.getDate() + 1);
-      eq = { $gte: value, $lte: value2 };
-    } else if (oper === '区间') {
-      value2 = utils.convertDateToUTC(new Date(items[3]));
-    }
-  } else {
-    value2 = items[3];
-  }
-
-  var obj = {
-    '等于': eq,
-    '不等于': { $ne: value },
-    '大于': { $gt: value },
-    '小于': { $lt: value },
-    '大于等于': { $gte: value },
-    '小于等于': { $lte: value },
-    '包含': { $regex: new RegExp(value, "gi") },
-    '区间': { $gte: value, $lte: value2 }
-  };
-
-  if (obj[oper]) {
-    res[field] = obj[oper];
-  }
-
-  return res;
-}
-
-exports.getInvoicesWithCondition = function (req, res) {
+exports.getInvoicesWithCondition = async function (req, res) {
   var query = req.query;
   var q = JSON.parse(query.q);
   if (query.isNeedAnalysis == 'true') {
     var obj = getQueryFromNodes(q, query.field);
     if (Object.keys(obj).length > 0) {
-      queryInvoices(obj, res);
+      await queryInvoices(obj, res);
     } else {
       res.end(JSON.stringify({ ok: false, response: '查询条件为空!' }));
     }
   } else {
-    queryInvoices(q, res);
+    await queryInvoices(q, res);
   }
 };
 
-exports.getWaybillByNo = function (req, res) {
+exports.getWaybillByNo = async function (req, res) {
   var reg = new RegExp(req.query.q, 'gi');
   var obj = { waybill_no: { $regex: reg } };
-  queryInvoices(obj, res);
+  await queryInvoices(obj, res);
 };
 
 function buildTargetData(list) {
@@ -2347,13 +2241,13 @@ function buildTargetData(list) {
   return target;
 }
 
-exports.distributeInvoice = function (req, res) {
+exports.distributeInvoice = async function (req, res) {
   if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('invoice', false, false, false, function (data) {
+    await getDictDataAndRender('invoice', false, false, false, function (data) {
       res.render('bill/distribute_invoice', {
         title: '运单管理',
         curr_page: '运单管理-配发货确认或修改',
@@ -2386,13 +2280,13 @@ exports.postDistributeInvoice = async function (req, res) {
   }
 };
 
-exports.deleteInvoice = function (req, res) {
+exports.deleteInvoice = async function (req, res) {
   if (req.user.privilege[1] !== '1') {
     res.status(404);
     res.render('404');
   }
   else {
-    getDictDataAndRender('invoice', false, false, false, function (data) {
+    await getDictDataAndRender('invoice', false, false, false, function (data) {
       res.render('bill/delete_invoice', {
         title: '运单管理',
         curr_page: '运单管理-运单删除',
@@ -2456,7 +2350,7 @@ exports.postDeleteInvoice = async function (req, res) {
         }
       }
 
-      await Invoice.remove({ waybill_no: waybill.waybill_no }).exec();
+      await Invoice.deleteOne({ waybill_no: waybill.waybill_no }).exec();
       res.end(JSON.stringify({ ok: true }));
     } catch (e) {
       console.error("delete error! " + e.toString());
@@ -2492,8 +2386,8 @@ exports.getInvoiceReport = async function (req, res) {
   });
 };
 
-exports.getIntegratedQuery = function (req, res) {
-  getDictDataAndRender('invoice', false, false, false, function (data) {
+exports.getIntegratedQuery = async function (req, res) {
+  await getDictDataAndRender('invoice', false, false, false, function (data) {
     res.render('statistics/integ_query', {
       title: '统计和报表',
       curr_page: '综合查询',
@@ -2555,10 +2449,9 @@ exports.postInvoiceChargeData = async function (req, res) {
   res.end(JSON.stringify({ ok: true }));
 };
 
-exports.getVehicles = function (req, res) {
-  Vehicle.find({}).lean().exec(function (err, vehs) {
-    res.end(JSON.stringify({ vehicles: vehs }));
-  });
+exports.getVehicles = async function (req, res) {
+  const vehs = await Vehicle.find({}).lean().exec();
+  res.end(JSON.stringify({ vehicles: vehs }));
 };
 
 exports.updateStatus1 = async function (req, res) {

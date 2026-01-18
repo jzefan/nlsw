@@ -6,8 +6,9 @@ var Vehicle = require('../models/Vehicle');
 var DrayageForklift = require('../models/DrayageForklift');
 var utils = require('./utils');
 
-exports.getDFMgt = function (req, res) {
-  DrayageForklift.find({}).sort({month: 'asc'}).exec(function(err, dfc) {
+exports.getDFMgt = async function (req, res) {
+  try {
+    const dfc = await DrayageForklift.find({}).sort({month: 'asc'}).exec();
     res.render('statistics/drayage_forklift_mgt', {
       title: '短驳/叉车应收款',
       curr_page: '短驳/叉车应收款管理',
@@ -20,14 +21,16 @@ exports.getDFMgt = function (req, res) {
         '/js/df_receivables_mgt.js'
       ]
     });
-  })
+  } catch (err) {
+    // Handle error, maybe render an error page or the same page with an error message
+    res.status(500).send(err.message);
+  }
 };
 
-exports.getVFCData = function(req, res) {
+exports.getVFCData = async function(req, res) {
   var query = req.query;
   var b1 = (query.fDate1 && query.fDate2);
   var b2 = utils.isExist(query.fVVName);
-  //console.log(query);
 
   if (!b1 && !b2) {
     return res.end(JSON.stringify({ ok: false }));
@@ -42,68 +45,59 @@ exports.getVFCData = function(req, res) {
     qObj = { $and: [ {vv_type: query.fVVType}, {name: { $in: query.fVVName }} ] };
   }
 
-  DrayageForklift.find(qObj).sort({month: 'asc'}).exec(function(err, vvcList) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: err }));
-    }
-    else {
-      res.json(JSON.stringify({ ok: true, vvcList: vvcList }));
-    }
-  })
+  try {
+    const vvcList = await DrayageForklift.find(qObj).sort({month: 'asc'}).exec();
+    res.json(JSON.stringify({ ok: true, vvcList: vvcList }));
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: err }));
+  }
 };
 
-exports.getOneDfData = function(req, res) {
+exports.getOneDfData = async function(req, res) {
   var query = req.query;
-  DrayageForklift.findOne({month: query.month}, function(err, vvc) {
-    if (err || !vvc) {
-      res.end(JSON.stringify({ ok: false, response: err }));
-    }
-    else {
+  try {
+    const vvc = await DrayageForklift.findOne({month: query.month}).exec();
+    if (!vvc) {
+      res.end(JSON.stringify({ ok: false }));
+    } else {
       res.json(JSON.stringify({ ok: true, vvc: vvc }));
     }
-  })
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: err }));
+  }
 };
 
-exports.postOneDfData = function(req, res) {
+exports.postOneDfData = async function(req, res) {
   var data = req.body;
-  DrayageForklift.findOne({month: data.month}, function(err, dbVVCost) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: err }));
-    }
-    else {
-      if (!dbVVCost) {
-        dbVVCost = new DrayageForklift({
-          month: data.month,
-          drayage: data.drayage,
-          forklift: data.forklift
-        });
-      } else {
-        dbVVCost.drayage = data.drayage;
-        dbVVCost.forklift = data.forklift;
-      }
-
-      dbVVCost.save(function (err) {
-        if (err) {
-          var s = '保存出错！月份:' + data.month + ', 原因:' + err;
-          res.end(JSON.stringify({ ok: false, response: s }));
-        } else {
-          res.end(JSON.stringify({ ok: true }));
-        }
+  try {
+    let dbVVCost = await DrayageForklift.findOne({month: data.month}).exec();
+    if (!dbVVCost) {
+      dbVVCost = new DrayageForklift({
+        month: data.month,
+        drayage: data.drayage,
+        forklift: data.forklift
       });
+    } else {
+      dbVVCost.drayage = data.drayage;
+      dbVVCost.forklift = data.forklift;
     }
-  })
+    await dbVVCost.save();
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    var s = '保存出错！月份:' + data.month + ', 原因:' + err;
+    res.end(JSON.stringify({ ok: false, response: s }));
+  }
 };
 
-exports.postDeleteDfData = function(req, res) {
+exports.postDeleteDfData = async function(req, res) {
   var data = req.body;
   if (data.month) {
-    DrayageForklift.remove({month: data.month}, function(err, vvc) {
-      if (err) {
-        res.end(JSON.stringify({ ok: false, response: '删除记录出错:' + err }));
-      } else {
-        res.end(JSON.stringify({ ok: true }));
-      }
-    })
+    try {
+      await DrayageForklift.deleteMany({month: data.month}).exec();
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      res.end(JSON.stringify({ ok: false, response: '删除记录出错:' + err }));
+    }
   } else {
     res.end(JSON.stringify({ ok: false, response: 'Data not correct'}));
   }

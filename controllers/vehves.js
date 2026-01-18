@@ -6,70 +6,64 @@ var Vehicle = require('../models/Vehicle');
 var VehVesCost = require('../models/VesselCost');
 var utils = require('./utils');
 
-exports.getVehVesMgt = function (req, res) {
+exports.getVehVesMgt = async function (req, res) {
   if (req.user.privilege[2] !== '1') {
     res.status(404);
     res.render('404');
   }
   else {
-    Vehicle.find({veh_category:'自有'}).exec(function (err, vehs) {
-      if (err) {
-        req.flash('车船数据表查找错', err);
-        res.render('statistics/vehves_cost_mgt', {
-          title: '车船固定费用',
-          curr_page: '固定费用管理',
-          curr_page_name: '读数据错',
-          scripts: [
-            '/js/plugins/select2/select2.min.js',
-            '/js/plugins/select2/select2_locale_zh-CN.js',
-            '/js/vehves_cost_mgt.js'
-          ]
-        });
-      }
-      else {
-        var vehList = [];
-        vehs.forEach(function (veh) {
-          if (veh.veh_type === '车') {
-            vehList.push(veh.name);
-          }
-        });
+    try {
+      const vehs = await Vehicle.find({veh_category:'自有'}).exec();
+      var vehList = [];
+      vehs.forEach(function (veh) {
+        if (veh.veh_type === '车') {
+          vehList.push(veh.name);
+        }
+      });
 
-        var vehicles = [];
-        VehVesCost.find({vv_type:'che'}).select('name').sort({month: 'asc'}).exec(function(err, vvc) {
-          if (!err) {
-            vvc.forEach(function (item) {
-              if (vehicles.indexOf(item.name) < 0) {
-                vehicles.push(item.name);
-              }
-            });
+      var vehicles = [];
+      const vvc = await VehVesCost.find({vv_type:'che'}).select('name').sort({month: 'asc'}).exec();
+      vvc.forEach(function (item) {
+        if (vehicles.indexOf(item.name) < 0) {
+          vehicles.push(item.name);
+        }
+      });
 
-            res.render('statistics/vehves_cost_mgt', {
-              title: '车船固定费用',
-              curr_page: '固定费用管理',
-              curr_page_name: '车船',
-              dData: {
-                vehicles: (vehicles.length ? utils.pinyin_sort(vehicles) : []),
-                vehList: utils.pinyin_sort(vehList),
-                allVehves: vehs
-              },
-              scripts: [
-                '/js/plugins/select2/select2.min.js',
-                '/js/plugins/select2/select2_locale_zh-CN.js',
-                '/js/vehves_cost_mgt.js'
-              ]
-            });
-          }
-        })
-      }
-    });
+      res.render('statistics/vehves_cost_mgt', {
+        title: '车船固定费用',
+        curr_page: '固定费用管理',
+        curr_page_name: '车船',
+        dData: {
+          vehicles: (vehicles.length ? utils.pinyin_sort(vehicles) : []),
+          vehList: utils.pinyin_sort(vehList),
+          allVehves: vehs
+        },
+        scripts: [
+          '/js/plugins/select2/select2.min.js',
+          '/js/plugins/select2/select2_locale_zh-CN.js',
+          '/js/vehves_cost_mgt.js'
+        ]
+      });
+    } catch (err) {
+      req.flash('车船数据表查找错', err);
+      res.render('statistics/vehves_cost_mgt', {
+        title: '车船固定费用',
+        curr_page: '固定费用管理',
+        curr_page_name: '读数据错',
+        scripts: [
+          '/js/plugins/select2/select2.min.js',
+          '/js/plugins/select2/select2_locale_zh-CN.js',
+          '/js/vehves_cost_mgt.js'
+        ]
+      });
+    }
   }
 };
 
-exports.getVFCData = function(req, res) {
+exports.getVFCData = async function(req, res) {
   var query = req.query;
   var b1 = (query.fDate1 && query.fDate2);
   var b2 = utils.isExist(query.fVVName);
-  console.log(query);
 
   if (!b1 && !b2) {
     return res.end(JSON.stringify({ ok: false }));
@@ -84,76 +78,68 @@ exports.getVFCData = function(req, res) {
     qObj = { $and: [ {vv_type: query.fVVType}, {name: { $in: query.fVVName }} ] };
   }
 
-  VehVesCost.find(qObj).sort({month: 'asc'}).exec(function(err, vvcList) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: err }));
-    }
-    else {
-      res.end(JSON.stringify({ ok: true, vvcList: vvcList }));
-    }
-  })
+  try {
+    const vvcList = await VehVesCost.find(qObj).sort({month: 'asc'}).exec();
+    res.end(JSON.stringify({ ok: true, vvcList: vvcList }));
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: err }));
+  }
 };
 
-exports.getOneVFCData = function(req, res) {
+exports.getOneVFCData = async function(req, res) {
   var query = req.query;
-  VehVesCost.findOne({name: query.fName, month: query.fMonth}, function(err, vvc) {
-    if (err || !vvc) {
-      res.end(JSON.stringify({ ok: false, response: err }));
+  try {
+    const vvc = await VehVesCost.findOne({name: query.fName, month: query.fMonth}).exec();
+    if (!vvc) {
+      res.end(JSON.stringify({ ok: false }));
     }
     else {
       res.end(JSON.stringify({ ok: true, vvc: vvc }));
     }
-  })
+  } catch (err) {
+    res.end(JSON.stringify({ ok: false, response: err }));
+  }
 };
 
-exports.postOneVFCData = function(req, res) {
+exports.postOneVFCData = async function(req, res) {
   var data = req.body;
-  VehVesCost.findOne({name: data.name, month: data.month}, function(err, dbVVCost) {
-    if (err) {
-      res.end(JSON.stringify({ ok: false, response: err }));
+  try {
+    let dbVVCost = await VehVesCost.findOne({name: data.name, month: data.month}).exec();
+    if (!dbVVCost) {
+      dbVVCost = new VehVesCost(data);
+    } else {
+      dbVVCost.ic = data.ic;
+      dbVVCost.pc = data.pc;
+      dbVVCost.pcc = data.pcc;
+      dbVVCost.aux = data.aux;
+      dbVVCost.fittings = data.fittings;
+      dbVVCost.repair = data.repair;
+      dbVVCost.aunual_survey = data.aunual_survey;
+      dbVVCost.salary = data.salary;
+      dbVVCost.oil = data.oil;
+      dbVVCost.toll = data.toll;
+      dbVVCost.fine = data.fine;
+      dbVVCost.other = data.other;
+      dbVVCost.total = data.total;
     }
-    else {
-      if (!dbVVCost) {
-        dbVVCost = new VehVesCost(data);
-      } else {
-        dbVVCost.ic = data.ic;
-        dbVVCost.pc = data.pc;
-        dbVVCost.pcc = data.pcc;
-        dbVVCost.aux = data.aux;
-        dbVVCost.fittings = data.fittings;
-        dbVVCost.repair = data.repair;
-        dbVVCost.aunual_survey = data.aunual_survey;
-        dbVVCost.salary = data.salary;
-        dbVVCost.oil = data.oil;
-        dbVVCost.toll = data.toll;
-        dbVVCost.fine = data.fine;
-        dbVVCost.other = data.other;
-        dbVVCost.total = data.total;
-      }
-
-      dbVVCost.save(function (err) {
-        if (err) {
-          var s = '保存出错！(车船号:' + data.name + ', 月份:' + data.month + ', 原因:' + err;
-          res.end(JSON.stringify({ ok: false, response: s }));
-        } else {
-          res.end(JSON.stringify({ ok: true }));
-        }
-      });
-    }
-  })
+    await dbVVCost.save();
+    res.end(JSON.stringify({ ok: true }));
+  } catch(err) {
+    var s = '保存出错！(车船号:' + data.name + ', 月份:' + data.month + ', 原因:' + err;
+    res.end(JSON.stringify({ ok: false, response: s }));
+  }
 };
 
-exports.postDeleteVFCData = function(req, res) {
+exports.postDeleteVFCData = async function(req, res) {
   var data = req.body;
   if (data.name && data.month) {
-    VehVesCost.remove({name: data.name, month: data.month}, function(err, vvc) {
-      if (err) {
-        console.error('remove vehves cost error! %s', err);
-        res.end(JSON.stringify({ ok: false, response: '删除车船固定记录出错:' + err }));
-      } else {
-        res.end(JSON.stringify({ ok: true }));
-      }
-    })
+    try {
+      await VehVesCost.deleteMany({name: data.name, month: data.month}).exec();
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      console.error('remove vehves cost error! %s', err);
+      res.end(JSON.stringify({ ok: false, response: '删除车船固定记录出错:' + err }));
+    }
   } else {
     res.end(JSON.stringify({ ok: false, response: 'Data not correct'}));
   }

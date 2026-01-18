@@ -1,0 +1,4 @@
+(node:10888) [DEP0128] DeprecationWarning: Invalid 'main' field in '\\?\D:\my-work\code\nlsw\node_modules\simplesmtp\package.json' of './lib/smtp'. Please either fix that or report it to the module author
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:10888) [DEP0128] DeprecationWarning: Invalid 'main' field in '\\?\D:\my-work\code\nlsw\node_modules\simplesmtp\package.json' of './lib/smtp'. Please either fix that or report it to the module author
+(node:10888) [DEP0066] DeprecationWarning: OutgoingMessage.prototype._headers is deprecated

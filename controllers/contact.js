@@ -27,7 +27,7 @@ exports.getContact = function(req, res) {
  * @param message
  */
 
-exports.postContact = function(req, res) {
+exports.postContact = async function(req, res) {
   req.assert('name', 'Name cannot be blank').notEmpty();
   req.assert('email', 'Email is not valid').isEmail();
   req.assert('message', 'Message cannot be blank').notEmpty();
@@ -52,12 +52,12 @@ exports.postContact = function(req, res) {
     text: body
   };
 
-  smtpTransport.sendMail(mailOptions, function(err) {
-    if (err) {
-      req.flash('errors', { msg: err.message });
-      return res.redirect('/contact');
-    }
+  try {
+    await smtpTransport.sendMail(mailOptions);
     req.flash('success', { msg: 'Email has been sent successfully!' });
     res.redirect('/contact');
-  });
+  } catch (err) {
+    req.flash('errors', { msg: err.message });
+    return res.redirect('/contact');
+  }
 };
