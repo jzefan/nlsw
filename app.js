@@ -100,6 +100,7 @@ app.use(function (req, res, next) {
   res.locals.user = req.user;
   //res.locals._csrf = req.csrfToken();
   res.locals.secrets = secrets;
+  res.locals.companyName = secrets.companyName;
   res.locals.scripts = [];
   next();
 });

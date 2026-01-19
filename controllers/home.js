@@ -7,6 +7,7 @@ var Invoice = require('../models/Invoice');
 var utils = require('./utils');
 var User = require('../models/User');
 var fs = require('fs');
+var secrets = require('../config/secrets');
 
 exports.index = async function (req, res) {
   if (req.headers.accept && req.headers.accept.indexOf('application/json') > -1) {
@@ -46,7 +47,7 @@ exports.index = async function (req, res) {
   var html	= fs.readFileSync("views/post.html", "UTF-8");
   res.render('home', {
     title: 'Home',
-    curr_page: '欢迎进入军铁物流管理系统',
+    curr_page: '欢迎进入' + secrets.companyName + '管理系统',
     curr_page_name: '欢迎',
 //    carousel_width: 1079,
     dHtmlText: html,

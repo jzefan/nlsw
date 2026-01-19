@@ -27,4 +27,6 @@ module.exports = {
     user: process.env.SENDGRID_USER || "hslogin",
     password: process.env.SENDGRID_PASSWORD || "hspassword00",
   },
+
+  companyName: process.env.COMPANY_NAME || "军铁物流",
 };
