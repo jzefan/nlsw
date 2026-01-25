@@ -63,6 +63,7 @@ var billSchema = new Schema({
   settler: String,
 
   status: { type: String, default: '新建' }, // 新建, 待配发, 已配发, 部分配发, 已结算
+  status_flag: { type: Number, default: 0 }, // 0 - 新建, 1 - 部分配发, 2 - 已配发, 3 - 已结算, 4 - 已开票, 5 - 已回款
   settle_flag: { type: Number, default: 0 }, // 0000: no settle, 0001: customer settle, 0010: collection settle, 0100: vessel settle
 
   remark: String,
@@ -70,5 +71,57 @@ var billSchema = new Schema({
 });
 
 billSchema.index({ order: 1, bill_no: 1 }); // schema level
+billSchema.index({ billing_name: 1, create_date: -1, left_num: 1 }); // Optimize customer active bill search
+billSchema.index({ billing_name: 1, order_no: 1 }); // Optimize specific order lookup
+billSchema.index({ order_no: 1 }); // Optimize order lookup
+
+billSchema.pre('save', function (next) {
+  if (this.isModified('status')) {
+    if (this.status === '新建') {
+      this.status_flag = 0;
+    } else if (this.status === '已配发') {
+      this.status_flag = 2;
+    } else if (this.status === '已结算') {
+      this.status_flag = 3;
+    } else if (this.status === '已开票') {
+      this.status_flag = 4;
+    } else if (this.status === '已回款') {
+      this.status_flag = 5;
+    } else if (this.status.startsWith('已配发') || this.status === '待配发' || this.status === '部分配发') {
+      this.status_flag = 1;
+    }
+  }
+  next();
+});
+
+billSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  if (update.status || (update.$set && update.$set.status)) {
+    const status = update.status || update.$set.status;
+    let status_flag = -1;
+    if (status === '新建') {
+      status_flag = 0;
+    } else if (status === '已配发') {
+      status_flag = 2;
+    } else if (status === '已结算') {
+      status_flag = 3;
+    } else if (status === '已开票') {
+      status_flag = 4;
+    } else if (status === '已回款') {
+      status_flag = 5;
+    } else if (status.startsWith('已配发') || status === '待配发' || status === '部分配发') {
+      status_flag = 1;
+    }
+
+    if (status_flag !== -1) {
+      if (update.$set) {
+        update.$set.status_flag = status_flag;
+      } else {
+        update.status_flag = status_flag;
+      }
+    }
+  }
+  next();
+});
 
 module.exports = mongoose.model('Bill', billSchema);

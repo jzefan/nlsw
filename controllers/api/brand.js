@@ -1,6 +1,6 @@
-const Company = require('../../models/Company');
+const Brand = require('../../models/Brand');
 
-exports.getCompanies = async (req, res) => {
+exports.getBrands = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -11,23 +11,23 @@ exports.getCompanies = async (req, res) => {
       query.name = { $regex: search, $options: 'i' };
     }
 
-    const count = await Company.countDocuments(query);
-    const companies = await Company.find(query)
+    const count = await Brand.countDocuments(query);
+    const brands = await Brand.find(query)
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ name: 1 })
-      .select('name customers') // Select name and customers
+      .select('name')
       .lean();
 
     res.json({
       ok: true,
-      data: companies,
+      data: brands,
       total: count,
       page: page,
       totalPages: Math.ceil(count / limit)
     });
   } catch (error) {
-    console.error('getCompanies error:', error);
+    console.error('getBrands error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };

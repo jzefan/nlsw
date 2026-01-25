@@ -12,8 +12,6 @@ let vehvesController = require('./controllers/vehves');
 let drayageForkliftController = require('./controllers/drayage_forklift');
 let queryController = require('./controllers/query');
 let planController = require('./controllers/order_plan');
-let companyApiController = require('./controllers/api/company');
-let destinationApiController = require('./controllers/api/destination');
 
 let ReceiptImg = require('./models/Receipt');
 let Vehicle = require('./models/Vehicle');
@@ -127,10 +125,6 @@ module.exports = function (app) {
   app.post('/datamgt/sale_dep_add', nlDataController.httpPostSaleDepAdd);
   app.post('/datamgt/sale_dep_modify', nlDataController.httpPostSaleDepModify);
   app.get('/datamgt/sale_dep_delete', nlDataController.httpPostSaleDepDelete);
-
-  // New API Routes for Frontend
-  app.get('/companies', companyApiController.getCompanies);
-  app.get('/destinations', destinationApiController.getDestinations);
 
   app.get('/invoice_report', billController.getInvoiceReport);
 

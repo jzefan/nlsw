@@ -23,6 +23,7 @@ var passport = require('passport');
 var expressValidator = require('express-validator');
 var connectAssets = require('connect-assets');
 var routes = require('./routes');
+var routesApi = require('./routes_api');
 let ReceiptImg = require('./models/Receipt');
 let ArchivedReceiptImg = require('./models/ArchivedReceiptImg');
 
@@ -122,6 +123,7 @@ app.use(function (req, res, next) {
  * Application routes.
  */
 
+routesApi(app);
 routes(app);
 
 // 定时任务，每天早上3点执行

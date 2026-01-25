@@ -1584,7 +1584,8 @@ async function getDictDataAndRender(type, fromBill, fromInvoice, forSelf, render
 }
 
 exports.getMaxWaybillNo = async function (req, res) {
-  let uno = utils.leftPad(req.user.no, 4);
+  let userNo = req.user.no || 0;
+  let uno = utils.leftPad(userNo, 4);
   let date_no = new Date().yyyymmdd() + uno;
   let reg = new RegExp('^01' + date_no + '.*', 'g');
   

@@ -144,3 +144,34 @@ exports.postDeleteVFCData = async function(req, res) {
     res.end(JSON.stringify({ ok: false, response: 'Data not correct'}));
   }
 };
+
+exports.searchVehicles = async function(req, res) {
+  try {
+    const { search, type = '车', page = 1, limit = 20 } = req.query;
+    const query = {
+      veh_type: type
+    };
+
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const count = await Vehicle.countDocuments(query);
+    const vehicles = await Vehicle.find(query)
+      .sort({ name: 1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    res.json({
+      ok: true,
+      data: vehicles,
+      total: count,
+      page: parseInt(page),
+      totalPages: Math.ceil(count / parseInt(limit))
+    });
+  } catch (error) {
+    console.error('searchVehicles error:', error);
+    res.status(500).json({ ok: false, error: error.toString(), stack: error.stack });
+  }
+};
