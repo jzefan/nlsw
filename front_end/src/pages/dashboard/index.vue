@@ -16,10 +16,15 @@ const tabs = ref([
 const activeTab = ref(tabs.value[0].value)
 </script>
 
+<route lang="yaml">
+meta:
+  auth: true
+</route>
+
 <template>
   <BasicPage
-    title="workspace"
-    description="workspace description"
+    title="工作台"
+    description="欢迎使用物流管理系统"
     sticky
   >
     <template #actions>

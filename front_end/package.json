@@ -63,7 +63,8 @@
     "vue-input-otp": "^0.3.2",
     "vue-router": "^4.6.4",
     "vue-sonner": "^2.0.9",
-    "zod": "^4.3.5"
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^6.7.3",
@@ -89,13 +90,12 @@
     "unplugin-vue-router": "^0.16.2",
     "vite": "^7.3.0",
     "vite-plugin-vue-devtools": "^8.0.5",
-    "vite-plugin-vue-layouts": "^0.11.0",
     "vue-tsc": "^3.2.2"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged"
   },
   "lint-staged": {
-    "*": "eslint --fix"
+    "*.{js,ts,vue}": "eslint --fix"
   }
 }

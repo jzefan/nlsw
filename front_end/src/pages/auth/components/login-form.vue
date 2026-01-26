@@ -1,67 +1,71 @@
 <script lang="ts" setup>
 import { useAuth } from '@/composables/use-auth'
 
-import GitHubButton from './github-button.vue'
-import GoogleButton from './google-button.vue'
-import PrivacyPolicyButton from './privacy-policy-button.vue'
-import TermsOfServiceButton from './terms-of-service-button.vue'
-import ToForgotPasswordLink from './to-forgot-password-link.vue'
+const { login, loading, error } = useAuth()
 
-const { login, loading } = useAuth()
+const userid = ref('')
+const password = ref('')
+
+async function handleLogin() {
+  if (!userid.value || !password.value) {
+    return
+  }
+  await login(userid.value, password.value)
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    handleLogin()
+  }
+}
 </script>
 
 <template>
   <UiCard class="w-full max-w-sm">
     <UiCardHeader>
       <UiCardTitle class="text-2xl">
-        Login
+        登录
       </UiCardTitle>
       <UiCardDescription>
-        Enter your email and password below to log into your account.
-        Not have an account?
-        <UiButton
-          variant="link" class="px-0 text-muted-foreground"
-          @click="$router.push('/auth/sign-up')"
-        >
-          Sign Up
-        </UiButton>
+        请输入用户名和密码登录系统
       </UiCardDescription>
     </UiCardHeader>
     <UiCardContent class="grid gap-4">
+      <div v-if="error" class="text-sm text-red-500 bg-red-50 p-2 rounded">
+        {{ error }}
+      </div>
+
       <div class="grid gap-2">
-        <UiLabel for="email">
-          Email
+        <UiLabel for="userid">
+          用户名
         </UiLabel>
-        <UiInput id="email" type="email" placeholder="m@example.com" required />
+        <UiInput
+          id="userid"
+          v-model="userid"
+          type="text"
+          placeholder="请输入用户名"
+          required
+          @keydown="handleKeydown"
+        />
       </div>
       <div class="grid gap-2">
-        <div class="flex items-center justify-between">
-          <UiLabel for="password">
-            Password
-          </UiLabel>
-          <ToForgotPasswordLink />
-        </div>
-        <UiInput id="password" type="password" required placeholder="*********" />
+        <UiLabel for="password">
+          密码
+        </UiLabel>
+        <UiInput
+          id="password"
+          v-model="password"
+          type="password"
+          required
+          placeholder="请输入密码"
+          @keydown="handleKeydown"
+        />
       </div>
 
-      <UiButton class="w-full" @click="login">
+      <UiButton class="w-full" :disabled="loading || !userid || !password" @click="handleLogin">
         <UiSpinner v-if="loading" class="mr-2" />
-        Mock Login
+        {{ loading ? '登录中...' : '登录' }}
       </UiButton>
-
-      <UiSeparator label="Or continue with" />
-
-      <div class="flex flex-col items-center justify-between gap-4">
-        <GitHubButton />
-        <GoogleButton />
-      </div>
-
-      <UiCardDescription>
-        By clicking login, you agree to our
-        <TermsOfServiceButton />
-        and
-        <PrivacyPolicyButton />
-      </UiCardDescription>
     </UiCardContent>
   </UiCard>
 </template>

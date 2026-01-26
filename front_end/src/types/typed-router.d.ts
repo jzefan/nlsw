@@ -112,6 +112,34 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/bills/create': RouteRecordInfo<
+      '/bills/create',
+      '/bills/create',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/bills/delete': RouteRecordInfo<
+      '/bills/delete',
+      '/bills/delete',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/bills/edit': RouteRecordInfo<
+      '/bills/edit',
+      '/bills/edit',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/bills/search': RouteRecordInfo<
+      '/bills/search',
+      '/bills/search',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/dashboard/': RouteRecordInfo<
       '/dashboard/',
       '/dashboard',
@@ -190,6 +218,20 @@ declare module 'vue-router/auto-routes' {
     '/marketing/hello': RouteRecordInfo<
       '/marketing/hello',
       '/marketing/hello',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/plans/': RouteRecordInfo<
+      '/plans/',
+      '/plans',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/plans/create': RouteRecordInfo<
+      '/plans/create',
+      '/plans/create',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -341,6 +383,30 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/bills/create.vue': {
+      routes:
+        | '/bills/create'
+      views:
+        | never
+    }
+    'src/pages/bills/delete.vue': {
+      routes:
+        | '/bills/delete'
+      views:
+        | never
+    }
+    'src/pages/bills/edit.vue': {
+      routes:
+        | '/bills/edit'
+      views:
+        | never
+    }
+    'src/pages/bills/search.vue': {
+      routes:
+        | '/bills/search'
+      views:
+        | never
+    }
     'src/pages/dashboard/index.vue': {
       routes:
         | '/dashboard/'
@@ -410,6 +476,18 @@ declare module 'vue-router/auto-routes' {
     'src/pages/marketing/hello.vue': {
       routes:
         | '/marketing/hello'
+      views:
+        | never
+    }
+    'src/pages/plans/index.vue': {
+      routes:
+        | '/plans/'
+      views:
+        | never
+    }
+    'src/pages/plans/create.vue': {
+      routes:
+        | '/plans/create'
       views:
         | never
     }

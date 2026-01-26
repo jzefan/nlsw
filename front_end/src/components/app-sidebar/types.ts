@@ -8,19 +8,25 @@ interface BaseNavItem {
   icon?: NavIcon
 }
 
+// 权限检查函数类型
+export type PrivilegeCheck = (privilege: string) => boolean
+
 export type NavItem
   = | BaseNavItem & {
-    items: (BaseNavItem & { url?: string })[]
+    items: (BaseNavItem & { url?: string; privilegeCheck?: PrivilegeCheck })[]
     url?: never
     isActive?: boolean
+    privilegeCheck?: PrivilegeCheck
   } | BaseNavItem & {
     url: string
     items?: never
+    privilegeCheck?: PrivilegeCheck
   }
 
 export interface NavGroup {
   title: string
   items: NavItem[]
+  privilegeCheck?: PrivilegeCheck
 }
 
 export interface User {

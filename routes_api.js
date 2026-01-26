@@ -10,6 +10,8 @@ const invoiceApiController = require('./controllers/api/invoice');
 const userApiController = require('./controllers/api/user');
 const vehvesController = require('./controllers/vehves');
 
+const planController = require('./controllers/order_plan');
+
 module.exports = function (app) {
   // New API Routes for Frontend
   app.get('/companies', companyApiController.getCompanies);
@@ -17,8 +19,16 @@ module.exports = function (app) {
   app.get('/brands', brandApiController.getBrands);
   app.get('/sale_deps', saleDepApiController.getSaleDeps);
   app.get('/warehouses', warehouseApiController.getWarehouses);
+
+  // Plan API
   app.get('/plans', planApiController.getPlans);
-  
+  app.post('/plans', planController.postCreateOrderPlan);
+  app.post('/plans/update', planController.postUpdatePlan);
+  app.post('/plans/delete', planController.postDeletePlan);
+  app.post('/plans/close', planController.postPlanStatusClosed);
+  app.post('/plans/unclose', planController.postPlanStatusUnClosed);
+  app.get('/plans/check', planController.orderPlanExist);
+
   app.get('/get_max_waybill_no', invoiceApiController.getMaxWaybillNo);
   app.get('/me', userApiController.getMe);
   

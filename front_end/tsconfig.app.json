@@ -16,8 +16,7 @@
       "@/*": ["./src/*"]
     },
     "types": [
-      "unplugin-vue-router/client",
-      "vite-plugin-vue-layouts/client"
+      "unplugin-vue-router/client"
     ],
     "allowImportingTsExtensions": true,
 

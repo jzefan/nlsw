@@ -9,7 +9,6 @@ import { VueRouterAutoImports } from 'unplugin-vue-router'
 import VueRouter from 'unplugin-vue-router/vite'
 import { defineConfig } from 'vite'
 import vueDevTools from 'vite-plugin-vue-devtools'
-import Layouts from 'vite-plugin-vue-layouts'
 
 const RouteGenerateExclude = ['**/components/**', '**/layouts/**', '**/data/**', '**/types/**']
 
@@ -24,9 +23,6 @@ export default defineConfig({
     vueDevTools(),
     tailwindcss(),
     visualizer({ gzipSize: true, brotliSize: true }),
-    Layouts({
-      defaultLayout: 'default',
-    }),
     AutoImport({
       include: [
         /\.[tj]sx?$/,

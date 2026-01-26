@@ -4,7 +4,11 @@ import { useRouter } from 'vue-router'
 import Loading from '@/components/loading.vue'
 
 const router = useRouter()
-router.push({ name: '/dashboard/' })
+
+// 等待组件挂载后再跳转，确保 auth guard 已完成检查
+onMounted(() => {
+  router.push('/dashboard')
+})
 </script>
 
 <template>
@@ -16,4 +20,5 @@ router.push({ name: '/dashboard/' })
 <route lang="yaml">
 meta:
   layout: false
+  auth: true
 </route>
