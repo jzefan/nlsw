@@ -10,7 +10,7 @@ import VueRouter from 'unplugin-vue-router/vite'
 import { defineConfig } from 'vite'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
-const RouteGenerateExclude = ['**/components/**', '**/layouts/**', '**/data/**', '**/types/**']
+const RouteGenerateExclude = ['**/components/**', '**/layouts/**', '**/types/**']
 
 export default defineConfig({
   plugins: [

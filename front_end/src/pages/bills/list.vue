@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { Filter, RefreshCw, SearchX, Trash2, X } from 'lucide-vue-next'
+import { Filter, Pencil, RefreshCw, Search, SearchX, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import BillFilter, { type BillFilterValues } from '@/components/bill-filter.vue'
 import { BasicPage } from '@/components/global-layout'
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
-  deleteBills,
   getBills,
   searchBills,
+  updateBill,
+  updateBillsBatch,
+  searchBrands,
+  searchSaleDeps,
+  searchWarehouses,
   type Bill,
 } from '@/services/api/bill.api'
+import { searchCompanies } from '@/services/api/plan.api'
 
 // 状态
 const loading = ref(false)
@@ -36,6 +42,42 @@ const filters = ref<BillFilterValues>({
   endDate: '',
 })
 
+// 状态选项（用于高级查询）
+const statusOptions = ['新建', '待配发', '部分配发', '已配发', '已结算', '已开票', '已回款']
+
+// 编辑对话框
+const showEditDialog = ref(false)
+const editingBill = ref<Bill | null>(null)
+const editForm = ref({
+  billNo: '',
+  billingName: '',
+  brandNo: '',
+  shipWarehouse: '',
+  contractNo: '',
+  salesDep: '',
+  sizeType: '',
+  blockNum: 0,
+  totalWeight: 0,
+})
+
+// 批量编辑对话框
+const showBatchDialog = ref(false)
+const batchField = ref('')
+const batchValue = ref('')
+const batchFields = [
+  { value: 'billNo', label: '提单号' },
+  { value: 'billingName', label: '开单名称' },
+  { value: 'brandNo', label: '牌号' },
+  { value: 'contractNo', label: '合同号' },
+  { value: 'salesDep', label: '销售部门' },
+  { value: 'shipWarehouse', label: '发货仓库' },
+  { value: 'sizeType', label: '尺寸类型' },
+]
+
+// 剩余量查询对话框
+const showLeftSearchDialog = ref(false)
+const leftSearchThreshold = ref('')
+
 // 高级查询对话框
 const showAdvancedSearchDialog = ref(false)
 const advancedConditions = ref<{ field: string; operator: string; value: string }[]>([])
@@ -51,10 +93,13 @@ const advancedFields = [
   { value: 'weight', label: '单重', type: 'number' },
   { value: 'block_num', label: '块数', type: 'number' },
   { value: 'total_weight', label: '总重量', type: 'number' },
+  { value: 'left_num', label: '剩余量', type: 'number' },
   { value: 'ship_warehouse', label: '发货仓库', type: 'text' },
   { value: 'contract_no', label: '合同号', type: 'text' },
   { value: 'sales_dep', label: '销售部门', type: 'text' },
   { value: 'create_date', label: '创建日期', type: 'date' },
+  { value: 'shipping_date', label: '配发日期', type: 'date' },
+  { value: 'status', label: '状态', type: 'select', options: statusOptions },
   { value: 'size_type', label: '尺寸类型', type: 'select', options: ['定尺', '乱尺'] },
 ]
 const advancedOperators = [
@@ -67,7 +112,7 @@ const advancedOperators = [
   { value: 'lte', label: '小于等于' },
 ]
 
-// 加载数据（只查询新建状态的提单）
+// 加载数据
 async function loadData() {
   loading.value = true
   try {
@@ -79,7 +124,8 @@ async function loadData() {
       billingName: filters.value.billingName || undefined,
       brandNo: filters.value.brandNo || undefined,
       contractNo: filters.value.contractNo || undefined,
-      status: '新建', // 只能删除新建状态的提单
+      status: filters.value.status || undefined,
+      leftNumOnly: filters.value.leftNumOnly || undefined,
       startDate: filters.value.startDate || undefined,
       endDate: filters.value.endDate || undefined,
     })
@@ -119,34 +165,293 @@ function isSelected(bill: Bill) {
   return selectedBills.value.some(b => b._id === bill._id)
 }
 
-// 删除提单
-async function handleDelete() {
+// 打开编辑对话框
+function openEditDialog(bill: Bill) {
+  editingBill.value = bill
+  editForm.value = {
+    billNo: bill.bill_no,
+    billingName: bill.billing_name,
+    brandNo: bill.brand_no || '',
+    shipWarehouse: bill.ship_warehouse || '',
+    contractNo: bill.contract_no || '',
+    salesDep: bill.sales_dep || '',
+    sizeType: bill.size_type || '定尺',
+    blockNum: bill.block_num || 0,
+    totalWeight: bill.total_weight,
+  }
+  showEditDialog.value = true
+}
+
+// 保存编辑
+async function saveEdit() {
+  if (!editingBill.value) return
+
+  try {
+    const result = await updateBill({
+      _id: editingBill.value._id!,
+      billNo: editForm.value.billNo,
+      billingName: editForm.value.billingName,
+      brandNo: editForm.value.brandNo,
+      shipWarehouse: editForm.value.shipWarehouse,
+      contractNo: editForm.value.contractNo,
+      salesDep: editForm.value.salesDep,
+      sizeType: editForm.value.sizeType,
+      blockNum: editForm.value.blockNum,
+      totalWeight: editForm.value.totalWeight,
+    })
+    if (result.ok) {
+      toast.success('更新成功')
+      showEditDialog.value = false
+      loadData()
+    } else {
+      toast.error('更新失败', { description: result.response })
+    }
+  } catch (e: any) {
+    toast.error('更新失败', { description: e.message })
+  }
+}
+
+// 打开批量编辑对话框
+function openBatchDialog() {
   if (selectedBills.value.length === 0) {
-    toast.warning('请先选择要删除的提单')
+    toast.warning('请先选择要修改的提单')
     return
   }
+  batchField.value = ''
+  batchValue.value = ''
+  showBatchDialog.value = true
+}
 
-  if (!confirm(`确定要删除选中的 ${selectedBills.value.length} 条提单吗？删除后不能恢复！`)) {
+// 保存批量编辑
+async function saveBatchEdit() {
+  if (!batchField.value || !batchValue.value) {
+    toast.warning('请选择字段并输入值')
     return
   }
 
   try {
     const ids = selectedBills.value.map(b => b._id!)
-    const result = await deleteBills(ids)
+    const result = await updateBillsBatch({
+      ids,
+      field: batchField.value,
+      value: batchValue.value,
+    })
     if (result.ok) {
-      toast.success(`删除成功，共 ${ids.length} 条`)
+      toast.success(`批量更新成功，共 ${result.count || ids.length} 条`)
+      showBatchDialog.value = false
       selectedBills.value = []
-      if (activeQuery.value) {
-        executeAdvancedSearch(false)
-      } else {
-        loadData()
-      }
+      loadData()
     } else {
-      toast.error('删除失败', { description: result.response })
+      toast.error('批量更新失败', { description: result.response })
     }
   } catch (e: any) {
-    toast.error('删除失败', { description: e.message })
+    toast.error('批量更新失败', { description: e.message })
   }
+}
+
+// 剩余量查询（支持分页）
+async function searchByLeftNum(resetPage = true) {
+  const threshold = Number.parseFloat(leftSearchThreshold.value)
+  if (!threshold || threshold <= 0) {
+    toast.warning('请输入有效的阈值')
+    return
+  }
+
+  if (resetPage) {
+    page.value = 1
+  }
+
+  loading.value = true
+  try {
+    const result = await searchBills({
+      queryTree: {
+        type: 'condition',
+        field: 'left_num',
+        operator: 'lte',
+        value: threshold,
+      },
+      page: page.value,
+      limit: limit.value,
+    })
+    if (result.ok) {
+      bills.value = result.data || result.bills || []
+      total.value = result.total || bills.value.length
+      selectedBills.value = []
+      showLeftSearchDialog.value = false
+      activeQuery.value = { type: 'leftNum', label: `剩余量 ≤ ${threshold}` }
+      if (resetPage) {
+        toast.success(`查询到 ${total.value} 条剩余量 ≤ ${threshold} 的提单`)
+      }
+    } else {
+      toast.error('查询失败', { description: result.response })
+    }
+  } catch (e: any) {
+    toast.error('查询失败', { description: e.message })
+  } finally {
+    loading.value = false
+  }
+}
+
+// 清除特殊查询，恢复普通查询
+function clearActiveQuery() {
+  activeQuery.value = null
+  leftSearchThreshold.value = ''
+  page.value = 1
+  loadData()
+}
+
+// 分页时检查是否有特殊查询
+async function handlePageChange(newPage: number) {
+  page.value = newPage
+  if (activeQuery.value?.type === 'leftNum') {
+    await searchByLeftNum(false)
+  } else if (activeQuery.value?.type === 'advanced') {
+    await executeAdvancedSearch(false)
+  } else {
+    await loadData()
+  }
+}
+
+// 剩余量清零
+async function zeroLeftNum() {
+  if (selectedBills.value.length === 0) {
+    toast.warning('请先选择要清零的提单')
+    return
+  }
+
+  if (!confirm(`确定要将选中的 ${selectedBills.value.length} 条提单剩余量清零吗？`)) {
+    return
+  }
+
+  loading.value = true
+  try {
+    // 对每个选中的提单，设置 left_num = 0, status = '已配发'
+    const updates = selectedBills.value.map(bill => ({
+      _id: bill._id!,
+      leftNum: 0,
+      status: '已配发',
+      totalWeight: bill.total_weight - bill.left_num,
+    }))
+
+    let successCount = 0
+    for (const update of updates) {
+      try {
+        const result = await updateBill({
+          _id: update._id,
+          totalWeight: update.totalWeight,
+        })
+        if (result.ok) successCount++
+      } catch {
+        // continue on error
+      }
+    }
+
+    toast.success(`剩余量清零成功，共 ${successCount} 条`)
+    selectedBills.value = []
+    loadData()
+  } catch (e: any) {
+    toast.error('清零失败', { description: e.message })
+  } finally {
+    loading.value = false
+  }
+}
+
+// 高级查询
+function openAdvancedSearch() {
+  advancedConditions.value = [{ field: '', operator: 'eq', value: '' }]
+  showAdvancedSearchDialog.value = true
+}
+
+function addCondition() {
+  advancedConditions.value.push({ field: '', operator: 'eq', value: '' })
+}
+
+function removeCondition(index: number) {
+  advancedConditions.value.splice(index, 1)
+}
+
+// 保存高级查询条件用于分页
+const savedAdvancedQueryTree = ref<any>(null)
+
+async function executeAdvancedSearch(resetPage = true) {
+  const validConditions = advancedConditions.value.filter(c => c.field && c.value)
+  if (validConditions.length === 0) {
+    toast.warning('请至少添加一个有效的查询条件')
+    return
+  }
+
+  if (resetPage) {
+    page.value = 1
+  }
+
+  loading.value = true
+  try {
+    // 构建查询树
+    let queryTree: any
+    if (validConditions.length === 1) {
+      const c = validConditions[0]
+      queryTree = {
+        type: 'condition',
+        field: c.field,
+        operator: c.operator,
+        value: c.value,
+      }
+    } else {
+      queryTree = {
+        type: 'and',
+        children: validConditions.map(c => ({
+          type: 'condition',
+          field: c.field,
+          operator: c.operator,
+          value: c.value,
+        })),
+      }
+    }
+
+    // 保存查询树用于分页
+    savedAdvancedQueryTree.value = queryTree
+
+    const result = await searchBills({
+      queryTree,
+      page: page.value,
+      limit: limit.value,
+    })
+
+    if (result.ok) {
+      bills.value = result.data || result.bills || []
+      total.value = result.total || bills.value.length
+      selectedBills.value = []
+      showAdvancedSearchDialog.value = false
+
+      // 生成查询描述
+      const labels = validConditions.map(c => {
+        const fieldObj = advancedFields.find(f => f.value === c.field)
+        const opObj = advancedOperators.find(o => o.value === c.operator)
+        return `${fieldObj?.label || c.field} ${opObj?.label || c.operator} ${c.value}`
+      })
+      activeQuery.value = { type: 'advanced', label: labels.join(', ') }
+
+      if (resetPage) {
+        toast.success(`高级查询完成，共 ${total.value} 条`)
+      }
+    } else {
+      toast.error('查询失败', { description: result.response })
+    }
+  } catch (e: any) {
+    toast.error('查询失败', { description: e.message })
+  } finally {
+    loading.value = false
+  }
+}
+
+function getFieldType(fieldValue: string) {
+  const field = advancedFields.find(f => f.value === fieldValue)
+  return field?.type || 'text'
+}
+
+function getFieldOptions(fieldValue: string) {
+  const field = advancedFields.find(f => f.value === fieldValue)
+  return field?.options || []
 }
 
 // 格式化数字
@@ -179,131 +484,12 @@ function resetFilters() {
   loadData()
 }
 
-// 清除特殊查询
-function clearActiveQuery() {
-  activeQuery.value = null
-  page.value = 1
-  loadData()
-}
-
-// 分页处理
-async function handlePageChange(newPage: number) {
-  page.value = newPage
-  if (activeQuery.value?.type === 'advanced') {
-    await executeAdvancedSearch(false)
-  } else {
-    await loadData()
-  }
-}
-
-// 高级查询
-function openAdvancedSearch() {
-  advancedConditions.value = [{ field: '', operator: 'eq', value: '' }]
-  showAdvancedSearchDialog.value = true
-}
-
-function addCondition() {
-  advancedConditions.value.push({ field: '', operator: 'eq', value: '' })
-}
-
-function removeCondition(index: number) {
-  advancedConditions.value.splice(index, 1)
-}
-
-async function executeAdvancedSearch(resetPage = true) {
-  const validConditions = advancedConditions.value.filter(c => c.field && c.value)
-  if (validConditions.length === 0 && resetPage) {
-    toast.warning('请至少添加一个有效的查询条件')
-    return
-  }
-
-  if (resetPage) {
-    page.value = 1
-  }
-
-  loading.value = true
-  try {
-    // 构建查询树，始终包含 status = '新建' 条件
-    const statusCondition = {
-      type: 'condition',
-      field: 'status',
-      operator: 'eq',
-      value: '新建',
-    }
-
-    let queryTree: any
-    if (validConditions.length === 0) {
-      queryTree = statusCondition
-    } else if (validConditions.length === 1) {
-      const c = validConditions[0]
-      queryTree = {
-        type: 'and',
-        children: [
-          statusCondition,
-          {
-            type: 'condition',
-            field: c.field,
-            operator: c.operator,
-            value: c.value,
-          },
-        ],
-      }
-    } else {
-      queryTree = {
-        type: 'and',
-        children: [
-          statusCondition,
-          ...validConditions.map(c => ({
-            type: 'condition',
-            field: c.field,
-            operator: c.operator,
-            value: c.value,
-          })),
-        ],
-      }
-    }
-
-    const result = await searchBills({
-      queryTree,
-      page: page.value,
-      limit: limit.value,
-    })
-
-    if (result.ok) {
-      bills.value = result.data || result.bills || []
-      total.value = result.total || bills.value.length
-      selectedBills.value = []
-      showAdvancedSearchDialog.value = false
-
-      // 生成查询描述
-      const labels = validConditions.map(c => {
-        const fieldObj = advancedFields.find(f => f.value === c.field)
-        const opObj = advancedOperators.find(o => o.value === c.operator)
-        return `${fieldObj?.label || c.field} ${opObj?.label || c.operator} ${c.value}`
-      })
-      activeQuery.value = { type: 'advanced', label: labels.join(', ') || '高级查询' }
-
-      if (resetPage) {
-        toast.success(`高级查询完成，共 ${total.value} 条`)
-      }
-    } else {
-      toast.error('查询失败', { description: result.response })
-    }
-  } catch (e: any) {
-    toast.error('查询失败', { description: e.message })
-  } finally {
-    loading.value = false
-  }
-}
-
-function getFieldType(fieldValue: string) {
-  const field = advancedFields.find(f => f.value === fieldValue)
-  return field?.type || 'text'
-}
-
-function getFieldOptions(fieldValue: string) {
-  const field = advancedFields.find(f => f.value === fieldValue)
-  return field?.options || []
+// 获取状态样式
+function getStatusVariant(status: string) {
+  if (status === '新建') return 'secondary'
+  if (status === '已配发') return 'default'
+  if (status === '已结算' || status === '已开票' || status === '已回款') return 'outline'
+  return 'secondary'
 }
 
 // 初始化
@@ -313,7 +499,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <BasicPage title="删除提单" description="删除新建状态的提单">
+  <BasicPage title="提单列表" description="查询和修改提单信息">
     <template #actions>
       <div class="flex items-center gap-2">
         <UiButton
@@ -328,6 +514,10 @@ onMounted(() => {
           <SearchX class="w-4 h-4 mr-1" />
           高级查询
         </UiButton>
+        <UiButton variant="outline" size="sm" @click="showLeftSearchDialog = true">
+          <Search class="w-4 h-4 mr-1" />
+          剩余量查询
+        </UiButton>
         <UiButton variant="outline" size="sm" @click="loadData">
           <RefreshCw class="w-4 h-4 mr-1" />
           刷新
@@ -335,17 +525,10 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- 提示 -->
-    <div class="mb-3 p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200 text-sm">
-      只能删除状态为"新建"的提单，已配发或已结算的提单无法删除。
-    </div>
-
     <!-- 筛选区域 -->
     <BillFilter
       v-if="showFilter"
       v-model="filters"
-      :show-status="false"
-      :show-left-num-only="false"
       class="mb-3"
       @search="activeQuery = null; loadData()"
       @reset="resetFilters"
@@ -367,19 +550,36 @@ onMounted(() => {
     </div>
 
     <!-- 工具栏 -->
-    <div class="mb-3 flex items-center gap-2">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
       <UiButton
-        variant="destructive"
+        variant="outline"
+        size="sm"
+        :disabled="selectedBills.length !== 1"
+        @click="selectedBills.length === 1 && openEditDialog(selectedBills[0])"
+      >
+        <Pencil class="w-4 h-4 mr-1" />
+        单条修改
+      </UiButton>
+      <UiButton
+        variant="outline"
         size="sm"
         :disabled="selectedBills.length === 0"
-        @click="handleDelete"
+        @click="openBatchDialog"
       >
-        <Trash2 class="w-4 h-4 mr-1" />
-        删除选中 ({{ selectedBills.length }})
+        批量修改
+      </UiButton>
+      <UiButton
+        variant="outline"
+        size="sm"
+        :disabled="selectedBills.length === 0"
+        @click="zeroLeftNum"
+      >
+        <Zap class="w-4 h-4 mr-1" />
+        剩余量清零
       </UiButton>
       <div class="flex-1" />
       <span class="text-sm text-muted-foreground">
-        已选择 {{ selectedBills.length }} 条，共 {{ total }} 条可删除
+        已选择 {{ selectedBills.length }} 条，共 {{ total }} 条
       </span>
     </div>
 
@@ -407,6 +607,7 @@ onMounted(() => {
             <th class="p-2 text-right">长</th>
             <th class="p-2 text-right">块数</th>
             <th class="p-2 text-right">总重量</th>
+            <th class="p-2 text-right">余量</th>
             <th class="p-2 text-left">仓库</th>
             <th class="p-2 text-left">合同号</th>
             <th class="p-2 text-left">创建日期</th>
@@ -429,7 +630,7 @@ onMounted(() => {
               >
             </td>
             <td class="p-2 text-center">
-              <UiBadge variant="secondary">
+              <UiBadge :variant="getStatusVariant(bill.status)">
                 {{ bill.status }}
               </UiBadge>
             </td>
@@ -443,13 +644,18 @@ onMounted(() => {
             <td class="p-2 text-right">{{ formatNumber(bill.len) }}</td>
             <td class="p-2 text-right">{{ bill.block_num }}</td>
             <td class="p-2 text-right">{{ formatNumber(bill.total_weight) }}</td>
+            <td class="p-2 text-right">
+              <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
+                {{ formatNumber(bill.left_num) }}
+              </span>
+            </td>
             <td class="p-2">{{ bill.ship_warehouse }}</td>
             <td class="p-2">{{ bill.contract_no }}</td>
             <td class="p-2">{{ formatDate(bill.create_date) }}</td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
-            <td colspan="15" class="p-8 text-center text-muted-foreground">
-              暂无可删除的提单
+            <td colspan="16" class="p-8 text-center text-muted-foreground">
+              暂无数据
             </td>
           </tr>
         </tbody>
@@ -482,13 +688,131 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 单条编辑对话框 -->
+    <UiDialog v-model:open="showEditDialog">
+      <UiDialogContent class="max-w-2xl">
+        <UiDialogHeader>
+          <UiDialogTitle>修改提单</UiDialogTitle>
+          <UiDialogDescription>
+            订单: {{ editingBill?.order_no }}-{{ editingBill?.order_item_no }}
+          </UiDialogDescription>
+        </UiDialogHeader>
+        <div class="grid grid-cols-2 gap-4 py-4">
+          <div>
+            <label class="text-sm font-medium">提单号</label>
+            <UiInput v-model="editForm.billNo" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">开单名称</label>
+            <SearchableCombobox v-model="editForm.billingName" :search-fn="searchCompanies" placeholder="选择客户" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">牌号</label>
+            <SearchableCombobox v-model="editForm.brandNo" :search-fn="searchBrands" placeholder="选择牌号" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">发货仓库</label>
+            <SearchableCombobox v-model="editForm.shipWarehouse" :search-fn="searchWarehouses" placeholder="选择仓库" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">合同号</label>
+            <UiInput v-model="editForm.contractNo" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">销售部门</label>
+            <SearchableCombobox v-model="editForm.salesDep" :search-fn="searchSaleDeps" placeholder="选择部门" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">块数</label>
+            <UiInput v-model.number="editForm.blockNum" type="number" min="0" :disabled="editingBill?.status !== '新建'" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">总重量</label>
+            <UiInput v-model.number="editForm.totalWeight" type="number" min="0" step="0.01" :disabled="editingBill?.status !== '新建'" />
+          </div>
+        </div>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="showEditDialog = false">
+            取消
+          </UiButton>
+          <UiButton @click="saveEdit">
+            保存
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
+
+    <!-- 批量编辑对话框 -->
+    <UiDialog v-model:open="showBatchDialog">
+      <UiDialogContent>
+        <UiDialogHeader>
+          <UiDialogTitle>批量修改</UiDialogTitle>
+          <UiDialogDescription>
+            将修改选中的 {{ selectedBills.length }} 条提单
+          </UiDialogDescription>
+        </UiDialogHeader>
+        <div class="grid gap-4 py-4">
+          <div>
+            <label class="text-sm font-medium">选择字段</label>
+            <UiSelect v-model="batchField">
+              <UiSelectTrigger>
+                <UiSelectValue placeholder="选择要修改的字段" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="f in batchFields" :key="f.value" :value="f.value">
+                  {{ f.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+          <div>
+            <label class="text-sm font-medium">新值</label>
+            <UiInput v-model="batchValue" placeholder="输入新值" />
+          </div>
+        </div>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="showBatchDialog = false">
+            取消
+          </UiButton>
+          <UiButton @click="saveBatchEdit">
+            确认修改
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
+
+    <!-- 剩余量查询对话框 -->
+    <UiDialog v-model:open="showLeftSearchDialog">
+      <UiDialogContent>
+        <UiDialogHeader>
+          <UiDialogTitle>剩余量查询</UiDialogTitle>
+          <UiDialogDescription>
+            查询剩余量小于等于指定阈值的提单
+          </UiDialogDescription>
+        </UiDialogHeader>
+        <div class="py-4">
+          <label class="text-sm font-medium">剩余量阈值</label>
+          <UiInput v-model="leftSearchThreshold" type="number" min="0" step="0.01" placeholder="输入阈值" />
+          <p class="text-xs text-muted-foreground mt-1">将查询所有剩余量 ≤ 该值的提单</p>
+        </div>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="showLeftSearchDialog = false">
+            取消
+          </UiButton>
+          <UiButton @click="searchByLeftNum">
+            查询
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
+
     <!-- 高级查询对话框 -->
     <UiDialog v-model:open="showAdvancedSearchDialog">
       <UiDialogContent class="max-w-3xl">
         <UiDialogHeader>
           <UiDialogTitle>高级查询</UiDialogTitle>
           <UiDialogDescription>
-            添加多个条件进行组合查询（条件之间为"并且"关系，仅查询"新建"状态的提单）
+            添加多个条件进行组合查询（条件之间为"并且"关系）
           </UiDialogDescription>
         </UiDialogHeader>
         <div class="py-4 max-h-96 overflow-auto">
@@ -554,7 +878,7 @@ onMounted(() => {
           <UiButton variant="outline" @click="showAdvancedSearchDialog = false">
             取消
           </UiButton>
-          <UiButton @click="executeAdvancedSearch()">
+          <UiButton @click="executeAdvancedSearch">
             执行查询
           </UiButton>
         </UiDialogFooter>

@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T">
+import { computed } from 'vue'
 import type { Table } from '@tanstack/vue-table'
 
 import {
@@ -36,9 +37,16 @@ const currentPageSize = computed(() => {
 
 const totalPages = computed(() => {
   if (isServerPagination.value && props.serverPagination) {
-    return Math.ceil(props.serverPagination.total / props.serverPagination.pageSize)
+    return Math.ceil(props.serverPagination.total / props.serverPagination.pageSize) || 1
   }
   return props.table.getPageCount()
+})
+
+const total = computed(() => {
+  if (isServerPagination.value && props.serverPagination) {
+    return props.serverPagination.total
+  }
+  return props.table.getFilteredRowModel().rows.length
 })
 
 const canPreviousPage = computed(() => {
@@ -110,7 +118,7 @@ function goToLastPage() {
     <div class="flex items-center space-x-6 lg:space-x-8">
       <div class="flex items-center space-x-2">
         <p class="hidden text-sm font-medium line-clamp-1 md:block">
-          Rows per page
+          每页行数
         </p>
         <UiSelect
           :model-value="`${currentPageSize}`"
@@ -126,8 +134,8 @@ function goToLastPage() {
           </UiSelectContent>
         </UiSelect>
       </div>
-      <div class="flex w-[100px] items-center justify-center text-sm font-medium">
-        Page {{ currentPage }} of {{ totalPages }}
+      <div class="flex w-auto min-w-[180px] items-center justify-center text-sm font-medium">
+        共 {{ total }} 条 | 第 {{ currentPage }} 页 / 共 {{ totalPages }} 页
       </div>
       <div class="flex items-center space-x-2">
         <UiButton
@@ -136,7 +144,7 @@ function goToLastPage() {
           :disabled="!canPreviousPage"
           @click="goToFirstPage"
         >
-          <span class="sr-only">Go to first page</span>
+          <span class="sr-only">跳转到第一页</span>
           <ChevronsLeft class="size-4" />
         </UiButton>
         <UiButton
@@ -145,7 +153,7 @@ function goToLastPage() {
           :disabled="!canPreviousPage"
           @click="goToPreviousPage"
         >
-          <span class="sr-only">Go to previous page</span>
+          <span class="sr-only">上一页</span>
           <ChevronLeftIcon class="size-4" />
         </UiButton>
         <UiButton
@@ -154,7 +162,7 @@ function goToLastPage() {
           :disabled="!canNextPage"
           @click="goToNextPage"
         >
-          <span class="sr-only">Go to next page</span>
+          <span class="sr-only">下一页</span>
           <ChevronRightIcon class="size-4" />
         </UiButton>
         <UiButton
@@ -163,7 +171,7 @@ function goToLastPage() {
           :disabled="!canNextPage"
           @click="goToLastPage"
         >
-          <span class="sr-only">Go to last page</span>
+          <span class="sr-only">跳转到最后一页</span>
           <ChevronsRight class="size-4" />
         </UiButton>
       </div>

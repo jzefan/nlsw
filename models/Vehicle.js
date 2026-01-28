@@ -17,7 +17,8 @@ var vehicleSchema = new mongoose.Schema({
     }
   ],
   phone: String,
-  remark: String
+  remark: String,
+  create_time: { type: Date, default: Date.now }
   // lastUsedDate: Date // 最近使用
 });
 

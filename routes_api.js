@@ -8,6 +8,7 @@ const planApiController = require('./controllers/api/order_plan');
 const billApiController = require('./controllers/api/bill');
 const invoiceApiController = require('./controllers/api/invoice');
 const userApiController = require('./controllers/api/user');
+const reportApiController = require('./controllers/api/report');
 const vehvesController = require('./controllers/vehves');
 
 const planController = require('./controllers/order_plan');
@@ -30,8 +31,11 @@ module.exports = function (app) {
   app.get('/plans/check', planController.orderPlanExist);
 
   app.get('/get_max_waybill_no', invoiceApiController.getMaxWaybillNo);
+  app.post('/build_ship_invoice', invoiceApiController.buildShipInvoice);
   app.get('/me', userApiController.getMe);
   
+  app.get('/get_invoices_bill', reportApiController.getIntegratedQuery);
+
   // Bill API
   app.get('/bills', billApiController.getBills);
   app.get('/bills/orders', billApiController.getOrders); // New orders endpoint

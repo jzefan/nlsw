@@ -25,6 +25,7 @@ const props = defineProps<{
   placeholder?: string
   searchFn: (search: string, limit: number, page: number) => Promise<SearchResponse>
   class?: string
+  disabled?: boolean
 }>()
 
 const modelValue = defineModel<string>({ default: '' })
@@ -106,13 +107,16 @@ function selectItem(name: string) {
 
 // 打开时初始加载
 watch(open, (isOpen) => {
-  if (isOpen) {
+  if (isOpen && !props.disabled) {
     searchQuery.value = ''
     items.value = []
     loadItems(true)
     nextTick(() => {
       inputRef.value?.focus()
     })
+  } else if (isOpen && props.disabled) {
+    // 如果禁用状态下被打开，立即关闭
+    open.value = false
   }
 })
 
@@ -129,6 +133,7 @@ const displayText = computed(() => {
         variant="outline"
         role="combobox"
         :aria-expanded="open"
+        :disabled="props.disabled"
         :class="cn('justify-between font-normal h-9', props.class || 'w-full', { 'text-muted-foreground': !modelValue })"
       >
         <span class="truncate">{{ displayText }}</span>
@@ -171,7 +176,10 @@ const displayText = computed(() => {
               modelValue === item.name ? 'opacity-100' : 'opacity-0'
             )"
           />
-          {{ item.name }}
+          <span class="flex-1 flex items-center justify-between gap-2">
+            <span>{{ item.name }}</span>
+            <span v-if="item.order_item_no" class="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{{ item.order_item_no }}</span>
+          </span>
         </div>
 
         <!-- 加载中 -->

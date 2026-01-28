@@ -84,7 +84,7 @@ exports.getBills = async (req, res) => {
 exports.getOrders = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 20; // 每页订单数
     const search = req.query.search || '';
     const billingName = req.query.billingName;
 
@@ -92,45 +92,79 @@ exports.getOrders = async (req, res) => {
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
-    const matchStage = { 
+    const matchStage = {
       left_num: { $gt: 0 },
       create_date: { $gte: twoYearsAgo }
-    }; 
-    
+    };
+
     if (billingName) {
       matchStage.billing_name = billingName;
     }
     if (search) {
-      matchStage.order_no = { $regex: search, $options: 'i' };
+      matchStage.$or = [
+        { order_no: { $regex: search, $options: 'i' } },
+        { bill_no: { $regex: search, $options: 'i' } }
+      ];
     }
 
-    console.log('getOrders matchStage:', matchStage);
-
+    // 使用聚合按订单号分组
     const pipeline = [
       { $match: matchStage },
-      { $group: { _id: '$order_no' } },
-      { $sort: { _id: 1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-      { $project: { name: '$_id', _id: 0 } }
+      {
+        $group: {
+          _id: '$order_no',
+          bills: {
+            $push: {
+              _id: '$_id',
+              bill_no: '$bill_no',
+              order_item_no: '$order_item_no',
+              left_num: '$left_num',
+              block_num: '$block_num',
+              weight: '$weight',
+              thickness: '$thickness',
+              width: '$width',
+              len: '$len',
+              ship_warehouse: '$ship_warehouse',
+              contract_no: '$contract_no',
+              brand_no: '$brand_no',
+              total_weight: '$total_weight'
+            }
+          }
+        }
+      },
+      { $sort: { _id: 1 } } // 按订单号排序
     ];
 
-    const countPipeline = [
+    // 获取总订单数
+    const countResult = await Bill.aggregate([
       { $match: matchStage },
       { $group: { _id: '$order_no' } },
       { $count: 'total' }
-    ];
+    ]);
+    const total = countResult.length > 0 ? countResult[0].total : 0;
 
-    const [orders, countResult] = await Promise.all([
-      Bill.aggregate(pipeline),
-      Bill.aggregate(countPipeline)
+    // 分页获取订单
+    const orders = await Bill.aggregate([
+      ...pipeline,
+      { $skip: (page - 1) * limit },
+      { $limit: limit }
     ]);
 
-    const total = countResult.length > 0 ? countResult[0].total : 0;
+    // 格式化结果
+    const formattedOrders = orders.map(order => ({
+      order_no: order._id,
+      bills: order.bills.sort((a, b) => {
+        // 按 order_item_no 和 bill_no 排序
+        const aItem = a.order_item_no || 0;
+        const bItem = b.order_item_no || 0;
+        if (aItem !== bItem) return aItem - bItem;
+        return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
+      })
+    }));
 
     res.json({
       ok: true,
-      data: orders, // Returns [{ name: 'Order1' }, ...]
+      data: formattedOrders,
       total: total,
       page: page,
       totalPages: Math.ceil(total / limit)

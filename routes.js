@@ -124,7 +124,7 @@ module.exports = function (app) {
   app.get('/datamgt/sale_dep', nlDataController.httpGetSaleDep);
   app.post('/datamgt/sale_dep_add', nlDataController.httpPostSaleDepAdd);
   app.post('/datamgt/sale_dep_modify', nlDataController.httpPostSaleDepModify);
-  app.get('/datamgt/sale_dep_delete', nlDataController.httpPostSaleDepDelete);
+  app.post('/datamgt/sale_dep_delete', nlDataController.httpPostSaleDepDelete);
 
   app.get('/invoice_report', billController.getInvoiceReport);
 

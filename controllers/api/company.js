@@ -15,7 +15,7 @@ exports.getCompanies = async (req, res) => {
     const companies = await Company.find(query)
       .skip((page - 1) * limit)
       .limit(limit)
-      .sort({ name: 1 })
+      .sort({ create_time: -1 })
       .select('name customers') // Select name and customers
       .lean();
 

@@ -10,7 +10,8 @@ var companySchema = new mongoose.Schema({
   address: String,
   phone: String,
   contact_name: String,
-  remark: String
+  remark: String,
+  create_time: { type: Date, default: Date.now }
 });
 
 module.exports = mongoose.model('Company', companySchema);

@@ -158,7 +158,7 @@ exports.searchVehicles = async function(req, res) {
 
     const count = await Vehicle.countDocuments(query);
     const vehicles = await Vehicle.find(query)
-      .sort({ name: 1 })
+      .sort({ create_time: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit))
       .lean();

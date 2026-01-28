@@ -126,16 +126,9 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
-    '/bills/edit': RouteRecordInfo<
-      '/bills/edit',
-      '/bills/edit',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/bills/search': RouteRecordInfo<
-      '/bills/search',
-      '/bills/search',
+    '/bills/list': RouteRecordInfo<
+      '/bills/list',
+      '/bills/list',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -143,6 +136,48 @@ declare module 'vue-router/auto-routes' {
     '/dashboard/': RouteRecordInfo<
       '/dashboard/',
       '/dashboard',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/brands': RouteRecordInfo<
+      '/data/brands',
+      '/data/brands',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/companies': RouteRecordInfo<
+      '/data/companies',
+      '/data/companies',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/destinations': RouteRecordInfo<
+      '/data/destinations',
+      '/data/destinations',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/sale-deps': RouteRecordInfo<
+      '/data/sale-deps',
+      '/data/sale-deps',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/vehicles': RouteRecordInfo<
+      '/data/vehicles',
+      '/data/vehicles',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data/warehouses': RouteRecordInfo<
+      '/data/warehouses',
+      '/data/warehouses',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -208,6 +243,20 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/invoices/create-ship': RouteRecordInfo<
+      '/invoices/create-ship',
+      '/invoices/create-ship',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/invoices/create-truck': RouteRecordInfo<
+      '/invoices/create-truck',
+      '/invoices/create-truck',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/marketing/': RouteRecordInfo<
       '/marketing/',
       '/marketing',
@@ -232,6 +281,13 @@ declare module 'vue-router/auto-routes' {
     '/plans/create': RouteRecordInfo<
       '/plans/create',
       '/plans/create',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/integrated': RouteRecordInfo<
+      '/reports/integrated',
+      '/reports/integrated',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -395,21 +451,51 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
-    'src/pages/bills/edit.vue': {
+    'src/pages/bills/list.vue': {
       routes:
-        | '/bills/edit'
-      views:
-        | never
-    }
-    'src/pages/bills/search.vue': {
-      routes:
-        | '/bills/search'
+        | '/bills/list'
       views:
         | never
     }
     'src/pages/dashboard/index.vue': {
       routes:
         | '/dashboard/'
+      views:
+        | never
+    }
+    'src/pages/data/brands.vue': {
+      routes:
+        | '/data/brands'
+      views:
+        | never
+    }
+    'src/pages/data/companies.vue': {
+      routes:
+        | '/data/companies'
+      views:
+        | never
+    }
+    'src/pages/data/destinations.vue': {
+      routes:
+        | '/data/destinations'
+      views:
+        | never
+    }
+    'src/pages/data/sale-deps.vue': {
+      routes:
+        | '/data/sale-deps'
+      views:
+        | never
+    }
+    'src/pages/data/vehicles.vue': {
+      routes:
+        | '/data/vehicles'
+      views:
+        | never
+    }
+    'src/pages/data/warehouses.vue': {
+      routes:
+        | '/data/warehouses'
       views:
         | never
     }
@@ -467,6 +553,18 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/invoices/create-ship.vue': {
+      routes:
+        | '/invoices/create-ship'
+      views:
+        | never
+    }
+    'src/pages/invoices/create-truck.vue': {
+      routes:
+        | '/invoices/create-truck'
+      views:
+        | never
+    }
     'src/pages/marketing/index.vue': {
       routes:
         | '/marketing/'
@@ -488,6 +586,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/plans/create.vue': {
       routes:
         | '/plans/create'
+      views:
+        | never
+    }
+    'src/pages/reports/integrated.vue': {
+      routes:
+        | '/reports/integrated'
       views:
         | never
     }
