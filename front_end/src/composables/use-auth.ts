@@ -1,7 +1,7 @@
 import { storeToRefs } from 'pinia'
 
-import { useAuthStore } from '@/stores/auth'
 import { useAxios } from '@/composables/use-axios'
+import { useAuthStore } from '@/stores/auth'
 
 export function useAuth() {
   const router = useRouter()
@@ -39,7 +39,7 @@ export function useAuth() {
         password,
       }, {
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
       })
 

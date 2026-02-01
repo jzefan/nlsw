@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { useInfiniteQuery } from '@tanstack/vue-query'
+import { useDebounceFn } from '@vueuse/core'
+import axios from 'axios'
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-vue-next'
-import { cn } from '@/lib/utils'
+import { ref, watch } from 'vue'
+
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -16,9 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { useInfiniteQuery } from '@tanstack/vue-query'
-import axios from 'axios'
-import { useDebounceFn } from '@vueuse/core'
+import { cn } from '@/lib/utils'
 
 const props = defineProps<{
   modelValue?: string
@@ -52,7 +53,7 @@ watch(() => props.queryParams, (val) => {
   console.log('AsyncCombobox: queryParams changed:', val)
 }, { deep: true })
 
-const fetchItems = async ({ pageParam = 1 }) => {
+async function fetchItems({ pageParam = 1 }) {
   console.log('AsyncCombobox: fetchItems called for', props.apiEndpoint, 'params:', props.queryParams)
   try {
     const res = await axios.get(props.apiEndpoint, {
@@ -60,11 +61,12 @@ const fetchItems = async ({ pageParam = 1 }) => {
         page: pageParam,
         limit: 20,
         search: searchQuery.value,
-        ...props.queryParams
-      }
+        ...props.queryParams,
+      },
     })
     return res.data
-  } catch (error) {
+  }
+  catch (error) {
     console.error('AsyncCombobox fetch error:', error)
     throw error
   }
@@ -78,7 +80,7 @@ const {
   isLoading,
   isError,
   error,
-  refetch
+  refetch,
 } = useInfiniteQuery({
   queryKey: computed(() => ['async-combobox', props.apiEndpoint, searchQuery.value, props.queryParams]),
   queryFn: fetchItems,
@@ -90,7 +92,7 @@ const {
     return undefined
   },
   initialPageParam: 1,
-  retry: 1
+  retry: 1,
 })
 
 const items = computed(() => {
@@ -98,18 +100,18 @@ const items = computed(() => {
 })
 
 // Scroll handler for pagination
-const handleScroll = (e: Event) => {
+function handleScroll(e: Event) {
   const target = e.target as HTMLElement
   if (
-    target.scrollTop + target.clientHeight >= target.scrollHeight - 10 &&
-    hasNextPage.value &&
-    !isFetchingNextPage.value
+    target.scrollTop + target.clientHeight >= target.scrollHeight - 10
+    && hasNextPage.value
+    && !isFetchingNextPage.value
   ) {
     fetchNextPage()
   }
 }
 
-const handleSelect = (item: any) => {
+function handleSelect(item: any) {
   const value = item[props.valueField || 'name']
   emits('update:modelValue', value)
   emits('select', item)
@@ -123,19 +125,22 @@ watch(() => [props.modelValue, items.value], ([newVal, currentItems]) => {
     const found = (currentItems as any[]).find(i => i[props.valueField || 'name'] === newVal)
     if (found) {
       selectedLabel.value = found[props.labelField || 'name']
-    } else if (selectedLabel.value && !inputValue.value) {
-      // If we already have a label and didn't just clear it, keep it. 
+    }
+    else if (selectedLabel.value && !inputValue.value) {
+      // If we already have a label and didn't just clear it, keep it.
       // This happens when selecting an item: handleSelect sets label, then modelValue update fires this watch.
-    } else {
+    }
+    else {
       // Fallback to value if no label found and we aren't in the middle of selecting
       // Or just clear it if it's a reset.
-      if (!inputValue.value) selectedLabel.value = newVal as string
+      if (!inputValue.value)
+        selectedLabel.value = newVal as string
     }
-  } else {
+  }
+  else {
     selectedLabel.value = ''
   }
 }, { immediate: true })
-
 </script>
 
 <template>
@@ -155,20 +160,23 @@ watch(() => [props.modelValue, items.value], ([newVal, currentItems]) => {
       </Button>
     </PopoverTrigger>
     <PopoverContent class="w-[--radix-popover-trigger-width] p-0">
-      <Command :should-filter="false"> <!-- Disable client-side filtering since we do it server-side -->
-        <CommandInput 
-          :placeholder="placeholder || 'Search...'" 
+      <Command :should-filter="false">
+        <!-- Disable client-side filtering since we do it server-side -->
+        <CommandInput
           v-model="inputValue"
+          :placeholder="placeholder || 'Search...'"
         />
-        <CommandList @scroll="handleScroll" class="max-h-[200px] overflow-y-auto">
-          <CommandEmpty v-if="!isLoading && !isError && items.length === 0">No results found.</CommandEmpty>
+        <CommandList class="max-h-[200px] overflow-y-auto" @scroll="handleScroll">
+          <CommandEmpty v-if="!isLoading && !isError && items.length === 0">
+            No results found.
+          </CommandEmpty>
           <div v-if="isLoading" class="p-4 flex justify-center">
-             <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+            <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
           <div v-if="isError" class="p-4 text-center text-sm text-red-500">
-             Error loading data.
+            Error loading data.
           </div>
-          
+
           <CommandGroup v-if="!isError">
             <CommandItem
               v-for="(item, index) in items"
@@ -179,7 +187,7 @@ watch(() => [props.modelValue, items.value], ([newVal, currentItems]) => {
               <Check
                 :class="cn(
                   'mr-0 h-4 w-4',
-                  modelValue === (item ? item[valueField || 'name'] : '') ? 'opacity-100' : 'opacity-0'
+                  modelValue === (item ? item[valueField || 'name'] : '') ? 'opacity-100' : 'opacity-0',
                 )"
               />
               <slot name="item" :item="item">
@@ -187,7 +195,7 @@ watch(() => [props.modelValue, items.value], ([newVal, currentItems]) => {
               </slot>
             </CommandItem>
           </CommandGroup>
-          
+
           <div v-if="isFetchingNextPage" class="p-2 text-center text-xs text-muted-foreground">
             Loading more...
           </div>

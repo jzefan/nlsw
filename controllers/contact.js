@@ -1,12 +1,6 @@
 var secrets = require('../config/secrets');
-var nodemailer = require("nodemailer");
-var smtpTransport = nodemailer.createTransport('SMTP', {
-  service: 'SendGrid',
-  auth: {
-       user: secrets.sendgrid.user,
-       pass: secrets.sendgrid.password
-  }
-});
+// var nodemailer = require("nodemailer"); // Removed - not used
+// Email transport removed - nodemailer not in use
 
 /**
  * GET /contact
@@ -45,19 +39,10 @@ exports.postContact = async function(req, res) {
   var to = 'your@email.com';
   var subject = 'Contact Form | Hackathon Starter';
 
-  var mailOptions = {
-    to: to,
-    from: from,
-    subject: subject,
-    text: body
-  };
+  // Email functionality removed - nodemailer not in use
+  // TODO: Implement contact form email if needed in the future
+  // Contact info: from: ${from}, to: ${to}, subject: ${subject}, body: ${body}
 
-  try {
-    await smtpTransport.sendMail(mailOptions);
-    req.flash('success', { msg: 'Email has been sent successfully!' });
-    res.redirect('/contact');
-  } catch (err) {
-    req.flash('errors', { msg: err.message });
-    return res.redirect('/contact');
-  }
+  req.flash('info', { msg: 'Contact form submitted. Email functionality is currently disabled.' });
+  res.redirect('/contact');
 };

@@ -76,3 +76,44 @@ export async function getIntegratedQuery(params: IntegratedQueryFilter) {
   })
   return response.data
 }
+
+export interface InvoiceReportFilter {
+  fName?: string // Billing Name
+  fVeh?: string // Vehicle
+  fDest?: string // Destination
+  fShipper?: string // Shipper
+  fDate1?: string // Start Date
+  fDate2?: string // End Date
+}
+
+export interface InvoicePriceSummary {
+  cust_price: number
+  veh_price: number
+  net_income: number
+}
+
+export interface InvoiceReportResponse {
+  ok: boolean
+  hint: boolean
+  num?: number
+  invs: any[]
+  prices: Record<string, InvoicePriceSummary>
+}
+
+// 运输价格报表
+export async function getInvoiceReport(params: InvoiceReportFilter) {
+  const response = await axiosInstance.get<InvoiceReportResponse>('/report/invoice_report', {
+    params,
+    timeout: 30000,
+  })
+  return response.data
+}
+
+export async function getWaybillDetail(wno: string) {
+  const response = await axiosInstance.get<{ bills: any[], invoices: any[] }>('/get_waybill', {
+    params: { q: wno },
+  })
+  return response.data
+}
+
+

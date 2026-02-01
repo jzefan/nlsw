@@ -24,7 +24,7 @@ const { contentLayout } = storeToRefs(themeStore)
 const route = useRoute()
 
 // 路由到面包屑的映射
-const routeMap: Record<string, { parent?: string; title: string }> = {
+const routeMap: Record<string, { parent?: string, title: string }> = {
   '/dashboard': { title: '首页' },
   '/plans': { parent: '业务操作', title: '计划列表' },
   '/plans/create': { parent: '业务操作', title: '新建计划' },
@@ -62,7 +62,7 @@ const breadcrumbs = computed(() => {
     return []
   }
 
-  const items: { title: string; path?: string }[] = []
+  const items: { title: string, path?: string }[] = []
 
   if (info.parent) {
     items.push({ title: info.parent })

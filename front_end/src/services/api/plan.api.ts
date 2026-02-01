@@ -115,7 +115,7 @@ export async function checkPlanExists(orderNo: string) {
 }
 
 // 获取公司列表（用于下拉选择）
-export async function getCompanies(params?: { search?: string; limit?: number }) {
+export async function getCompanies(params?: { search?: string, limit?: number }) {
   const response = await axiosInstance.get('/companies', { params })
   return response.data
 }

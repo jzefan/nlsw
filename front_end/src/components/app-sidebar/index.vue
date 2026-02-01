@@ -2,6 +2,7 @@
 import { GalleryVerticalEnd } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 
+import { SYSTEM_NAME } from '@/config/constants'
 import { useAuthStore } from '@/stores/auth'
 
 import { generateNavData } from './data/sidebar-data'
@@ -19,7 +20,7 @@ const navMain = computed(() => {
 
 // 公司信息
 const companyInfo = {
-  name: '物流管理系统',
+  name: SYSTEM_NAME,
   logo: GalleryVerticalEnd,
 }
 </script>

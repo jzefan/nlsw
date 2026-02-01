@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Search } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -37,7 +38,7 @@ const emit = defineEmits<{
 // 使用 computed 实现双向绑定
 const filters = computed({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value),
+  set: value => emit('update:modelValue', value),
 })
 
 // 更新单个字段
@@ -61,8 +62,30 @@ function handleReset() {
   emit('reset')
 }
 
+function disableStartDate(date: Date) {
+  if (props.modelValue.endDate) {
+    const end = new Date(props.modelValue.endDate)
+    end.setHours(23, 59, 59, 999)
+    return date > end
+  }
+  return false
+}
+
+function disableEndDate(date: Date) {
+  if (props.modelValue.startDate) {
+    const start = new Date(props.modelValue.startDate)
+    start.setHours(0, 0, 0, 0)
+    return date < start
+  }
+  return false
+}
+
 // 搜索
 function handleSearch() {
+  if (props.modelValue.startDate && props.modelValue.endDate && new Date(props.modelValue.startDate) > new Date(props.modelValue.endDate)) {
+    toast.error('开始日期不能晚于结束日期')
+    return
+  }
   emit('search')
 }
 </script>
@@ -85,8 +108,20 @@ function handleSearch() {
           </UiSelectItem>
         </UiSelectContent>
       </UiSelect>
-      <DatePicker :model-value="filters.startDate" placeholder="开始日期" @update:model-value="updateField('startDate', $event)" />
-      <DatePicker :model-value="filters.endDate" placeholder="结束日期" @update:model-value="updateField('endDate', $event)" />
+      <DatePicker 
+        :model-value="filters.startDate" 
+        placeholder="开始日期" 
+        :disabled-date="disableStartDate"
+        disabled-hint="开始日期不能晚于结束日期"
+        @update:model-value="updateField('startDate', $event)" 
+      />
+      <DatePicker 
+        :model-value="filters.endDate" 
+        placeholder="结束日期" 
+        :disabled-date="disableEndDate"
+        disabled-hint="结束日期不能早于开始日期"
+        @update:model-value="updateField('endDate', $event)" 
+      />
     </div>
     <div class="mt-2 flex items-center gap-4">
       <label v-if="showLeftNumOnly" class="flex items-center gap-1.5 text-sm cursor-pointer">

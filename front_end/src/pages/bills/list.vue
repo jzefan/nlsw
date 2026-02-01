@@ -2,18 +2,21 @@
 import { Filter, Pencil, RefreshCw, Search, SearchX, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
-import BillFilter, { type BillFilterValues } from '@/components/bill-filter.vue'
+import type { BillFilterValues } from '@/components/bill-filter.vue'
+import type { Bill } from '@/services/api/bill.api'
+
+import BillFilter from '@/components/bill-filter.vue'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
+
   getBills,
   searchBills,
-  updateBill,
-  updateBillsBatch,
   searchBrands,
   searchSaleDeps,
   searchWarehouses,
-  type Bill,
+  updateBill,
+  updateBillsBatch,
 } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
 
@@ -26,7 +29,7 @@ const page = ref(1)
 const limit = ref(20)
 
 // 当前激活的特殊查询
-const activeQuery = ref<{ type: string; label: string } | null>(null)
+const activeQuery = ref<{ type: string, label: string } | null>(null)
 
 // 筛选条件
 const showFilter = ref(false)
@@ -80,7 +83,7 @@ const leftSearchThreshold = ref('')
 
 // 高级查询对话框
 const showAdvancedSearchDialog = ref(false)
-const advancedConditions = ref<{ field: string; operator: string; value: string }[]>([])
+const advancedConditions = ref<{ field: string, operator: string, value: string }[]>([])
 const advancedFields = [
   { value: 'bill_no', label: '提单号', type: 'text' },
   { value: 'order_no', label: '订单号', type: 'text' },
@@ -134,9 +137,11 @@ async function loadData() {
       total.value = result.total
       selectedBills.value = []
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('加载数据失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -146,7 +151,8 @@ function toggleSelect(bill: Bill) {
   const index = selectedBills.value.findIndex(b => b._id === bill._id)
   if (index >= 0) {
     selectedBills.value.splice(index, 1)
-  } else {
+  }
+  else {
     selectedBills.value.push(bill)
   }
 }
@@ -155,7 +161,8 @@ function toggleSelect(bill: Bill) {
 function toggleSelectAll() {
   if (selectedBills.value.length === bills.value.length) {
     selectedBills.value = []
-  } else {
+  }
+  else {
     selectedBills.value = [...bills.value]
   }
 }
@@ -184,7 +191,8 @@ function openEditDialog(bill: Bill) {
 
 // 保存编辑
 async function saveEdit() {
-  if (!editingBill.value) return
+  if (!editingBill.value)
+    return
 
   try {
     const result = await updateBill({
@@ -203,10 +211,12 @@ async function saveEdit() {
       toast.success('更新成功')
       showEditDialog.value = false
       loadData()
-    } else {
+    }
+    else {
       toast.error('更新失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('更新失败', { description: e.message })
   }
 }
@@ -241,10 +251,12 @@ async function saveBatchEdit() {
       showBatchDialog.value = false
       selectedBills.value = []
       loadData()
-    } else {
+    }
+    else {
       toast.error('批量更新失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('批量更新失败', { description: e.message })
   }
 }
@@ -282,12 +294,15 @@ async function searchByLeftNum(resetPage = true) {
       if (resetPage) {
         toast.success(`查询到 ${total.value} 条剩余量 ≤ ${threshold} 的提单`)
       }
-    } else {
+    }
+    else {
       toast.error('查询失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('查询失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -305,9 +320,11 @@ async function handlePageChange(newPage: number) {
   page.value = newPage
   if (activeQuery.value?.type === 'leftNum') {
     await searchByLeftNum(false)
-  } else if (activeQuery.value?.type === 'advanced') {
+  }
+  else if (activeQuery.value?.type === 'advanced') {
     await executeAdvancedSearch(false)
-  } else {
+  }
+  else {
     await loadData()
   }
 }
@@ -340,8 +357,10 @@ async function zeroLeftNum() {
           _id: update._id,
           totalWeight: update.totalWeight,
         })
-        if (result.ok) successCount++
-      } catch {
+        if (result.ok)
+          successCount++
+      }
+      catch {
         // continue on error
       }
     }
@@ -349,9 +368,11 @@ async function zeroLeftNum() {
     toast.success(`剩余量清零成功，共 ${successCount} 条`)
     selectedBills.value = []
     loadData()
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('清零失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -396,7 +417,8 @@ async function executeAdvancedSearch(resetPage = true) {
         operator: c.operator,
         value: c.value,
       }
-    } else {
+    }
+    else {
       queryTree = {
         type: 'and',
         children: validConditions.map(c => ({
@@ -424,7 +446,7 @@ async function executeAdvancedSearch(resetPage = true) {
       showAdvancedSearchDialog.value = false
 
       // 生成查询描述
-      const labels = validConditions.map(c => {
+      const labels = validConditions.map((c) => {
         const fieldObj = advancedFields.find(f => f.value === c.field)
         const opObj = advancedOperators.find(o => o.value === c.operator)
         return `${fieldObj?.label || c.field} ${opObj?.label || c.operator} ${c.value}`
@@ -434,12 +456,15 @@ async function executeAdvancedSearch(resetPage = true) {
       if (resetPage) {
         toast.success(`高级查询完成，共 ${total.value} 条`)
       }
-    } else {
+    }
+    else {
       toast.error('查询失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('查询失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -456,13 +481,15 @@ function getFieldOptions(fieldValue: string) {
 
 // 格式化数字
 function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null) return ''
+  if (num === undefined || num === null)
+    return ''
   return num.toFixed(2)
 }
 
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
-  if (!date) return ''
+  if (!date)
+    return ''
   const d = new Date(date)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -486,9 +513,12 @@ function resetFilters() {
 
 // 获取状态样式
 function getStatusVariant(status: string) {
-  if (status === '新建') return 'secondary'
-  if (status === '已配发') return 'default'
-  if (status === '已结算' || status === '已开票' || status === '已回款') return 'outline'
+  if (status === '新建')
+    return 'secondary'
+  if (status === '已配发')
+    return 'default'
+  if (status === '已结算' || status === '已开票' || status === '已回款')
+    return 'outline'
   return 'secondary'
 }
 
@@ -596,21 +626,51 @@ onMounted(() => {
                 @change="toggleSelectAll"
               >
             </th>
-            <th class="p-2 text-center">状态</th>
-            <th class="p-2 text-left">订单号-项次</th>
-            <th class="p-2 text-left">提单号</th>
-            <th class="p-2 text-left">牌号</th>
-            <th class="p-2 text-left">开单名称</th>
-            <th class="p-2 text-left">销售部门</th>
-            <th class="p-2 text-right">厚</th>
-            <th class="p-2 text-right">宽</th>
-            <th class="p-2 text-right">长</th>
-            <th class="p-2 text-right">块数</th>
-            <th class="p-2 text-right">总重量</th>
-            <th class="p-2 text-right">余量</th>
-            <th class="p-2 text-left">仓库</th>
-            <th class="p-2 text-left">合同号</th>
-            <th class="p-2 text-left">创建日期</th>
+            <th class="p-2 text-center">
+              状态
+            </th>
+            <th class="p-2 text-left">
+              订单号-项次
+            </th>
+            <th class="p-2 text-left">
+              提单号
+            </th>
+            <th class="p-2 text-left">
+              牌号
+            </th>
+            <th class="p-2 text-left">
+              开单名称
+            </th>
+            <th class="p-2 text-left">
+              销售部门
+            </th>
+            <th class="p-2 text-right">
+              厚
+            </th>
+            <th class="p-2 text-right">
+              宽
+            </th>
+            <th class="p-2 text-right">
+              长
+            </th>
+            <th class="p-2 text-right">
+              块数
+            </th>
+            <th class="p-2 text-right">
+              总重量
+            </th>
+            <th class="p-2 text-right">
+              余量
+            </th>
+            <th class="p-2 text-left">
+              仓库
+            </th>
+            <th class="p-2 text-left">
+              合同号
+            </th>
+            <th class="p-2 text-left">
+              创建日期
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -634,24 +694,50 @@ onMounted(() => {
                 {{ bill.status }}
               </UiBadge>
             </td>
-            <td class="p-2 font-mono">{{ bill.order_no }}-{{ bill.order_item_no }}</td>
-            <td class="p-2 font-mono">{{ bill.bill_no }}</td>
-            <td class="p-2">{{ bill.brand_no }}</td>
-            <td class="p-2">{{ bill.billing_name }}</td>
-            <td class="p-2">{{ bill.sales_dep }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.thickness) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.width) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.len) }}</td>
-            <td class="p-2 text-right">{{ bill.block_num }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.total_weight) }}</td>
+            <td class="p-2 font-mono">
+              {{ bill.order_no }}-{{ bill.order_item_no }}
+            </td>
+            <td class="p-2 font-mono">
+              {{ bill.bill_no }}
+            </td>
+            <td class="p-2">
+              {{ bill.brand_no }}
+            </td>
+            <td class="p-2">
+              {{ bill.billing_name }}
+            </td>
+            <td class="p-2">
+              {{ bill.sales_dep }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.thickness) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.width) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.len) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ bill.block_num }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.total_weight) }}
+            </td>
             <td class="p-2 text-right">
               <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
                 {{ formatNumber(bill.left_num) }}
               </span>
             </td>
-            <td class="p-2">{{ bill.ship_warehouse }}</td>
-            <td class="p-2">{{ bill.contract_no }}</td>
-            <td class="p-2">{{ formatDate(bill.create_date) }}</td>
+            <td class="p-2">
+              {{ bill.ship_warehouse }}
+            </td>
+            <td class="p-2">
+              {{ bill.contract_no }}
+            </td>
+            <td class="p-2">
+              {{ formatDate(bill.create_date) }}
+            </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
             <td colspan="16" class="p-8 text-center text-muted-foreground">
@@ -793,7 +879,9 @@ onMounted(() => {
         <div class="py-4">
           <label class="text-sm font-medium">剩余量阈值</label>
           <UiInput v-model="leftSearchThreshold" type="number" min="0" step="0.01" placeholder="输入阈值" />
-          <p class="text-xs text-muted-foreground mt-1">将查询所有剩余量 ≤ 该值的提单</p>
+          <p class="text-xs text-muted-foreground mt-1">
+            将查询所有剩余量 ≤ 该值的提单
+          </p>
         </div>
         <UiDialogFooter>
           <UiButton variant="outline" @click="showLeftSearchDialog = false">

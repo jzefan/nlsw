@@ -1,5 +1,4 @@
 <script setup lang="ts" generic="T">
-import { computed } from 'vue'
 import type { Table } from '@tanstack/vue-table'
 
 import {
@@ -8,6 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-vue-next'
+import { computed } from 'vue'
 
 import { PAGE_SIZES } from '@/constants/pagination'
 

@@ -4,7 +4,6 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
-  Settings,
   UserRoundCog,
 } from 'lucide-vue-next'
 
@@ -78,10 +77,6 @@ const avatarFallback = computed(() => {
             <UiDropdownMenuItem @click="$router.push('/settings/account')">
               <BadgeCheck />
               账号设置
-            </UiDropdownMenuItem>
-            <UiDropdownMenuItem @click="$router.push('/settings/notifications')">
-              <Bell />
-              通知设置
             </UiDropdownMenuItem>
           </UiDropdownMenuGroup>
 

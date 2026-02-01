@@ -2,13 +2,16 @@
 import { Filter, RefreshCw, SearchX, Trash2, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
-import BillFilter, { type BillFilterValues } from '@/components/bill-filter.vue'
+import type { BillFilterValues } from '@/components/bill-filter.vue'
+import type { Bill } from '@/services/api/bill.api'
+
+import BillFilter from '@/components/bill-filter.vue'
 import { BasicPage } from '@/components/global-layout'
 import {
+
   deleteBills,
   getBills,
   searchBills,
-  type Bill,
 } from '@/services/api/bill.api'
 
 // 状态
@@ -20,7 +23,7 @@ const page = ref(1)
 const limit = ref(20)
 
 // 当前激活的特殊查询
-const activeQuery = ref<{ type: string; label: string } | null>(null)
+const activeQuery = ref<{ type: string, label: string } | null>(null)
 
 // 筛选条件
 const showFilter = ref(false)
@@ -38,7 +41,7 @@ const filters = ref<BillFilterValues>({
 
 // 高级查询对话框
 const showAdvancedSearchDialog = ref(false)
-const advancedConditions = ref<{ field: string; operator: string; value: string }[]>([])
+const advancedConditions = ref<{ field: string, operator: string, value: string }[]>([])
 const advancedFields = [
   { value: 'bill_no', label: '提单号', type: 'text' },
   { value: 'order_no', label: '订单号', type: 'text' },
@@ -88,9 +91,11 @@ async function loadData() {
       total.value = result.total
       selectedBills.value = []
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('加载数据失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -100,7 +105,8 @@ function toggleSelect(bill: Bill) {
   const index = selectedBills.value.findIndex(b => b._id === bill._id)
   if (index >= 0) {
     selectedBills.value.splice(index, 1)
-  } else {
+  }
+  else {
     selectedBills.value.push(bill)
   }
 }
@@ -109,7 +115,8 @@ function toggleSelect(bill: Bill) {
 function toggleSelectAll() {
   if (selectedBills.value.length === bills.value.length) {
     selectedBills.value = []
-  } else {
+  }
+  else {
     selectedBills.value = [...bills.value]
   }
 }
@@ -138,26 +145,31 @@ async function handleDelete() {
       selectedBills.value = []
       if (activeQuery.value) {
         executeAdvancedSearch(false)
-      } else {
+      }
+      else {
         loadData()
       }
-    } else {
+    }
+    else {
       toast.error('删除失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('删除失败', { description: e.message })
   }
 }
 
 // 格式化数字
 function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null) return ''
+  if (num === undefined || num === null)
+    return ''
   return num.toFixed(2)
 }
 
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
-  if (!date) return ''
+  if (!date)
+    return ''
   const d = new Date(date)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -191,7 +203,8 @@ async function handlePageChange(newPage: number) {
   page.value = newPage
   if (activeQuery.value?.type === 'advanced') {
     await executeAdvancedSearch(false)
-  } else {
+  }
+  else {
     await loadData()
   }
 }
@@ -234,7 +247,8 @@ async function executeAdvancedSearch(resetPage = true) {
     let queryTree: any
     if (validConditions.length === 0) {
       queryTree = statusCondition
-    } else if (validConditions.length === 1) {
+    }
+    else if (validConditions.length === 1) {
       const c = validConditions[0]
       queryTree = {
         type: 'and',
@@ -248,7 +262,8 @@ async function executeAdvancedSearch(resetPage = true) {
           },
         ],
       }
-    } else {
+    }
+    else {
       queryTree = {
         type: 'and',
         children: [
@@ -276,7 +291,7 @@ async function executeAdvancedSearch(resetPage = true) {
       showAdvancedSearchDialog.value = false
 
       // 生成查询描述
-      const labels = validConditions.map(c => {
+      const labels = validConditions.map((c) => {
         const fieldObj = advancedFields.find(f => f.value === c.field)
         const opObj = advancedOperators.find(o => o.value === c.operator)
         return `${fieldObj?.label || c.field} ${opObj?.label || c.operator} ${c.value}`
@@ -286,12 +301,15 @@ async function executeAdvancedSearch(resetPage = true) {
       if (resetPage) {
         toast.success(`高级查询完成，共 ${total.value} 条`)
       }
-    } else {
+    }
+    else {
       toast.error('查询失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('查询失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -396,20 +414,48 @@ onMounted(() => {
                 @change="toggleSelectAll"
               >
             </th>
-            <th class="p-2 text-center">状态</th>
-            <th class="p-2 text-left">订单号-项次</th>
-            <th class="p-2 text-left">提单号</th>
-            <th class="p-2 text-left">牌号</th>
-            <th class="p-2 text-left">开单名称</th>
-            <th class="p-2 text-left">销售部门</th>
-            <th class="p-2 text-right">厚</th>
-            <th class="p-2 text-right">宽</th>
-            <th class="p-2 text-right">长</th>
-            <th class="p-2 text-right">块数</th>
-            <th class="p-2 text-right">总重量</th>
-            <th class="p-2 text-left">仓库</th>
-            <th class="p-2 text-left">合同号</th>
-            <th class="p-2 text-left">创建日期</th>
+            <th class="p-2 text-center">
+              状态
+            </th>
+            <th class="p-2 text-left">
+              订单号-项次
+            </th>
+            <th class="p-2 text-left">
+              提单号
+            </th>
+            <th class="p-2 text-left">
+              牌号
+            </th>
+            <th class="p-2 text-left">
+              开单名称
+            </th>
+            <th class="p-2 text-left">
+              销售部门
+            </th>
+            <th class="p-2 text-right">
+              厚
+            </th>
+            <th class="p-2 text-right">
+              宽
+            </th>
+            <th class="p-2 text-right">
+              长
+            </th>
+            <th class="p-2 text-right">
+              块数
+            </th>
+            <th class="p-2 text-right">
+              总重量
+            </th>
+            <th class="p-2 text-left">
+              仓库
+            </th>
+            <th class="p-2 text-left">
+              合同号
+            </th>
+            <th class="p-2 text-left">
+              创建日期
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -433,19 +479,45 @@ onMounted(() => {
                 {{ bill.status }}
               </UiBadge>
             </td>
-            <td class="p-2 font-mono">{{ bill.order_no }}-{{ bill.order_item_no }}</td>
-            <td class="p-2 font-mono">{{ bill.bill_no }}</td>
-            <td class="p-2">{{ bill.brand_no }}</td>
-            <td class="p-2">{{ bill.billing_name }}</td>
-            <td class="p-2">{{ bill.sales_dep }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.thickness) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.width) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.len) }}</td>
-            <td class="p-2 text-right">{{ bill.block_num }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.total_weight) }}</td>
-            <td class="p-2">{{ bill.ship_warehouse }}</td>
-            <td class="p-2">{{ bill.contract_no }}</td>
-            <td class="p-2">{{ formatDate(bill.create_date) }}</td>
+            <td class="p-2 font-mono">
+              {{ bill.order_no }}-{{ bill.order_item_no }}
+            </td>
+            <td class="p-2 font-mono">
+              {{ bill.bill_no }}
+            </td>
+            <td class="p-2">
+              {{ bill.brand_no }}
+            </td>
+            <td class="p-2">
+              {{ bill.billing_name }}
+            </td>
+            <td class="p-2">
+              {{ bill.sales_dep }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.thickness) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.width) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.len) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ bill.block_num }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.total_weight) }}
+            </td>
+            <td class="p-2">
+              {{ bill.ship_warehouse }}
+            </td>
+            <td class="p-2">
+              {{ bill.contract_no }}
+            </td>
+            <td class="p-2">
+              {{ formatDate(bill.create_date) }}
+            </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
             <td colspan="15" class="p-8 text-center text-muted-foreground">

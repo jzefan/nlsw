@@ -13,7 +13,7 @@ export type PrivilegeCheck = (privilege: string) => boolean
 
 export type NavItem
   = | BaseNavItem & {
-    items: (BaseNavItem & { url?: string; privilegeCheck?: PrivilegeCheck })[]
+    items: (BaseNavItem & { url?: string, privilegeCheck?: PrivilegeCheck })[]
     url?: never
     isActive?: boolean
     privilegeCheck?: PrivilegeCheck

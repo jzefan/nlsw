@@ -2,9 +2,9 @@ import type { Router } from 'vue-router'
 
 import { storeToRefs } from 'pinia'
 
+import { useAxios } from '@/composables/use-axios'
 import pinia from '@/plugins/pinia/setup'
 import { useAuthStore } from '@/stores/auth'
-import { useAxios } from '@/composables/use-axios'
 
 let isAuthChecked = false
 

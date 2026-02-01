@@ -237,12 +237,9 @@ exports.getIntegratedQuery = async function (req, res) {
       if (bDate) obj["$and"].push({ ship_date: { $gte: qDate.s, $lte: qDate.e } });
       if (bName) obj["$and"].push({ ship_name: { $in: query.fName } });
 
-      if (!utils.isEmpty(query.selfOwned)) {
-        if (query.selfOwned === 1 || query.selfOwned === '1') {
-          obj["$and"].push({ selfOwned: 1 })
-        } else {
-          obj["$and"].push({ selfOwned: { $ne: 1 } })
-        }
+      // 只有当selfOwned为1或'1'时，才作为查询条件
+      if (query.selfOwned === 1 || query.selfOwned === '1') {
+        obj["$and"].push({ selfOwned: 1 })
       }
 
       // Invoice First: Pagination on Invoices first? No, we merge with Bills.
@@ -382,6 +379,90 @@ exports.getIntegratedQuery = async function (req, res) {
     }
   } catch (err) {
     console.error("getIntegratedQuery error:", err);
+    res.json({ ok: false, error: err.message });
+  }
+};
+
+exports.getInvoiceReport = async function (req, res) {
+  const query = req.query;
+  const obj = { $and: [] };
+
+  if (query.fDest) {
+    obj.$and.push({ ship_to: query.fDest });
+  }
+
+  if (!utils.isEmpty(query.fDate1) && !utils.isEmpty(query.fDate2)) {
+    const qDate = getStartEndDate(query.fDate1, query.fDate2, true);
+    obj.$and.push({ ship_date: { $gte: qDate.s, $lte: qDate.e } });
+  }
+
+  if (query.fName) {
+    obj.$and.push({ ship_name: query.fName });
+  }
+
+  if (query.fVeh) {
+    obj.$and.push({ vehicle_vessel_name: query.fVeh });
+  }
+
+  if (query.fShipper) {
+    obj.$and.push({ shipper: query.fShipper });
+  }
+
+  if (obj.$and.length === 0) {
+    delete obj.$and;
+  }
+
+  try {
+    const db_invs = await Invoice.find(obj).sort({ ship_date: 'desc' }).lean().exec();
+    if (db_invs && db_invs.length > 0) {
+      if (db_invs.length > 150) {
+        return res.json({ ok: true, hint: true, num: db_invs.length, invs: db_invs });
+      }
+
+      const ids = utils.getAllList(true, db_invs, "bills", "bill_id");
+      const bills = await Bill.find({ _id: { $in: ids } }).lean().exec();
+      
+      if (!bills || bills.length === 0) {
+        return res.json({ ok: false, message: '未找到相关提单' });
+      }
+
+      const prices = {};
+      db_invs.forEach(function (inv) {
+        let customer_price = 0;
+        let veh_price = inv.vessel_price > 0 ? inv.vessel_price * inv.total_weight : 0;
+
+        inv.bills.forEach(function (b) {
+          const bill = bills.find(item => String(item._id) === String(b.bill_id));
+          if (bill) {
+            const invRecord = bill.invoices.find(ir => ir.inv_no === inv.waybill_no);
+            if (invRecord) {
+              let w = invRecord.weight;
+              if ((!w || w === 0) && bill.block_num > 0) {
+                w = invRecord.num * bill.weight;
+              }
+
+              let p = invRecord.price > 0 ? invRecord.price : 0;
+              p += bill.collection_price > 0 ? bill.collection_price : 0;
+              customer_price += p * w;
+            }
+          }
+        });
+
+        const c = customer_price / inv.total_weight;
+        const v = veh_price / inv.total_weight;
+        prices[inv.waybill_no] = {
+          cust_price: utils.toFixedNumber(c, 3),
+          veh_price: utils.toFixedNumber(v, 3),
+          net_income: utils.toFixedNumber(c - v, 3)
+        };
+      });
+
+      res.json({ ok: true, hint: false, invs: db_invs, prices: prices });
+    } else {
+      res.json({ ok: false, message: '未找到符合条件的运单' });
+    }
+  } catch (err) {
+    console.error("getInvoiceReport error:", err);
     res.json({ ok: false, error: err.message });
   }
 };

@@ -3,14 +3,16 @@ import { AlertCircle, CheckCircle, FileSpreadsheet, Keyboard, Plus, Save, Trash2
 import { toast } from 'vue-sonner'
 import * as XLSX from 'xlsx'
 
+import type { BillCreateData } from '@/services/api/bill.api'
+
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
+
   createBills,
   searchBrands,
   searchSaleDeps,
   searchWarehouses,
-  type BillCreateData,
 } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
 
@@ -59,7 +61,8 @@ const weightDisabled = computed(() => useFormula.value)
 
 // 计算单块重量
 function calculateWeight() {
-  if (!useFormula.value) return
+  if (!useFormula.value)
+    return
 
   const t = Number.parseFloat(form.value.thickness) || 0
   const w = Number.parseFloat(form.value.width) || 0
@@ -104,12 +107,18 @@ function validateOrderNo() {
 
 // 验证单条数据
 function validateBill(bill: BillCreateData): string | null {
-  if (!bill.billNo) return '缺少提单号'
-  if (!bill.orderNo) return '缺少订单号'
-  if (bill.orderNo.length !== 11) return `订单号长度必须为11位，当前${bill.orderNo.length}位`
-  if (!bill.orderItemNo) return '缺少项次号'
-  if (!bill.billingName) return '缺少开单名称'
-  if (!bill.totalWeight || bill.totalWeight <= 0) return '总重量必须大于0'
+  if (!bill.billNo)
+    return '缺少提单号'
+  if (!bill.orderNo)
+    return '缺少订单号'
+  if (bill.orderNo.length !== 11)
+    return `订单号长度必须为11位，当前${bill.orderNo.length}位`
+  if (!bill.orderItemNo)
+    return '缺少项次号'
+  if (!bill.billingName)
+    return '缺少开单名称'
+  if (!bill.totalWeight || bill.totalWeight <= 0)
+    return '总重量必须大于0'
   return null
 }
 
@@ -207,7 +216,8 @@ function triggerSwitchImport() {
 async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
-  if (!file) return
+  if (!file)
+    return
 
   loading.value = true
   try {
@@ -220,7 +230,7 @@ async function handleFileChange(event: Event) {
       }
 
       // 验证数据并标记错误
-      bills.value = processedData.map(bill => {
+      bills.value = processedData.map((bill) => {
         const error = validateBill(bill)
         return { ...bill, _error: error || undefined }
       })
@@ -228,15 +238,19 @@ async function handleFileChange(event: Event) {
       const errorCount = bills.value.filter(b => b._error).length
       if (errorCount > 0) {
         toast.warning(`导入 ${data.length} 条记录，其中 ${errorCount} 条有问题`)
-      } else {
+      }
+      else {
         toast.success(`导入 ${data.length} 条记录，数据验证通过`)
       }
-    } else {
+    }
+    else {
       toast.warning('未找到有效数据')
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('导入失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
     target.value = ''
   }
@@ -248,14 +262,15 @@ function mergeAndSetWarehouse(data: BillCreateData[]): BillCreateData[] {
 
   for (const row of data) {
     const existing = merged.find(
-      m => m.billNo === row.billNo && m.orderNo === row.orderNo && m.orderItemNo === row.orderItemNo
+      m => m.billNo === row.billNo && m.orderNo === row.orderNo && m.orderItemNo === row.orderItemNo,
     )
 
     if (existing) {
       // 合并数量和重量
       existing.blockNum = (existing.blockNum || 0) + (row.blockNum || 0)
       existing.totalWeight = (existing.totalWeight || 0) + (row.totalWeight || 0)
-    } else {
+    }
+    else {
       merged.push({
         ...row,
         shipWarehouse: '转外库',
@@ -358,7 +373,8 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         const result: BillCreateData[] = []
         for (let i = headerRow + 1; i < jsonData.length; i++) {
           const row = jsonData[i]
-          if (!row || row.every((cell: any) => !cell)) continue
+          if (!row || row.every((cell: any) => !cell))
+            continue
 
           const item: any = {}
           headers.forEach((header, idx) => {
@@ -374,7 +390,8 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
             if (parts.length === 2) {
               item.orderNo = parts[0]
               item.orderItemNo = parts[1]
-            } else if (item.orderWithItem.length >= 11) {
+            }
+            else if (item.orderWithItem.length >= 11) {
               item.orderNo = item.orderWithItem.substring(0, 11)
               const sub = item.orderWithItem.substring(11)
               if (sub) {
@@ -424,7 +441,8 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         }
 
         resolve(result)
-      } catch (err) {
+      }
+      catch (err) {
         reject(err)
       }
     }
@@ -458,12 +476,15 @@ async function save() {
         : `保存成功，共 ${result.count} 条`
       toast.success(msg)
       clearAll()
-    } else {
+    }
+    else {
       toast.error('保存失败', { description: result.response })
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('保存失败', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -483,7 +504,8 @@ const validCount = computed(() => {
 
 // 格式化数字
 function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null) return ''
+  if (num === undefined || num === null)
+    return ''
   return num.toFixed(2)
 }
 
@@ -543,8 +565,12 @@ function switchToImport() {
       <div v-if="bills.length === 0" class="mb-4 p-6 border-2 border-dashed rounded-lg bg-muted/30">
         <div class="text-center">
           <FileSpreadsheet class="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <h3 class="text-lg font-medium mb-2">导入 Excel 文件</h3>
-          <p class="text-sm text-muted-foreground mb-4">选择导入方式，支持 .xlsx 和 .xls 格式</p>
+          <h3 class="text-lg font-medium mb-2">
+            导入 Excel 文件
+          </h3>
+          <p class="text-sm text-muted-foreground mb-4">
+            选择导入方式，支持 .xlsx 和 .xls 格式
+          </p>
           <div class="flex justify-center gap-4">
             <UiButton variant="default" @click="triggerNormalImport">
               <Upload class="w-4 h-4 mr-2" />
@@ -664,21 +690,51 @@ function switchToImport() {
       <table class="w-full text-sm">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">操作</th>
-            <th class="p-2 text-left">状态</th>
-            <th class="p-2 text-left">提单号</th>
-            <th class="p-2 text-left">订单号</th>
-            <th class="p-2 text-left">项次</th>
-            <th class="p-2 text-left">开单名称</th>
-            <th class="p-2 text-left">牌号</th>
-            <th class="p-2 text-left">销售部门</th>
-            <th class="p-2 text-left">仓库</th>
-            <th class="p-2 text-right">厚</th>
-            <th class="p-2 text-right">宽</th>
-            <th class="p-2 text-right">长</th>
-            <th class="p-2 text-right">单重</th>
-            <th class="p-2 text-right">块数</th>
-            <th class="p-2 text-right">总重量</th>
+            <th class="p-2 text-left w-10">
+              操作
+            </th>
+            <th class="p-2 text-left">
+              状态
+            </th>
+            <th class="p-2 text-left">
+              提单号
+            </th>
+            <th class="p-2 text-left">
+              订单号
+            </th>
+            <th class="p-2 text-left">
+              项次
+            </th>
+            <th class="p-2 text-left">
+              开单名称
+            </th>
+            <th class="p-2 text-left">
+              牌号
+            </th>
+            <th class="p-2 text-left">
+              销售部门
+            </th>
+            <th class="p-2 text-left">
+              仓库
+            </th>
+            <th class="p-2 text-right">
+              厚
+            </th>
+            <th class="p-2 text-right">
+              宽
+            </th>
+            <th class="p-2 text-right">
+              长
+            </th>
+            <th class="p-2 text-right">
+              单重
+            </th>
+            <th class="p-2 text-right">
+              块数
+            </th>
+            <th class="p-2 text-right">
+              总重量
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -701,19 +757,45 @@ function switchToImport() {
                 <CheckCircle class="w-4 h-4 inline" />
               </span>
             </td>
-            <td class="p-2 font-mono">{{ bill.billNo }}</td>
-            <td class="p-2 font-mono">{{ bill.orderNo }}</td>
-            <td class="p-2">{{ bill.orderItemNo }}</td>
-            <td class="p-2">{{ bill.billingName }}</td>
-            <td class="p-2">{{ bill.brandNo }}</td>
-            <td class="p-2">{{ bill.salesDep }}</td>
-            <td class="p-2">{{ bill.shipWarehouse }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.thickness) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.width) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(bill.length) }}</td>
-            <td class="p-2 text-right">{{ bill.weight?.toFixed(4) }}</td>
-            <td class="p-2 text-right">{{ bill.blockNum }}</td>
-            <td class="p-2 text-right font-medium">{{ formatNumber(bill.totalWeight) }}</td>
+            <td class="p-2 font-mono">
+              {{ bill.billNo }}
+            </td>
+            <td class="p-2 font-mono">
+              {{ bill.orderNo }}
+            </td>
+            <td class="p-2">
+              {{ bill.orderItemNo }}
+            </td>
+            <td class="p-2">
+              {{ bill.billingName }}
+            </td>
+            <td class="p-2">
+              {{ bill.brandNo }}
+            </td>
+            <td class="p-2">
+              {{ bill.salesDep }}
+            </td>
+            <td class="p-2">
+              {{ bill.shipWarehouse }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.thickness) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.width) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(bill.length) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ bill.weight?.toFixed(4) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ bill.blockNum }}
+            </td>
+            <td class="p-2 text-right font-medium">
+              {{ formatNumber(bill.totalWeight) }}
+            </td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">

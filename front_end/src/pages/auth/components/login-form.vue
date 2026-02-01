@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useAuth } from '@/composables/use-auth'
+import AuthTitle from './auth-title.vue'
 
 const { login, loading, error } = useAuth()
 
@@ -21,24 +22,17 @@ function handleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <UiCard class="w-full max-w-sm">
-    <UiCardHeader>
-      <UiCardTitle class="text-2xl">
-        登录
-      </UiCardTitle>
-      <UiCardDescription>
-        请输入用户名和密码登录系统
-      </UiCardDescription>
-    </UiCardHeader>
-    <UiCardContent class="grid gap-4">
+  <UiCard class="w-full sm:w-[400px] p-4">
+    <UiCardContent class="grid gap-6 pt-6">
+      <!-- 图标和系统标题 -->
+      <AuthTitle class="mb-4" />
+
       <div v-if="error" class="text-sm text-red-500 bg-red-50 p-2 rounded">
         {{ error }}
       </div>
 
       <div class="grid gap-2">
-        <UiLabel for="userid">
-          用户名
-        </UiLabel>
+        <UiLabel for="userid"> 用户名 </UiLabel>
         <UiInput
           id="userid"
           v-model="userid"
@@ -62,7 +56,7 @@ function handleKeydown(e: KeyboardEvent) {
         />
       </div>
 
-      <UiButton class="w-full" :disabled="loading || !userid || !password" @click="handleLogin">
+      <UiButton class="w-full my-4" :disabled="loading || !userid || !password" @click="handleLogin">
         <UiSpinner v-if="loading" class="mr-2" />
         {{ loading ? '登录中...' : '登录' }}
       </UiButton>

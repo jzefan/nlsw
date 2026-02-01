@@ -13,11 +13,11 @@ defineProps<LayoutHeaderProps>()
       sticky ? 'sticky top-0 z-40 bg-background' : '',
     )"
   >
-    <main>
+    <main class="flex items-baseline gap-3">
       <h1 class="text-2xl font-bold">
         {{ title }}
       </h1>
-      <p v-if="description" class="text-muted-foreground">
+      <p v-if="description" class="text-sm text-muted-foreground">
         {{ description }}
       </p>
     </main>

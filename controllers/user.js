@@ -1,7 +1,7 @@
 var _ = require('underscore');
 // var async = require('async'); // Removed as we use async/await
 var crypto = require('crypto');
-var nodemailer = require('nodemailer');
+// var nodemailer = require('nodemailer'); // Removed - not used
 var passport = require('passport');
 var User = require('../models/User');
 var secrets = require('../config/secrets');
@@ -604,34 +604,10 @@ exports.postReset = async function (req, res, next) {
         });
     });
 
-    var smtpTransport = nodemailer.createTransport('SMTP', {
-      service: 'SendGrid',
-      auth: {
-        user: secrets.sendgrid.user,
-        pass: secrets.sendgrid.password
-      }
-    });
-    var mailOptions = {
-      to: user.email,
-      from: 'hackathon@starter.com',
-      subject: 'Your Hackathon Starter password has been changed',
-      text: 'Hello,\n\n' +
-        'This is a confirmation that the password for your account ' + user.email + ' has just been changed.\n'
-    };
-    
-    // We can use await with a promisified sendMail, or just fire and forget (but best to wait)
-    // Nodemailer's sendMail supports promises in newer versions, but if this is old version (0.6.2 in package.json), it only supports callbacks.
-    // We will wrap it.
-    await new Promise((resolve, reject) => {
-        smtpTransport.sendMail(mailOptions, function (err) {
-            // We don't block success on email fail usually, but let's follow structure
-            // Original code: req.flash success inside callback
-            req.flash('success', { msg: 'Success! Your password has been changed.' });
-            resolve(); 
-            // ignoring email error for user flow, but strictly we could reject(err)
-        });
-    });
+    // Email notification removed - nodemailer not in use
+    // TODO: Implement email notification if needed in the future
 
+    req.flash('success', { msg: 'Success! Your password has been changed.' });
     res.redirect('/');
 
   } catch (err) {
@@ -689,30 +665,11 @@ exports.postForgot = async function (req, res, next) {
 
     await user.save();
 
-    var smtpTransport = nodemailer.createTransport('SMTP', {
-      service: 'SendGrid',
-      auth: {
-        user: secrets.sendgrid.user,
-        pass: secrets.sendgrid.password
-      }
-    });
-    var mailOptions = {
-      to: user.email,
-      from: 'hackathon@starter.com',
-      subject: 'Reset your password on Hackathon Starter',
-      text: 'You are receiving this email because you (or someone else) have requested the reset of the password for your account.\n\n' +
-        'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
-        'http://' + req.headers.host + '/reset/' + token + '\n\n' +
-        'If you did not request this, please ignore this email and your password will remain unchanged.\n'
-    };
+    // Email notification removed - nodemailer not in use
+    // TODO: Implement password reset email if needed in the future
+    // Reset token is: http://' + req.headers.host + '/reset/' + token
 
-    await new Promise((resolve, reject) => {
-        smtpTransport.sendMail(mailOptions, function (err) {
-            req.flash('info', { msg: 'An e-mail has been sent to ' + user.email + ' with further instructions.' });
-            resolve();
-        });
-    });
-
+    req.flash('info', { msg: 'Password reset requested. Please contact administrator for the reset link.' });
     res.redirect('/forgot');
 
   } catch (err) {

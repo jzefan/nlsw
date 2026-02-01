@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { Copy, Plus, Save, Send, Trash2 } from 'lucide-vue-next'
+import { Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+
+import type { InvoiceBill } from '@/services/api/invoice.api'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -8,11 +10,13 @@ import { DatePicker } from '@/components/ui/date-picker'
 import {
   buildTruckInvoice,
   getBillsByBillingName,
+  getInvoiceDetail,
+  getInvoiceList,
   getMaxWaybillNo,
+
   searchDestinations,
   searchVehicles,
   searchWarehouses,
-  type InvoiceBill,
 } from '@/services/api/invoice.api'
 import { searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
@@ -22,13 +26,60 @@ const authStore = useAuthStore()
 // 状态
 const loading = ref(false)
 const waybillNo = ref('')
+const isExistingInvoice = ref(false) // 标记是否为已保存的运单
+const originalSelectedBills = ref<any[]>([]) // 保存原始的选择提单，用于检测是否有改动
+
+// 打开运单对话框相关
+const showInvoiceListDialog = ref(false)
+const invoiceListLoading = ref(false)
+const invoiceList = ref<any[]>([])
+const invoiceListTotal = ref(0)
+const invoiceSearchKeyword = ref('')
+const invoiceListPage = ref(1)
+const invoiceListLimit = ref(20)
+const showMyOnly = ref(false) // 是否只显示我的运单
+
+// 判断是否是管理员
+const isAdmin = computed(() => {
+  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
+})
+
+// 检查是否有未保存的改动
+const hasUnsavedChanges = computed(() => {
+  // 如果没有运单号，没有改动
+  if (!waybillNo.value)
+    return false
+
+  // 对于新建运单，如果有选择的提单且有发运数或发运重量，说明有改动
+  if (!isExistingInvoice.value) {
+    return selectedBills.value.some(b => (b.send_num > 0 || b.send_weight > 0))
+  }
+
+  // 对于已存在的运单，比较选择的提单是否有变化
+  if (isExistingInvoice.value && originalSelectedBills.value.length > 0) {
+    // 简单比较：数量或内容是否变化
+    if (selectedBills.value.length !== originalSelectedBills.value.length) {
+      return true
+    }
+    // 检查是否有任何提单的发运数或发运重量有变化
+    return JSON.stringify(selectedBills.value) !== JSON.stringify(originalSelectedBills.value)
+  }
+
+  return false
+})
+
+// 监听showMyOnly变化，自动刷新列表
+watch(showMyOnly, async () => {
+  invoiceListPage.value = 1
+  await loadInvoiceList()
+})
 
 // 运单表单
 const form = ref({
   vehicleName: '',
   shipName: '',
   shipCustomer: '',
-  shipFrom: '南钢',
+  shipFrom: '',
   shipTo: '',
   shipDate: '',
 })
@@ -45,6 +96,9 @@ const currentOrderBills = ref<any[]>([])
 // 已选提单列表
 const selectedBills = ref<InvoiceBill[]>([])
 
+// 当前公司的客户列表
+const shipCustomers = ref<string[]>([])
+
 // 总重量和总块数
 const totalWeight = computed(() => {
   return selectedBills.value.reduce((sum, b) => sum + (b.send_weight || 0), 0)
@@ -58,11 +112,28 @@ async function searchTrucks(search: string, limit: number, page: number) {
   return searchVehicles(search, '车', limit, page)
 }
 
+// 搜索发货单位（本地搜索当前公司的客户列表）
+async function searchShipCustomers(search: string, limit: number, page: number) {
+  let filtered = shipCustomers.value
+  if (search) {
+    filtered = filtered.filter((c: string) =>
+      c.toLowerCase().includes(search.toLowerCase()),
+    )
+  }
+  const start = (page - 1) * limit
+  const data = filtered.slice(start, start + limit).map((c: string) => ({
+    name: c,
+  }))
+  return { ok: true, data, total: filtered.length }
+}
+
 // 新建运单
 async function createNewInvoice() {
-  if (selectedBills.value.length > 0) {
-    const confirmed = await confirmDialog('有数据未保存, 确定要重新创建一个运单?')
-    if (!confirmed) return
+  // 检查是否有未保存的改动
+  if (hasUnsavedChanges.value) {
+    const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并新建运单吗？')
+    if (!confirmed)
+      return
   }
 
   loading.value = true
@@ -70,6 +141,8 @@ async function createNewInvoice() {
     const result = await getMaxWaybillNo()
     if (result.ok) {
       waybillNo.value = result.max_no
+      isExistingInvoice.value = false // 新建运单
+      originalSelectedBills.value = []
       resetForm()
       toast.success(`新建运单号: ${result.max_no}`)
     }
@@ -91,7 +164,7 @@ function resetForm() {
     vehicleName: '',
     shipName: '',
     shipCustomer: '',
-    shipFrom: '南钢',
+    shipFrom: '',
     shipTo: '',
     shipDate: '',
   }
@@ -99,6 +172,7 @@ function resetForm() {
   selectedOrderNo.value = ''
   currentOrderBills.value = []
   selectedBills.value = []
+  shipCustomers.value = []
 }
 
 // 根据提单号查找提单信息（从分组数据中查找）
@@ -142,6 +216,8 @@ async function handleShipNameChange(name: string) {
     availableOrdersData.value = []
     selectedOrderNo.value = ''
     currentOrderBills.value = []
+    shipCustomers.value = []
+    form.value.shipCustomer = ''
     return
   }
 
@@ -157,6 +233,30 @@ async function handleShipNameChange(name: string) {
   availableOrdersData.value = []
   selectedOrderNo.value = ''
   currentOrderBills.value = []
+
+  // 获取该公司的客户列表
+  try {
+    const result = await searchCompanies(name, 1, 1)
+    if (result.ok && result.data && result.data.length > 0) {
+      const company = result.data.find((c: any) => c.name === name)
+      if (company && company.customers) {
+        shipCustomers.value = company.customers
+      }
+      else {
+        shipCustomers.value = []
+      }
+    }
+    else {
+      shipCustomers.value = []
+    }
+  }
+  catch (error) {
+    console.error('获取公司客户列表失败', error)
+    shipCustomers.value = []
+  }
+
+  // 清空发货单位
+  form.value.shipCustomer = ''
 }
 
 // 从API搜索订单号（用于 SearchableCombobox，支持分页懒加载）
@@ -232,7 +332,8 @@ function handleOrderChange(orderNo: string) {
 
 // 选择提单后添加到列表
 function handleBillSelect(billNo: string) {
-  if (!billNo) return
+  if (!billNo)
+    return
   const bill = currentOrderBills.value.find((b: any) => b.bill_no === billNo)
   if (bill) {
     addBillToList(bill)
@@ -323,11 +424,19 @@ function updateSendWeight(index: number, value: number) {
 
 // 检查是否可以保存
 const canSave = computed(() => {
-  return waybillNo.value
+  const hasBasicInfo = waybillNo.value
     && form.value.vehicleName
     && form.value.shipName
     && form.value.shipFrom
     && form.value.shipTo
+
+  // 如果是已存在的运单，允许保存空明细（删除运单）
+  if (isExistingInvoice.value) {
+    return hasBasicInfo
+  }
+
+  // 新建运单必须有明细
+  return hasBasicInfo
     && selectedBills.value.length > 0
     && selectedBills.value.some(b => b.send_num > 0 || b.send_weight > 0)
 })
@@ -339,7 +448,7 @@ async function saveInvoice(state: string) {
     return
   }
 
-  const invalidBills = selectedBills.value.filter(b => {
+  const invalidBills = selectedBills.value.filter((b) => {
     return (b.send_num > 0 && b.send_weight === 0) || (b.send_num === 0 && b.send_weight > 0)
   })
   if (invalidBills.length > 0) {
@@ -371,10 +480,17 @@ async function saveInvoice(state: string) {
         ship_from: form.value.shipFrom,
         ship_to: form.value.shipTo,
       }))
+
+      isExistingInvoice.value = true // 标记为已保存的运单
+      // 更新原始数据，使得保存后不再显示"未保存"
+      originalSelectedBills.value = JSON.parse(JSON.stringify(selectedBills.value))
+
       toast.success(state === '已配发' ? '配发成功' : '保存成功')
       if (state === '已配发') {
         resetForm()
         waybillNo.value = ''
+        isExistingInvoice.value = false
+        originalSelectedBills.value = []
       }
     }
     else {
@@ -395,9 +511,12 @@ function copyLastOperation() {
   if (lastOp) {
     try {
       const op = JSON.parse(lastOp)
-      if (op.ship_name) form.value.shipName = op.ship_name
-      if (op.ship_from) form.value.shipFrom = op.ship_from
-      if (op.ship_to) form.value.shipTo = op.ship_to
+      if (op.ship_name)
+        form.value.shipName = op.ship_name
+      if (op.ship_from)
+        form.value.shipFrom = op.ship_from
+      if (op.ship_to)
+        form.value.shipTo = op.ship_to
       toast.success('已复制上次操作')
       if (op.ship_name) {
         handleShipNameChange(op.ship_name)
@@ -410,6 +529,139 @@ function copyLastOperation() {
   else {
     toast.info('没有上次操作记录')
   }
+}
+
+// 打开运单列表对话框
+async function openInvoiceList() {
+  showInvoiceListDialog.value = true
+  invoiceListPage.value = 1
+  invoiceSearchKeyword.value = ''
+  await loadInvoiceList()
+}
+
+// 加载运单列表
+async function loadInvoiceList() {
+  invoiceListLoading.value = true
+  try {
+    const params: any = {
+      keyword: invoiceSearchKeyword.value,
+      page: invoiceListPage.value,
+      limit: invoiceListLimit.value,
+    }
+
+    // 只有在勾选时才传递myOnly参数
+    if (showMyOnly.value) {
+      params.myOnly = true
+    }
+
+    const result = await getInvoiceList(params)
+    if (result.ok) {
+      invoiceList.value = result.data
+      invoiceListTotal.value = result.total
+    }
+    else {
+      toast.error('加载运单列表失败')
+    }
+  }
+  catch (error: any) {
+    toast.error(error.message || '加载运单列表失败')
+  }
+  finally {
+    invoiceListLoading.value = false
+  }
+}
+
+// 搜索运单
+async function searchInvoices() {
+  invoiceListPage.value = 1
+  await loadInvoiceList()
+}
+
+// 加载运单详情
+async function loadInvoiceDetail(invoice: any) {
+  // 检查是否有未保存的改动
+  if (hasUnsavedChanges.value) {
+    const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并打开运单吗？')
+    if (!confirmed)
+      return
+  }
+
+  loading.value = true
+  try {
+    const result = await getInvoiceDetail(invoice.waybill_no)
+    if (result.ok && result.data) {
+      const inv = result.data
+
+      // 设置运单号和基本信息
+      waybillNo.value = inv.waybill_no
+      form.value.vehicleName = inv.vehicle_vessel_name
+      form.value.shipName = inv.ship_name
+      form.value.shipCustomer = inv.ship_customer || ''
+      form.value.shipFrom = inv.ship_from
+      form.value.shipTo = inv.ship_to
+      form.value.shipDate = inv.ship_date || ''
+
+      isExistingInvoice.value = true
+
+      // 加载开单名称的可用提单
+      await handleShipNameChange(inv.ship_name)
+
+      // 处理已配发的提单
+      selectedBills.value = []
+      for (const invBill of inv.bills) {
+        const billInfo = invBill.bill_id
+        if (!billInfo)
+          continue
+
+        const bill = {
+          _id: billInfo._id,
+          bill_no: billInfo.bill_no,
+          order_no: billInfo.order_no,
+          order_item_no: billInfo.order_item_no || '',
+          brand_no: '',
+          thickness: billInfo.thickness,
+          width: billInfo.width,
+          len: billInfo.length,
+          weight: billInfo.weight,
+          block_num: billInfo.block_num,
+          total_weight: billInfo.total_weight,
+          left_num: billInfo.left_num,
+          send_num: invBill.num || 0,
+          send_weight: invBill.weight || 0,
+        }
+        selectedBills.value.push(bill)
+      }
+
+      // 保存原始数据用于检测改动
+      originalSelectedBills.value = JSON.parse(JSON.stringify(selectedBills.value))
+
+      showInvoiceListDialog.value = false
+      toast.success('运单加载成功')
+    }
+    else {
+      toast.error(result.message || '加载运单失败')
+    }
+  }
+  catch (error: any) {
+    toast.error(error.message || '加载运单失败')
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+// 格式化日期
+function formatDate(date: any) {
+  if (!date)
+    return '-'
+  return new Date(date).toLocaleDateString('zh-CN')
+}
+
+// 格式化重量（最多3位小数）
+function formatWeight(weight: number) {
+  if (weight == null)
+    return '-'
+  return Number(weight).toFixed(3)
 }
 
 // 获取订单显示文本（项次号补零到3位）
@@ -448,19 +700,33 @@ function getBillLeftNum(bill: InvoiceBill) {
 <template>
   <BasicPage title="配发货-车运" description="使用车辆进行货物配发">
     <div class="space-y-4">
-      <!-- 操作按钮 -->
-      <div class="flex items-center gap-2">
-        <UiButton :disabled="loading" @click="createNewInvoice">
-          <Plus class="w-4 h-4 mr-1" />
-          新建运单
-        </UiButton>
-        <UiButton variant="outline" :disabled="!waybillNo" @click="copyLastOperation">
-          <Copy class="w-4 h-4 mr-1" />
-          复制上次操作
-        </UiButton>
-        <div v-if="waybillNo" class="ml-4 text-sm">
-          <span class="text-muted-foreground">运单号：</span>
-          <span class="font-medium">{{ waybillNo }}</span>
+      <!-- 操作按钮和状态 -->
+      <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <UiButton :disabled="loading" @click="createNewInvoice">
+            <Plus class="w-4 h-4 mr-1" />
+            新建运单
+          </UiButton>
+          <UiButton variant="outline" :disabled="loading" @click="openInvoiceList">
+            <FolderOpen class="w-4 h-4 mr-1" />
+            修改运单
+          </UiButton>
+          <UiButton variant="outline" :disabled="!waybillNo" @click="copyLastOperation">
+            <Copy class="w-4 h-4 mr-1" />
+            复制上次操作
+          </UiButton>
+        </div>
+
+        <!-- 状态提示 -->
+        <div v-if="waybillNo" class="flex items-center gap-3">
+          <div class="flex items-center gap-2 px-3 py-1.5 rounded-md" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
+            <span class="text-sm font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
+            <span class="text-xs bg-white dark:bg-gray-800 px-2 py-0.5 rounded">{{ waybillNo }}</span>
+          </div>
+          <div v-if="hasUnsavedChanges" class="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+            <span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+            <span>未保存</span>
+          </div>
         </div>
       </div>
 
@@ -497,7 +763,12 @@ function getBillLeftNum(bill: InvoiceBill) {
           />
 
           <!-- 发货单位 -->
-          <UiInput v-model="form.shipCustomer" placeholder="发货单位" />
+          <SearchableCombobox
+            v-model="form.shipCustomer"
+            :search-fn="searchShipCustomers"
+            placeholder="发货单位"
+            :disabled="!form.shipName || shipCustomers.length === 0"
+          />
 
           <!-- 发货日期 -->
           <DatePicker v-model="form.shipDate" placeholder="发货日期" />
@@ -516,7 +787,7 @@ function getBillLeftNum(bill: InvoiceBill) {
 
           <!-- 提单号 -->
           <SearchableCombobox
-            :model-value="''"
+            model-value=""
             :search-fn="searchBills"
             placeholder="提单号"
             :disabled="!selectedOrderNo"
@@ -612,5 +883,131 @@ function getBillLeftNum(bill: InvoiceBill) {
         <p>请点击"新建运单"开始创建配发货单</p>
       </div>
     </div>
+
+    <!-- 运单列表对话框 -->
+    <UiDialog v-model:open="showInvoiceListDialog">
+      <UiDialogContent class="w-[95vw] md:min-w-[800px] md:max-w-[90vw] max-h-[80vh] overflow-hidden flex flex-col">
+        <UiDialogHeader>
+          <UiDialogTitle>修改运单</UiDialogTitle>
+        </UiDialogHeader>
+
+        <div class="flex-1 overflow-hidden flex flex-col space-y-4 min-h-[50vh]">
+          <!-- 搜索框和筛选 -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <UiInput
+              v-model="invoiceSearchKeyword"
+              placeholder="搜索车船号或开单名称..."
+              class="max-w-[300px]"
+              @keyup.enter="searchInvoices"
+            />
+            <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
+              <Search class="w-4 h-4 mr-1" />
+              搜索
+            </UiButton>
+            <!-- 管理员：只看我的运单 -->
+            <div v-if="isAdmin" class="flex items-center gap-2 ml-2">
+              <input
+                id="my-only-truck"
+                v-model="showMyOnly"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+              >
+              <label for="my-only-truck" class="text-sm cursor-pointer whitespace-nowrap">只看我配发的运单</label>
+            </div>
+          </div>
+
+          <!-- 运单列表 -->
+          <div class="overflow-auto border rounded max-h-[400px] relative">
+            <div v-if="!invoiceListLoading && invoiceList.length > 0" class="overflow-x-auto">
+              <UiTable>
+                <UiTableHeader>
+                  <UiTableRow>
+                    <UiTableHead>运单号</UiTableHead>
+                    <UiTableHead>车船号</UiTableHead>
+                    <UiTableHead>开单名称</UiTableHead>
+                    <UiTableHead>始发地</UiTableHead>
+                    <UiTableHead>目的地</UiTableHead>
+                    <UiTableHead>配发日期</UiTableHead>
+                    <UiTableHead>总重量(吨)</UiTableHead>
+                    <UiTableHead>状态</UiTableHead>
+                    <UiTableHead class="w-20">
+                      操作
+                    </UiTableHead>
+                  </UiTableRow>
+                </UiTableHeader>
+                <UiTableBody>
+                  <UiTableRow
+                    v-for="invoice in invoiceList"
+                    :key="invoice._id"
+                    class="group cursor-pointer hover:bg-muted/50"
+                  >
+                    <UiTableCell>{{ invoice.waybill_no }}</UiTableCell>
+                    <UiTableCell>{{ invoice.vehicle_vessel_name }}</UiTableCell>
+                    <UiTableCell>{{ invoice.ship_name }}</UiTableCell>
+                    <UiTableCell>{{ invoice.ship_from }}</UiTableCell>
+                    <UiTableCell>{{ invoice.ship_to }}</UiTableCell>
+                    <UiTableCell>{{ formatDate(invoice.ship_date) }}</UiTableCell>
+                    <UiTableCell>{{ formatWeight(invoice.total_weight) }}</UiTableCell>
+                    <UiTableCell>{{ invoice.state }}</UiTableCell>
+                    <UiTableCell>
+                      <UiButton
+                        size="sm"
+                        variant="outline"
+                        class="group-hover:!bg-primary group-hover:!text-primary-foreground group-hover:!border-primary transition-all"
+                        @click="loadInvoiceDetail(invoice)"
+                      >
+                        打开
+                      </UiButton>
+                    </UiTableCell>
+                  </UiTableRow>
+                </UiTableBody>
+              </UiTable>
+            </div>
+
+            <!-- 加载中 -->
+            <div v-if="invoiceListLoading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+              <div class="text-muted-foreground">
+                加载中...
+              </div>
+            </div>
+
+            <!-- 空状态 -->
+            <div v-if="!invoiceListLoading && invoiceList.length === 0" class="absolute inset-0 flex items-center justify-center">
+              <div class="text-muted-foreground">
+                没有找到运单
+              </div>
+            </div>
+          </div>
+
+          <!-- 分页 -->
+          <div v-if="invoiceListTotal > 0" class="flex items-center justify-between text-sm border-t pt-3">
+            <div class="text-muted-foreground">
+              共 {{ invoiceListTotal }} 条记录，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
+            </div>
+            <div class="flex items-center gap-2">
+              <UiButton
+                size="sm"
+                variant="outline"
+                :disabled="invoiceListPage <= 1 || invoiceListLoading"
+                @click="invoiceListPage--; loadInvoiceList()"
+              >
+                上一页
+              </UiButton>
+              <span class="text-muted-foreground">
+                {{ invoiceListPage }}
+              </span>
+              <UiButton
+                size="sm"
+                variant="outline"
+                :disabled="invoiceListPage * invoiceListLimit >= invoiceListTotal || invoiceListLoading"
+                @click="invoiceListPage++; loadInvoiceList()"
+              >
+                下一页
+              </UiButton>
+            </div>
+          </div>
+        </div>
+      </UiDialogContent>
+    </UiDialog>
   </BasicPage>
 </template>

@@ -23,7 +23,7 @@ const { data: env, error } = EnvSchema.safeParse(import.meta.env)
 
 if (error) {
   console.error('❌ Invalid env')
-  const flattenError = z.flattenError(error)
+  const flattenError = error.flatten()
   console.error(flattenError)
 
   setTimeout(() => {
@@ -38,4 +38,9 @@ if (error) {
   }, 1000)
 }
 
-export default env!
+export default env || {
+  VITE_SERVER_API_URL: '',
+  VITE_SERVER_API_PREFIX: '',
+  VITE_SERVER_API_TIMEOUT: 5000,
+}
+

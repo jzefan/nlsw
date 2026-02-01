@@ -60,7 +60,7 @@ export interface InvoiceListResponse {
 
 // 获取新运单号
 export async function getMaxWaybillNo() {
-  const response = await axiosInstance.get<{ ok: boolean; max_no: string }>('/get_max_waybill_no')
+  const response = await axiosInstance.get<{ ok: boolean, max_no: string }>('/get_max_waybill_no')
   return response.data
 }
 
@@ -76,6 +76,33 @@ export async function getInvoices(params: {
   endDate?: string
 }) {
   const response = await axiosInstance.get<InvoiceListResponse>('/invoices', { params })
+  return response.data
+}
+
+// 获取运单列表（新API，支持关键字搜索）
+export async function getInvoiceList(params?: {
+  keyword?: string
+  limit?: number
+  page?: number
+  myOnly?: boolean
+}) {
+  const response = await axiosInstance.get<{
+    ok: boolean
+    data: any[]
+    total: number
+    page: number
+    limit: number
+  }>('/invoices', { params })
+  return response.data
+}
+
+// 获取运单详情
+export async function getInvoiceDetail(waybillNo: string) {
+  const response = await axiosInstance.get<{
+    ok: boolean
+    data: any
+    message?: string
+  }>(`/invoices/${waybillNo}`)
   return response.data
 }
 

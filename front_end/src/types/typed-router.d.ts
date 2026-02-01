@@ -60,7 +60,6 @@ declare module 'vue-router/auto-routes' {
       | '/auth/forgot-password'
       | '/auth/otp'
       | '/auth/sign-in'
-      | '/auth/sign-in-2'
       | '/auth/sign-up'
     >,
     '/auth/': RouteRecordInfo<
@@ -87,13 +86,6 @@ declare module 'vue-router/auto-routes' {
     '/auth/sign-in': RouteRecordInfo<
       '/auth/sign-in',
       '/auth/sign-in',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/auth/sign-in-2': RouteRecordInfo<
-      '/auth/sign-in-2',
-      '/auth/sign-in-2',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -182,6 +174,20 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/data-process/plate': RouteRecordInfo<
+      '/data-process/plate',
+      '/data-process/plate',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data-process/round-steel': RouteRecordInfo<
+      '/data-process/round-steel',
+      '/data-process/round-steel',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/errors': RouteRecordInfo<
       '/errors',
       '/errors',
@@ -257,16 +263,9 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
-    '/marketing/': RouteRecordInfo<
-      '/marketing/',
-      '/marketing',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/marketing/hello': RouteRecordInfo<
-      '/marketing/hello',
-      '/marketing/hello',
+    '/invoices/delete': RouteRecordInfo<
+      '/invoices/delete',
+      '/invoices/delete',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -285,9 +284,51 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/reports/customer-revenue': RouteRecordInfo<
+      '/reports/customer-revenue',
+      '/reports/customer-revenue',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/drayage-forklift/': RouteRecordInfo<
+      '/reports/drayage-forklift/',
+      '/reports/drayage-forklift',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/reports/integrated': RouteRecordInfo<
       '/reports/integrated',
       '/reports/integrated',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/invoice': RouteRecordInfo<
+      '/reports/invoice',
+      '/reports/invoice',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/shipping-charge': RouteRecordInfo<
+      '/reports/shipping-charge',
+      '/reports/shipping-charge',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/vessel-fixed-cost/': RouteRecordInfo<
+      '/reports/vessel-fixed-cost/',
+      '/reports/vessel-fixed-cost',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/reports/vessel-revenue': RouteRecordInfo<
+      '/reports/vessel-revenue',
+      '/reports/vessel-revenue',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -320,9 +361,30 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
-    '/settings/notifications': RouteRecordInfo<
-      '/settings/notifications',
-      '/settings/notifications',
+    '/settle/bill': RouteRecordInfo<
+      '/settle/bill',
+      '/settle/bill',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/settle/money': RouteRecordInfo<
+      '/settle/money',
+      '/settle/money',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/settle/ticket': RouteRecordInfo<
+      '/settle/ticket',
+      '/settle/ticket',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/settle/vessel': RouteRecordInfo<
+      '/settle/vessel',
+      '/settle/vessel',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -392,7 +454,6 @@ declare module 'vue-router/auto-routes' {
         | '/auth/forgot-password'
         | '/auth/otp'
         | '/auth/sign-in'
-        | '/auth/sign-in-2'
         | '/auth/sign-up'
       views:
         | 'default'
@@ -418,12 +479,6 @@ declare module 'vue-router/auto-routes' {
     'src/pages/auth/sign-in.vue': {
       routes:
         | '/auth/sign-in'
-      views:
-        | never
-    }
-    'src/pages/auth/sign-in-2.vue': {
-      routes:
-        | '/auth/sign-in-2'
       views:
         | never
     }
@@ -499,6 +554,18 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/data-process/plate.vue': {
+      routes:
+        | '/data-process/plate'
+      views:
+        | never
+    }
+    'src/pages/data-process/round-steel.vue': {
+      routes:
+        | '/data-process/round-steel'
+      views:
+        | never
+    }
     'src/pages/errors.vue': {
       routes:
         | '/errors'
@@ -565,15 +632,9 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
-    'src/pages/marketing/index.vue': {
+    'src/pages/invoices/delete.vue': {
       routes:
-        | '/marketing/'
-      views:
-        | never
-    }
-    'src/pages/marketing/hello.vue': {
-      routes:
-        | '/marketing/hello'
+        | '/invoices/delete'
       views:
         | never
     }
@@ -589,9 +650,45 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/reports/customer-revenue.vue': {
+      routes:
+        | '/reports/customer-revenue'
+      views:
+        | never
+    }
+    'src/pages/reports/drayage-forklift/index.vue': {
+      routes:
+        | '/reports/drayage-forklift/'
+      views:
+        | never
+    }
     'src/pages/reports/integrated.vue': {
       routes:
         | '/reports/integrated'
+      views:
+        | never
+    }
+    'src/pages/reports/invoice.vue': {
+      routes:
+        | '/reports/invoice'
+      views:
+        | never
+    }
+    'src/pages/reports/shipping-charge.vue': {
+      routes:
+        | '/reports/shipping-charge'
+      views:
+        | never
+    }
+    'src/pages/reports/vessel-fixed-cost/index.vue': {
+      routes:
+        | '/reports/vessel-fixed-cost/'
+      views:
+        | never
+    }
+    'src/pages/reports/vessel-revenue.vue': {
+      routes:
+        | '/reports/vessel-revenue'
       views:
         | never
     }
@@ -619,9 +716,27 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
-    'src/pages/settings/notifications.vue': {
+    'src/pages/settle/bill.vue': {
       routes:
-        | '/settings/notifications'
+        | '/settle/bill'
+      views:
+        | never
+    }
+    'src/pages/settle/money.vue': {
+      routes:
+        | '/settle/money'
+      views:
+        | never
+    }
+    'src/pages/settle/ticket.vue': {
+      routes:
+        | '/settle/ticket'
+      views:
+        | never
+    }
+    'src/pages/settle/vessel.vue': {
+      routes:
+        | '/settle/vessel'
       views:
         | never
     }

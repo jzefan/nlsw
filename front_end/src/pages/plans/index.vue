@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { Filter, Pencil, Plus, RefreshCw, Trash2, XCircle, CheckCircle } from 'lucide-vue-next'
+import { CheckCircle, Filter, Pencil, Plus, RefreshCw, Trash2, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+
+import type { OrderPlan } from '@/services/api/plan.api'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -8,10 +10,10 @@ import {
   closePlans,
   deletePlans,
   getPlans,
+
   searchCompanies,
   unclosePlans,
   updatePlan,
-  type OrderPlan,
 } from '@/services/api/plan.api'
 
 // 状态
@@ -81,7 +83,6 @@ async function loadData() {
   }
 }
 
-
 // 选择行
 function toggleSelect(plan: OrderPlan) {
   const index = selectedPlans.value.findIndex(p => p.order_no === plan.order_no)
@@ -125,10 +126,26 @@ function openEditDialog(plan: OrderPlan) {
   showEditDialog.value = true
 }
 
+// 计算已发量
+const sentWeight = computed(() => {
+  if (!editingPlan.value)
+    return 0
+  return editingPlan.value.order_weight - editingPlan.value.left_weight
+})
+
 // 保存编辑
 async function saveEdit() {
   if (!editingPlan.value)
     return
+
+  // 验证：订单量不能小于已发量
+  const sent = sentWeight.value
+  if (editForm.value.orderWeight < sent) {
+    toast.error('订单量不能小于已发量', {
+      description: `已发量: ${sent.toFixed(2)}吨, 输入订单量: ${editForm.value.orderWeight.toFixed(2)}吨`,
+    })
+    return
+  }
 
   try {
     const result = await updatePlan({
@@ -408,54 +425,114 @@ onMounted(() => {
                 @update:checked="toggleSelectAll"
               />
             </th>
-            <th class="p-2 text-left">订单号</th>
-            <th class="p-2 text-right">订单量</th>
-            <th class="p-2 text-right">已发量</th>
-            <th class="p-2 text-right">未发量</th>
-            <th class="p-2 text-left">客户名称</th>
-            <th class="p-2 text-left">客户代码</th>
-            <th class="p-2 text-left">目的地</th>
-            <th class="p-2 text-left">运输方式</th>
-            <th class="p-2 text-left">收货人</th>
-            <th class="p-2 text-left">下游客户</th>
-            <th class="p-2 text-left">客户业务员</th>
-            <th class="p-2 text-left">业务员</th>
-            <th class="p-2 text-left">合同号</th>
-            <th class="p-2 text-right">接单价</th>
-            <th class="p-2 text-left">录单时间</th>
-            <th class="p-2 text-center">状态</th>
+            <th class="p-2 text-left">
+              订单号
+            </th>
+            <th class="p-2 text-right">
+              订单量
+            </th>
+            <th class="p-2 text-right">
+              已发量
+            </th>
+            <th class="p-2 text-right">
+              未发量
+            </th>
+            <th class="p-2 text-left">
+              客户名称
+            </th>
+            <th class="p-2 text-left">
+              客户代码
+            </th>
+            <th class="p-2 text-left">
+              目的地
+            </th>
+            <th class="p-2 text-left">
+              运输方式
+            </th>
+            <th class="p-2 text-left">
+              收货人
+            </th>
+            <th class="p-2 text-left">
+              下游客户
+            </th>
+            <th class="p-2 text-left">
+              客户业务员
+            </th>
+            <th class="p-2 text-left">
+              业务员
+            </th>
+            <th class="p-2 text-left">
+              合同号
+            </th>
+            <th class="p-2 text-right">
+              接单价
+            </th>
+            <th class="p-2 text-left">
+              录单时间
+            </th>
+            <th class="p-2 text-center">
+              状态
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="plan in plans"
             :key="plan.order_no"
-            class="border-t hover:bg-muted/30 cursor-pointer"
-            :class="{ 'bg-primary/10': isSelected(plan) }"
+            class="border-t hover:bg-muted/30 cursor-pointer transition-colors"
+            :class="{ 'bg-primary/15 hover:bg-primary/20': isSelected(plan) }"
             @click="toggleSelect(plan)"
           >
             <td class="p-2" @click.stop>
               <UiCheckbox :checked="isSelected(plan)" @update:checked="toggleSelect(plan)" />
             </td>
-            <td class="p-2 font-mono">{{ plan.order_no }}</td>
-            <td class="p-2 text-right">{{ formatNumber(plan.order_weight) }}</td>
-            <td class="p-2 text-right">{{ formatNumber(plan.order_weight - plan.left_weight) }}</td>
+            <td class="p-2 font-mono">
+              {{ plan.order_no }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(plan.order_weight) }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(plan.order_weight - plan.left_weight) }}
+            </td>
             <td class="p-2 text-right">
               <span :class="plan.left_weight > 0.001 ? 'text-blue-600' : 'text-green-600'">
                 {{ formatNumber(plan.left_weight) }}
               </span>
             </td>
-            <td class="p-2">{{ plan.customer_name }}</td>
-            <td class="p-2">{{ plan.customer_code }}</td>
-            <td class="p-2">{{ plan.destination }}</td>
-            <td class="p-2">{{ plan.transport_mode }}</td>
-            <td class="p-2">{{ plan.consignee }}</td>
-            <td class="p-2">{{ plan.ds_client }}</td>
-            <td class="p-2">{{ plan.customer_saleman }}</td>
-            <td class="p-2">{{ plan.consigner }}</td>
-            <td class="p-2">{{ plan.contract_no }}</td>
-            <td class="p-2 text-right">{{ formatNumber(plan.receiving_charge) }}</td>
-            <td class="p-2">{{ formatDate(plan.entry_time) }}</td>
+            <td class="p-2">
+              {{ plan.customer_name }}
+            </td>
+            <td class="p-2">
+              {{ plan.customer_code }}
+            </td>
+            <td class="p-2">
+              {{ plan.destination }}
+            </td>
+            <td class="p-2">
+              {{ plan.transport_mode }}
+            </td>
+            <td class="p-2">
+              {{ plan.consignee }}
+            </td>
+            <td class="p-2">
+              {{ plan.ds_client }}
+            </td>
+            <td class="p-2">
+              {{ plan.customer_saleman }}
+            </td>
+            <td class="p-2">
+              {{ plan.consigner }}
+            </td>
+            <td class="p-2">
+              {{ plan.contract_no }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(plan.receiving_charge) }}
+            </td>
+            <td class="p-2">
+              {{ formatDate(plan.entry_time) }}
+            </td>
             <td class="p-2 text-center">
               <UiBadge :variant="plan.status === 0 ? 'default' : 'secondary'">
                 {{ getStatusText(plan.status) }}
@@ -511,8 +588,21 @@ onMounted(() => {
         </UiDialogHeader>
         <div class="grid grid-cols-2 gap-4 py-4">
           <div>
-            <label class="text-sm font-medium">订单量</label>
-            <UiInput v-model.number="editForm.orderWeight" type="number" step="0.01" />
+            <label class="text-sm font-medium">已发量（吨）</label>
+            <UiInput :model-value="formatNumber(sentWeight)" disabled class="bg-muted" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">订单量（吨）<span class="text-destructive ml-1">*</span></label>
+            <UiInput
+              v-model.number="editForm.orderWeight"
+              type="number"
+              step="0.01"
+              :min="sentWeight"
+              placeholder="不能小于已发量"
+            />
+            <p v-if="editForm.orderWeight < sentWeight" class="text-xs text-destructive mt-1">
+              订单量不能小于已发量 {{ formatNumber(sentWeight) }}
+            </p>
           </div>
           <div>
             <label class="text-sm font-medium">目的地</label>

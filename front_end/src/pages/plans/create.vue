@@ -3,14 +3,16 @@ import { Plus, Save, Trash2, Upload, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import * as XLSX from 'xlsx'
 
+import type { PlanCreateData } from '@/services/api/plan.api'
+
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
   checkPlanExists,
   createPlans,
+
   searchCompanies,
   searchDestinations,
-  type PlanCreateData,
 } from '@/services/api/plan.api'
 
 // 订单数据
@@ -187,23 +189,23 @@ function readExcelFile(file: File): Promise<PlanCreateData[]> {
 
         // 查找表头
         const headerMap: Record<string, string> = {
-          '订单号': 'orderNo',
-          '订单': 'orderNo',
-          '订单量': 'orderWeight',
-          '客户代码': 'customerCode',
-          '流向': 'destination',
-          '发货目的地': 'destination',
-          '客户名称': 'customerName',
-          '下游客户': 'dsClient',
-          '运输方式': 'transportMode',
-          '南钢业务员': 'salesman',
-          '客户业务员': 'salesman',
-          '业务员': 'consigner',
-          '订单状态': 'status',
-          '合同号': 'contractNo',
-          '运价': 'receivingCharge',
-          '接单价': 'receivingCharge',
-          '收货人': 'consignee',
+          订单号: 'orderNo',
+          订单: 'orderNo',
+          订单量: 'orderWeight',
+          客户代码: 'customerCode',
+          流向: 'destination',
+          发货目的地: 'destination',
+          客户名称: 'customerName',
+          下游客户: 'dsClient',
+          运输方式: 'transportMode',
+          南钢业务员: 'salesman',
+          客户业务员: 'salesman',
+          业务员: 'consigner',
+          订单状态: 'status',
+          合同号: 'contractNo',
+          运价: 'receivingCharge',
+          接单价: 'receivingCharge',
+          收货人: 'consignee',
         }
 
         let headerRow = -1
@@ -303,7 +305,6 @@ function formatNumber(num: number | undefined) {
     return ''
   return num.toFixed(2)
 }
-
 </script>
 
 <template>
@@ -376,19 +377,45 @@ function formatNumber(num: number | undefined) {
       <table class="w-full text-sm">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">操作</th>
-            <th class="p-2 text-left">订单号</th>
-            <th class="p-2 text-right">订单量</th>
-            <th class="p-2 text-left">客户名称</th>
-            <th class="p-2 text-left">客户代码</th>
-            <th class="p-2 text-left">目的地</th>
-            <th class="p-2 text-left">运输方式</th>
-            <th class="p-2 text-left">收货人</th>
-            <th class="p-2 text-left">下游客户</th>
-            <th class="p-2 text-left">客户业务员</th>
-            <th class="p-2 text-left">业务员</th>
-            <th class="p-2 text-left">合同号</th>
-            <th class="p-2 text-right">接单价</th>
+            <th class="p-2 text-left w-10">
+              操作
+            </th>
+            <th class="p-2 text-left">
+              订单号
+            </th>
+            <th class="p-2 text-right">
+              订单量
+            </th>
+            <th class="p-2 text-left">
+              客户名称
+            </th>
+            <th class="p-2 text-left">
+              客户代码
+            </th>
+            <th class="p-2 text-left">
+              目的地
+            </th>
+            <th class="p-2 text-left">
+              运输方式
+            </th>
+            <th class="p-2 text-left">
+              收货人
+            </th>
+            <th class="p-2 text-left">
+              下游客户
+            </th>
+            <th class="p-2 text-left">
+              客户业务员
+            </th>
+            <th class="p-2 text-left">
+              业务员
+            </th>
+            <th class="p-2 text-left">
+              合同号
+            </th>
+            <th class="p-2 text-right">
+              接单价
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -398,18 +425,42 @@ function formatNumber(num: number | undefined) {
                 <Trash2 class="w-4 h-4" />
               </UiButton>
             </td>
-            <td class="p-2 font-mono">{{ order.orderNo }}</td>
-            <td class="p-2 text-right">{{ formatNumber(order.orderWeight) }}</td>
-            <td class="p-2">{{ order.customerName }}</td>
-            <td class="p-2">{{ order.customerCode }}</td>
-            <td class="p-2">{{ order.destination }}</td>
-            <td class="p-2">{{ order.transportMode }}</td>
-            <td class="p-2">{{ order.consignee }}</td>
-            <td class="p-2">{{ order.dsClient }}</td>
-            <td class="p-2">{{ order.salesman }}</td>
-            <td class="p-2">{{ order.consigner }}</td>
-            <td class="p-2">{{ order.contractNo }}</td>
-            <td class="p-2 text-right">{{ formatNumber(order.receivingCharge) }}</td>
+            <td class="p-2 font-mono">
+              {{ order.orderNo }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(order.orderWeight) }}
+            </td>
+            <td class="p-2">
+              {{ order.customerName }}
+            </td>
+            <td class="p-2">
+              {{ order.customerCode }}
+            </td>
+            <td class="p-2">
+              {{ order.destination }}
+            </td>
+            <td class="p-2">
+              {{ order.transportMode }}
+            </td>
+            <td class="p-2">
+              {{ order.consignee }}
+            </td>
+            <td class="p-2">
+              {{ order.dsClient }}
+            </td>
+            <td class="p-2">
+              {{ order.salesman }}
+            </td>
+            <td class="p-2">
+              {{ order.consigner }}
+            </td>
+            <td class="p-2">
+              {{ order.contractNo }}
+            </td>
+            <td class="p-2 text-right">
+              {{ formatNumber(order.receivingCharge) }}
+            </td>
           </tr>
           <tr v-if="orders.length === 0">
             <td colspan="13" class="p-8 text-center text-muted-foreground">

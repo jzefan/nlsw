@@ -201,22 +201,23 @@ exports.postUpdatePlan = async function(req, res) {
   if (plan) {
 
     if (Math.abs(plan.order_weight - data.orderWeight) > DELTA) {
-      let undo = plan.order_weight - plan.left_weight;
-      let d = data.orderWeight - undo;
-      if (d < 0 && Math.abs(d) > DELTA) {
-//      if (data.orderWeight < undo) {
-        return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量比已发量还少' + data.orderNo}));
+      // 已发量 = 原订单量 - 原未发量（保持不变）
+      let sentWeight = plan.order_weight - plan.left_weight;
+
+      // 验证：新订单量不能小于已发量
+      if (data.orderWeight < sentWeight && Math.abs(data.orderWeight - sentWeight) > DELTA) {
+        return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量(' + data.orderWeight.toFixed(3) + ')不能小于已发量(' + sentWeight.toFixed(3) + ')'}));
       }
 
-      plan.left_weight = data.orderWeight - undo;
+      // 新未发量 = 新订单量 - 已发量
+      plan.left_weight = data.orderWeight - sentWeight;
+
+      // 状态判断
       if (plan.left_weight < DELTA) {
         plan.left_weight = 0;
         plan.status = 1; // 结案
-      } else if (plan.left_weight - data.orderWeight < DELTA) {
-        plan.status = 0;
-        plan.left_weight = data.orderWeight;
       } else {
-        plan.status = 0;
+        plan.status = 0; // 生效
       }
 
       plan.order_weight = data.orderWeight;

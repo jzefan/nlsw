@@ -127,7 +127,7 @@ export async function deleteBills(ids: string[]) {
 // 高级搜索
 export async function searchBills(data: {
   queryTree?: any
-  sort?: { field: string; order: 'asc' | 'desc' }[]
+  sort?: { field: string, order: 'asc' | 'desc' }[]
   page?: number
   limit?: number
 }) {
@@ -138,8 +138,8 @@ export async function searchBills(data: {
 // 导出提单
 export async function exportBills(data: {
   queryTree?: any
-  sort?: { field: string; order: 'asc' | 'desc' }[]
-  columns?: { field: string; label: string }[]
+  sort?: { field: string, order: 'asc' | 'desc' }[]
+  columns?: { field: string, label: string }[]
 }) {
   const response = await axiosInstance.post('/bills/export', data, {
     responseType: 'blob',

@@ -147,28 +147,37 @@ exports.postDeleteVFCData = async function(req, res) {
 
 exports.searchVehicles = async function(req, res) {
   try {
-    const { search, type = '车', page = 1, limit = 20 } = req.query;
-    const query = {
-      veh_type: type
-    };
+    const { search, type, page = 1, limit = 20 } = req.query;
+    const query = {};
+
+    // 只有明确指定 type 时才过滤类型，否则搜索所有车船
+    if (type) {
+      query.veh_type = type;
+    }
 
     if (search) {
       query.name = { $regex: search, $options: 'i' };
     }
 
-    const count = await Vehicle.countDocuments(query);
+    // 过滤掉异常的长车船号（正常车船号不会超过20个字符）
     const vehicles = await Vehicle.find(query)
       .sort({ create_time: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit))
       .lean();
+
+    // 只保留合理长度的车船号
+    const validVehicles = vehicles.filter(v => v.name && v.name.length <= 20);
+
+    // 应用分页
+    const total = validVehicles.length;
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedVehicles = validVehicles.slice(start, start + parseInt(limit));
 
     res.json({
       ok: true,
-      data: vehicles,
-      total: count,
+      data: paginatedVehicles,
+      total: total,
       page: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit))
+      totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (error) {
     console.error('searchVehicles error:', error);

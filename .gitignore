@@ -13,4 +13,9 @@ data/
 dist/
 build/
 out/
+uploads/
+.DS_Store
+.vscode/
+.idea/
+*.swp
 

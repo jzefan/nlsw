@@ -30,13 +30,13 @@ async function postAction(url: string, data: any) {
 // -------------------------------------------------
 // Company (开单名称)
 // -------------------------------------------------
-export async function getCompanies(params: { page?: number; limit?: number; search?: string }) {
+export async function getCompanies(params: { page?: number, limit?: number, search?: string }) {
   return getList<DataDictItem>('/companies', params)
 }
-export async function addCompany(data: { name: string; customers: string[]; contact_name?: string; phone?: string; address?: string }) {
+export async function addCompany(data: { name: string, customers: string[], contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/company_add', data)
 }
-export async function updateCompany(data: { name: string; customers: string[]; contact_name?: string; phone?: string; address?: string }) {
+export async function updateCompany(data: { name: string, customers: string[], contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/company_modify', data)
 }
 export async function deleteCompany(name: string) {
@@ -46,14 +46,14 @@ export async function deleteCompany(name: string) {
 // -------------------------------------------------
 // Vehicle (车船号)
 // -------------------------------------------------
-export async function getVehicles(params: { page?: number; limit?: number; search?: string; type?: string }) {
+export async function getVehicles(params: { page?: number, limit?: number, search?: string, type?: string }) {
   // Use existing /vehicles/search which supports pagination
   return getList<DataDictItem>('/vehicles/search', params)
 }
-export async function addVehicle(data: { name: string; veh_type: string; veh_category?: string; boss?: string; contact_name?: string; phone?: string }) {
+export async function addVehicle(data: { name: string, veh_type: string, veh_category?: string, boss?: string, contact_name?: string, phone?: string }) {
   return postAction('/datamgt/vehicle_add', data)
 }
-export async function updateVehicle(data: { name: string; veh_type: string; veh_category?: string; boss?: string; contact_name?: string; phone?: string }) {
+export async function updateVehicle(data: { name: string, veh_type: string, veh_category?: string, boss?: string, contact_name?: string, phone?: string }) {
   return postAction('/datamgt/vehicle_modify', data)
 }
 export async function deleteVehicle(name: string) {
@@ -63,13 +63,13 @@ export async function deleteVehicle(name: string) {
 // -------------------------------------------------
 // Warehouse (仓库)
 // -------------------------------------------------
-export async function getWarehouses(params: { page?: number; limit?: number; search?: string }) {
+export async function getWarehouses(params: { page?: number, limit?: number, search?: string }) {
   return getList<DataDictItem>('/warehouses', params)
 }
-export async function addWarehouse(data: { name: string; contact_name?: string; phone?: string; address?: string }) {
+export async function addWarehouse(data: { name: string, contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/warehouse_add', data)
 }
-export async function updateWarehouse(data: { name: string; contact_name?: string; phone?: string; address?: string }) {
+export async function updateWarehouse(data: { name: string, contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/warehouse_modify', data)
 }
 export async function deleteWarehouse(name: string) {
@@ -79,13 +79,13 @@ export async function deleteWarehouse(name: string) {
 // -------------------------------------------------
 // Destination (目的地)
 // -------------------------------------------------
-export async function getDestinations(params: { page?: number; limit?: number; search?: string }) {
+export async function getDestinations(params: { page?: number, limit?: number, search?: string }) {
   return getList<DataDictItem>('/destinations', params)
 }
-export async function addDestination(data: { name: string; contact_name?: string; phone?: string; address?: string }) {
+export async function addDestination(data: { name: string, contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/destination_add', data)
 }
-export async function updateDestination(data: { name: string; contact_name?: string; phone?: string; address?: string }) {
+export async function updateDestination(data: { name: string, contact_name?: string, phone?: string, address?: string }) {
   return postAction('/datamgt/destination_modify', data)
 }
 export async function deleteDestination(name: string) {
@@ -95,7 +95,7 @@ export async function deleteDestination(name: string) {
 // -------------------------------------------------
 // Brand (牌号)
 // -------------------------------------------------
-export async function getBrands(params: { page?: number; limit?: number; search?: string }) {
+export async function getBrands(params: { page?: number, limit?: number, search?: string }) {
   return getList<DataDictItem>('/brands', params)
 }
 export async function addBrand(data: { name: string }) {
@@ -111,7 +111,7 @@ export async function deleteBrand(name: string) {
 // -------------------------------------------------
 // SaleDep (销售部门)
 // -------------------------------------------------
-export async function getSaleDeps(params: { page?: number; limit?: number; search?: string }) {
+export async function getSaleDeps(params: { page?: number, limit?: number, search?: string }) {
   return getList<DataDictItem>('/sale_deps', params)
 }
 export async function addSaleDep(data: { name: string }) {

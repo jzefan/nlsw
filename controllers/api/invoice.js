@@ -94,14 +94,14 @@ exports.getMaxWaybillNo = async (req, res) => {
     const uno = utils.leftPad(userNo, 4);
     const date_no = new Date().yyyymmdd() + uno;
     const reg = new RegExp('^01' + date_no + '.*', 'g');
-    
+
     const inv_wnos = await Invoice.find({ waybill_no: { $regex: reg } })
       .select('waybill_no')
       .sort({ waybill_no: 'desc' })
       .limit(1)
       .lean()
       .exec();
-    
+
     let no = utils.leftPad(1, 3);
     if (inv_wnos.length > 0) {
       const lastNoStr = inv_wnos[0].waybill_no.substring(14);
@@ -112,6 +112,139 @@ exports.getMaxWaybillNo = async (req, res) => {
     res.json({ ok: true, max_no: max });
   } catch (error) {
     console.error('getMaxWaybillNo error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
+ * 获取运单列表
+ * 支持按车船号、开单名称模糊查询
+ */
+exports.getInvoiceList = async (req, res) => {
+  try {
+    const { 
+      keyword, 
+      limit = 50, 
+      page = 1, 
+      myOnly,
+      waybillNo,
+      vehicleName,
+      shipName,
+      state,
+      startDate,
+      endDate
+    } = req.query;
+    const user = req.user || { userid: 'admin', privilege: 'admin' };
+    const userId = user.userid;
+    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111' || userId === 'admin';
+
+    // 构建查询条件
+    const query = {};
+
+    // 如果不是管理员，强制只显示自己的运单
+    // 如果是管理员，只有当myOnly参数存在且为true时才过滤
+    if (!isAdmin) {
+      query.shipper = userId;
+    } else if (myOnly === 'true' || myOnly === true) {
+      query.shipper = userId;
+    }
+
+    if (keyword) {
+      const keywordConditions = [
+        { vehicle_vessel_name: { $regex: keyword, $options: 'i' } },
+        { ship_name: { $regex: keyword, $options: 'i' } },
+        { waybill_no: { $regex: keyword, $options: 'i' } }
+      ];
+
+      if (query.shipper) {
+        // 如果已有shipper条件，需要用$and组合
+        query.$and = [
+          { shipper: userId },
+          { $or: keywordConditions }
+        ];
+        delete query.shipper;
+      } else {
+        query.$or = keywordConditions;
+      }
+    }
+
+    // 高级查询条件
+    if (waybillNo) {
+      query.waybill_no = { $regex: waybillNo, $options: 'i' };
+    }
+    if (vehicleName) {
+      query.vehicle_vessel_name = { $regex: vehicleName, $options: 'i' };
+    }
+    if (shipName) {
+      query.ship_name = { $regex: shipName, $options: 'i' };
+    }
+    if (state) {
+      query.state = state;
+    }
+    if (startDate || endDate) {
+      query.ship_date = {};
+      if (startDate) {
+        query.ship_date.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        // 如果是日期字符串，设为当天的结束时间
+        const end = new Date(endDate);
+        if (endDate.length <= 10) { // YYYY-MM-DD
+           end.setHours(23, 59, 59, 999);
+        }
+        query.ship_date.$lte = end;
+      }
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // 查询运单列表
+    const invoices = await Invoice.find(query)
+      .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state createdAt shipper')
+      .sort({ ship_date: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip)
+      .lean()
+      .exec();
+
+    // 查询总数
+    const total = await Invoice.countDocuments(query);
+
+    res.json({
+      ok: true,
+      data: invoices,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+  } catch (error) {
+    console.error('getInvoiceList error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
+ * 获取运单详情
+ */
+exports.getInvoiceDetail = async (req, res) => {
+  try {
+    const { waybillNo } = req.params;
+
+    const invoice = await Invoice.findOne({ waybill_no: waybillNo })
+      .populate({
+        path: 'bills.bill_id',
+        select: 'bill_no order_no order_item_no spec thickness width length block_num weight total_weight left_num status'
+      })
+      .lean()
+      .exec();
+
+    if (!invoice) {
+      return res.json({ ok: false, message: '运单不存在' });
+    }
+
+    res.json({ ok: true, data: invoice });
+  } catch (error) {
+    console.error('getInvoiceDetail error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -129,7 +262,7 @@ function calculateBillStatus(dbBill, invoiceState) {
     // 全部配发完毕
     dbBill.status = '已配发';
     dbBill.shipping_date = new Date();
-  } else if (leftNum < originalNum) {
+  } else if (leftNum < originalNum - EPSILON) {
     // 部分配发
     const shipped = originalNum - leftNum;
     if (dbBill.block_num > 0) {
@@ -137,8 +270,11 @@ function calculateBillStatus(dbBill, invoiceState) {
     } else {
       dbBill.status = `已配发${utils.toFixedNumber(shipped, 3)}吨`;
     }
+  } else {
+    // leftNum >= originalNum，没有配发或全部恢复
+    dbBill.status = '新建';
+    dbBill.shipping_date = null;
   }
-  // 如果 leftNum === originalNum，状态保持不变（新建）
 }
 
 /**
@@ -152,7 +288,77 @@ exports.buildShipInvoice = async (req, res) => {
     const flatBills = data.bills || [];
     const userId = req.user ? req.user.userid : 'admin';
 
-    // 1. 按 _id 分组，聚合每个提单的所有车辆信息
+    // 1. 查找是否已存在该运单
+    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
+
+    // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
+    if (flatBills.length === 0) {
+      if (!dbInv) {
+        return res.json({ ok: false, message: '没有选择提单明细' });
+      }
+
+      // 恢复所有提单的 left_num 和状态
+      const orderWeightDeltas = {};
+      for (const oldBill of dbInv.bills) {
+        const dbBill = await Bill.findById(oldBill.bill_id).exec();
+        if (dbBill) {
+          let restoredWeight = 0;
+          if (dbBill.block_num > 0) {
+            dbBill.left_num += oldBill.num;
+            restoredWeight = oldBill.num * dbBill.weight;
+          } else {
+            dbBill.left_num += oldBill.weight;
+            dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+            restoredWeight = oldBill.weight;
+          }
+
+          // 记录订单重量变化
+          if (orderWeightDeltas[dbBill.order_no]) {
+            orderWeightDeltas[dbBill.order_no] += restoredWeight;
+          } else {
+            orderWeightDeltas[dbBill.order_no] = restoredWeight;
+          }
+
+          // 从提单的 invoices 中移除此运单
+          if (dbBill.invoices) {
+            dbBill.invoices = dbBill.invoices.filter(
+              inv => inv.inv_no !== dbInv.waybill_no
+            );
+          }
+
+          // 重新计算状态
+          calculateBillStatus(dbBill, '新建');
+          await dbBill.save();
+        }
+      }
+
+      // 恢复订单计划的 left_weight
+      for (const orderNo in orderWeightDeltas) {
+        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        if (plan) {
+          plan.left_weight += orderWeightDeltas[orderNo];
+          plan.status = 0;
+          await plan.save();
+        }
+      }
+
+      // 更新运单：清空明细，保留基本信息
+      dbInv.vehicle_vessel_name = data.vehicle_vessel_name;
+      dbInv.ship_warehouse = data.ship_warehouse || '';
+      dbInv.ship_name = data.ship_name;
+      dbInv.ship_customer = data.ship_customer || '';
+      dbInv.ship_date = data.ship_date || null;
+      dbInv.ship_to = data.ship_to;
+      dbInv.ship_from = data.ship_from;
+      dbInv.bills = [];
+      dbInv.total_weight = 0;
+      dbInv.state = data.state || '新建';
+      dbInv.inner_settle = [];
+      await dbInv.save();
+      return res.json({ ok: true });
+    }
+
+    // 3. 按 _id 分组，聚合每个提单的所有车辆信息
     const billGroups = {};
     for (const fb of flatBills) {
       if (!fb._id) {
@@ -183,7 +389,7 @@ exports.buildShipInvoice = async (req, res) => {
       });
     }
 
-    // 2. 查找每个 _id 对应的数据库记录
+    // 4. 查找每个 _id 对应的数据库记录
     const billIdList = Object.keys(billGroups);
     const dbBillsForValidation = await Bill.find({ _id: { $in: billIdList } }).exec();
     const billIdToDbBill = {};
@@ -191,7 +397,18 @@ exports.buildShipInvoice = async (req, res) => {
       billIdToDbBill[db._id.toString()] = db;
     }
 
-    // 3. 验证剩余量是否足够
+    // 5. 如果是更新场景，构建旧提单映射
+    const oldBillMapForValidation = {};
+    if (dbInv) {
+      for (const oldBill of dbInv.bills) {
+        oldBillMapForValidation[oldBill.bill_id.toString()] = {
+          num: oldBill.num,
+          weight: oldBill.weight
+        };
+      }
+    }
+
+    // 6. 验证剩余量是否足够
     for (const billId of billIdList) {
       const group = billGroups[billId];
       const dbBill = billIdToDbBill[billId];
@@ -199,27 +416,38 @@ exports.buildShipInvoice = async (req, res) => {
         return res.json({ ok: false, message: `未找到提单: ${group.bill_no} (_id: ${billId})` });
       }
 
+      // 计算可用量：当前剩余量 + 之前分配给该运单的量（更新场景）
+      let availableNum = dbBill.left_num;
+      const oldData = oldBillMapForValidation[billId];
+      if (oldData) {
+        if (dbBill.block_num > 0) {
+          availableNum += oldData.num;
+        } else {
+          availableNum += oldData.weight;
+        }
+      }
+
       // 检查剩余量
       if (dbBill.block_num > 0) {
         // 定尺：按块数计算
-        if (group.totalNum > dbBill.left_num) {
+        if (group.totalNum > availableNum) {
           return res.json({
             ok: false,
-            message: `提单 ${dbBill.bill_no} 剩余块数不足: 剩余${dbBill.left_num}块, 需要${group.totalNum}块`
+            message: `提单 ${dbBill.bill_no} 剩余块数不足: 剩余${availableNum}块, 需要${group.totalNum}块`
           });
         }
       } else {
         // 乱尺：按重量计算
-        if (group.totalWeight > dbBill.left_num + EPSILON) {
+        if (group.totalWeight > availableNum + EPSILON) {
           return res.json({
             ok: false,
-            message: `提单 ${dbBill.bill_no} 剩余重量不足: 剩余${dbBill.left_num}吨, 需要${group.totalWeight}吨`
+            message: `提单 ${dbBill.bill_no} 剩余重量不足: 剩余${availableNum}吨, 需要${group.totalWeight}吨`
           });
         }
       }
     }
 
-    // 4. 构建 Invoice 的 bills 数组
+    // 7. 构建 Invoice 的 bills 数组
     const invoiceBills = [];
     for (const billId of billIdList) {
       const group = billGroups[billId];
@@ -232,7 +460,7 @@ exports.buildShipInvoice = async (req, res) => {
       });
     }
 
-    // 5. 构建 Invoice 数据
+    // 8. 构建 Invoice 数据
     const invoiceData = {
       waybill_no: data.waybill_no,
       vehicle_vessel_name: data.vehicle_vessel_name,
@@ -250,9 +478,7 @@ exports.buildShipInvoice = async (req, res) => {
       selfOwned: data.selfOwned ? 1 : 0
     };
 
-    // 6. 查找是否已存在该运单
-    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
-
+    // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
       const invoice = new Invoice(invoiceData);
@@ -560,24 +786,189 @@ exports.buildShipInvoice = async (req, res) => {
  * 前端发送: [{bill_no, order_no, send_num, send_weight, ...}]
  * 转换为Invoice模型: bills: [{bill_id, num, weight}] (无vehicles)
  */
+/**
+ * 删除运单
+ * 删除运单时需要：
+ * 1. 恢复所有提单的 left_num
+ * 2. 更新提单的 status
+ * 3. 从提单的 invoices 数组中删除该运单记录
+ * 4. 恢复订单计划的 left_weight 和 status
+ * 5. 删除运单记录
+ */
+exports.deleteInvoice = async (req, res) => {
+  try {
+    const waybill = req.body;
+    const userId = req.user ? req.user.userid : 'admin';
+
+    // 1. 查找运单
+    const invoice = await Invoice.findOne({ waybill_no: waybill.waybill_no }).exec();
+    if (!invoice) {
+      return res.json({ ok: false, message: '运单不存在' });
+    }
+
+    // 2. 检查是否已结算
+    if (invoice.state === '已结算') {
+      return res.json({ ok: false, message: '此运单已结算，不能删除' });
+    }
+
+    // 3. 记录每个订单的重量变化
+    const orderWeightDeltas = {};
+
+    // 4. 处理每个提单
+    for (const invBill of invoice.bills) {
+      const dbBill = await Bill.findById(invBill.bill_id).exec();
+      if (!dbBill) {
+        console.warn('deleteInvoice: 未找到提单 bill_id=' + invBill.bill_id);
+        continue;
+      }
+
+      let restoredWeight = 0;
+
+      // 恢复 left_num
+      if (dbBill.block_num > 0) {
+        // 定尺：恢复块数
+        dbBill.left_num += invBill.num;
+        restoredWeight = invBill.num * dbBill.weight;
+      }
+      else {
+        // 乱尺：恢复重量
+        dbBill.left_num += invBill.weight;
+        dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+        restoredWeight = invBill.weight;
+      }
+
+      // 记录订单重量变化（用于恢复订单计划）
+      if (orderWeightDeltas[dbBill.order_no]) {
+        orderWeightDeltas[dbBill.order_no] += restoredWeight;
+      }
+      else {
+        orderWeightDeltas[dbBill.order_no] = restoredWeight;
+      }
+
+      // 重新计算提单状态
+      calculateBillStatus(dbBill, '新建');
+
+      // 从提单的 invoices 数组中删除该运单记录
+      if (dbBill.invoices) {
+        dbBill.invoices = dbBill.invoices.filter(
+          inv => inv.inv_no !== invoice.waybill_no,
+        );
+      }
+
+      // 保存提单
+      await dbBill.save();
+    }
+
+    // 5. 恢复订单计划的 left_weight 和 status
+    for (const orderNo in orderWeightDeltas) {
+      const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+      if (plan) {
+        plan.left_weight += orderWeightDeltas[orderNo];
+        plan.left_weight = utils.toFixedNumber(plan.left_weight, 3);
+
+        // 如果之前是结案状态，恢复为生效状态
+        if (plan.status === 1 && plan.left_weight > EPSILON) {
+          plan.status = 0;
+        }
+
+        await plan.save();
+      }
+    }
+
+    // 6. 删除运单
+    await Invoice.deleteOne({ waybill_no: waybill.waybill_no }).exec();
+
+    res.json({ ok: true });
+  }
+  catch (error) {
+    console.error('deleteInvoice error:', error);
+    res.status(500).json({ ok: false, message: error.message });
+  }
+};
+
 exports.buildTruckInvoice = async (req, res) => {
   try {
     const data = req.body;
     const flatBills = data.bills || [];
     const userId = req.user ? req.user.userid : 'admin';
 
+    // 1. 查找是否已存在该运单
+    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
+
+    // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
     if (flatBills.length === 0) {
-      return res.json({ ok: false, message: '没有配发的提单' });
+      if (!dbInv) {
+        return res.json({ ok: false, message: '没有选择提单明细' });
+      }
+
+      // 恢复所有提单的 left_num 和状态
+      const orderWeightDeltas = {};
+      for (const oldBill of dbInv.bills) {
+        const dbBill = await Bill.findById(oldBill.bill_id).exec();
+        if (dbBill) {
+          let restoredWeight = 0;
+          if (dbBill.block_num > 0) {
+            dbBill.left_num += oldBill.num;
+            restoredWeight = oldBill.num * dbBill.weight;
+          } else {
+            dbBill.left_num += oldBill.weight;
+            dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
+            restoredWeight = oldBill.weight;
+          }
+
+          // 记录订单重量变化
+          if (orderWeightDeltas[dbBill.order_no]) {
+            orderWeightDeltas[dbBill.order_no] += restoredWeight;
+          } else {
+            orderWeightDeltas[dbBill.order_no] = restoredWeight;
+          }
+
+          // 从提单的 invoices 中移除此运单
+          if (dbBill.invoices) {
+            dbBill.invoices = dbBill.invoices.filter(
+              inv => inv.inv_no !== dbInv.waybill_no
+            );
+          }
+
+          // 重新计算状态
+          calculateBillStatus(dbBill, '新建');
+          await dbBill.save();
+        }
+      }
+
+      // 恢复订单计划的 left_weight
+      for (const orderNo in orderWeightDeltas) {
+        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        if (plan) {
+          plan.left_weight += orderWeightDeltas[orderNo];
+          plan.status = 0;
+          await plan.save();
+        }
+      }
+
+      // 更新运单：清空明细，保留基本信息
+      dbInv.vehicle_vessel_name = data.vehicle_vessel_name;
+      dbInv.ship_warehouse = data.ship_warehouse || '';
+      dbInv.ship_name = data.ship_name;
+      dbInv.ship_customer = data.ship_customer || '';
+      dbInv.ship_date = data.ship_date || null;
+      dbInv.ship_to = data.ship_to;
+      dbInv.ship_from = data.ship_from;
+      dbInv.bills = [];
+      dbInv.total_weight = 0;
+      dbInv.state = data.state || '新建';
+      await dbInv.save();
+      return res.json({ ok: true });
     }
 
-    // 1. 验证所有提单都有 _id
+    // 3. 验证所有提单都有 _id
     for (const fb of flatBills) {
       if (!fb._id) {
         return res.json({ ok: false, message: `提单缺少_id: ${fb.bill_no}` });
       }
     }
 
-    // 2. 查找每个 _id 对应的数据库记录
+    // 4. 查找每个 _id 对应的数据库记录
     const billIdList = flatBills.map(fb => fb._id);
     const dbBillsForValidation = await Bill.find({ _id: { $in: billIdList } }).exec();
     const billIdToDbBill = {};
@@ -585,34 +976,56 @@ exports.buildTruckInvoice = async (req, res) => {
       billIdToDbBill[db._id.toString()] = db;
     }
 
-    // 3. 验证剩余量是否足够
+    // 5. 如果是更新场景，构建旧提单映射
+    const oldBillMapForValidation = {};
+    if (dbInv) {
+      for (const oldBill of dbInv.bills) {
+        oldBillMapForValidation[oldBill.bill_id.toString()] = {
+          num: oldBill.num,
+          weight: oldBill.weight
+        };
+      }
+    }
+
+    // 6. 验证剩余量是否足够
     for (const fb of flatBills) {
       const dbBill = billIdToDbBill[fb._id];
       if (!dbBill) {
         return res.json({ ok: false, message: `未找到提单: ${fb.bill_no} (_id: ${fb._id})` });
       }
 
+      // 计算可用量：当前剩余量 + 之前分配给该运单的量（更新场景）
+      let availableNum = dbBill.left_num;
+      const oldData = oldBillMapForValidation[fb._id];
+      if (oldData) {
+        if (dbBill.block_num > 0) {
+          availableNum += oldData.num;
+        } else {
+          availableNum += oldData.weight;
+        }
+      }
+
       // 检查剩余量
       if (dbBill.block_num > 0) {
         // 定尺：按块数计算
-        if (fb.send_num > dbBill.left_num) {
+        if (fb.send_num > availableNum) {
           return res.json({
             ok: false,
-            message: `提单 ${dbBill.bill_no} 剩余块数不足: 剩余${dbBill.left_num}块, 需要${fb.send_num}块`
+            message: `提单 ${dbBill.bill_no} 剩余块数不足: 剩余${availableNum}块, 需要${fb.send_num}块`
           });
         }
       } else {
         // 乱尺：按重量计算
-        if (fb.send_weight > dbBill.left_num + EPSILON) {
+        if (fb.send_weight > availableNum + EPSILON) {
           return res.json({
             ok: false,
-            message: `提单 ${dbBill.bill_no} 剩余重量不足: 剩余${dbBill.left_num}吨, 需要${fb.send_weight}吨`
+            message: `提单 ${dbBill.bill_no} 剩余重量不足: 剩余${availableNum}吨, 需要${fb.send_weight}吨`
           });
         }
       }
     }
 
-    // 4. 构建 Invoice 的 bills 数组
+    // 7. 构建 Invoice 的 bills 数组
     const invoiceBills = [];
     for (const fb of flatBills) {
       const dbBill = billIdToDbBill[fb._id];
@@ -624,7 +1037,7 @@ exports.buildTruckInvoice = async (req, res) => {
       });
     }
 
-    // 4. 构建 Invoice 数据
+    // 8. 构建 Invoice 数据
     const invoiceData = {
       waybill_no: data.waybill_no,
       vehicle_vessel_name: data.vehicle_vessel_name,
@@ -642,9 +1055,7 @@ exports.buildTruckInvoice = async (req, res) => {
       selfOwned: data.selfOwned ? 1 : 0
     };
 
-    // 5. 查找是否已存在该运单
-    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
-
+    // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
       const invoice = new Invoice(invoiceData);
