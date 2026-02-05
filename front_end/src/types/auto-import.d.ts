@@ -70,6 +70,7 @@ declare global {
   const useAxios: typeof import('../composables/use-axios').useAxios
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
+  const useExport: typeof import('../composables/use-export').useExport
   const useId: typeof import('vue').useId
   const useLink: typeof import('vue-router')['useLink']
   const useModal: typeof import('../composables/use-modal').useModal
@@ -92,6 +93,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { ExportColumn, ExportOptions, ExportAOAOptions } from '../composables/use-export'
+  import('../composables/use-export')
   // @ts-ignore
   export type { Theme, Radius, ContentLayout } from '../constants/themes'
   import('../constants/themes')

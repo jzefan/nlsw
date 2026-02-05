@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { ref } from 'vue'
+
 import type { HeaderInfo } from '@/utils/excel-transform'
 
 const props = defineProps<{
@@ -9,70 +12,62 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: HeaderInfo): void
 }>()
 
-function updateField(field: keyof HeaderInfo, value: string) {
+const isExpanded = ref(false)
+
+function updateField(field: keyof HeaderInfo, value: string | number) {
   emit('update:modelValue', {
     ...props.modelValue,
-    [field]: value,
+    [field]: String(value),
   })
+}
+
+function toggleExpand() {
+  isExpanded.value = !isExpanded.value
 }
 </script>
 
 <template>
   <UiCard>
-    <UiCardHeader class="py-3">
-      <UiCardTitle class="text-base">
-        运单信息
-      </UiCardTitle>
-      <UiCardDescription>
-        编辑发货运单头部信息
-      </UiCardDescription>
+    <UiCardHeader class="py-2 cursor-pointer hover:bg-muted/50 transition-colors" @click="toggleExpand">
+      <div class="flex items-center justify-between">
+        <UiCardTitle class="text-base">
+          运单信息
+        </UiCardTitle>
+        <component :is="isExpanded ? ChevronUp : ChevronDown" class="w-5 h-5 text-muted-foreground" />
+      </div>
     </UiCardHeader>
-    <UiCardContent>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div class="space-y-2">
-          <label class="text-sm font-medium">开单名称</label>
-          <UiInput
-            :model-value="modelValue.billingName"
-            placeholder="输入开单名称"
-            @update:model-value="updateField('billingName', $event)"
-          />
-        </div>
+    <UiCardContent v-if="isExpanded">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <UiInput
+          :model-value="modelValue.billingName"
+          placeholder="开单名称"
+          @update:model-value="updateField('billingName', $event)"
+        />
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">车船号</label>
-          <UiInput
-            :model-value="modelValue.vehicle"
-            placeholder="输入车船号"
-            @update:model-value="updateField('vehicle', $event)"
-          />
-        </div>
+        <UiInput
+          :model-value="modelValue.vehicle"
+          placeholder="车船号"
+          @update:model-value="updateField('vehicle', $event)"
+        />
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">发货单位</label>
-          <UiInput
-            :model-value="modelValue.shipper"
-            placeholder="输入发货单位"
-            @update:model-value="updateField('shipper', $event)"
-          />
-        </div>
+        <UiInput
+          :model-value="modelValue.shipper"
+          placeholder="发货单位"
+          @update:model-value="updateField('shipper', $event)"
+        />
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">发货日期</label>
-          <UiInput
-            type="date"
-            :model-value="modelValue.shipDate"
-            @update:model-value="updateField('shipDate', $event)"
-          />
-        </div>
+        <UiInput
+          type="date"
+          :model-value="modelValue.shipDate"
+          placeholder="发货日期"
+          @update:model-value="updateField('shipDate', $event)"
+        />
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">目的地</label>
-          <UiInput
-            :model-value="modelValue.destination"
-            placeholder="输入目的地"
-            @update:model-value="updateField('destination', $event)"
-          />
-        </div>
+        <UiInput
+          :model-value="modelValue.destination"
+          placeholder="目的地"
+          @update:model-value="updateField('destination', $event)"
+        />
       </div>
     </UiCardContent>
   </UiCard>

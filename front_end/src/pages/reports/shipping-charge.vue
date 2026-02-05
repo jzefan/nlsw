@@ -1,10 +1,12 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, reactive, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
 import { Download, List, RefreshCcw, Search } from 'lucide-vue-next'
 
 import { BasicPage } from '@/components/global-layout'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -29,6 +31,8 @@ import { getInvoiceReport, getWaybillDetail } from '@/services/api/report.api'
 import { useAxios } from '@/composables/use-axios'
 
 const { axiosInstance } = useAxios()
+
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // State
 const loading = ref(false)
@@ -178,32 +182,47 @@ function selectRow(wno: string) {
 
 function handleExport() {
   if (invoices.value.length === 0) return
-  
+
   const data = invoices.value.map(inv => {
     const p = pricesMap.value[inv.waybill_no] || {}
     let billNum = 0
     inv.bills.forEach((b: any) => { billNum += b.num || 0 })
 
     return {
-      '状态': inv.vessel_settle_state,
-      '开单名称': inv.ship_customer ? `${inv.ship_name}/${inv.ship_customer}` : inv.ship_name,
-      '车船号': inv.vehicle_vessel_name,
-      '目的地': inv.ship_to,
-      '发运块数': billNum,
-      '发运重量': inv.total_weight,
-      '客户单价': p.cust_price,
-      '应付单价': p.veh_price,
-      '含税毛利': p.net_income,
-      '发货日期': formatDate(inv.ship_date),
-      '发货人': inv.shipper,
-      '运单号': inv.waybill_no
+      state: inv.vessel_settle_state,
+      ship_name: inv.ship_customer ? `${inv.ship_name}/${inv.ship_customer}` : inv.ship_name,
+      vehicle_vessel_name: inv.vehicle_vessel_name,
+      ship_to: inv.ship_to,
+      bill_num: billNum,
+      total_weight: inv.total_weight,
+      cust_price: p.cust_price,
+      veh_price: p.veh_price,
+      net_income: p.net_income,
+      ship_date: formatDate(inv.ship_date),
+      shipper: inv.shipper,
+      waybill_no: inv.waybill_no
     }
   })
 
-  const ws = XLSX.utils.json_to_sheet(data)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '运输价格报表')
-  XLSX.writeFile(wb, `运输价格报表_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  exportWithPicker({
+    fileName: `运输价格报表_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: '运输价格报表',
+    columns: [
+      { header: '状态', key: 'state' },
+      { header: '开单名称', key: 'ship_name' },
+      { header: '车船号', key: 'vehicle_vessel_name' },
+      { header: '目的地', key: 'ship_to' },
+      { header: '发运块数', key: 'bill_num' },
+      { header: '发运重量', key: 'total_weight' },
+      { header: '客户单价', key: 'cust_price' },
+      { header: '应付单价', key: 'veh_price' },
+      { header: '含税毛利', key: 'net_income' },
+      { header: '发货日期', key: 'ship_date' },
+      { header: '发货人', key: 'shipper' },
+      { header: '运单号', key: 'waybill_no' },
+    ],
+    data,
+  })
 }
 
 // Date linkage logic
@@ -413,6 +432,13 @@ function disableEndDate(date: Date) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>
 

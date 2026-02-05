@@ -42,8 +42,9 @@ const filters = computed({
 })
 
 // 更新单个字段
-function updateField<K extends keyof BillFilterValues>(field: K, value: BillFilterValues[K]) {
-  emit('update:modelValue', { ...props.modelValue, [field]: value })
+function updateField<K extends keyof BillFilterValues>(field: K, value: unknown) {
+  const newValue = typeof value === 'string' ? value : (value == null ? '' : String(value))
+  emit('update:modelValue', { ...props.modelValue, [field]: newValue as BillFilterValues[K] })
 }
 
 // 重置筛选

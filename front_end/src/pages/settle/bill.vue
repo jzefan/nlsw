@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Download, Filter } from 'lucide-vue-next'
+import { Download, Filter, ShoppingCart, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   getSettleBills,
@@ -33,6 +35,8 @@ import {
   CUSTOMER_SETTLE_FLAG,
 } from './types'
 
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+
 // 状态管理
 const settleMode = ref<SettleMode>('CUSTOMER')
 const viewTab = ref<'unsettled' | 'settled'>('unsettled') // 视图标签：未结算/已结算
@@ -42,6 +46,14 @@ const selectedBills = ref<SettleBill[]>([])
 const loading = ref(false)
 const showFilter = ref(true) // 默认显示过滤器
 const showNonSettle = ref(false)
+
+// 结算篮状态
+const basketBills = ref<SettleBill[]>([])
+const showBasket = ref(false)
+
+// 动画状态
+const basketButtonRef = ref<any>(null)
+const flyingItems = ref<{ id: string, x: number, y: number, targetX: number, targetY: number }[]>([])
 
 // 分页状态
 const currentPage = ref(1)
@@ -179,6 +191,29 @@ const selectedStatistics = computed(() => {
   })
 
   return { totalNum, totalWeight }
+})
+
+// 结算篮统计信息
+const basketStatistics = computed(() => {
+  let totalNum = 0
+  let totalWeight = 0
+  let totalAmount = 0
+
+  basketBills.value.forEach((bill) => {
+    const price = settleMode.value === 'CUSTOMER' ? bill.price : bill.collection_price
+    totalNum += bill.send_num
+    totalWeight += bill.send_weight
+    if (price > 0) {
+      totalAmount += price * bill.send_weight
+    }
+  })
+
+  return {
+    count: basketBills.value.length,
+    totalNum,
+    totalWeight,
+    totalAmount,
+  }
 })
 
 // 检查另一个结算模式下是否有数据
@@ -367,6 +402,7 @@ function applyFilter(params: SettleFilterParams) {
 // 更新显示的提单列表（现在使用前端过滤）
 function updateDisplayBills() {
   applyFrontendFilter()
+  refreshBasketBills() // 同时刷新结算篮中的数据
 }
 
 // 分页控制函数
@@ -393,28 +429,21 @@ watch(showNonSettle, () => {
   applyFrontendFilter()
 })
 
-// 单行价格输入
+// 智能价格输入（根据选择数量自动判断）
 function openPriceDialog() {
   if (selectedBills.value.length === 0) {
     toast.warning('请先选择要输入价格的提单')
     return
   }
-  if (selectedBills.value.length > 1) {
-    toast.warning('您选择了多行，请使用批量输入')
-    return
-  }
-  currentBill.value = selectedBills.value[0]
-  showPriceDialog.value = true
-}
 
-// 批量价格输入
-function openBatchPriceDialog() {
-  const bills = selectedBills.value.length > 0 ? selectedBills.value : displayBills.value
-  if (bills.length === 0) {
-    toast.warning('没有可输入价格的提单')
-    return
+  // 根据选择数量自动打开对应的对话框
+  if (selectedBills.value.length === 1) {
+    currentBill.value = selectedBills.value[0]
+    showPriceDialog.value = true
   }
-  showBatchPriceDialog.value = true
+  else {
+    showBatchPriceDialog.value = true
+  }
 }
 
 // 保存价格
@@ -575,6 +604,213 @@ function handleResetFilter() {
   }
 }
 
+// ==================== 结算篮功能 ====================
+
+// 添加选中的提单到结算篮（带动画）
+function addToBasket() {
+  if (selectedBills.value.length === 0) {
+    toast.warning('请先选择要添加到结算篮的提单')
+    return
+  }
+
+  // 检查是否有已在结算篮中的提单
+  const newBills = selectedBills.value.filter(
+    bill => !basketBills.value.some(b => isSameBill(b, bill)),
+  )
+
+  if (newBills.length === 0) {
+    toast.info('选中的提单已在结算篮中')
+    return
+  }
+
+  // 获取结算篮按钮位置
+  const basketBtn = basketButtonRef.value?.$el || basketButtonRef.value
+  if (basketBtn) {
+    const btnRect = (basketBtn as HTMLElement).getBoundingClientRect()
+    const targetX = btnRect.left + btnRect.width / 2
+    const targetY = btnRect.top + btnRect.height / 2
+
+    // 获取选中行的位置并创建飞行动画
+    const selectedRows = document.querySelectorAll('tr.bg-blue-50')
+    const maxAnimations = Math.min(selectedRows.length, 5) // 最多显示5个动画
+
+    selectedRows.forEach((row, index) => {
+      if (index >= maxAnimations)
+        return
+      const rowRect = row.getBoundingClientRect()
+      const startX = rowRect.left + rowRect.width / 2
+      const startY = rowRect.top + rowRect.height / 2
+
+      flyingItems.value.push({
+        id: `fly-${Date.now()}-${index}`,
+        x: startX,
+        y: startY,
+        targetX,
+        targetY,
+      })
+    })
+
+    // 动画结束后清理
+    setTimeout(() => {
+      flyingItems.value = []
+    }, 600)
+  }
+
+  basketBills.value = [...basketBills.value, ...newBills]
+  toast.success(`已添加 ${newBills.length} 条提单到结算篮`)
+  selectedBills.value = []
+}
+
+// 从结算篮移除单个提单
+function removeFromBasket(bill: SettleBill) {
+  basketBills.value = basketBills.value.filter(b => b._id !== bill._id)
+}
+
+// 清空结算篮
+function clearBasket() {
+  if (basketBills.value.length === 0)
+    return
+
+  const confirmed = window.confirm('确定要清空结算篮吗？')
+  if (confirmed) {
+    basketBills.value = []
+    toast.success('结算篮已清空')
+  }
+}
+
+// 判断两个提单是否相同（使用更精确的条件）
+function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
+  return bill1._id === bill2._id
+    && bill1.inv_no === bill2.inv_no
+    && bill1.veh_ves_name === bill2.veh_ves_name
+    && bill1.send_num === bill2.send_num
+    && bill1.send_weight === bill2.send_weight
+}
+
+// 检查提单是否在结算篮中
+function isInBasket(bill: SettleBill): boolean {
+  return basketBills.value.some(b => isSameBill(b, bill))
+}
+
+// 刷新结算篮中的提单数据（从 allBills 中更新）
+function refreshBasketBills() {
+  if (basketBills.value.length === 0)
+    return
+
+  // 根据精确匹配从 allBills 中查找并更新
+  basketBills.value = basketBills.value.map((basketBill) => {
+    const updatedBill = allBills.value.find(b => isSameBill(b, basketBill))
+    return updatedBill || basketBill
+  })
+}
+
+// 从结算篮结算
+async function handleSettleFromBasket() {
+  if (basketBills.value.length === 0) {
+    toast.warning('结算篮为空，请先添加提单')
+    return
+  }
+
+  // 验证：同一批次只能选择相同开单名称
+  const billingNames = [...new Set(basketBills.value.map(b => b.billing_name))]
+  if (billingNames.length > 1) {
+    toast.error('结算篮中存在多个开单名称，一次只能结算一个开单名称的提单')
+    return
+  }
+
+  // 检查价格输入情况
+  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
+  const billsWithoutPrice = basketBills.value.filter(bill => bill[priceField] === 0)
+  const billsNotRequireSettle = basketBills.value.filter(bill => bill[priceField] === -1)
+
+  // 如果有标记为不需要结算的提单
+  if (billsNotRequireSettle.length > 0) {
+    toast.error(`结算篮中有 ${billsNotRequireSettle.length} 条提单已确定为不需要结算，请先移除`)
+    return
+  }
+
+  // 如果有未输入价格的提单，提示用户输入
+  if (billsWithoutPrice.length > 0) {
+    const confirmed = window.confirm(
+      `结算篮中有 ${billsWithoutPrice.length} 条提单还没有输入价格，是否现在输入价格？\n\n点击"确定"打开价格输入对话框`,
+    )
+    if (confirmed) {
+      // 选中这些没有价格的提单
+      selectedBills.value = billsWithoutPrice
+      // 根据数量打开相应的价格输入对话框
+      if (billsWithoutPrice.length === 1) {
+        currentBill.value = billsWithoutPrice[0]
+        showPriceDialog.value = true
+      }
+      else {
+        showBatchPriceDialog.value = true
+      }
+    }
+    return
+  }
+
+  const confirmed = window.confirm(`确定要结算结算篮中的 ${basketBills.value.length} 条提单吗？`)
+  if (!confirmed)
+    return
+
+  loading.value = true
+  try {
+    const settleObj: SettleObject[] = []
+    let totalPrice = 0
+
+    basketBills.value.forEach((bill) => {
+      const price = settleMode.value === 'CUSTOMER' ? bill.price : bill.collection_price
+      totalPrice += price * bill.send_weight
+
+      if (settleMode.value === 'COLLECTION') {
+        bill.inv_settle_flag |= COLLECTION_SETTLE_FLAG
+        bill.settle_flag = (bill.settle_flag || 0) | COLLECTION_SETTLE_FLAG
+      }
+      else {
+        bill.inv_settle_flag |= CUSTOMER_SETTLE_FLAG
+      }
+
+      settleObj.push({
+        bid: bill._id,
+        inv_no: bill.inv_no,
+        num: bill.send_num,
+        weight: bill.send_weight,
+        settle_flag: bill.inv_settle_flag,
+      })
+    })
+
+    const shipToList = [...new Set(basketBills.value.map(b => b.ship_to))]
+    const firstBill = basketBills.value[0]
+    const billName = firstBill.ship_customer
+      ? `${firstBill.billing_name}/${firstBill.ship_customer}`
+      : firstBill.billing_name
+
+    const result = await settleBills({
+      settleObj,
+      price: totalPrice,
+      settle_type: settleMode.value,
+      billName,
+      shipTo: shipToList.join(','),
+    })
+
+    if (result.ok) {
+      toast.success('结算成功')
+      basketBills.value = [] // 清空结算篮
+      showBasket.value = false
+      updateDisplayBills()
+    }
+    else {
+      toast.error(result.message || '结算失败')
+    }
+  }
+  catch (error: any) {
+    toast.error(error.message || '结算失败')
+  }
+  finally {
+    loading.value = false
+  }
+}
+
 // 导出
 function handleExport() {
   if (displayBills.value.length === 0) {
@@ -584,13 +820,7 @@ function handleExport() {
 
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
 
-  let html = '<table><thead><tr>'
-  html += '<th>状态</th><th>订单号</th><th>提单号</th><th>开单名称</th><th>车船</th><th>目的地</th>'
-  html += '<th>总价格</th><th>单价</th><th>发运块数</th><th>发运重量</th><th>起始地</th>'
-  html += '<th>发货仓库</th><th>发货日期</th><th>发货人</th><th>运单号</th><th>规格</th><th>规格大小</th><th>合同号</th>'
-  html += '</tr></thead><tbody>'
-
-  displayBills.value.forEach((bill) => {
+  const data = displayBills.value.map((bill) => {
     const price = bill[priceField]
     const orderDisplay = bill.order_item_no
       ? `${bill.order_no}-${String(bill.order_item_no).padStart(3, '0')}`
@@ -602,38 +832,53 @@ function handleExport() {
     const specSize = getSpecSize(bill.width, bill.len)
     const shipDate = bill.inv_ship_date ? new Date(bill.inv_ship_date).toLocaleDateString('zh-CN') : ''
 
-    html += '<tr>'
-    html += `<td>${getSettleStatus(bill)}</td>`
-    html += `<td>${orderDisplay}</td>`
-    html += `<td>${bill.bill_no}</td>`
-    html += `<td>${name}</td>`
-    html += `<td>${bill.veh_ves_name}</td>`
-    html += `<td>${bill.ship_to}</td>`
-    html += `<td>${totPrice}</td>`
-    html += `<td>${priceText}</td>`
-    html += `<td>${bill.send_num || ''}</td>`
-    html += `<td>${bill.send_weight.toFixed(3)}</td>`
-    html += `<td>${bill.ship_from}</td>`
-    html += `<td>${bill.ship_warehouse || ''}</td>`
-    html += `<td>${shipDate}</td>`
-    html += `<td>${bill.inv_shipper || ''}</td>`
-    html += `<td>${bill.inv_no}</td>`
-    html += `<td>${specSize}</td>`
-    html += `<td>${spec}</td>`
-    html += `<td>${bill.contract_no || ''}</td>`
-    html += '</tr>'
+    return {
+      status: getSettleStatus(bill),
+      order_no: orderDisplay,
+      bill_no: bill.bill_no,
+      billing_name: name,
+      veh_ves_name: bill.veh_ves_name,
+      ship_to: bill.ship_to,
+      total_price: totPrice,
+      price: priceText,
+      send_num: bill.send_num || '',
+      send_weight: bill.send_weight.toFixed(3),
+      ship_from: bill.ship_from,
+      ship_warehouse: bill.ship_warehouse || '',
+      ship_date: shipDate,
+      shipper: bill.inv_shipper || '',
+      inv_no: bill.inv_no,
+      spec_size: specSize,
+      spec,
+      contract_no: bill.contract_no || '',
+    }
   })
 
-  html += '</tbody></table>'
-
-  // 创建 Blob 并下载
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `结算数据_${settleMode.value}_${new Date().toLocaleDateString()}.xls`
-  a.click()
-  URL.revokeObjectURL(url)
+  exportWithPicker({
+    fileName: `结算数据_${settleMode.value}_${new Date().toLocaleDateString()}`,
+    sheetName: '结算数据',
+    columns: [
+      { header: '状态', key: 'status' },
+      { header: '订单号', key: 'order_no' },
+      { header: '提单号', key: 'bill_no' },
+      { header: '开单名称', key: 'billing_name' },
+      { header: '车船', key: 'veh_ves_name' },
+      { header: '目的地', key: 'ship_to' },
+      { header: '总价格', key: 'total_price' },
+      { header: '单价', key: 'price' },
+      { header: '发运块数', key: 'send_num' },
+      { header: '发运重量', key: 'send_weight' },
+      { header: '起始地', key: 'ship_from' },
+      { header: '发货仓库', key: 'ship_warehouse' },
+      { header: '发货日期', key: 'ship_date' },
+      { header: '发货人', key: 'shipper' },
+      { header: '运单号', key: 'inv_no' },
+      { header: '规格大小', key: 'spec_size' },
+      { header: '规格', key: 'spec' },
+      { header: '合同号', key: 'contract_no' },
+    ],
+    data,
+  })
 }
 
 // 获取价格显示文本
@@ -770,6 +1015,15 @@ function toggleAllSettles() {
     selectedSettles.value = [...settledRecords.value]
   }
 }
+
+// 获取订单显示（包含项次号）
+function getOrderDisplay(bill: SettleBill) {
+  if (bill.order_item_no) {
+    const itemNo = String(bill.order_item_no).padStart(3, '0')
+    return `${bill.order_no}-${itemNo}`
+  }
+  return bill.order_no
+}
 </script>
 
 <template>
@@ -810,14 +1064,18 @@ function toggleAllSettles() {
 
           <!-- 未结算操作按钮 -->
           <template v-if="viewTab === 'unsettled'">
-            <!-- 价格输入 -->
-            <UiButton variant="outline" size="sm" @click="openPriceDialog">
+            <!-- 价格输入（智能） -->
+            <UiButton
+              variant="outline"
+              size="sm"
+              :disabled="selectedBills.length === 0"
+              @click="openPriceDialog"
+            >
               <span class="mr-1 font-semibold">¥</span>
-              单行输入
-            </UiButton>
-            <UiButton variant="outline" size="sm" @click="openBatchPriceDialog">
-              <span class="mr-1 font-semibold">¥</span>
-              批量输入
+              价格输入
+              <span v-if="selectedBills.length > 0" class="ml-1 text-xs opacity-70">
+                ({{ selectedBills.length }})
+              </span>
             </UiButton>
 
             <!-- 过滤和导出 -->
@@ -835,14 +1093,32 @@ function toggleAllSettles() {
               导出
             </UiButton>
 
-            <!-- 结算操作 -->
+            <!-- 结算篮按钮 -->
+            <UiButton
+              ref="basketButtonRef"
+              variant="default"
+              size="sm"
+              class="relative"
+              @click="showBasket = true"
+            >
+              <ShoppingCart class="w-4 h-4 mr-1" />
+              结算篮
+              <span
+                v-if="basketBills.length > 0"
+                class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse"
+              >
+                {{ basketBills.length > 99 ? '99+' : basketBills.length }}
+              </span>
+            </UiButton>
+
+            <!-- 原有结算操作 -->
             <UiButton
               variant="default"
               size="sm"
               :disabled="selectedBills.length === 0 || loading"
               @click="handleSettle"
             >
-              结算
+              直接结算
             </UiButton>
             <UiButton
               variant="outline"
@@ -903,6 +1179,17 @@ function toggleAllSettles() {
           <span v-if="selectedBills.length > 0" class="text-primary font-medium">
             已选: {{ selectedStatistics.totalNum }}块 / {{ selectedStatistics.totalWeight.toFixed(3) }}吨
           </span>
+          <!-- 加入结算篮按钮 -->
+          <UiButton
+            v-if="selectedBills.length > 0"
+            variant="default"
+            size="sm"
+            class="bg-orange-500 hover:bg-orange-600 text-white"
+            @click="addToBasket"
+          >
+            <ShoppingCart class="w-4 h-4 mr-1" />
+            加入结算篮 ({{ selectedBills.length }})
+          </UiButton>
           <div class="ml-auto flex items-center gap-2">
             <div class="flex items-center gap-2">
               <input
@@ -928,6 +1215,7 @@ function toggleAllSettles() {
           :settle-mode="settleMode"
           :loading="loading"
           :other-mode-has-data="otherModeHasData"
+          :basket-bills="basketBills"
           @switch-mode="switchMode"
         />
 
@@ -1110,5 +1398,189 @@ function toggleAllSettles() {
         </div>
       </TabsContent>
     </Tabs>
+
+    <!-- 结算篮滑出面板 -->
+    <Teleport to="body">
+      <Transition name="basket-fade">
+        <div
+          v-if="showBasket"
+          class="fixed inset-0 bg-black/50 z-50"
+          @click="showBasket = false"
+        />
+      </Transition>
+      <Transition name="basket-slide">
+        <div
+          v-if="showBasket"
+          class="fixed right-0 top-0 h-full w-[500px] max-w-[90vw] bg-background shadow-xl z-50 flex flex-col"
+        >
+          <!-- 头部 -->
+          <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+            <div class="flex items-center gap-2">
+              <ShoppingCart class="w-5 h-5 text-primary" />
+              <span class="font-semibold text-lg">结算篮</span>
+              <span class="text-muted-foreground text-sm">({{ basketBills.length }} 条)</span>
+            </div>
+            <button
+              class="p-1 hover:bg-muted rounded-md transition-colors"
+              @click="showBasket = false"
+            >
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+
+          <!-- 统计信息 -->
+          <div class="px-4 py-2 border-b bg-muted/20 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-muted-foreground">块数: <strong class="text-foreground">{{ basketStatistics.totalNum }}</strong></span>
+              <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong> 吨</span>
+              <span class="text-muted-foreground">金额: <strong class="text-primary">¥{{ basketStatistics.totalAmount.toFixed(2) }}</strong></span>
+            </div>
+          </div>
+
+          <!-- 列表内容 -->
+          <div class="flex-1 overflow-y-auto p-4 space-y-2">
+            <div
+              v-if="basketBills.length === 0"
+              class="flex flex-col items-center justify-center h-full text-muted-foreground"
+            >
+              <ShoppingCart class="w-12 h-12 mb-2 opacity-30" />
+              <p>结算篮为空</p>
+              <p class="text-sm">请选择提单后点击"加入结算篮"</p>
+            </div>
+            <div
+              v-for="bill in basketBills"
+              v-else
+              :key="bill._id"
+              class="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border hover:border-primary/50 transition-colors"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-medium truncate">{{ bill.bill_no }}</span>
+                  <span class="text-xs text-muted-foreground">{{ getOrderDisplay(bill) }}</span>
+                </div>
+                <div class="text-sm text-muted-foreground truncate">
+                  {{ bill.billing_name }}
+                </div>
+                <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                  <span>{{ bill.send_num }}块</span>
+                  <span>{{ bill.send_weight.toFixed(3) }}吨</span>
+                  <span class="text-primary">
+                    ¥{{ ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2) }}
+                  </span>
+                </div>
+              </div>
+              <button
+                class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                title="从结算篮移除"
+                @click="removeFromBasket(bill)"
+              >
+                <Trash2 class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <!-- 底部操作 -->
+          <div class="px-4 py-3 border-t bg-muted/30 space-y-2">
+            <div class="flex items-center gap-2">
+              <UiButton
+                variant="outline"
+                size="sm"
+                class="flex-1"
+                :disabled="basketBills.length === 0"
+                @click="clearBasket"
+              >
+                <Trash2 class="w-4 h-4 mr-1" />
+                清空
+              </UiButton>
+              <UiButton
+                variant="default"
+                size="sm"
+                class="flex-1"
+                :disabled="basketBills.length === 0 || loading"
+                @click="handleSettleFromBasket"
+              >
+                结算 ({{ basketBills.length }})
+              </UiButton>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 飞行动画元素 -->
+    <Teleport to="body">
+      <div
+        v-for="item in flyingItems"
+        :key="item.id"
+        class="flying-item"
+        :style="{
+          '--start-x': `${item.x}px`,
+          '--start-y': `${item.y}px`,
+          '--end-x': `${item.targetX}px`,
+          '--end-y': `${item.targetY}px`,
+        }"
+      >
+        <div class="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center shadow-lg">
+          <ShoppingCart class="w-4 h-4 text-white" />
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>
+
+<style scoped>
+.basket-fade-enter-active,
+.basket-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.basket-fade-enter-from,
+.basket-fade-leave-to {
+  opacity: 0;
+}
+
+.basket-slide-enter-active,
+.basket-slide-leave-active {
+  transition: transform 0.3s ease;
+}
+.basket-slide-enter-from,
+.basket-slide-leave-to {
+  transform: translateX(100%);
+}
+
+/* 飞行动画 */
+.flying-item {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  left: var(--start-x);
+  top: var(--start-y);
+  transform: translate(-50%, -50%);
+  animation: fly-to-basket 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes fly-to-basket {
+  0% {
+    left: var(--start-x);
+    top: var(--start-y);
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  100% {
+    left: var(--end-x);
+    top: var(--end-y);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.3);
+  }
+}
+</style>

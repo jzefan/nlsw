@@ -46,6 +46,7 @@
     "dayjs": "^1.11.19",
     "embla-carousel-autoplay": "^8.6.0",
     "embla-carousel-vue": "^8.6.0",
+    "exceljs": "^4.4.0",
     "lucide-vue-next": "0.553.0",
     "motion-v": "1.7.4",
     "nprogress": "^0.2.0",

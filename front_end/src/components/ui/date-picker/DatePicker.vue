@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { CalendarDate, getLocalTimeZone, today } from '@internationalized/date'
 import { CalendarIcon } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'

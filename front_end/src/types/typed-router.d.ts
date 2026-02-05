@@ -37,16 +37,9 @@ declare module 'vue-router/auto-routes' {
       { path: ParamValue<false> },
       | never
     >,
-    '/ai-talk/': RouteRecordInfo<
-      '/ai-talk/',
-      '/ai-talk',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/apps/': RouteRecordInfo<
-      '/apps/',
-      '/apps',
+    '/admin/users': RouteRecordInfo<
+      '/admin/users',
+      '/admin/users',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -93,13 +86,6 @@ declare module 'vue-router/auto-routes' {
     '/auth/sign-up': RouteRecordInfo<
       '/auth/sign-up',
       '/auth/sign-up',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/billing/': RouteRecordInfo<
-      '/billing/',
-      '/billing',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -396,20 +382,6 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
-    '/tasks/': RouteRecordInfo<
-      '/tasks/',
-      '/tasks',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/users/': RouteRecordInfo<
-      '/users/',
-      '/users',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
   }
 
   /**
@@ -435,15 +407,9 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
-    'src/pages/ai-talk/index.vue': {
+    'src/pages/admin/users.vue': {
       routes:
-        | '/ai-talk/'
-      views:
-        | never
-    }
-    'src/pages/apps/index.vue': {
-      routes:
-        | '/apps/'
+        | '/admin/users'
       views:
         | never
     }
@@ -485,12 +451,6 @@ declare module 'vue-router/auto-routes' {
     'src/pages/auth/sign-up.vue': {
       routes:
         | '/auth/sign-up'
-      views:
-        | never
-    }
-    'src/pages/billing/index.vue': {
-      routes:
-        | '/billing/'
       views:
         | never
     }
@@ -743,18 +703,6 @@ declare module 'vue-router/auto-routes' {
     'src/pages/sva-components/index.vue': {
       routes:
         | '/sva-components/'
-      views:
-        | never
-    }
-    'src/pages/tasks/index.vue': {
-      routes:
-        | '/tasks/'
-      views:
-        | never
-    }
-    'src/pages/users/index.vue': {
-      routes:
-        | '/users/'
       views:
         | never
     }

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import ProfileForm from './components/profile-form.vue'
-import SettingsLayout from './components/settings-layout.vue'
+// 重定向到账号设置页面
+const router = useRouter()
+onMounted(() => {
+  router.replace('/settings/account')
+})
 </script>
 
 <template>
-  <SettingsLayout>
-    <ProfileForm />
-  </SettingsLayout>
+  <div />
 </template>

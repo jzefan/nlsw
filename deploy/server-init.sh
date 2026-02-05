@@ -4,6 +4,9 @@
 
 set -e
 
+# 设置 Node.js 路径
+export PATH="$HOME/sw/node-v22.22/bin:$PATH"
+
 echo "======================================"
 echo "  服务器环境初始化脚本"
 echo "  Ubuntu 22.04"
@@ -17,7 +20,8 @@ echo "[1/4] 检查Node.js..."
 if command -v node &> /dev/null; then
     echo "✓ Node.js: $(node -v)"
 else
-    echo "✗ 错误: Node.js 未安装"
+    echo "✗ 错误: Node.js 未安装或路径不正确"
+    echo "  请确认 Node.js 安装在 ~/sw/node-v22.22/"
     exit 1
 fi
 
@@ -34,7 +38,7 @@ if command -v mongod &> /dev/null; then
         echo "  端口: $MONGO_PORT"
     else
         echo "! MongoDB 服务未运行，正在启动..."
-        systemctl start mongod
+        sudo systemctl start mongod
         echo "✓ MongoDB 已启动"
     fi
 else
@@ -49,7 +53,7 @@ if command -v pm2 &> /dev/null; then
     echo "✓ PM2 已安装: $(pm2 -v)"
 else
     npm install -g pm2
-    pm2 startup systemd -u root --hp /root
+    pm2 startup systemd -u $USER --hp $HOME
     echo "✓ PM2 安装完成"
 fi
 
@@ -66,26 +70,26 @@ echo "[4/4] 安装Nginx..."
 if command -v nginx &> /dev/null; then
     echo "✓ Nginx 已安装: $(nginx -v 2>&1)"
 else
-    apt-get update -y
-    apt-get install -y nginx
-    systemctl enable nginx
-    systemctl start nginx
+    sudo apt-get update -y
+    sudo apt-get install -y nginx
+    sudo systemctl enable nginx
+    sudo systemctl start nginx
     echo "✓ Nginx 安装完成"
 fi
 
 # 创建应用目录
 echo ""
 echo "创建应用目录..."
-mkdir -p /home/app/nlsw/logs
-mkdir -p /var/log/nginx
+mkdir -p /home/ubuntu/nlsw2/logs
+sudo mkdir -p /var/log/nginx
 echo "✓ 目录已创建"
 
 # 配置防火墙
 echo ""
 echo "配置防火墙..."
 if command -v ufw &> /dev/null; then
-    ufw allow 80/tcp 2>/dev/null || true
-    ufw allow 22/tcp 2>/dev/null || true
+    sudo ufw allow 80/tcp 2>/dev/null || true
+    sudo ufw allow 22/tcp 2>/dev/null || true
     echo "✓ 防火墙已配置 (80, 22 端口)"
 fi
 
@@ -96,8 +100,8 @@ echo "  环境检查完成"
 echo "======================================"
 echo "Node.js:  $(node -v)"
 echo "npm:      $(npm -v)"
-echo "PM2:      $(pm2 -v)"
-echo "serve:    $(serve -v 2>/dev/null || echo '已安装')"
+echo "PM2:      $(pm2 -v 2>/dev/null || echo '未安装')"
+echo "serve:    $(serve -v 2>/dev/null || echo '未安装')"
 echo "Nginx:    $(nginx -v 2>&1 | cut -d'/' -f2)"
 echo "MongoDB:  $(mongod --version | head -1 | awk '{print $3}')"
 echo ""

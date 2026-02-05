@@ -53,7 +53,7 @@ function getSortedColumns(): ColumnDef[] {
     </div>
 
     <!-- Table with all columns -->
-    <div class="overflow-auto max-h-[500px]">
+    <div class="overflow-auto">
       <table class="w-full text-sm">
         <thead class="bg-muted/50 sticky top-0 z-10">
           <tr>

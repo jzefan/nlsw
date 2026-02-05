@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import {
   BadgeCheck,
-  Bell,
   ChevronsUpDown,
   LogOut,
-  UserRoundCog,
+  Users,
 } from 'lucide-vue-next'
 
 import { useSidebar } from '@/components/ui/sidebar'
@@ -25,6 +24,8 @@ const avatarFallback = computed(() => {
   const name = authUser.value?.name || authUser.value?.userid || 'U'
   return name.substring(0, 2).toUpperCase()
 })
+// 是否是管理员
+const isAdmin = computed(() => authUser.value?.privilege === '11111111')
 </script>
 
 <template>
@@ -70,9 +71,9 @@ const avatarFallback = computed(() => {
 
           <UiDropdownMenuSeparator />
           <UiDropdownMenuGroup>
-            <UiDropdownMenuItem @click="$router.push('/settings/')">
-              <UserRoundCog />
-              个人设置
+            <UiDropdownMenuItem v-if="isAdmin" @click="$router.push('/admin/users')">
+              <Users />
+              用户管理
             </UiDropdownMenuItem>
             <UiDropdownMenuItem @click="$router.push('/settings/account')">
               <BadgeCheck />

@@ -4,11 +4,7 @@ import type { NavGroup } from '@/components/app-sidebar/types'
 
 export function useSidebar() {
   const settingsNavItems = [
-    { title: 'Profile', url: '/settings/', icon: User },
-    { title: 'Account', url: '/settings/account', icon: Wrench },
-    { title: 'Appearance', url: '/settings/appearance', icon: Palette },
-    { title: 'Notifications', url: '/settings/notifications', icon: BellDot },
-    { title: 'Display', url: '/settings/display', icon: PictureInPicture2 },
+    { title: '密码修改', url: '/settings/account', icon: Wrench },
   ]
 
   const navData = ref<NavGroup[]> ([
@@ -30,7 +26,6 @@ export function useSidebar() {
           icon: SquareUserRound,
           items: [
             { title: 'Sign In', url: '/auth/sign-in' },
-            { title: 'Sign In(2 Col)', url: '/auth/sign-in-2' },
             { title: 'Sign Up', url: '/auth/sign-up' },
             { title: 'Forgot Password', url: '/auth/forgot-password' },
             { title: 'OTP', url: '/auth/otp' },

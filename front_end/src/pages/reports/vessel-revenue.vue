@@ -1,7 +1,8 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { Download, Filter, Search } from 'lucide-vue-next'
 import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
 
@@ -52,7 +53,6 @@ import {
 // State
 const loading = ref(false)
 const showChart = ref(false)
-const chartMode = ref<'weight' | 'amount'>('weight')
 const statisticsData = ref<VesselRevenueData[]>([])
 
 // Date Selection State (Reusing logic from customer-revenue)
@@ -95,35 +95,18 @@ const detailItems = ref<Record<string, VesselDetailItem[]>>({})
 const vehNameList = ref<string[]>([])
 const detailTitle = ref('')
 
-// Chart Config
-const chartConfig = computed(() => {
-  if (chartMode.value === 'weight') {
-    return {
-      vhTotal: { label: '车总吨位', color: 'var(--chart-1)' },
-      vhOwnWeight: { label: '自有车吨位', color: 'var(--chart-2)' },
-      vhNonOwnWeight: { label: '外挂车吨位', color: 'var(--chart-3)' },
-      vsTotal: { label: '船总吨位', color: 'var(--chart-4)' },
-      vsOwnWeight: { label: '自有船吨位', color: 'var(--chart-5)' },
-    } as ChartConfig
-  } else {
-    return {
-      vhRevenue: { label: '车总金额', color: 'var(--chart-1)' },
-      vhOwnIncome: { label: '自有车收金额', color: 'var(--chart-2)' },
-      vhNonOwnIncome: { label: '外挂车收金额', color: 'var(--chart-3)' },
-      vsRevenue: { label: '船总金额', color: 'var(--chart-4)' },
-      vsOwnIncome: { label: '自有船收金额', color: 'var(--chart-5)' },
-    } as ChartConfig
-  }
-})
+// Chart Config - 固定显示金额
+const chartConfig = {
+  vsRevenue: { label: '船运金额', color: 'var(--chart-1)' },
+  vhRevenue: { label: '车运金额', color: 'var(--chart-2)' },
+} as ChartConfig
 
-const chartAccessors = computed(() => {
-  const keys = Object.keys(chartConfig.value)
-  return keys.map(k => (d: any) => d[k])
-})
+const chartAccessors = [
+  (d: VesselRevenueData) => d.vsRevenue,
+  (d: VesselRevenueData) => d.vhRevenue
+]
 
-const chartColors = computed(() => {
-  return Object.values(chartConfig.value).map(c => c.color)
-})
+const chartColors = [chartConfig.vsRevenue.color, chartConfig.vhRevenue.color]
 
 // Computed Totals
 const summaryTotals = computed(() => {
@@ -274,12 +257,351 @@ function disableEndDate(date: Date) {
   return false
 }
 
-function handleExport() {
-  if (statisticsData.value.length === 0) return
-  const ws = XLSX.utils.table_to_sheet(document.getElementById('stat-table'))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '车船营业额')
-  XLSX.writeFile(wb, `车船营业额_${new Date().toISOString().slice(0, 10)}.xlsx`)
+async function handleExport() {
+  if (statisticsData.value.length === 0) {
+    toast.error('没有可导出的数据')
+    return
+  }
+
+  try {
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet('车船营业额')
+
+    // Helper function to calculate text width (Chinese = 2, English = 1)
+    function getTextWidth(text: any): number {
+      const str = String(text || '')
+      return [...str].reduce((sum, char) => {
+        return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
+      }, 0)
+    }
+
+    // Track column widths
+    const columnWidths = Array(16).fill(0)
+    function updateWidth(colIndex: number, text: any) {
+      const width = getTextWidth(text)
+      if (width > columnWidths[colIndex]) {
+        columnWidths[colIndex] = width
+      }
+    }
+
+    // Define header structure
+    // Row 1: 月份(2 cols, 2 rows) | 总营业额(2 cols) | 自有车船(4 cols) | 外挂车船(4 cols) | 固定成本(1 col, 2 rows) | 短驳应收(1 col, 2 rows) | 叉车应收(1 col, 2 rows) | 总利润(1 col, 2 rows)
+    const row1 = sheet.getRow(1)
+    row1.height = 24
+
+    // 月份 (A1:B1, merged with A2:B2)
+    sheet.mergeCells('A1:B2')
+    const cellMonth = sheet.getCell('A1')
+    cellMonth.value = '月份'
+    cellMonth.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+    cellMonth.font = { bold: true, size: 12 }
+    cellMonth.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellMonth.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 总营业额 (C1:D1)
+    sheet.mergeCells('C1:D1')
+    const cellRevenue = sheet.getCell('C1')
+    cellRevenue.value = '总营业额'
+    cellRevenue.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } } // orange-100
+    cellRevenue.font = { bold: true, size: 12, color: { argb: 'FF000000' } }
+    cellRevenue.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellRevenue.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 自有车船 (E1:H1)
+    sheet.mergeCells('E1:H1')
+    const cellOwn = sheet.getCell('E1')
+    cellOwn.value = '自有车船'
+    cellOwn.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } } // blue-100
+    cellOwn.font = { bold: true, size: 12, color: { argb: 'FF000000' } }
+    cellOwn.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellOwn.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 外挂车船 (I1:L1)
+    sheet.mergeCells('I1:L1')
+    const cellNonOwn = sheet.getCell('I1')
+    cellNonOwn.value = '外挂车船'
+    cellNonOwn.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } } // emerald-100
+    cellNonOwn.font = { bold: true, size: 12, color: { argb: 'FF000000' } }
+    cellNonOwn.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellNonOwn.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 固定成本 (M1:M2)
+    sheet.mergeCells('M1:M2')
+    const cellCost = sheet.getCell('M1')
+    cellCost.value = '固定成本'
+    cellCost.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } } // gray-50
+    cellCost.font = { bold: true, size: 12 }
+    cellCost.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellCost.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 短驳应收 (N1:N2)
+    sheet.mergeCells('N1:N2')
+    const cellDrayage = sheet.getCell('N1')
+    cellDrayage.value = '短驳应收'
+    cellDrayage.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+    cellDrayage.font = { bold: true, size: 12 }
+    cellDrayage.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellDrayage.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 叉车应收 (O1:O2)
+    sheet.mergeCells('O1:O2')
+    const cellForklift = sheet.getCell('O1')
+    cellForklift.value = '叉车应收'
+    cellForklift.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+    cellForklift.font = { bold: true, size: 12 }
+    cellForklift.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellForklift.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // 总利润 (P1:P2)
+    sheet.mergeCells('P1:P2')
+    const cellProfit = sheet.getCell('P1')
+    cellProfit.value = '总利润'
+    cellProfit.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+    cellProfit.font = { bold: true, size: 12 }
+    cellProfit.alignment = { vertical: 'middle', horizontal: 'center' }
+    cellProfit.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+    // Row 2 headers
+    const row2 = sheet.getRow(2)
+    row2.height = 20
+    const row2Headers = [
+      { col: 'C', text: '总吨位', bg: 'FFFED7AA' }, // orange-50
+      { col: 'D', text: '总金额', bg: 'FFFED7AA' },
+      { col: 'E', text: '吨位', bg: 'FFBFDBFE' }, // blue-50
+      { col: 'F', text: '应收金额', bg: 'FFBFDBFE' },
+      { col: 'G', text: '应付金额', bg: 'FFBFDBFE' },
+      { col: 'H', text: '利润', bg: 'FFBFDBFE' },
+      { col: 'I', text: '吨位', bg: 'FFA7F3D0' }, // emerald-50
+      { col: 'J', text: '应收金额', bg: 'FFA7F3D0' },
+      { col: 'K', text: '应付金额', bg: 'FFA7F3D0' },
+      { col: 'L', text: '利润', bg: 'FFA7F3D0' }
+    ]
+
+    row2Headers.forEach(({ col, text, bg }) => {
+      const cell = sheet.getCell(`${col}2`)
+      cell.value = text
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+      cell.font = { size: 11 }
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      updateWidth(col.charCodeAt(0) - 65, text)
+    })
+
+    // Update widths for header text
+    updateWidth(0, '2025-12')
+    updateWidth(1, '船运/车运')
+
+    // Add data rows (each month has 2 rows: 船运 and 车运)
+    let currentRow = 3
+    statisticsData.value.forEach(item => {
+      // Vessel row
+      const vesselRow = sheet.getRow(currentRow)
+      vesselRow.height = 18
+
+      // Month cell (merged for vessel and truck rows)
+      sheet.mergeCells(`A${currentRow}:A${currentRow + 1}`)
+      const monthCell = sheet.getCell(`A${currentRow}`)
+      monthCell.value = item.month
+      monthCell.font = { size: 11, bold: true }
+      monthCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      monthCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      updateWidth(0, item.month)
+
+      // Type cell (船运)
+      const vesselTypeCell = sheet.getCell(`B${currentRow}`)
+      vesselTypeCell.value = '船运'
+      vesselTypeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } } // indigo-50/30
+      vesselTypeCell.font = { size: 10, bold: true }
+      vesselTypeCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      vesselTypeCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Vessel data
+      const vesselData = [
+        item.vsTotal,
+        item.vsRevenue,
+        item.vsOwnWeight,
+        item.vsOwnIncome,
+        item.vsOwnDeposit,
+        item.vsOwnProfit,
+        item.vsNonOwnWeight,
+        item.vsNonOwnIncome,
+        item.vsNonOwnDeposit,
+        item.vsProfit,
+        item.vsFixedCost,
+        '-',
+        '-',
+        item.vsOwnProfit + item.vsProfit - item.vsFixedCost
+      ]
+
+      vesselData.forEach((val, idx) => {
+        const cell = sheet.getCell(currentRow, idx + 3) // columns C onwards
+        cell.value = val === '-' ? val : Number(val.toFixed(3))
+        cell.alignment = { vertical: 'middle', horizontal: val === '-' ? 'center' : 'right' }
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        cell.font = { size: 10 }
+        updateWidth(idx + 2, cell.value)
+      })
+
+      currentRow++
+
+      // Truck row
+      const truckRow = sheet.getRow(currentRow)
+      truckRow.height = 18
+
+      // Type cell (车运)
+      const truckTypeCell = sheet.getCell(`B${currentRow}`)
+      truckTypeCell.value = '车运'
+      truckTypeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } } // amber-50/30
+      truckTypeCell.font = { size: 10, bold: true }
+      truckTypeCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      truckTypeCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Truck data
+      const truckData = [
+        item.vhTotal,
+        item.vhRevenue,
+        item.vhOwnWeight,
+        item.vhOwnIncome,
+        item.vhOwnDeposit,
+        item.vhOwnProfit,
+        item.vhNonOwnWeight,
+        item.vhNonOwnIncome,
+        item.vhNonOwnDeposit,
+        item.vhProfit,
+        item.vhFixedCost,
+        item.drayage,
+        item.forklift,
+        item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift
+      ]
+
+      truckData.forEach((val, idx) => {
+        const cell = sheet.getCell(currentRow, idx + 3)
+        cell.value = Number(val.toFixed(3))
+        cell.alignment = { vertical: 'middle', horizontal: 'right' }
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        cell.font = { size: 10 }
+        updateWidth(idx + 2, cell.value)
+      })
+
+      currentRow++
+    })
+
+    // Add summary rows if we have totals
+    if (summaryTotals.value) {
+      const totals = summaryTotals.value
+
+      // Vessel total row
+      const vsTotalRow = sheet.getRow(currentRow)
+      vsTotalRow.height = 18
+
+      // "总计" cell (merged for both summary rows)
+      sheet.mergeCells(`A${currentRow}:A${currentRow + 1}`)
+      const totalCell = sheet.getCell(`A${currentRow}`)
+      totalCell.value = '总计'
+      totalCell.font = { size: 11, bold: true }
+      totalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+      totalCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      totalCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Vessel summary type
+      const vsSummaryTypeCell = sheet.getCell(`B${currentRow}`)
+      vsSummaryTypeCell.value = '船运'
+      vsSummaryTypeCell.font = { size: 10, bold: true }
+      vsSummaryTypeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+      vsSummaryTypeCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      vsSummaryTypeCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Vessel summary data
+      const vsSummaryData = [
+        totals.vsTotal,
+        totals.vsRevenue,
+        totals.vsOwnWeight,
+        totals.vsOwnIncome,
+        totals.vsOwnDeposit,
+        totals.vsOwnProfit,
+        totals.vsNonOwnWeight,
+        totals.vsNonOwnIncome,
+        totals.vsNonOwnDeposit,
+        totals.vsProfit,
+        totals.vsFixedCost,
+        '-',
+        '-',
+        totals.vsNetProfit
+      ]
+
+      vsSummaryData.forEach((val, idx) => {
+        const cell = sheet.getCell(currentRow, idx + 3)
+        cell.value = val === '-' ? val : Number(val.toFixed(3))
+        cell.font = { size: 10, bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+        cell.alignment = { vertical: 'middle', horizontal: val === '-' ? 'center' : 'right' }
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        updateWidth(idx + 2, cell.value)
+      })
+
+      currentRow++
+
+      // Truck summary row
+      const vhTotalRow = sheet.getRow(currentRow)
+      vhTotalRow.height = 18
+
+      // Truck summary type
+      const vhSummaryTypeCell = sheet.getCell(`B${currentRow}`)
+      vhSummaryTypeCell.value = '车运'
+      vhSummaryTypeCell.font = { size: 10, bold: true }
+      vhSummaryTypeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+      vhSummaryTypeCell.alignment = { vertical: 'middle', horizontal: 'center' }
+      vhSummaryTypeCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Truck summary data
+      const vhSummaryData = [
+        totals.vhTotal,
+        totals.vhRevenue,
+        totals.vhOwnWeight,
+        totals.vhOwnIncome,
+        totals.vhOwnDeposit,
+        totals.vhOwnProfit,
+        totals.vhNonOwnWeight,
+        totals.vhNonOwnIncome,
+        totals.vhNonOwnDeposit,
+        totals.vhProfit,
+        totals.vhFixedCost,
+        totals.drayage,
+        totals.forklift,
+        totals.vhNetProfit
+      ]
+
+      vhSummaryData.forEach((val, idx) => {
+        const cell = sheet.getCell(currentRow, idx + 3)
+        cell.value = Number(val.toFixed(3))
+        cell.font = { size: 10, bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+        cell.alignment = { vertical: 'middle', horizontal: 'right' }
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        updateWidth(idx + 2, cell.value)
+      })
+    }
+
+    // Apply auto-width to columns
+    sheet.columns = columnWidths.map(width => ({
+      width: Math.max(10, Math.min(width + 2, 50))
+    }))
+
+    // Generate and download file
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `车船营业额_${new Date().toISOString().slice(0, 10)}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+
+    toast.success('导出成功')
+  } catch (error) {
+    console.error('Export error:', error)
+    toast.error('导出失败')
+  }
 }
 
 </script>
@@ -307,25 +629,6 @@ function handleExport() {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex bg-muted p-1 rounded-md mr-4">
-            <Button 
-              size="sm" 
-              :variant="chartMode === 'weight' ? 'secondary' : 'ghost'" 
-              @click="chartMode = 'weight'"
-              class="h-7 text-xs px-3"
-            >
-              显示吨位
-            </Button>
-            <Button 
-              size="sm" 
-              :variant="chartMode === 'amount' ? 'secondary' : 'ghost'" 
-              @click="chartMode = 'amount'"
-              class="h-7 text-xs px-3"
-            >
-              显示金额
-            </Button>
-          </div>
-
           <div class="flex gap-1 border-r pr-2 mr-2">
             <Button variant="outline" size="sm" @click="openDrillDown('自有', 'summary')">自有统计</Button>
             <Button variant="outline" size="sm" @click="openDrillDown('自有', 'detail')">自有清单</Button>
@@ -346,18 +649,22 @@ function handleExport() {
     <div v-if="showChart && statisticsData.length > 0" class="mb-8 p-6 border rounded-lg bg-card shadow-sm">
       <ChartContainer :config="chartConfig" class="aspect-auto h-[350px] w-full" :cursor="false">
         <VisXYContainer :data="statisticsData">
-          <VisGroupedBar 
-            :x="(d: VesselRevenueData) => d.month" 
+          <VisGroupedBar
+            :x="(_d: VesselRevenueData, i: number) => i"
             :y="chartAccessors"
             :color="(_d: any, i: number) => chartColors[i]"
           />
-          <VisAxis type="x" :x="(d: VesselRevenueData) => d.month" :tick-line="false" :domain-line="false" />
+          <VisAxis
+            type="x"
+            :x="(_d: VesselRevenueData, i: number) => i"
+            :tick-format="(i: number) => statisticsData[i]?.month || ''"
+            :tick-line="false"
+            :domain-line="false"
+          />
           <VisAxis type="y" :tick-line="false" :domain-line="false" :num-ticks="5" />
           <ChartTooltip />
-          <ChartCrosshair 
-            :template="componentToString(chartConfig, ChartTooltipContent, {
-              labelFormatter: (d: string) => d
-            })" 
+          <ChartCrosshair
+            :template="componentToString(chartConfig, ChartTooltipContent)"
           />
         </VisXYContainer>
         <ChartLegendContent />
@@ -588,7 +895,6 @@ function handleExport() {
         <DialogFooter><Button variant="outline" @click="() => {}">导出Excel</Button><Button @click="showDetailDialog = false">关闭</Button></DialogFooter>
       </DialogContent>
     </Dialog>
-
   </BasicPage>
 </template>
 

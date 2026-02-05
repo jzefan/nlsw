@@ -92,7 +92,7 @@ function handleEndChange(event: Event) {
       </div>
     </CardHeader>
     <CardContent class="pl-0">
-      <VisXYContainer :data="chartData" :height="350" :xDomain="xDomain" :yDomain="[0, undefined]">
+      <VisXYContainer :data="chartData" :height="380" :xDomain="xDomain" :yDomain="[0, undefined]">
         <VisStackedBar 
           :x="x" 
           :y="y" 

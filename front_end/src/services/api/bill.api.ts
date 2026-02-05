@@ -50,7 +50,7 @@ export interface BillCreateData {
   productType?: string
   thickness?: number
   width?: number
-  length?: number
+  len?: number
   weight?: number
   blockNum?: number
   totalWeight: number

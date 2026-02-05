@@ -1,0 +1,249 @@
+import { ref } from 'vue'
+import { toast } from 'vue-sonner'
+import * as XLSX from 'xlsx'
+
+export interface ExportColumn {
+  /** 表头名称 */
+  header: string
+  /** 数据字段名 */
+  key: string
+  /** 格式化函数 */
+  formatter?: (value: any, row: any) => any
+}
+
+export interface ExportOptions {
+  /** 文件名（不含扩展名） */
+  fileName: string
+  /** 工作表名称 */
+  sheetName?: string
+  /** 列定义 */
+  columns: ExportColumn[]
+  /** 数据 */
+  data: any[]
+}
+
+export interface ExportAOAOptions {
+  /** AOA 数据（二维数组） */
+  aoa: any[][]
+  /** 文件名（不含扩展名） */
+  fileName: string
+  /** 工作表名称 */
+  sheetName?: string
+}
+
+type PendingExport = {
+  type: 'columns'
+  options: ExportOptions
+} | {
+  type: 'aoa'
+  options: ExportAOAOptions
+}
+
+/**
+ * 导出功能 composable
+ */
+export function useExport() {
+  // 对话框状态
+  const showExportDialog = ref(false)
+  const exportFileName = ref('')
+  const pendingExport = ref<PendingExport | null>(null)
+
+  /**
+   * 生成工作簿（从列定义）
+   */
+  function generateWorkbook(options: ExportOptions): XLSX.WorkBook {
+    const { columns, data, sheetName } = options
+
+    // 构建表头
+    const headers = columns.map(col => col.header)
+
+    // 构建数据行
+    const rows = data.map((row) => {
+      return columns.map((col) => {
+        const value = row[col.key]
+        if (col.formatter) {
+          return col.formatter(value, row)
+        }
+        return value
+      })
+    })
+
+    // 创建工作表
+    const aoa = [headers, ...rows]
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+    // 自动调整列宽
+    const colWidths = columns.map((col, idx) => {
+      let maxWidth = col.header.length
+      rows.forEach((row) => {
+        const cellValue = String(row[idx] ?? '')
+        // 计算中文字符宽度（中文字符算2个宽度）
+        const width = [...cellValue].reduce((sum, char) => {
+          return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
+        }, 0)
+        maxWidth = Math.max(maxWidth, width)
+      })
+      return { wch: Math.min(maxWidth + 2, 60) }
+    })
+    ws['!cols'] = colWidths
+
+    // 创建工作簿
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1')
+
+    return wb
+  }
+
+  /**
+   * 生成工作簿（从 AOA）
+   */
+  function generateWorkbookFromAOA(aoa: any[][], sheetName?: string): XLSX.WorkBook {
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+    // 自动调整列宽
+    if (aoa.length > 0) {
+      const colWidths = aoa[0].map((_, colIdx) => {
+        let maxWidth = 0
+        aoa.forEach((row) => {
+          const cellValue = String(row[colIdx] ?? '')
+          const width = [...cellValue].reduce((sum, char) => {
+            return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
+          }, 0)
+          maxWidth = Math.max(maxWidth, width)
+        })
+        return { wch: Math.min(maxWidth + 2, 60) }
+      })
+      ws['!cols'] = colWidths
+    }
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1')
+
+    return wb
+  }
+
+  /**
+   * 直接导出（使用默认文件名，直接下载）
+   */
+  function exportDirect(options: ExportOptions) {
+    try {
+      const wb = generateWorkbook(options)
+      XLSX.writeFile(wb, `${options.fileName}.xlsx`)
+      toast.success('导出成功')
+    }
+    catch (error: any) {
+      console.error('Export error:', error)
+      toast.error('导出失败', { description: error.message })
+    }
+  }
+
+  /**
+   * 打开导出对话框（列定义方式）
+   */
+  function exportWithPicker(options: ExportOptions) {
+    pendingExport.value = { type: 'columns', options }
+    exportFileName.value = options.fileName
+    showExportDialog.value = true
+  }
+
+  /**
+   * 打开导出对话框（AOA 方式）
+   */
+  function exportFromAOAWithPicker(aoa: any[][], defaultFileName: string, sheetName?: string) {
+    pendingExport.value = {
+      type: 'aoa',
+      options: { aoa, fileName: defaultFileName, sheetName },
+    }
+    exportFileName.value = defaultFileName
+    showExportDialog.value = true
+  }
+
+  /**
+   * 从 AOA（二维数组）直接导出
+   */
+  function exportFromAOA(aoa: any[][], fileName: string, sheetName?: string) {
+    try {
+      const wb = generateWorkbookFromAOA(aoa, sheetName)
+      XLSX.writeFile(wb, `${fileName}.xlsx`)
+      toast.success('导出成功')
+    }
+    catch (error: any) {
+      console.error('Export error:', error)
+      toast.error('导出失败', { description: error.message })
+    }
+  }
+
+  /**
+   * 确认导出（由对话框调用）
+   */
+  async function confirmExport(fileName: string, directoryHandle: FileSystemDirectoryHandle | null) {
+    if (!pendingExport.value)
+      return
+
+    try {
+      let wb: XLSX.WorkBook
+
+      if (pendingExport.value.type === 'columns') {
+        wb = generateWorkbook(pendingExport.value.options)
+      }
+      else {
+        wb = generateWorkbookFromAOA(
+          pendingExport.value.options.aoa,
+          pendingExport.value.options.sheetName,
+        )
+      }
+
+      const fullFileName = `${fileName}.xlsx`
+
+      if (directoryHandle) {
+        // 保存到用户选择的目录
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+        const blob = new Blob([wbout], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+
+        const fileHandle = await directoryHandle.getFileHandle(fullFileName, { create: true })
+        const writable = await fileHandle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+
+        toast.success('导出成功', { description: `已保存到 ${directoryHandle.name}/${fullFileName}` })
+      }
+      else {
+        // 保存到默认下载目录
+        XLSX.writeFile(wb, fullFileName)
+        toast.success('导出成功')
+      }
+    }
+    catch (error: any) {
+      console.error('Export error:', error)
+      toast.error('导出失败', { description: error.message })
+    }
+    finally {
+      pendingExport.value = null
+      showExportDialog.value = false
+    }
+  }
+
+  /**
+   * 取消导出
+   */
+  function cancelExport() {
+    pendingExport.value = null
+    showExportDialog.value = false
+  }
+
+  return {
+    // 对话框状态
+    showExportDialog,
+    exportFileName,
+
+    // 方法
+    exportDirect,
+    exportWithPicker,
+    exportFromAOA,
+    exportFromAOAWithPicker,
+    confirmExport,
+    cancelExport,
+  }
+}

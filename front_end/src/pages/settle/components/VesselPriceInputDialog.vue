@@ -57,7 +57,7 @@ function open(inv: any, isVessel: boolean, inner?: string) {
     }
     remark.value = inv.price_remark || ''
   }
-  else {
+  else if (inner) {
     // 内部车辆
     const vehObj = makeVehInfo(inv)
     if (vehObj && vehObj[inner]) {

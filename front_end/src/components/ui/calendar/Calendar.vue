@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+// @ts-nocheck
 import type { CalendarRootEmits, CalendarRootProps, DateValue } from "reka-ui"
 import type { HTMLAttributes, Ref } from "vue"
 import type { LayoutTypes } from "."

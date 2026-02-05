@@ -1,6 +1,7 @@
 const Invoice = require('../../models/Invoice');
 const Bill = require('../../models/Bill');
 const Settle = require('../../models/Settle');
+const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
 
 // Helper function: Search DB Data
@@ -264,81 +265,73 @@ exports.getCustomerDetail = async function (req, res) {
 };
 
 /**
- * Get Customer Chart Data
+ * Get Customer Chart Data - 按月份返回代收金额和自提金额
  */
 exports.getCustomerChartData = async function (req, res) {
   var query = req.query;
   var months = query.fMonths || [];
-  
+
   try {
-     // Ensure fName is handled correctly if it's "undefined" or empty string
-     if (req.query.fName === 'undefined' || req.query.fName === '') {
+    // Ensure fName is handled correctly if it's "undefined" or empty string
+    if (req.query.fName === 'undefined' || req.query.fName === '') {
       delete req.query.fName;
     }
-    
+
     const searchResult = await searchDbData(res, query, 'waybill_no ship_name ship_date bills', 'billing_name block_num weight collection_price invoices');
     if (!searchResult.ok) {
       return res.json({ ok: false, error: searchResult.error });
     }
     const { db_invs, bills } = searchResult;
 
-    var allNames = [];
     var invNoObj = {};
     var chartData = [];
 
+    // 初始化每个月的数据结构
+    for (var idx = 0; idx < months.length; ++idx) {
+      chartData.push({
+        month: months[idx],
+        daishouPrice: 0,  // 代收金额
+        zitiPrice: 0      // 自提金额
+      });
+    }
+
+    // 建立运单号到月份索引的映射
     for (var i = 0, len = db_invs.length; i < len; ++i) {
       var inv = db_invs[i];
-      if (allNames.indexOf(inv.ship_name) < 0) {
-        allNames.push(inv.ship_name);
-      }
+      var shipDate = new Date(inv.ship_date);
+      var year = shipDate.getFullYear();
+      var month = (shipDate.getMonth() + 1).toString().padStart(2, '0');
+      var dateStr = year + '-' + month;
 
-      var idx = -1;
-      // Use helper to format date
-      var date = new Date(inv.ship_date).format('yyyy-MM');
-      for (var m = 0; m < months.length; ++m) {
-        if (date === months[m]) {
-          idx = m;
-          break;
-        }
-      }
-
-      invNoObj[inv.inv_no] = { name: inv.ship_name, date: date, index: idx };
+      var monthIdx = months.indexOf(dateStr);
+      invNoObj[inv.waybill_no] = { index: monthIdx };
     }
 
-    allNames.sort(function (a, b) { return a.localeCompare(b); });
-
-    for (var idx = 0; idx < months.length; ++idx) {
-      var nnv = { month: months[idx] };
-      allNames.forEach(function (name) {
-        nnv[name] = 0;
-      });
-
-      chartData.push(nnv);
-    }
-
+    // 计算每个月的代收和自提金额
     for (i = 0, len = bills.length; i < len; ++i) {
       var b = bills[i];
       b.invoices.forEach(function (inv) {
-        var ship_date = invNoObj[inv.inv_no];
-        if (ship_date && ship_date.index >= 0) {
+        var shipInfo = invNoObj[inv.inv_no];
+        if (shipInfo && shipInfo.index >= 0) {
           var weight = (b.block_num > 0) ? inv.num * b.weight : inv.weight;
-          var price = b.collection_price > 0 ? b.collection_price * weight : 0;
 
-          if (inv.price > 0) {
-            price += inv.price * weight;
+          // 代收金额
+          if (b.collection_price > 0) {
+            chartData[shipInfo.index].daishouPrice += b.collection_price * weight;
           }
 
-          chartData[ship_date.index][ship_date.name] += price;
+          // 自提金额
+          if (inv.price > 0) {
+            chartData[shipInfo.index].zitiPrice += inv.price * weight;
+          }
         }
       });
     }
 
+    // 格式化数字
     for (idx = 0; idx < chartData.length; ++idx) {
-      for (var k = 0; k < allNames.length; ++k) {
-        if (chartData[idx][allNames[k]] > 0) {
-          chartData[idx][allNames[k]] = utils.toFixedNumber(chartData[idx][allNames[k]], 3);
-        }
-      }
+      chartData[idx].daishouPrice = utils.toFixedNumber(chartData[idx].daishouPrice, 3);
+      chartData[idx].zitiPrice = utils.toFixedNumber(chartData[idx].zitiPrice, 3);
     }
 
     res.json({ ok: true, chart_data: chartData });
@@ -450,11 +443,11 @@ exports.getDashboardStatistics = async function (req, res) {
     // Helper to format list
     const formatList = (list) => list.map(i => ({ name: i._id || '未命名', value: parseFloat(i.weight.toFixed(3)) }));
 
-    const top5BillingNames = formatList(data.byBillingName.slice(0, 5));
+    const top8BillingNames = formatList(data.byBillingName.slice(0, 8));
     const top5Vehicles = formatList(data.byVehicle.slice(0, 5));
-    const allVehicles = formatList(data.byVehicle);
 
-    // Calculate invoice tonnage and payment tonnage from Settle table
+    // 已开票吨数: 从Settle获取，status = '已开票' OR status = '已回款' (两种状态之和)
+    // 已回款吨数: 从Settle获取，status = '已回款'
     const settleMatchStage = {
       settle_date: { $gte: startDate, $lte: endDate }
     };
@@ -493,6 +486,64 @@ exports.getDashboardStatistics = async function (req, res) {
     const totalInvoiceTonnage = settleTonnageResult[0] ? settleTonnageResult[0].invoiceTonnage : 0;
     const totalPaymentTonnage = settleTonnageResult[0] ? settleTonnageResult[0].paymentTonnage : 0;
 
+    // 计算车辆分类统计
+    // 从data.byVehicle获取所有车船及其吨数
+    const vehicleNames = data.byVehicle.map(v => v._id).filter(name => name); // 过滤掉空名称
+
+    // 查询Vehicle表获取车辆信息
+    const vehicles = await Vehicle.find({ name: { $in: vehicleNames } })
+      .select('name veh_type veh_category')
+      .lean()
+      .exec();
+
+    // 创建车辆信息映射
+    const vehicleInfoMap = {};
+    vehicles.forEach(v => {
+      vehicleInfoMap[v.name] = {
+        veh_type: v.veh_type,
+        veh_category: v.veh_category
+      };
+    });
+
+    // 统计各分类的数量和吨数，同时构建包含车辆信息的allVehicles
+    let ownVehicleCount = 0;
+    let ownVehicleTonnage = 0;
+    let outsourcedVehicleCount = 0;
+    let outsourcedVehicleTonnage = 0;
+    let truckTonnage = 0;
+    let vesselTonnage = 0;
+
+    const allVehicles = data.byVehicle.map(v => {
+      const vehicleName = v._id;
+      const tonnage = v.weight;
+      const info = vehicleInfoMap[vehicleName];
+
+      if (info) {
+        // 按所有权分类
+        if (info.veh_category === '自有') {
+          ownVehicleCount++;
+          ownVehicleTonnage += tonnage;
+        } else if (info.veh_category === '外挂') {
+          outsourcedVehicleCount++;
+          outsourcedVehicleTonnage += tonnage;
+        }
+
+        // 按类型分类
+        if (info.veh_type === '车') {
+          truckTonnage += tonnage;
+        } else if (info.veh_type === '船') {
+          vesselTonnage += tonnage;
+        }
+      }
+
+      return {
+        name: vehicleName || '未命名',
+        value: parseFloat(tonnage.toFixed(3)),
+        veh_type: info ? info.veh_type : '',
+        veh_category: info ? info.veh_category : ''
+      };
+    });
+
     res.json({
       ok: true,
       data: {
@@ -501,14 +552,223 @@ exports.getDashboardStatistics = async function (req, res) {
         totalPaymentTonnage: parseFloat(totalPaymentTonnage.toFixed(3)),
         billingNameCount,
         monthlyTrend,
-        top5BillingNames,
+        top8BillingNames,
         top5Vehicles,
-        allVehicles
+        allVehicles,
+        // 车辆分类统计
+        ownVehicleCount,
+        ownVehicleTonnage: parseFloat(ownVehicleTonnage.toFixed(3)),
+        outsourcedVehicleCount,
+        outsourcedVehicleTonnage: parseFloat(outsourcedVehicleTonnage.toFixed(3)),
+        truckTonnage: parseFloat(truckTonnage.toFixed(3)),
+        vesselTonnage: parseFloat(vesselTonnage.toFixed(3))
       }
     });
 
   } catch (err) {
     console.error('getDashboardStatistics error:', err);
+    res.json({ ok: false, error: err.message });
+  }
+};
+
+/**
+ * Get invoice details for dashboard drill-down (总配发吨数)
+ */
+exports.getDashboardInvoiceDetails = async function (req, res) {
+  try {
+    const user = req.user || { userid: 'admin', privilege: 'admin' };
+    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+
+    let startDate, endDate;
+    if (req.query.startDate && req.query.endDate) {
+      startDate = new Date(req.query.startDate + "-01");
+      const endParts = req.query.endDate.split('-');
+      const endYear = parseInt(endParts[0]);
+      const endMonth = parseInt(endParts[1]);
+      endDate = new Date(endYear, endMonth, 0, 23, 59, 59, 999);
+    } else {
+      const year = parseInt(req.query.year) || new Date().getFullYear();
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+    }
+
+    const matchStage = {
+      ship_date: { $gte: startDate, $lte: endDate },
+      state: { $ne: '新建' }
+    };
+
+    if (!isAdmin) {
+      matchStage.shipper = user.userid;
+    }
+
+    // Get invoices with required fields
+    const invoices = await Invoice.find(matchStage)
+      .select('waybill_no vehicle_vessel_name ship_name ship_date total_weight vessel_price bills')
+      .lean()
+      .exec();
+
+    // Get all bill IDs from invoices
+    const billIds = [];
+    invoices.forEach(inv => {
+      if (inv.bills) {
+        inv.bills.forEach(b => {
+          if (b.bill_id) billIds.push(b.bill_id);
+        });
+      }
+    });
+
+    // Get bill details to calculate customer and collection prices
+    const bills = await Bill.find({ _id: { $in: billIds } })
+      .select('_id collection_price weight')
+      .lean()
+      .exec();
+
+    // Create bill map for quick lookup
+    const billMap = {};
+    bills.forEach(bill => {
+      billMap[bill._id.toString()] = bill;
+    });
+
+    // Process invoices to calculate prices
+    const data = invoices.map(inv => {
+      let customerPrice = 0;
+      let collectionPrice = 0;
+      let totalWeight = 0;
+
+      if (inv.bills) {
+        inv.bills.forEach(b => {
+          const billId = b.bill_id ? b.bill_id.toString() : null;
+          const bill = billId ? billMap[billId] : null;
+
+          if (bill) {
+            const weight = b.weight || 0;
+            totalWeight += weight;
+
+            // collection_price is the customer price per ton
+            if (bill.collection_price) {
+              customerPrice += weight * bill.collection_price;
+            }
+          }
+        });
+      }
+
+      // Use invoice total_weight if calculated weight is 0
+      if (totalWeight === 0) {
+        totalWeight = inv.total_weight || 0;
+      }
+
+      const vehiclePrice = inv.vessel_price || 0;
+
+      // Calculate total: income (customer) - expense (vehicle + collection)
+      const totalIncome = customerPrice;
+      const totalExpense = vehiclePrice + collectionPrice;
+      const netProfit = totalIncome - totalExpense;
+
+      return {
+        waybill_no: inv.waybill_no,
+        vehicle: inv.vehicle_vessel_name || '-',
+        billingName: inv.ship_name || '-',
+        shipDate: inv.ship_date,
+        tonnage: parseFloat((totalWeight).toFixed(3)),
+        vehiclePrice: parseFloat(vehiclePrice.toFixed(2)),
+        customerPrice: parseFloat(customerPrice.toFixed(2)),
+        collectionPrice: parseFloat(collectionPrice.toFixed(2)),
+        totalIncome: parseFloat(totalIncome.toFixed(2)),
+        totalExpense: parseFloat(totalExpense.toFixed(2)),
+        netProfit: parseFloat(netProfit.toFixed(2))
+      };
+    });
+
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error('getDashboardInvoiceDetails error:', err);
+    res.json({ ok: false, error: err.message });
+  }
+};
+
+/**
+ * Get billing names statistics for dashboard drill-down
+ */
+exports.getDashboardBillingNamesStats = async function (req, res) {
+  try {
+    const user = req.user || { userid: 'admin', privilege: 'admin' };
+    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+
+    let startDate, endDate;
+    if (req.query.startDate && req.query.endDate) {
+      startDate = new Date(req.query.startDate + "-01");
+      const endParts = req.query.endDate.split('-');
+      const endYear = parseInt(endParts[0]);
+      const endMonth = parseInt(endParts[1]);
+      endDate = new Date(endYear, endMonth, 0, 23, 59, 59, 999);
+    } else {
+      const year = parseInt(req.query.year) || new Date().getFullYear();
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+    }
+
+    // Get all settle records in date range
+    const settleMatchStage = {
+      settle_date: { $gte: startDate, $lte: endDate }
+    };
+
+    if (!isAdmin) {
+      settleMatchStage.settler = user.userid;
+    }
+
+    const settleStats = await Settle.aggregate([
+      { $match: settleMatchStage },
+      {
+        $group: {
+          _id: '$billing_name',
+          settledWeight: {
+            $sum: {
+              $cond: [{ $eq: ['$status', '已结算'] }, '$ship_weight', 0]
+            }
+          },
+          settledAmount: {
+            $sum: {
+              $cond: [{ $eq: ['$status', '已结算'] }, '$price', 0]
+            }
+          },
+          invoicedWeight: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['已开票', '已回款']] }, '$ship_weight', 0]
+            }
+          },
+          invoicedAmount: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['已开票', '已回款']] }, '$price', 0]
+            }
+          },
+          paidWeight: {
+            $sum: {
+              $cond: [{ $eq: ['$status', '已回款'] }, '$ship_weight', 0]
+            }
+          },
+          paidAmount: {
+            $sum: {
+              $cond: [{ $eq: ['$status', '已回款'] }, '$price', 0]
+            }
+          }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]).exec();
+
+    const data = settleStats.map(item => ({
+      name: item._id || '未命名',
+      settledWeight: parseFloat((item.settledWeight || 0).toFixed(3)),
+      settledAmount: parseFloat((item.settledAmount || 0).toFixed(2)),
+      invoicedWeight: parseFloat((item.invoicedWeight || 0).toFixed(3)),
+      invoicedAmount: parseFloat((item.invoicedAmount || 0).toFixed(2)),
+      paidWeight: parseFloat((item.paidWeight || 0).toFixed(3)),
+      paidAmount: parseFloat((item.paidAmount || 0).toFixed(2))
+    }));
+
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error('getDashboardBillingNamesStats error:', err);
     res.json({ ok: false, error: err.message });
   }
 };

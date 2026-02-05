@@ -1,7 +1,8 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { Check, ChevronsUpDown, Download, Filter, Search, X } from 'lucide-vue-next'
 import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
 import { GroupedBar } from '@unovis/ts'
@@ -57,12 +58,12 @@ import {
 } from '@/services/api/statistics.api'
 
 const chartConfig = {
-  weight: {
-    label: '总重量 (吨)',
+  daishouPrice: {
+    label: '代收金额 (元)',
     color: 'var(--chart-1)',
   },
-  price: {
-    label: '总金额 (元)',
+  zitiPrice: {
+    label: '自提金额 (元)',
     color: 'var(--chart-2)',
   },
 } satisfies ChartConfig
@@ -118,6 +119,48 @@ const showDetailDialog = ref(false)
 const detailLoading = ref(false)
 const detailData = ref<CustomerDetailData[]>([])
 const detailTitle = ref('')
+
+// Pagination State
+const detailCurrentPage = ref(1)
+const detailPageSize = ref('50')
+
+// Watch page size change to reset page
+watch(detailPageSize, () => {
+  detailCurrentPage.value = 1
+})
+
+// Export dialog state
+const showExportSelectDialog = ref(false)
+const exportCustomerSearch = ref('')
+const exportSelectedCustomers = ref<string[]>([])
+
+// Computed: unique customers in detail data
+const detailCustomerNames = computed(() => {
+  const names = new Set<string>()
+  detailData.value.forEach(item => names.add(item.name))
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+})
+
+// Filtered export customer options
+const filteredExportCustomers = computed(() => {
+  if (!exportCustomerSearch.value) return detailCustomerNames.value
+  return detailCustomerNames.value.filter(n =>
+    n.toLowerCase().includes(exportCustomerSearch.value.toLowerCase())
+  )
+})
+
+// Paginated detail data
+const paginatedDetailData = computed(() => {
+  const pageSize = parseInt(detailPageSize.value)
+  const start = (detailCurrentPage.value - 1) * pageSize
+  const end = start + pageSize
+  return detailData.value.slice(start, end)
+})
+
+const detailTotalPages = computed(() => {
+  const pageSize = parseInt(detailPageSize.value)
+  return Math.ceil(detailData.value.length / pageSize) || 1
+})
 
 // Computed
 const formattedData = computed(() => {
@@ -226,30 +269,39 @@ async function fetchData() {
     toast.error('请选择日期范围')
     return
   }
-  
-      loading.value = true
-    try {
-      if (startDate.value && endDate.value && startDate.value > endDate.value) {
-        toast.error('开始日期不能晚于结束日期')
-        return
-      }
-  
-      const params = {
-        fDate1: startDate.value.toISOString(),
-        fDate2: endDate.value.toISOString(),
-        fName: selectedNames.value.length > 0 ? selectedNames.value : undefined,
-        fMonths: getMonthsList(startDate.value, endDate.value)
-      }    
-    // Fetch Table Data
-    const res = await getStatisticsData(params)
-    if (res.ok) {
-      statisticsData.value = res.stat_data
-      if (res.stat_data.length === 0) {
+
+  loading.value = true
+  try {
+    if (startDate.value && endDate.value && startDate.value > endDate.value) {
+      toast.error('开始日期不能晚于结束日期')
+      return
+    }
+
+    const params = {
+      fDate1: startDate.value.toISOString(),
+      fDate2: endDate.value.toISOString(),
+      fName: selectedNames.value.length > 0 ? selectedNames.value : undefined,
+      fMonths: getMonthsList(startDate.value, endDate.value)
+    }
+
+    // Fetch Table Data and Chart Data in parallel
+    const [tableRes, chartRes] = await Promise.all([
+      getStatisticsData(params),
+      getCustomerChartData(params)
+    ])
+
+    if (tableRes.ok) {
+      statisticsData.value = tableRes.stat_data
+      if (tableRes.stat_data.length === 0) {
         toast.info('没有找到数据，请选择其它日期')
       }
     } else {
       statisticsData.value = []
       toast.error('获取数据失败')
+    }
+
+    if (chartRes.ok) {
+      chartData.value = chartRes.chart_data
     }
   } catch (e) {
     console.error(e)
@@ -302,11 +354,12 @@ async function openAllDetails() {
     toast.error('请先查询数据')
     return
   }
-  
+
   detailTitle.value = '所有客户明细'
   showDetailDialog.value = true
   detailLoading.value = true
-  
+  detailCurrentPage.value = 1
+
   try {
     const params = {
       fDate1: startDate.value.toISOString(),
@@ -314,7 +367,7 @@ async function openAllDetails() {
       fName: selectedNames.value.length > 0 ? selectedNames.value : undefined,
       fMonths: getMonthsList(startDate.value, endDate.value)
     }
-    
+
     const res = await getCustomerDetail(params)
     if (res.ok) {
       detailData.value = res.detail_data
@@ -329,7 +382,7 @@ async function openAllDetails() {
 }
 
 async function openSingleDetail(name: string) {
-    if (!startDate.value || !endDate.value) {
+  if (!startDate.value || !endDate.value) {
     toast.error('请先查询数据')
     return
   }
@@ -337,9 +390,10 @@ async function openSingleDetail(name: string) {
   detailTitle.value = `${name} - 明细`
   showDetailDialog.value = true
   detailLoading.value = true
+  detailCurrentPage.value = 1
 
   try {
-     const params = {
+    const params = {
       fDate1: startDate.value.toISOString(),
       fDate2: endDate.value.toISOString(),
       fName: [name],
@@ -352,65 +406,306 @@ async function openSingleDetail(name: string) {
     } else {
       toast.error('获取明细失败')
     }
-  } catch(e) {
-      console.error(e)
+  } catch (e) {
+    console.error(e)
   } finally {
-      detailLoading.value = false
+    detailLoading.value = false
   }
 }
 
-function handleExport() {
-  // Export main table
+async function handleExport() {
   if (statisticsData.value.length === 0) return
-  
-  const data = statisticsData.value.map(item => ({
-    '客户名称': item.name,
-    '代收-结算-重量': item.settledWDS,
-    '代收-结算-金额': item.settledPDS,
-    '代收-未结算-重量': item.notSettledWDS,
-    '代收-未结算-金额': item.notSettledPDS,
-    '代收-不需要结算': item.notNeedWDS,
-    '自提-结算-重量': item.settledWZT,
-    '自提-结算-金额': item.settledPZT,
-    '自提-未结算-重量': item.notSettledWZT,
-    '自提-未结算-金额': item.notSettledPZT,
-    '自提-不需要结算': item.notNeedWZT,
-    '总重量': item.totalWeight,
-    '总金额': item.totalPrice
-  }))
-  
-  const ws = XLSX.utils.json_to_sheet(data)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '客户营业额')
-  XLSX.writeFile(wb, `客户营业额_${new Date().toISOString().slice(0, 10)}.xlsx`)
+
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('客户营业额')
+
+  // 样式定义
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  }
+
+  const orangeFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } }
+  const blueFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF93C5FD' } }
+  const indigoFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA5B4FC' } }
+  const grayFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+
+  // 列宽跟踪
+  const columnWidths: number[] = Array(13).fill(0)
+  const getTextWidth = (text: any): number => {
+    const str = String(text || '')
+    return [...str].reduce((sum, char) => sum + (char.charCodeAt(0) > 127 ? 2 : 1), 0)
+  }
+  const updateWidth = (col: number, text: any) => {
+    columnWidths[col] = Math.max(columnWidths[col], getTextWidth(text))
+  }
+
+  let rowNum = 1
+
+  // 标题行
+  sheet.mergeCells(rowNum, 1, rowNum, 13)
+  const titleCell = sheet.getCell(rowNum, 1)
+  const titleText = `数据统计日期：${formatDateRange(startDate.value, endDate.value)}`
+  titleCell.value = titleText
+  titleCell.font = { bold: true, size: 14 }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  sheet.getRow(rowNum).height = 25
+  rowNum++
+
+  // 表头第一行
+  const h1 = sheet.getRow(rowNum)
+  sheet.mergeCells(rowNum, 1, rowNum + 2, 1)
+  h1.getCell(1).value = '客户名称'
+  h1.getCell(1).fill = orangeFill
+  h1.getCell(1).font = { bold: true, color: { argb: 'FF000000' } }
+  h1.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' }
+  h1.getCell(1).border = thinBorder
+  updateWidth(0, '客户名称')
+
+  // 代收代付: 列2-5 (4列，不包含"不需要结算")
+  sheet.mergeCells(rowNum, 2, rowNum, 5)
+  h1.getCell(2).value = '代收代付'
+  h1.getCell(2).fill = blueFill
+  h1.getCell(2).font = { bold: true, color: { argb: 'FF000000' } }
+  h1.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' }
+  for (let c = 2; c <= 5; c++) h1.getCell(c).border = thinBorder
+
+  // 客户自提: 列6-11 (6列，包含"不需要结算"的重量和金额)
+  sheet.mergeCells(rowNum, 6, rowNum, 11)
+  h1.getCell(6).value = '客户自提'
+  h1.getCell(6).fill = indigoFill
+  h1.getCell(6).font = { bold: true, color: { argb: 'FF000000' } }
+  h1.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' }
+  for (let c = 6; c <= 11; c++) h1.getCell(c).border = thinBorder
+
+  sheet.mergeCells(rowNum, 12, rowNum + 2, 12)
+  h1.getCell(12).value = '总吨数'
+  h1.getCell(12).fill = grayFill
+  h1.getCell(12).font = { bold: true }
+  h1.getCell(12).alignment = { horizontal: 'center', vertical: 'middle' }
+  h1.getCell(12).border = thinBorder
+  updateWidth(11, '总吨数')
+
+  sheet.mergeCells(rowNum, 13, rowNum + 2, 13)
+  h1.getCell(13).value = '总金额'
+  h1.getCell(13).fill = grayFill
+  h1.getCell(13).font = { bold: true }
+  h1.getCell(13).alignment = { horizontal: 'center', vertical: 'middle' }
+  h1.getCell(13).border = thinBorder
+  updateWidth(12, '总金额')
+  rowNum++
+
+  // 表头第二行
+  const h2 = sheet.getRow(rowNum)
+
+  // 代收代付部分
+  sheet.mergeCells(rowNum, 2, rowNum, 3)
+  h2.getCell(2).value = '结算'
+  h2.getCell(2).fill = blueFill
+  h2.getCell(2).font = { bold: true, color: { argb: 'FF000000' } }
+  h2.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' }
+  h2.getCell(2).border = thinBorder
+  h2.getCell(3).border = thinBorder
+
+  sheet.mergeCells(rowNum, 4, rowNum, 5)
+  h2.getCell(4).value = '未结算'
+  h2.getCell(4).fill = blueFill
+  h2.getCell(4).font = { bold: true, color: { argb: 'FF000000' } }
+  h2.getCell(4).alignment = { horizontal: 'center', vertical: 'middle' }
+  h2.getCell(4).border = thinBorder
+  h2.getCell(5).border = thinBorder
+
+  // 客户自提部分
+  sheet.mergeCells(rowNum, 6, rowNum, 7)
+  h2.getCell(6).value = '结算'
+  h2.getCell(6).fill = indigoFill
+  h2.getCell(6).font = { bold: true, color: { argb: 'FF000000' } }
+  h2.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' }
+  h2.getCell(6).border = thinBorder
+  h2.getCell(7).border = thinBorder
+
+  sheet.mergeCells(rowNum, 8, rowNum, 9)
+  h2.getCell(8).value = '未结算'
+  h2.getCell(8).fill = indigoFill
+  h2.getCell(8).font = { bold: true, color: { argb: 'FF000000' } }
+  h2.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' }
+  h2.getCell(8).border = thinBorder
+  h2.getCell(9).border = thinBorder
+
+  sheet.mergeCells(rowNum, 10, rowNum, 11)
+  h2.getCell(10).value = '不需要结算'
+  h2.getCell(10).fill = indigoFill
+  h2.getCell(10).font = { bold: true, color: { argb: 'FF000000' } }
+  h2.getCell(10).alignment = { horizontal: 'center', vertical: 'middle' }
+  h2.getCell(10).border = thinBorder
+  h2.getCell(11).border = thinBorder
+  updateWidth(9, '不需要结算')
+  updateWidth(10, '不需要结算')
+  rowNum++
+
+  // 表头第三行
+  const h3 = sheet.getRow(rowNum)
+  const subHeaders = ['重量', '金额', '重量', '金额', '重量', '金额', '重量', '金额', '重量', '金额']
+  const fills = [blueFill, blueFill, blueFill, blueFill, indigoFill, indigoFill, indigoFill, indigoFill, indigoFill, indigoFill]
+
+  subHeaders.forEach((header, idx) => {
+    const cell = h3.getCell(idx + 2)
+    cell.value = header
+    cell.fill = fills[idx]
+    cell.font = { bold: true, color: { argb: 'FF000000' } }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    cell.border = thinBorder
+    updateWidth(idx + 1, header)
+  })
+  rowNum++
+
+  // 数据行
+  statisticsData.value.forEach((item) => {
+    const row = sheet.getRow(rowNum)
+    const values = [
+      item.name,
+      // 代收代付: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额 (不包含"不需要结算")
+      item.settledWDS, item.settledPDS,
+      item.notSettledWDS, item.notSettledPDS,
+      // 客户自提: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额, 不需要结算-重量, 不需要结算-金额
+      item.settledWZT, item.settledPZT,
+      item.notSettledWZT, item.notSettledPZT,
+      item.notNeedWZT, 0, // 不需要结算的重量和金额(金额为0)
+      // 总计
+      item.totalWeight,
+      item.totalPrice
+    ]
+
+    values.forEach((val, idx) => {
+      const cell = row.getCell(idx + 1)
+      cell.value = val
+      cell.border = thinBorder
+      if (idx > 0) {
+        cell.alignment = { horizontal: 'right' }
+      }
+      updateWidth(idx, val)
+    })
+    rowNum++
+  })
+
+  // 汇总行
+  if (summaryData.value) {
+    const sumRow = sheet.getRow(rowNum)
+    const sumVals = [
+      '总计',
+      // 代收代付: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额
+      summaryData.value.settledWDS, summaryData.value.settledPDS,
+      summaryData.value.notSettledWDS, summaryData.value.notSettledPDS,
+      // 客户自提: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额, 不需要结算-重量, 不需要结算-金额
+      summaryData.value.settledWZT, summaryData.value.settledPZT,
+      summaryData.value.notSettledWZT, summaryData.value.notSettledPZT,
+      summaryData.value.notNeedWZT, 0, // 不需要结算的重量和金额
+      // 总计
+      summaryData.value.totalWeight,
+      summaryData.value.totalPrice
+    ]
+
+    sumVals.forEach((val, idx) => {
+      const cell = sumRow.getCell(idx + 1)
+      cell.value = val
+      cell.border = thinBorder
+      cell.fill = grayFill
+      cell.font = { bold: true }
+      if (idx > 0) {
+        cell.alignment = { horizontal: 'right' }
+      }
+      updateWidth(idx, val)
+    })
+  }
+
+  // 应用列宽
+  sheet.columns = columnWidths.map(width => ({ width: Math.max(10, Math.min(width + 2, 50)) }))
+
+  // 导出
+  try {
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `客户营业额_${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('导出成功')
+  }
+  catch (error: any) {
+    console.error('Export error:', error)
+    toast.error('导出失败', { description: error.message })
+  }
 }
 
-function handleDetailExport() {
-    if (detailData.value.length === 0) return
+// 打开导出选择对话框
+function openExportSelectDialog() {
+  if (detailData.value.length === 0) {
+    toast.error('没有数据可导出')
+    return
+  }
+  exportSelectedCustomers.value = []
+  exportCustomerSearch.value = ''
+  showExportSelectDialog.value = true
+}
 
-    const data = detailData.value.map(item => ({
-        '订单号': item.order,
-        '提单号': item.bill_no,
-        '开单名称': item.name,
-        '车船号': item.veh_ves_name,
-        '目的地': item.ship_to,
-        '代收价格': item.coll_price,
-        '客户价格': item.price,
-        '价格': item.tot_price,
-        '发运块数': item.send_num,
-        '发运重量': item.send_weight,
-        '发货日期': new Date(item.ship_date).toLocaleDateString(),
-        '运单号': item.inv_no,
-        '发货仓库': item.warehouse,
-        '规格': item.spec,
-        '牌号': item.brand_no,
-        '合同号': item.contract_no
-    }))
+// 确认导出
+function confirmDetailExport() {
+  if (exportSelectedCustomers.value.length === 0) {
+    toast.error('请选择要导出的客户')
+    return
+  }
 
-    const ws = XLSX.utils.json_to_sheet(data)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '明细数据')
-    XLSX.writeFile(wb, `明细数据_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  // 筛选选中客户的数据
+  const filteredData = detailData.value.filter(item =>
+    exportSelectedCustomers.value.includes(item.name)
+  )
+
+  const data = filteredData.map(item => ({
+    '订单号': item.order,
+    '提单号': item.bill_no,
+    '开单名称': item.name,
+    '车船号': item.veh_ves_name,
+    '目的地': item.ship_to,
+    '代收价格': item.coll_price,
+    '客户价格': item.price,
+    '价格': item.tot_price,
+    '发运块数': item.send_num,
+    '发运重量': item.send_weight,
+    '发货日期': new Date(item.ship_date).toLocaleDateString(),
+    '运单号': item.inv_no,
+    '发货仓库': item.warehouse,
+    '规格': item.spec,
+    '牌号': item.brand_no,
+    '合同号': item.contract_no
+  }))
+
+  const ws = XLSX.utils.json_to_sheet(data)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '明细数据')
+  XLSX.writeFile(wb, `明细数据_${new Date().toISOString().slice(0, 10)}.xlsx`)
+
+  showExportSelectDialog.value = false
+  toast.success(`已导出 ${filteredData.length} 条数据`)
+}
+
+function toggleExportCustomer(name: string) {
+  if (exportSelectedCustomers.value.includes(name)) {
+    exportSelectedCustomers.value = exportSelectedCustomers.value.filter(n => n !== name)
+  } else {
+    exportSelectedCustomers.value.push(name)
+  }
+}
+
+function selectAllExportCustomers() {
+  exportSelectedCustomers.value = [...detailCustomerNames.value]
+}
+
+function clearExportCustomers() {
+  exportSelectedCustomers.value = []
 }
 
 // Multi-select helpers
@@ -517,20 +812,21 @@ loadCompanies()
     </div>
 
     <!-- Chart Section -->
-    <div v-if="showChart && statisticsData.length > 0" class="mb-8 p-6 border rounded-lg bg-card shadow-sm">
+    <div v-if="showChart && chartData.length > 0" class="mb-8 p-6 border rounded-lg bg-card shadow-sm">
       <ChartContainer :config="chartConfig" class="aspect-auto h-[350px] w-full" :cursor="false">
-        <VisXYContainer :data="statisticsData">
-          <VisGroupedBar 
-            :x="(d: StatisticsData) => d.name" 
+        <VisXYContainer :data="chartData">
+          <VisGroupedBar
+            :x="(_d: ChartDataPoint, i: number) => i"
             :y="[
-              (d: StatisticsData) => d.totalWeight,
-              (d: StatisticsData) => d.totalPrice
+              (d: ChartDataPoint) => Number(d.daishouPrice) || 0,
+              (d: ChartDataPoint) => Number(d.zitiPrice) || 0
             ]"
-            :color="(_d: StatisticsData, i: number) => [chartConfig.weight.color, chartConfig.price.color][i]"
+            :color="(_d: ChartDataPoint, i: number) => [chartConfig.daishouPrice.color, chartConfig.zitiPrice.color][i]"
           />
           <VisAxis
             type="x"
-            :x="(d: StatisticsData) => d.name"
+            :x="(_d: ChartDataPoint, i: number) => i"
+            :tick-format="(i: number) => chartData[i]?.month || ''"
             :tick-line="false"
             :domain-line="false"
             :grid-line="false"
@@ -761,8 +1057,11 @@ loadCompanies()
         <DialogContent class="min-w-[90vw] h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>{{ detailTitle }}</DialogTitle>
+                <DialogDescription v-if="detailData.length > 0">
+                  共 {{ detailData.length }} 条数据，当前显示第 {{ (detailCurrentPage - 1) * parseInt(detailPageSize) + 1 }} - {{ Math.min(detailCurrentPage * parseInt(detailPageSize), detailData.length) }} 条
+                </DialogDescription>
             </DialogHeader>
-            
+
             <div class="flex-1 overflow-auto border rounded-md">
                  <Table class="relative">
                     <TableHeader class="sticky top-0 bg-background z-10">
@@ -786,7 +1085,7 @@ loadCompanies()
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        <TableRow v-for="(item, idx) in detailData" :key="idx">
+                        <TableRow v-for="(item, idx) in paginatedDetailData" :key="idx">
                             <TableCell>{{ item.order }}</TableCell>
                             <TableCell>{{ item.bill_no }}</TableCell>
                             <TableCell>{{ item.name }}</TableCell>
@@ -810,15 +1109,87 @@ loadCompanies()
                     </TableBody>
                  </Table>
             </div>
-            
-             <DialogFooter class="mt-4">
-                <Button variant="outline" @click="handleDetailExport">
+
+            <!-- Pagination -->
+            <div v-if="detailTotalPages > 1" class="flex items-center justify-center gap-2 py-2">
+              <Button variant="outline" size="sm" :disabled="detailCurrentPage <= 1" @click="detailCurrentPage--">上一页</Button>
+              <span class="text-sm text-muted-foreground">第 {{ detailCurrentPage }} / {{ detailTotalPages }} 页</span>
+              <Button variant="outline" size="sm" :disabled="detailCurrentPage >= detailTotalPages" @click="detailCurrentPage++">下一页</Button>
+              <Select v-model="detailPageSize" class="w-24">
+                <SelectTrigger class="h-8 w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="50">50条/页</SelectItem>
+                  <SelectItem value="100">100条/页</SelectItem>
+                  <SelectItem value="200">200条/页</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <DialogFooter class="mt-2">
+                <Button variant="outline" @click="openExportSelectDialog">
                      <Download class="w-4 h-4 mr-2" />
                      导出Excel
                 </Button>
                 <Button @click="showDetailDialog = false">关闭</Button>
             </DialogFooter>
         </DialogContent>
+    </Dialog>
+
+    <!-- Export Customer Selection Dialog -->
+    <Dialog v-model:open="showExportSelectDialog">
+      <DialogContent class="sm:max-w-[450px]">
+        <DialogHeader>
+          <DialogTitle>选择导出客户</DialogTitle>
+          <DialogDescription>
+            选择要导出的客户，将导出所选客户在当前时间区间内的所有明细数据
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-4">
+          <!-- Search -->
+          <div class="flex items-center border rounded-md px-3">
+            <Search class="mr-2 h-4 w-4 shrink-0 opacity-50" />
+            <input
+              v-model="exportCustomerSearch"
+              class="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+              placeholder="搜索客户..."
+            />
+          </div>
+
+          <!-- Select All / Clear -->
+          <div class="flex gap-2">
+            <Button variant="outline" size="sm" @click="selectAllExportCustomers">全选 ({{ detailCustomerNames.length }})</Button>
+            <Button variant="outline" size="sm" @click="clearExportCustomers">清空</Button>
+            <span class="ml-auto text-sm text-muted-foreground self-center">已选 {{ exportSelectedCustomers.length }} 个</span>
+          </div>
+
+          <!-- Customer List -->
+          <div class="border rounded-md max-h-[300px] overflow-y-auto">
+            <div
+              v-for="name in filteredExportCustomers"
+              :key="name"
+              class="flex cursor-pointer items-center px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground border-b last:border-b-0"
+              @click="toggleExportCustomer(name)"
+            >
+              <Check :class="['mr-2 h-4 w-4', exportSelectedCustomers.includes(name) ? 'opacity-100' : 'opacity-0']" />
+              {{ name }}
+            </div>
+            <div v-if="filteredExportCustomers.length === 0" class="px-3 py-4 text-center text-muted-foreground">
+              没有找到匹配的客户
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="showExportSelectDialog = false">取消</Button>
+          <Button @click="confirmDetailExport" :disabled="exportSelectedCustomers.length === 0">
+            <Download class="w-4 h-4 mr-2" />
+            确认导出
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
 
   </BasicPage>

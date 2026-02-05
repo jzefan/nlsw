@@ -34,6 +34,8 @@ module.exports = function (app) {
   app.get('/statistics/customer/detail', statisticsApiController.getCustomerDetail);
   app.get('/statistics/customer/chart', statisticsApiController.getCustomerChartData);
   app.get('/statistics/dashboard', statisticsApiController.getDashboardStatistics);
+  app.get('/statistics/dashboard/invoices', statisticsApiController.getDashboardInvoiceDetails);
+  app.get('/statistics/dashboard/billing-names', statisticsApiController.getDashboardBillingNamesStats);
   
   app.get('/statistics/vessel/revenue', vesselStatisticsApiController.getVesselRevenueData);
   app.get('/statistics/vessel/detail', vesselStatisticsApiController.getVesselAllocationDetail);
@@ -51,10 +53,13 @@ module.exports = function (app) {
   app.get('/invoices', invoiceApiController.getInvoiceList);
   app.get('/invoices/:waybillNo', invoiceApiController.getInvoiceDetail);
   app.post('/build_ship_invoice', invoiceApiController.buildShipInvoice);
-  app.get('/build_truck_invoice', invoiceApiController.buildTruckInvoice);
+  app.post('/build_truck_invoice', invoiceApiController.buildTruckInvoice);
   app.post('/delete_invoice', invoiceApiController.deleteInvoice);
   app.get('/me', userApiController.getMe);
   app.get('/users', userApiController.getUsers);
+  app.get('/user_mgr', userApiController.getUserMgr);
+  app.post('/user_mgr', userApiController.postUserMgr);
+  app.post('/resetPwd', userApiController.resetPassword);
   
   app.get('/get_invoices_bill', reportApiController.getIntegratedQuery);
   app.get('/report/invoice_report', reportApiController.getInvoiceReport);

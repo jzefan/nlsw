@@ -201,14 +201,14 @@ function handleGenerateGroups() {
 }
 
 // Export Excel
-function handleExport() {
+async function handleExport() {
   if (contractGroups.value.length === 0) {
     toast.warning('请先生成分组')
     return
   }
 
   try {
-    generateOutputExcel(headerInfo.value, contractGroups.value)
+    await generateOutputExcel(headerInfo.value, contractGroups.value)
     toast.success('导出成功')
   }
   catch (e: any) {
@@ -250,7 +250,7 @@ function handleReset() {
     </template>
 
     <!-- Step indicator -->
-    <div class="mb-6">
+    <div class="mb-4">
       <div class="flex items-center justify-center gap-4">
         <div
           class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
@@ -292,9 +292,9 @@ function handleReset() {
     </div>
 
     <!-- Step 2: Preview -->
-    <div v-else-if="currentStep === 2" class="space-y-4">
+    <div v-else-if="currentStep === 2" class="flex flex-col gap-3 h-[calc(100vh-180px)] text-base">
       <!-- Summary -->
-      <div class="p-4 border rounded-lg bg-muted/30 flex items-center gap-6">
+      <div class="p-2 border rounded-lg bg-muted/30 flex items-center gap-6 flex-shrink-0">
         <div class="flex items-center gap-2">
           <FileSpreadsheet class="w-5 h-5 text-green-600" />
           <span>{{ parsedFiles.length }} 个文件</span>
@@ -305,37 +305,39 @@ function handleReset() {
         <span>总重量: {{ totalWeight.toFixed(3) }} 吨</span>
       </div>
 
-      <!-- File tabs -->
-      <UiTabs v-model="activeFileTab" class="w-full">
-        <UiTabsList class="w-full justify-start overflow-x-auto flex-nowrap h-auto p-1">
-          <UiTabsTrigger
+      <!-- File tabs with scroll -->
+      <div class="flex-1 min-h-0">
+        <UiTabs v-model="activeFileTab" class="w-full h-full flex flex-col">
+          <UiTabsList class="w-full justify-start overflow-x-auto flex-nowrap h-auto p-1 flex-shrink-0">
+            <UiTabsTrigger
+              v-for="file in parsedFiles"
+              :key="file.fileName"
+              :value="file.fileName"
+              class="flex items-center gap-2 whitespace-nowrap min-w-[300px] max-w-[300px] justify-start"
+            >
+              <FileSpreadsheet class="w-4 h-4 flex-shrink-0" />
+              <span class="truncate">{{ file.fileName }}</span>
+              <span class="text-xs text-muted-foreground flex-shrink-0">({{ file.rowCount }}行)</span>
+            </UiTabsTrigger>
+          </UiTabsList>
+
+          <UiTabsContent
             v-for="file in parsedFiles"
             :key="file.fileName"
             :value="file.fileName"
-            class="flex items-center gap-2 whitespace-nowrap min-w-[300px] max-w-[300px] justify-start"
+            class="mt-4 flex-1 overflow-auto h-full"
           >
-            <FileSpreadsheet class="w-4 h-4 flex-shrink-0" />
-            <span class="truncate">{{ file.fileName }}</span>
-            <span class="text-xs text-muted-foreground flex-shrink-0">({{ file.rowCount }}行)</span>
-          </UiTabsTrigger>
-        </UiTabsList>
-
-        <UiTabsContent
-          v-for="file in parsedFiles"
-          :key="file.fileName"
-          :value="file.fileName"
-          class="mt-4"
-        >
-          <FilePreviewCard
-            :file="file"
-            :global-column-defs="globalColumnDefs"
-            @toggle-column="handleToggleColumn"
-          />
-        </UiTabsContent>
-      </UiTabs>
+            <FilePreviewCard
+              :file="file"
+              :global-column-defs="globalColumnDefs"
+              @toggle-column="handleToggleColumn"
+            />
+          </UiTabsContent>
+        </UiTabs>
+      </div>
 
       <!-- Navigation -->
-      <div class="flex justify-between">
+      <div class="flex justify-between flex-shrink-0">
         <UiButton variant="outline" @click="goBack">
           <ArrowLeft class="w-4 h-4 mr-1" />
           上一步
@@ -349,34 +351,49 @@ function handleReset() {
     </div>
 
     <!-- Step 3: Edit & Export -->
-    <div v-else-if="currentStep === 3" class="space-y-4">
+    <div v-else-if="currentStep === 3" class="flex flex-col gap-3 h-[calc(100vh-180px)]">
       <!-- Sub-step 3a: Edit merged data -->
       <template v-if="!isGrouped">
-        <div class="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center gap-2 text-blue-800 dark:text-blue-200">
+        <div class="p-2 border rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center gap-2 text-blue-800 dark:text-blue-200 flex-shrink-0">
           <Layers class="w-5 h-5" />
-          <span>数据已合并，请为每条数据填写合同号和色标，然后点击"生成分组"</span>
+          <span>数据已合并，请为每条数据填写合同号，然后点击"生成分组"</span>
         </div>
 
         <!-- Header editor -->
-        <HeaderEditor v-model="headerInfo" />
+        <div class="flex-shrink-0">
+          <HeaderEditor v-model="headerInfo" />
+        </div>
 
-        <!-- Merged data editor -->
-        <UiCard>
-          <UiCardHeader class="py-3">
-            <UiCardTitle class="text-base">
-              合并数据
-            </UiCardTitle>
-            <UiCardDescription>
-              点击单元格可编辑，请为每个订单填写合同号和色标
-            </UiCardDescription>
-          </UiCardHeader>
-          <UiCardContent>
-            <MergedDataEditor v-model="mergedData" />
-          </UiCardContent>
-        </UiCard>
+        <!-- Merged data editor with scroll -->
+        <div class="flex-1 min-h-0">
+          <UiCard class="h-full flex flex-col">
+            <UiCardHeader class="py-3 flex-shrink-0">
+              <div class="flex items-center justify-between">
+                <div class="flex items-baseline gap-2">
+                  <UiCardTitle class="text-base">
+                    合并数据
+                  </UiCardTitle>
+                  <UiCardDescription class="text-[10px]">
+                    点击单元格可编辑，请为每个订单填写合同号
+                  </UiCardDescription>
+                </div>
+                <div class="flex items-center gap-4 text-sm">
+                  <span class="font-medium">共 {{ mergedData.length }} 条数据</span>
+                  <span class="text-muted-foreground">|</span>
+                  <span>总发运数: <strong>{{ mergedData.reduce((sum, r) => sum + r.quantity, 0) }}</strong></span>
+                  <span class="text-muted-foreground">|</span>
+                  <span>总重量: <strong>{{ mergedData.reduce((sum, r) => sum + r.totalWeight, 0).toFixed(3) }}</strong> 吨</span>
+                </div>
+              </div>
+            </UiCardHeader>
+            <UiCardContent class="flex-1 overflow-hidden">
+              <MergedDataEditor v-model="mergedData" />
+            </UiCardContent>
+          </UiCard>
+        </div>
 
         <!-- Actions -->
-        <div class="flex justify-between">
+        <div class="flex justify-between flex-shrink-0">
           <UiButton variant="outline" @click="goBack">
             <ArrowLeft class="w-4 h-4 mr-1" />
             上一步
@@ -390,19 +407,22 @@ function handleReset() {
 
       <!-- Sub-step 3b: View grouped data and export -->
       <template v-else>
-        <div class="p-4 border rounded-lg bg-green-50 dark:bg-green-950/30 flex items-center gap-2 text-green-800 dark:text-green-200">
-          <CheckCircle class="w-5 h-5" />
-          <span>数据已按合同号分组，可以编辑后导出</span>
+        <!-- Header editor -->
+        <div class="flex-shrink-0">
+          <HeaderEditor v-model="headerInfo" />
         </div>
 
-        <!-- Header editor -->
-        <HeaderEditor v-model="headerInfo" />
-
-        <!-- Grouped data editor -->
-        <GroupedDataEditor v-model="contractGroups" />
+        <!-- Grouped data editor with scroll -->
+        <div class="flex-1 min-h-0">
+          <UiCard class="h-full">
+            <UiCardContent class="p-4 h-full overflow-hidden">
+              <GroupedDataEditor v-model="contractGroups" />
+            </UiCardContent>
+          </UiCard>
+        </div>
 
         <!-- Actions -->
-        <div class="flex justify-between">
+        <div class="flex justify-between flex-shrink-0">
           <UiButton variant="outline" @click="goBack">
             <ArrowLeft class="w-4 h-4 mr-1" />
             返回编辑

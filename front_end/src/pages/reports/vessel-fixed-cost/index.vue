@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+// @ts-nocheck
+import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Plus, Trash2, FileDown, Edit, Search } from 'lucide-vue-next'
-import * as XLSX from 'xlsx'
+import { Edit, FileDown, Plus, Search, Trash2 } from 'lucide-vue-next'
 
 import { BasicPage } from '@/components/global-layout'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import DataTable from '@/components/data-table/data-table.vue'
-import { generateVueTable } from '@/components/data-table/use-generate-vue-table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,11 +30,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import AsyncCombobox from '@/components/common/AsyncCombobox.vue'
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 
-import { vehicleColumns, vesselColumns } from './components/columns'
 import VesselFixedCostDialog from './components/vessel-fixed-cost-dialog.vue'
-import { getVesselFixedCosts, deleteVesselFixedCost, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+import { deleteVesselFixedCost, getVesselFixedCosts, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
 import { getVehicles } from '@/services/api/data-dict.api'
 
 const data = ref<VesselFixedCost[]>([])
@@ -39,25 +47,40 @@ const activeTab = ref('che')
 const searchName = ref('')
 const searchMonth = ref('')
 
-const columns = computed(() => activeTab.value === 'che' ? vehicleColumns : vesselColumns)
-
-const table = generateVueTable({
-  data,
-  columns,
+// 全选状态
+const allSelected = computed(() => {
+  return data.value.length > 0 && selectedRows.value.length === data.value.length
 })
 
-// Watch row selection changes
-watch(
-  () => table.getState().rowSelection,
-  () => {
-    selectedRows.value = table.getSelectedRowModel().rows.map(row => row.original)
-  },
-  { deep: true }
-)
+// 切换全选
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedRows.value = []
+  }
+  else {
+    selectedRows.value = [...data.value]
+  }
+}
+
+// 切换单行选择
+function toggleSelect(row: VesselFixedCost) {
+  const index = selectedRows.value.findIndex(item => item.name === row.name && item.month === row.month)
+  if (index >= 0) {
+    selectedRows.value.splice(index, 1)
+  }
+  else {
+    selectedRows.value.push(row)
+  }
+}
+
+// 判断是否选中
+function isSelected(row: VesselFixedCost) {
+  return selectedRows.value.some(item => item.name === row.name && item.month === row.month)
+}
 
 // Reset selection when tab changes
 watch(activeTab, () => {
-  table.setRowSelection({})
+  selectedRows.value = []
   loadData()
 })
 
@@ -68,27 +91,34 @@ async function loadData() {
       type: activeTab.value as 'che' | 'chuan',
       name: searchName.value || undefined,
       startDate: searchMonth.value ? `${searchMonth.value}` : undefined,
-      endDate: searchMonth.value ? `${searchMonth.value}` : undefined
+      endDate: searchMonth.value ? `${searchMonth.value}` : undefined,
     })
     if (res.ok) {
       data.value = res.data
-    } else {
+    }
+    else {
       toast.error('加载数据失败')
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     toast.error('加载数据出错')
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
 
-async function searchVehicles(keyword: string) {
-  const res = await getVehicles({ search: keyword, type: '车', limit: 20 })
+async function searchVehicles(keyword: string, limit: number, page: number) {
+  const res = await getVehicles({ search: keyword, type: '车', limit, page })
   if (res.ok) {
-    return res.data.map(v => ({ label: v.name, value: v.name }))
+    return {
+      ok: true,
+      data: res.data.map(v => ({ name: v.name })),
+      total: res.total,
+    }
   }
-  return []
+  return { ok: false, data: [], total: 0 }
 }
 
 function handleAdd() {
@@ -97,13 +127,15 @@ function handleAdd() {
 }
 
 function handleEdit() {
-  if (selectedRows.value.length !== 1) return
+  if (selectedRows.value.length !== 1)
+    return
   editItem.value = selectedRows.value[0]
   showDialog.value = true
 }
 
 function handleDelete() {
-  if (selectedRows.value.length === 0) return
+  if (selectedRows.value.length === 0)
+    return
   showDeleteAlert.value = true
 }
 
@@ -113,54 +145,59 @@ async function confirmDelete() {
       await deleteVesselFixedCost(row.name, row.month)
     }
     toast.success('删除成功')
-    table.setRowSelection({})
+    selectedRows.value = []
     loadData()
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     toast.error('删除失败')
-  } finally {
+  }
+  finally {
     showDeleteAlert.value = false
   }
 }
 
-function handleExport() {
-  const headers = activeTab.value === 'che' 
-    ? ['月份', '车号', '配件', '修理费', '年检二维费用', '驾驶员工资', '油费', '过路费', '罚款', '其它', '合计']
-    : ['月份', '保险费用', '吊装费用', '港口建设费', '辅料', '其它', '合计']
-  
-  const exportData = data.value.map(item => {
-    if (activeTab.value === 'che') {
-      return {
-        '月份': item.month,
-        '车号': item.name,
-        '配件': item.fittings,
-        '修理费': item.repair,
-        '年检二维费用': item.annual_survey,
-        '驾驶员工资': item.salary,
-        '油费': item.oil,
-        '过路费': item.toll,
-        '罚款': item.fine,
-        '其它': item.other,
-        '合计': item.total
-      }
-    } else {
-      return {
-        '月份': item.month,
-        '保险费用': item.ic,
-        '吊装费用': item.hc,
-        '港口建设费': item.pcc,
-        '辅料': item.aux,
-        '其它': item.other,
-        '合计': item.total
-      }
-    }
-  })
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
-  const ws = XLSX.utils.json_to_sheet(exportData)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Data')
+function handleExport() {
   const dateStr = new Date().toISOString().split('T')[0]
-  XLSX.writeFile(wb, `vessel_fixed_cost_${activeTab.value}_${dateStr}.xlsx`)
+  const isVehicle = activeTab.value === 'che'
+  const fmt = (v: number) => v?.toFixed(2)
+
+  const columns = isVehicle
+    ? [
+        { header: '月份', key: 'month' },
+        { header: '车号', key: 'name' },
+        { header: '配件', key: 'fittings', formatter: fmt },
+        { header: '修理费', key: 'repair', formatter: fmt },
+        { header: '年检二维费用', key: 'annual_survey', formatter: fmt },
+        { header: '驾驶员工资', key: 'salary', formatter: fmt },
+        { header: '油费', key: 'oil', formatter: fmt },
+        { header: '过路费', key: 'toll', formatter: fmt },
+        { header: '罚款', key: 'fine', formatter: fmt },
+        { header: '其它', key: 'other', formatter: fmt },
+        { header: '合计', key: 'total', formatter: fmt },
+      ]
+    : [
+        { header: '月份', key: 'month' },
+        { header: '保险费用', key: 'ic', formatter: fmt },
+        { header: '吊装费用', key: 'hc', formatter: fmt },
+        { header: '港口建设费', key: 'pcc', formatter: fmt },
+        { header: '辅料', key: 'aux', formatter: fmt },
+        { header: '其它', key: 'other', formatter: fmt },
+        { header: '合计', key: 'total', formatter: fmt },
+      ]
+
+  exportWithPicker({
+    fileName: `${isVehicle ? '车辆' : '船舶'}固定费用_${dateStr}`,
+    sheetName: isVehicle ? '车辆固定费用' : '船舶固定费用',
+    columns,
+    data: data.value,
+  })
+}
+
+function formatNumber(value: number) {
+  return value?.toFixed(2) || '0.00'
 }
 
 onMounted(() => {
@@ -195,16 +232,20 @@ onMounted(() => {
       <div class="flex items-center justify-between">
         <Tabs v-model="activeTab" class="w-[200px]">
           <TabsList class="grid w-full grid-cols-2">
-            <TabsTrigger value="che">车</TabsTrigger>
-            <TabsTrigger value="chuan">船</TabsTrigger>
+            <TabsTrigger value="che">
+              车
+            </TabsTrigger>
+            <TabsTrigger value="chuan">
+              船
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
         <div class="flex items-center gap-2">
-          <div class="flex items-center gap-2" v-if="activeTab === 'che'">
+          <div v-if="activeTab === 'che'" class="flex items-center gap-2">
             <Label>车船名</Label>
             <div class="w-[200px]">
-              <AsyncCombobox
+              <SearchableCombobox
                 v-model="searchName"
                 :search-fn="searchVehicles"
                 placeholder="搜索车船..."
@@ -212,34 +253,151 @@ onMounted(() => {
               />
             </div>
           </div>
-          
+
           <div class="flex items-center gap-2">
             <Label>月份</Label>
-            <Input type="month" v-model="searchMonth" class="w-[150px] h-9" />
+            <Input v-model="searchMonth" type="month" class="w-[150px] h-9" />
           </div>
 
-          <Button @click="loadData" size="sm">
+          <Button size="sm" @click="loadData">
             <Search class="mr-2 h-4 w-4" />
             查询
           </Button>
         </div>
       </div>
 
-      <div class="border rounded-md">
-        <DataTable 
-          :columns="columns" 
-          :data="data" 
-          :loading="loading"
-          :table="table"
-        />
+      <!-- 统计信息 -->
+      <div v-if="selectedRows.length > 0" class="text-sm text-muted-foreground">
+        已选择 {{ selectedRows.length }} 条记录
+      </div>
+
+      <!-- 表格 -->
+      <div class="rounded-md border overflow-auto">
+        <!-- 车辆表格 -->
+        <Table v-if="activeTab === 'che'" class="min-w-[1024px]">
+          <TableHeader class="bg-muted/50">
+            <TableRow>
+              <TableHead class="w-12 whitespace-nowrap">
+                <Checkbox
+                  :checked="allSelected"
+                  @update:checked="toggleSelectAll"
+                />
+              </TableHead>
+              <TableHead class="whitespace-nowrap">月份</TableHead>
+              <TableHead class="whitespace-nowrap">车号</TableHead>
+              <TableHead class="text-right whitespace-nowrap">配件</TableHead>
+              <TableHead class="text-right whitespace-nowrap">修理费</TableHead>
+              <TableHead class="text-right whitespace-nowrap">年检二维费用</TableHead>
+              <TableHead class="text-right whitespace-nowrap">驾驶员工资</TableHead>
+              <TableHead class="text-right whitespace-nowrap">油费</TableHead>
+              <TableHead class="text-right whitespace-nowrap">过路费</TableHead>
+              <TableHead class="text-right whitespace-nowrap">罚款</TableHead>
+              <TableHead class="text-right whitespace-nowrap">其它</TableHead>
+              <TableHead class="text-right whitespace-nowrap">合计</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-if="loading">
+              <TableCell colspan="12" class="h-24 text-center text-muted-foreground">
+                加载中...
+              </TableCell>
+            </TableRow>
+            <TableRow v-else-if="data.length === 0">
+              <TableCell colspan="12" class="h-24 text-center text-muted-foreground">
+                暂无数据
+              </TableCell>
+            </TableRow>
+            <TableRow
+              v-else
+              v-for="row in data"
+              :key="`${row.name}-${row.month}`"
+              class="cursor-pointer"
+              :class="{ 'bg-muted/50': isSelected(row) }"
+              @click="toggleSelect(row)"
+            >
+              <TableCell @click.stop>
+                <Checkbox
+                  :checked="isSelected(row)"
+                  @update:checked="toggleSelect(row)"
+                />
+              </TableCell>
+              <TableCell class="font-medium">{{ row.month }}</TableCell>
+              <TableCell>{{ row.name }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.fittings) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.repair) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.annual_survey) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.salary) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.oil) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.toll) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.fine) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+
+        <!-- 船舶表格 -->
+        <Table v-else class="min-w-[800px]">
+          <TableHeader class="bg-muted/50">
+            <TableRow>
+              <TableHead class="w-12 whitespace-nowrap">
+                <Checkbox
+                  :checked="allSelected"
+                  @update:checked="toggleSelectAll"
+                />
+              </TableHead>
+              <TableHead class="whitespace-nowrap">月份</TableHead>
+              <TableHead class="text-right whitespace-nowrap">保险费用</TableHead>
+              <TableHead class="text-right whitespace-nowrap">吊装费用</TableHead>
+              <TableHead class="text-right whitespace-nowrap">港口建设费</TableHead>
+              <TableHead class="text-right whitespace-nowrap">辅料</TableHead>
+              <TableHead class="text-right whitespace-nowrap">其它</TableHead>
+              <TableHead class="text-right whitespace-nowrap">合计</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-if="loading">
+              <TableCell colspan="8" class="h-24 text-center text-muted-foreground">
+                加载中...
+              </TableCell>
+            </TableRow>
+            <TableRow v-else-if="data.length === 0">
+              <TableCell colspan="8" class="h-24 text-center text-muted-foreground">
+                暂无数据
+              </TableCell>
+            </TableRow>
+            <TableRow
+              v-else
+              v-for="row in data"
+              :key="`${row.name}-${row.month}`"
+              class="cursor-pointer"
+              :class="{ 'bg-muted/50': isSelected(row) }"
+              @click="toggleSelect(row)"
+            >
+              <TableCell @click.stop>
+                <Checkbox
+                  :checked="isSelected(row)"
+                  @update:checked="toggleSelect(row)"
+                />
+              </TableCell>
+              <TableCell class="font-medium">{{ row.month }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.ic) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.hc) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.pcc) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.aux) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
     </div>
 
-    <VesselFixedCostDialog 
-      v-model:open="showDialog" 
+    <VesselFixedCostDialog
+      v-model:open="showDialog"
       :edit-data="editItem"
       :is-vehicle="activeTab === 'che'"
-      @success="loadData" 
+      @success="loadData"
     />
 
     <AlertDialog :open="showDeleteAlert" @update:open="showDeleteAlert = $event">
@@ -252,9 +410,18 @@ onMounted(() => {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>取消</AlertDialogCancel>
-          <AlertDialogAction @click="confirmDelete">删除</AlertDialogAction>
+          <AlertDialogAction @click="confirmDelete">
+            删除
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>

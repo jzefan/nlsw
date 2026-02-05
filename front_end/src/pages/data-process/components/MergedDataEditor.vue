@@ -16,6 +16,16 @@ const emit = defineEmits<{
 const editingCell = ref<{ rowIndex: number, field: string } | null>(null)
 const editingValue = ref('')
 
+// Drag-to-copy state
+const selectedCell = ref<{ rowIndex: number, field: string } | null>(null)
+const isDragging = ref(false)
+const dragStartCell = ref<{ rowIndex: number, field: string } | null>(null)
+const dragEndRow = ref<number | null>(null)
+
+// Click delay for distinguishing single/double click
+const clickTimer = ref<number | null>(null)
+const clickDelay = 250 // milliseconds
+
 // Totals
 const totalQuantity = computed(() =>
   props.modelValue.reduce((sum, r) => sum + r.quantity, 0),
@@ -76,21 +86,136 @@ function isEditing(rowIndex: number, field: string): boolean {
 function formatNumber(value: number, decimals: number = 3): string {
   return value.toFixed(decimals)
 }
+
+// Drag-to-copy functionality
+function selectCell(rowIndex: number, field: string) {
+  selectedCell.value = { rowIndex, field }
+}
+
+function handleCellClick(rowIndex: number, field: string, currentValue: any) {
+  // Clear any existing timer
+  if (clickTimer.value) {
+    clearTimeout(clickTimer.value)
+    clickTimer.value = null
+  }
+
+  // Set a timer for single click (edit mode)
+  clickTimer.value = window.setTimeout(() => {
+    startEdit(rowIndex, field, currentValue)
+    clickTimer.value = null
+  }, clickDelay)
+}
+
+function handleCellDoubleClick(rowIndex: number, field: string) {
+  // Cancel the single click timer
+  if (clickTimer.value) {
+    clearTimeout(clickTimer.value)
+    clickTimer.value = null
+  }
+
+  // Select cell and show drag handle
+  selectCell(rowIndex, field)
+}
+
+function startDrag(rowIndex: number, field: string, e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragging.value = true
+  dragStartCell.value = { rowIndex, field }
+  dragEndRow.value = rowIndex
+
+  // Add global mouse listeners
+  document.addEventListener('mousemove', handleDragMove)
+  document.addEventListener('mouseup', handleDragEnd)
+}
+
+function handleDragMove(e: MouseEvent) {
+  if (!isDragging.value || !dragStartCell.value)
+    return
+
+  // Find the row element under the cursor
+  const target = e.target as HTMLElement
+  const row = target.closest('tr[data-row-index]')
+  if (row) {
+    const rowIndex = Number.parseInt(row.getAttribute('data-row-index') || '0')
+    dragEndRow.value = rowIndex
+  }
+}
+
+function handleDragEnd() {
+  if (!isDragging.value || !dragStartCell.value || dragEndRow.value === null)
+    return
+
+  const { rowIndex: startRow, field } = dragStartCell.value
+  const endRow = dragEndRow.value
+
+  // Only fill downwards
+  if (endRow > startRow) {
+    const sourceValue = (props.modelValue[startRow] as any)[field]
+    const newRows = [...props.modelValue]
+
+    for (let i = startRow + 1; i <= endRow; i++) {
+      const row = { ...newRows[i] }
+      ;(row as any)[field] = sourceValue
+      newRows[i] = row
+    }
+
+    emit('update:modelValue', newRows)
+  }
+
+  // Reset drag state
+  isDragging.value = false
+  dragStartCell.value = null
+  dragEndRow.value = null
+
+  // Remove global listeners
+  document.removeEventListener('mousemove', handleDragMove)
+  document.removeEventListener('mouseup', handleDragEnd)
+}
+
+function isInDragRange(rowIndex: number, field: string): boolean {
+  if (!isDragging.value || !dragStartCell.value || dragEndRow.value === null)
+    return false
+
+  const { rowIndex: startRow, field: dragField } = dragStartCell.value
+  return field === dragField && rowIndex >= startRow && rowIndex <= dragEndRow.value
+}
+
+function getCellClass(rowIndex: number, field: string): string {
+  const baseClass = 'p-2 cursor-pointer hover:bg-muted/50 relative'
+  const isSelected = selectedCell.value?.rowIndex === rowIndex && selectedCell.value?.field === field
+  const inRange = isInDragRange(rowIndex, field)
+
+  if (inRange) {
+    // Add border to show drag range
+    const isStart = dragStartCell.value?.rowIndex === rowIndex
+    const isEnd = dragEndRow.value === rowIndex
+    let borderClass = 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500'
+
+    // Add specific border styles for start and end
+    if (isStart && isEnd) {
+      borderClass += ' border-2'
+    } else if (isStart) {
+      borderClass += ' border-t-2 border-l-2 border-r-2 border-b-0'
+    } else if (isEnd) {
+      borderClass += ' border-b-2 border-l-2 border-r-2 border-t-0'
+    } else {
+      borderClass += ' border-l-2 border-r-2 border-t-0 border-b-0'
+    }
+
+    return `${baseClass} ${borderClass}`
+  }
+  if (isSelected) {
+    return `${baseClass} outline outline-2 outline-blue-500 outline-offset-[-2px]`
+  }
+  return baseClass
+}
 </script>
 
 <template>
-  <div class="space-y-4">
-    <!-- Summary -->
-    <div class="flex items-center justify-between text-sm">
-      <span class="font-medium">共 {{ modelValue.length }} 条数据</span>
-      <div class="flex items-center gap-4">
-        <span>总发运数: <strong>{{ totalQuantity }}</strong></span>
-        <span>总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
-      </div>
-    </div>
-
+  <div class="h-full flex flex-col gap-4">
     <!-- Editable table -->
-    <div class="border rounded-lg overflow-auto max-h-[500px]">
+    <div class="border rounded-lg overflow-auto flex-1">
       <table class="w-full text-sm">
         <thead class="bg-muted/50 sticky top-0 z-10">
           <tr>
@@ -122,15 +247,13 @@ function formatNumber(value: number, decimals: number = 3): string {
             <th class="p-2 text-left whitespace-nowrap bg-yellow-50 dark:bg-yellow-950/30">
               合同号
             </th>
-            <th class="p-2 text-left whitespace-nowrap bg-yellow-50 dark:bg-yellow-950/30">
-              色标
-            </th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="(row, index) in modelValue"
             :key="`${row.orderNo}-${row.orderItemNo}`"
+            :data-row-index="index"
             class="border-t hover:bg-muted/30"
           >
             <!-- Delete button -->
@@ -304,14 +427,18 @@ function formatNumber(value: number, decimals: number = 3): string {
 
             <!-- Contract No (highlighted) -->
             <td
-              class="p-2 bg-yellow-50 dark:bg-yellow-950/30 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-950/50"
-              @click="startEdit(index, 'contractNo', row.contractNo)"
+              :class="[
+                'bg-yellow-50 dark:bg-yellow-950/30 hover:bg-yellow-100 dark:hover:bg-yellow-950/50 min-w-[200px]',
+                getCellClass(index, 'contractNo')
+              ]"
+              @click="handleCellClick(index, 'contractNo', row.contractNo)"
+              @dblclick="handleCellDoubleClick(index, 'contractNo')"
             >
               <template v-if="isEditing(index, 'contractNo')">
                 <UiInput
                   v-model="editingValue"
-                  class="h-7 w-28"
-                  placeholder="输入合同号"
+                  class="h-7 w-full"
+                  placeholder="输入合同号和色标"
                   autofocus
                   @blur="saveEdit"
                   @keydown="handleKeydown"
@@ -321,28 +448,12 @@ function formatNumber(value: number, decimals: number = 3): string {
                 <span :class="row.contractNo ? '' : 'text-muted-foreground italic'">
                   {{ row.contractNo || '点击输入' }}
                 </span>
-              </template>
-            </td>
-
-            <!-- Color Mark (highlighted) -->
-            <td
-              class="p-2 bg-yellow-50 dark:bg-yellow-950/30 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-950/50"
-              @click="startEdit(index, 'colorMark', row.colorMark)"
-            >
-              <template v-if="isEditing(index, 'colorMark')">
-                <UiInput
-                  v-model="editingValue"
-                  class="h-7 w-20"
-                  placeholder="输入色标"
-                  autofocus
-                  @blur="saveEdit"
-                  @keydown="handleKeydown"
+                <!-- Fill handle for drag-to-copy -->
+                <div
+                  v-if="selectedCell?.rowIndex === index && selectedCell?.field === 'contractNo'"
+                  class="absolute bottom-0.5 right-0.5 w-4 h-4 bg-blue-600 cursor-crosshair border-2 border-white shadow-md hover:w-5 hover:h-5 hover:bg-blue-700"
+                  @mousedown="startDrag(index, 'contractNo', $event)"
                 />
-              </template>
-              <template v-else>
-                <span :class="row.colorMark ? '' : 'text-muted-foreground italic'">
-                  {{ row.colorMark || '点击输入' }}
-                </span>
               </template>
             </td>
           </tr>
@@ -358,15 +469,15 @@ function formatNumber(value: number, decimals: number = 3): string {
             <td class="p-2 text-right font-medium">
               {{ totalWeight.toFixed(3) }}
             </td>
-            <td colspan="3" />
+            <td />
           </tr>
         </tfoot>
       </table>
     </div>
 
     <!-- Help text -->
-    <p class="text-sm text-muted-foreground">
-      点击单元格可编辑内容，按 Enter 保存，按 Esc 取消。黄色背景列为必填项。
+    <p class="text-sm text-muted-foreground flex-shrink-0">
+      点击单元格可编辑内容，按 Enter 保存，按 Esc 取消。黄色背景列为必填项。点击合同号单元格后，拖动右下角的十字图标可快速复制内容到下方行。
     </p>
   </div>
 </template>

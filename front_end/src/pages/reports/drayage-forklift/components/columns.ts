@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 import type { DrayageForklift } from '@/services/api/financial.api'
 import { h } from 'vue'

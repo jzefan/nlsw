@@ -105,7 +105,7 @@ defineExpose({ open })
 
 <template>
   <Dialog v-model:open="visible">
-    <DialogContent class="max-w-[90vw] max-h-[90vh]">
+    <DialogContent class="max-w-[90vw] max-h-[90vh] min-w-[65vw]">
       <DialogHeader>
         <DialogTitle>车船结算明细单</DialogTitle>
       </DialogHeader>

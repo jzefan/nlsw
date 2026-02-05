@@ -44,7 +44,7 @@ const form = ref({
   productType: '',
   thickness: '',
   width: '',
-  length: '',
+  len: '',
   weight: '',
   blockNum: '',
   totalWeight: '',
@@ -66,7 +66,7 @@ function calculateWeight() {
 
   const t = Number.parseFloat(form.value.thickness) || 0
   const w = Number.parseFloat(form.value.width) || 0
-  const l = Number.parseFloat(form.value.length) || 0
+  const l = Number.parseFloat(form.value.len) || 0
 
   if (t > 0 && w > 0 && l > 0) {
     // 公式: 长 × 宽 × 厚 × 7.85 × 10⁻⁹ (转换为吨)
@@ -87,7 +87,7 @@ function calculateTotalWeight() {
 }
 
 // 监听尺寸变化
-watch(() => [form.value.thickness, form.value.width, form.value.length], () => {
+watch(() => [form.value.thickness, form.value.width, form.value.len], () => {
   calculateWeight()
 })
 
@@ -174,7 +174,7 @@ function addOne() {
     productType: form.value.productType,
     thickness: form.value.thickness ? Number.parseFloat(form.value.thickness) : undefined,
     width: form.value.width ? Number.parseFloat(form.value.width) : undefined,
-    length: form.value.length ? Number.parseFloat(form.value.length) : undefined,
+    len: form.value.len ? Number.parseFloat(form.value.len) : undefined,
     weight: form.value.weight ? Number.parseFloat(form.value.weight) : undefined,
     blockNum: form.value.blockNum ? Number.parseInt(form.value.blockNum) : undefined,
     totalWeight,
@@ -185,7 +185,7 @@ function addOne() {
   form.value.orderItemNo = ''
   form.value.thickness = ''
   form.value.width = ''
-  form.value.length = ''
+  form.value.len = ''
   form.value.weight = ''
   form.value.blockNum = ''
   form.value.totalWeight = ''
@@ -330,8 +330,8 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
           '厚': 'thickness',
           '宽度': 'width',
           '宽': 'width',
-          '长度': 'length',
-          '长': 'length',
+          '长度': 'len',
+          '长': 'len',
           '单重': 'weight',
           '单块重': 'weight',
           '块数': 'blockNum',
@@ -404,14 +404,14 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
           if (item.orderNo && item.billNo && item.billingName) {
             const thickness = Number.parseFloat(item.thickness) || 0
             const width = Number.parseFloat(item.width) || 0
-            const length = Number.parseFloat(item.length) || 0
+            const len = Number.parseFloat(item.len) || 0
             let weight = Number.parseFloat(item.weight) || 0
             const blockNum = Number.parseInt(item.blockNum) || 0
             let totalWeight = Number.parseFloat(item.totalWeight) || 0
 
             // 如果没有单重但有尺寸，计算单重
-            if (!weight && thickness > 0 && width > 0 && length > 0) {
-              weight = length * width * thickness * 7.85 * 1e-9
+            if (!weight && thickness > 0 && width > 0 && len > 0) {
+              weight = len * width * thickness * 7.85 * 1e-9
             }
 
             // 如果没有总重但有单重和块数，计算总重
@@ -432,7 +432,7 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
               productType: item.productType,
               thickness: thickness || undefined,
               width: width || undefined,
-              length: length || undefined,
+              len: len || undefined,
               weight: weight || undefined,
               blockNum: blockNum || undefined,
               totalWeight: totalWeight || 0,
@@ -636,7 +636,7 @@ function switchToImport() {
         </div>
         <!-- 尺寸和重量单独一行 -->
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <UiInput v-model="form.length" type="number" min="0" step="0.01" placeholder="长度" class="w-32" />
+          <UiInput v-model="form.len" type="number" min="0" step="0.01" placeholder="长度" class="w-32" />
           <span class="text-muted-foreground">×</span>
           <UiInput v-model="form.width" type="number" min="0" step="0.01" placeholder="宽度" class="w-32" />
           <span class="text-muted-foreground">×</span>
@@ -687,52 +687,52 @@ function switchToImport() {
 
     <!-- 数据表格 -->
     <div v-if="bills.length > 0" class="border rounded-lg overflow-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">
+            <th class="p-2 text-left w-10 whitespace-nowrap">
               操作
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               状态
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               提单号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               订单号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               项次
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               开单名称
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               牌号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               销售部门
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               仓库
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               厚
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               宽
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               长
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               单重
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               块数
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               总重量
             </th>
           </tr>
@@ -785,7 +785,7 @@ function switchToImport() {
               {{ formatNumber(bill.width) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.length) }}
+              {{ formatNumber(bill.len) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.weight?.toFixed(4) }}

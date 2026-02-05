@@ -2,7 +2,7 @@
 
 ## 服务器信息
 
-- **公网IP**: 47.113.231.131
+- **公网IP**: 1.13.249.95
 - **操作系统**: Ubuntu 22.04
 - **Node.js**: v22.22 (已预装)
 - **MongoDB**: 8.2.4 (已预装，端口 27027)
@@ -55,7 +55,7 @@
 ssh-keygen -t rsa -b 4096
 
 # 复制公钥到服务器
-ssh-copy-id root@47.113.231.131
+ssh-copy-id ubuntu@1.13.249.95
 ```
 
 ### 步骤2: 服务器环境初始化
@@ -64,7 +64,7 @@ ssh-copy-id root@47.113.231.131
 
 ```bash
 # 登录服务器
-ssh root@47.113.231.131
+ssh ubuntu@1.13.249.95
 
 # 下载初始化脚本（或手动复制）
 # 执行初始化
@@ -135,13 +135,13 @@ pnpm build
 tar -czf nlsw.tar.gz app.js config controllers models routes.js routes_api.js package.json front_end/dist deploy
 
 # 上传
-scp nlsw.tar.gz root@47.113.231.131:/tmp/
+scp nlsw.tar.gz ubuntu@1.13.249.95:/tmp/
 ```
 
 ### 3. 服务器上解压和配置
 
 ```bash
-ssh root@47.113.231.131
+ssh ubuntu@1.13.249.95
 
 # 解压
 cd /home/app
@@ -289,7 +289,7 @@ mongorestore --port 27027 /backup/mongo_20240101
 
 ### 应用备份
 
-每次部署时，旧版本会自动备份到 `/home/app/nlsw_backup_*` 目录。
+每次部署时，旧版本会自动备份到 `/home/ubuntu/nlsw2_backup_*` 目录。
 
 ## 环境变量说明
 
@@ -305,7 +305,7 @@ mongorestore --port 27027 /backup/mongo_20240101
 
 | 变量 | 值 | 说明 |
 |------|-----|------|
-| VITE_SERVER_API_URL | http://47.113.231.131 | API服务器地址 |
+| VITE_SERVER_API_URL | http://1.13.249.95 | API服务器地址 |
 | VITE_SERVER_API_PREFIX | /api | API路径前缀 |
 | VITE_SERVER_API_TIMEOUT | 30000 | 请求超时时间(ms) |
 

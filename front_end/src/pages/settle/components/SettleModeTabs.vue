@@ -23,8 +23,8 @@ const emit = defineEmits<{
   (e: 'update:settleMode', value: string): void
 }>()
 
-function handleTabChange(value: string) {
-  emit('update:modelValue', value)
+function handleTabChange(value: string | number) {
+  emit('update:modelValue', String(value))
 }
 
 function handleSettleModeChange(value: string) {

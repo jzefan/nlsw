@@ -161,7 +161,7 @@ exports.getSettleBills = async (req, res) => {
     const invoices = await Invoice.find(invoiceQuery)
       .populate({
         path: 'bills.bill_id',
-        select: 'bill_no order_no order_item_no thickness width length contract_no ship_warehouse'
+        select: 'bill_no order_no order_item_no thickness width len contract_no ship_warehouse'
       })
       .sort({ ship_date: -1, createdAt: -1 })
       .lean()

@@ -11,6 +11,7 @@ const props = defineProps<{
   loading: boolean
   otherModeHasData: boolean
   selected: SettleBill[]
+  basketBills?: SettleBill[]
 }>()
 
 const emit = defineEmits<{
@@ -18,26 +19,44 @@ const emit = defineEmits<{
   (e: 'switch-mode', mode: SettleMode): void
 }>()
 
-// 是否全选
-const allSelected = computed(() => {
-  return props.bills.length > 0 && props.selected.length === props.bills.length
+// 可选的提单（排除已在结算篮中的）
+const selectableBills = computed(() => {
+  if (!props.basketBills)
+    return props.bills
+  return props.bills.filter(bill => !props.basketBills!.some(b => b._id === bill._id))
 })
 
-// 切换全选
+// 是否全选（只计算可选的提单）
+const allSelected = computed(() => {
+  return selectableBills.value.length > 0 && props.selected.length === selectableBills.value.length
+})
+
+// 切换全选（只选择可选的提单）
 function toggleAll() {
   if (allSelected.value) {
     emit('update:selected', [])
   }
   else {
-    emit('update:selected', [...props.bills])
+    emit('update:selected', [...selectableBills.value])
   }
+}
+
+// 判断两个提单是否相同（使用更精确的条件）
+function isSameBill(bill1: SettleBill, bill2: SettleBill) {
+  return bill1._id === bill2._id
+    && bill1.inv_no === bill2.inv_no
+    && bill1.veh_ves_name === bill2.veh_ves_name
+    && bill1.send_num === bill2.send_num
+    && bill1.send_weight === bill2.send_weight
 }
 
 // 切换单个提单选择
 function toggleBill(bill: SettleBill) {
-  const index = props.selected.findIndex(
-    b => b._id === bill._id && b.inv_no === bill.inv_no && b.veh_ves_name === bill.veh_ves_name,
-  )
+  // 如果已在结算篮中，不允许选择
+  if (isInBasket(bill))
+    return
+
+  const index = props.selected.findIndex(b => isSameBill(b, bill))
   if (index >= 0) {
     const newSelected = [...props.selected]
     newSelected.splice(index, 1)
@@ -50,9 +69,14 @@ function toggleBill(bill: SettleBill) {
 
 // 判断是否选中
 function isSelected(bill: SettleBill) {
-  return props.selected.some(
-    b => b._id === bill._id && b.inv_no === bill.inv_no && b.veh_ves_name === bill.veh_ves_name,
-  )
+  return props.selected.some(b => isSameBill(b, bill))
+}
+
+// 判断是否在结算篮中
+function isInBasket(bill: SettleBill) {
+  if (!props.basketBills)
+    return false
+  return props.basketBills.some(b => isSameBill(b, bill))
 }
 
 // 获取当前价格
@@ -166,7 +190,7 @@ const emptyMessage = computed(() => {
 
 // 切换到另一个结算模式
 function switchToOtherMode() {
-  if (emptyMessage.value.hasOtherMode) {
+  if (emptyMessage.value.hasOtherMode && emptyMessage.value.mode) {
     emit('switch-mode', emptyMessage.value.mode)
   }
 }
@@ -182,8 +206,9 @@ function switchToOtherMode() {
               <input
                 type="checkbox"
                 :checked="allSelected"
-                :disabled="bills.length === 0"
-                class="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                :disabled="selectableBills.length === 0"
+                class="h-4 w-4 rounded border-gray-300"
+                :class="selectableBills.length === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
                 @change="toggleAll"
               >
             </th>
@@ -275,15 +300,22 @@ function switchToOtherMode() {
             v-for="bill in bills"
             v-else
             :key="`${bill._id}-${bill.inv_no}-${bill.veh_ves_name}`"
-            :class="{ 'bg-blue-50 border-l-4 border-l-blue-500': isSelected(bill) }"
-            class="border-b hover:bg-muted/50 cursor-pointer transition-colors"
+            :class="{
+              'bg-blue-50 border-l-4 border-l-blue-500': isSelected(bill),
+              'bg-orange-100 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
+              'hover:bg-muted/50 cursor-pointer': !isInBasket(bill),
+              'cursor-not-allowed': isInBasket(bill),
+            }"
+            class="border-b transition-colors"
             @click="toggleBill(bill)"
           >
             <td class="px-1 py-1.5 border-r border-border/50" @click.stop>
               <input
                 type="checkbox"
-                :checked="isSelected(bill)"
-                class="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                :checked="isSelected(bill) || isInBasket(bill)"
+                :disabled="isInBasket(bill)"
+                class="h-4 w-4 rounded border-gray-300"
+                :class="isInBasket(bill) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
                 @change="toggleBill(bill)"
               >
             </td>
@@ -296,7 +328,16 @@ function switchToOtherMode() {
               {{ getOrderDisplay(bill) }}
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ bill.bill_no }}
+              <div class="flex items-center gap-1.5">
+                <span>{{ bill.bill_no }}</span>
+                <span
+                  v-if="isInBasket(bill)"
+                  class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1" /><circle cx="19" cy="21" r="1" /><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></svg>
+                  已在结算篮
+                </span>
+              </div>
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
               {{ getBillingNameDisplay(bill) }}

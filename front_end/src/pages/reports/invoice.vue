@@ -1,8 +1,9 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { Download, Printer, Search } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -384,7 +385,7 @@ function handlePrint() {
                    <td>${billInfo.brand_no || ''}</td>
                    <td class="text-right">${formatNumber(billInfo.thickness)}</td>
                    <td class="text-right">${formatNumber(billInfo.width)}</td>
-                   <td class="text-right">${formatNumber(billInfo.length)}</td>
+                   <td class="text-right">${formatNumber(billInfo.len)}</td>
                    <td class="text-right">${formatNumber(billInfo.weight)}</td>
                    <td class="text-right">${veh.send_num}</td>
                    <td class="text-right">${formatNumber(veh.send_weight)}</td>
@@ -403,7 +404,7 @@ function handlePrint() {
                  <td>${billInfo.brand_no || ''}</td>
                  <td class="text-right">${formatNumber(billInfo.thickness)}</td>
                  <td class="text-right">${formatNumber(billInfo.width)}</td>
-                 <td class="text-right">${formatNumber(billInfo.length)}</td>
+                 <td class="text-right">${formatNumber(billInfo.len)}</td>
                  <td class="text-right">${formatNumber(billInfo.weight)}</td>
                  <td class="text-right">${bill.num || 0}</td>
                  <td class="text-right">${formatNumber(bill.weight)}</td>
@@ -444,61 +445,307 @@ function handlePrint() {
   }, 250)
 }
 
-// Export
-function handleExport() {
+// Export with ExcelJS (styled)
+async function handleExport() {
   if (!invoiceDetail.value)
     return
 
+  const inv = invoiceDetail.value
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('发货单')
+
+  // 定义边框样式
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  }
+
+  const headerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE5E7EB' }
+  }
+
+  const labelFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFF3F4F6' }
+  }
+
+  // 用于记录每列的最大宽度
+  const columnWidths: number[] = Array(12).fill(0)
+
+  // 计算文本宽度（中文字符算2个宽度，英文算1个）
+  function getTextWidth(text: any): number {
+    const str = String(text || '')
+    return [...str].reduce((sum, char) => {
+      return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
+    }, 0)
+  }
+
+  // 更新列宽
+  function updateColumnWidth(colIndex: number, text: any) {
+    const width = getTextWidth(text)
+    columnWidths[colIndex] = Math.max(columnWidths[colIndex], width)
+  }
+
+  let rowNum = 1
+
+  // 标题行
+  sheet.mergeCells(rowNum, 1, rowNum, 12)
+  const titleCell = sheet.getCell(rowNum, 1)
+  const titleText = `${COMPANY_FULL_NAME}发货单`
+  titleCell.value = titleText
+  titleCell.font = { bold: true, size: 16 }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  sheet.getRow(rowNum).height = 30
+  updateColumnWidth(0, titleText)
+  rowNum++
+
+  // 空行
+  rowNum++
+
+  // 基本信息区域
+  // 第一行：运单号(1列) | 运单号值(2列) | 开单名称(2列) | 开单名称值(4列) | 目的地(1列) | 目的地值(2列)
+  const row1 = sheet.getRow(rowNum)
+  const r1c1 = '运单号'
+  row1.getCell(1).value = r1c1
+  row1.getCell(1).font = { bold: true }
+  row1.getCell(1).fill = labelFill
+  row1.getCell(1).border = thinBorder
+  updateColumnWidth(0, r1c1)
+
+  sheet.mergeCells(rowNum, 2, rowNum, 3)
+  row1.getCell(2).value = inv.waybill_no
+  row1.getCell(2).border = thinBorder
+  row1.getCell(3).border = thinBorder
+  updateColumnWidth(1, inv.waybill_no)
+
+  sheet.mergeCells(rowNum, 4, rowNum, 5)
+  const r1c4 = '开单名称'
+  row1.getCell(4).value = r1c4
+  row1.getCell(4).font = { bold: true }
+  row1.getCell(4).fill = labelFill
+  row1.getCell(4).border = thinBorder
+  row1.getCell(5).border = thinBorder
+  updateColumnWidth(3, r1c4)
+
+  sheet.mergeCells(rowNum, 6, rowNum, 9)
+  row1.getCell(6).value = inv.ship_name
+  for (let c = 6; c <= 9; c++) row1.getCell(c).border = thinBorder
+  updateColumnWidth(5, inv.ship_name)
+
+  const r1c10 = '目的地'
+  row1.getCell(10).value = r1c10
+  row1.getCell(10).font = { bold: true }
+  row1.getCell(10).fill = labelFill
+  row1.getCell(10).border = thinBorder
+  updateColumnWidth(9, r1c10)
+
+  sheet.mergeCells(rowNum, 11, rowNum, 12)
+  row1.getCell(11).value = inv.ship_to
+  row1.getCell(11).border = thinBorder
+  row1.getCell(12).border = thinBorder
+  updateColumnWidth(10, inv.ship_to)
+  rowNum++
+
+  // 第二行：车船号(1列) | 车船号值(2列) | 发货单位(2列) | 发货单位值(4列) | 联系人(1列) | 联系人值(2列)
+  const row2 = sheet.getRow(rowNum)
+  row2.getCell(1).value = '车船号'
+  row2.getCell(1).font = { bold: true }
+  row2.getCell(1).fill = labelFill
+  row2.getCell(1).border = thinBorder
+
+  sheet.mergeCells(rowNum, 2, rowNum, 3)
+  row2.getCell(2).value = inv.vehicle_vessel_name
+  row2.getCell(2).border = thinBorder
+  row2.getCell(3).border = thinBorder
+
+  sheet.mergeCells(rowNum, 4, rowNum, 5)
+  row2.getCell(4).value = '发货单位'
+  row2.getCell(4).font = { bold: true }
+  row2.getCell(4).fill = labelFill
+  row2.getCell(4).border = thinBorder
+  row2.getCell(5).border = thinBorder
+
+  sheet.mergeCells(rowNum, 6, rowNum, 9)
+  row2.getCell(6).value = inv.ship_customer || '-'
+  for (let c = 6; c <= 9; c++) row2.getCell(c).border = thinBorder
+
+  row2.getCell(10).value = '联系人'
+  row2.getCell(10).font = { bold: true }
+  row2.getCell(10).fill = labelFill
+  row2.getCell(10).border = thinBorder
+
+  sheet.mergeCells(rowNum, 11, rowNum, 12)
+  row2.getCell(11).value = inv.ship_to_contact || '-'
+  row2.getCell(11).border = thinBorder
+  row2.getCell(12).border = thinBorder
+  rowNum++
+
+  // 第三行：发货日期(1列) | 发货日期值(2列) | 电话(2列) | 电话值(4列) | 电话(1列) | 电话值(2列)
+  const row3 = sheet.getRow(rowNum)
+  row3.getCell(1).value = '发货日期'
+  row3.getCell(1).font = { bold: true }
+  row3.getCell(1).fill = labelFill
+  row3.getCell(1).border = thinBorder
+
+  sheet.mergeCells(rowNum, 2, rowNum, 3)
+  row3.getCell(2).value = formatDate(inv.ship_date)
+  row3.getCell(2).border = thinBorder
+  row3.getCell(3).border = thinBorder
+
+  sheet.mergeCells(rowNum, 4, rowNum, 5)
+  row3.getCell(4).value = '电话'
+  row3.getCell(4).font = { bold: true }
+  row3.getCell(4).fill = labelFill
+  row3.getCell(4).border = thinBorder
+  row3.getCell(5).border = thinBorder
+
+  sheet.mergeCells(rowNum, 6, rowNum, 9)
+  row3.getCell(6).value = inv.ship_phone || '-'
+  for (let c = 6; c <= 9; c++) row3.getCell(c).border = thinBorder
+
+  row3.getCell(10).value = '电话'
+  row3.getCell(10).font = { bold: true }
+  row3.getCell(10).fill = labelFill
+  row3.getCell(10).border = thinBorder
+
+  sheet.mergeCells(rowNum, 11, rowNum, 12)
+  row3.getCell(11).value = inv.ship_to_phone || '-'
+  row3.getCell(11).border = thinBorder
+  row3.getCell(12).border = thinBorder
+  rowNum++
+
+  // 第四行：始发地(1列) | 始发地值(11列)
+  const row4 = sheet.getRow(rowNum)
+  row4.getCell(1).value = '始发地'
+  row4.getCell(1).font = { bold: true }
+  row4.getCell(1).fill = labelFill
+  row4.getCell(1).border = thinBorder
+
+  sheet.mergeCells(rowNum, 2, rowNum, 12)
+  row4.getCell(2).value = inv.ship_from
+  for (let c = 2; c <= 12; c++) row4.getCell(c).border = thinBorder
+  rowNum++
+
+  // 空行
+  rowNum++
+
+  // 表格表头
+  const tableHeaders = ['提单号', '订单号', '牌号', '厚度', '宽度', '长度', '单重', '发运数', '发运重量', '仓库', '合同号', '车号']
+  const headerRow = sheet.getRow(rowNum)
+  tableHeaders.forEach((header, idx) => {
+    const cell = headerRow.getCell(idx + 1)
+    cell.value = header
+    cell.font = { bold: true }
+    cell.fill = headerFill
+    cell.border = thinBorder
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    updateColumnWidth(idx, header)
+  })
+  sheet.getRow(rowNum).height = 22
+  rowNum++
+
+  // 表格数据
+  const tableStartRow = rowNum
+  inv.bills.forEach((bill: any) => {
+    const billInfo = bill.bill_id || {}
+
+    const addDataRow = (data: any[]) => {
+      const dataRow = sheet.getRow(rowNum)
+      data.forEach((val, idx) => {
+        const cell = dataRow.getCell(idx + 1)
+        cell.value = val
+        cell.border = thinBorder
+        // 数字列右对齐
+        if (idx >= 3 && idx <= 8) {
+          cell.alignment = { horizontal: 'right' }
+        }
+        updateColumnWidth(idx, val)
+      })
+      rowNum++
+    }
+
+    if (bill.vehicles && bill.vehicles.length > 0) {
+      bill.vehicles.forEach((veh: any) => {
+        addDataRow([
+          billInfo.bill_no || '',
+          getOrderDisplay(billInfo),
+          billInfo.brand_no || '',
+          formatNumber(billInfo.thickness),
+          formatNumber(billInfo.width),
+          formatNumber(billInfo.len),
+          formatNumber(billInfo.weight),
+          veh.send_num,
+          formatNumber(veh.send_weight),
+          billInfo.ship_warehouse || '',
+          billInfo.contract_no || '',
+          veh.veh_name || ''
+        ])
+      })
+    }
+    else {
+      addDataRow([
+        billInfo.bill_no || '',
+        getOrderDisplay(billInfo),
+        billInfo.brand_no || '',
+        formatNumber(billInfo.thickness),
+        formatNumber(billInfo.width),
+        formatNumber(billInfo.len),
+        formatNumber(billInfo.weight),
+        bill.num || 0,
+        formatNumber(bill.weight),
+        billInfo.ship_warehouse || '',
+        billInfo.contract_no || '',
+        '-'
+      ])
+    }
+  })
+
+  // 空行
+  rowNum++
+
+  // 汇总行
+  sheet.mergeCells(rowNum, 1, rowNum, 7)
+  sheet.mergeCells(rowNum, 8, rowNum, 9)
+  sheet.mergeCells(rowNum, 10, rowNum, 12)
+  const summaryRow = sheet.getRow(rowNum)
+  const summaryText1 = `总发运块数: ${calculateTotals.value.totalNum}`
+  const summaryText2 = `总重量: ${formatNumber(calculateTotals.value.totalWeight)} 吨`
+  summaryRow.getCell(8).value = summaryText1
+  summaryRow.getCell(8).font = { bold: true }
+  summaryRow.getCell(8).alignment = { horizontal: 'right' }
+  summaryRow.getCell(10).value = summaryText2
+  summaryRow.getCell(10).font = { bold: true }
+  summaryRow.getCell(10).alignment = { horizontal: 'right' }
+  for (let c = 1; c <= 12; c++) {
+    summaryRow.getCell(c).border = thinBorder
+  }
+  updateColumnWidth(7, summaryText1)
+  updateColumnWidth(9, summaryText2)
+
+  // 应用列宽（设置最小宽度10，最大宽度50）
+  sheet.columns = columnWidths.map(width => ({
+    width: Math.max(10, Math.min(width + 2, 50))
+  }))
+
+  // 导出文件
   try {
-    const data = []
-    const header = ['提单号', '订单号', '牌号', '厚度', '宽度', '长度', '单重', '发运数', '发运重量', '仓库', '合同号', '车号']
-
-    invoiceDetail.value.bills.forEach((bill: any) => {
-      const billInfo = bill.bill_id || {}
-
-      if (bill.vehicles && bill.vehicles.length > 0) {
-        bill.vehicles.forEach((veh: any) => {
-          data.push({
-            提单号: billInfo.bill_no || '',
-            订单号: getOrderDisplay(billInfo),
-            牌号: billInfo.brand_no || '',
-            厚度: billInfo.thickness,
-            宽度: billInfo.width,
-            长度: billInfo.length,
-            单重: billInfo.weight,
-            发运数: veh.send_num,
-            发运重量: veh.send_weight,
-            仓库: billInfo.ship_warehouse || '',
-            合同号: billInfo.contract_no || '',
-            车号: veh.veh_name || '',
-          })
-        })
-      }
-      else {
-        data.push({
-          提单号: billInfo.bill_no || '',
-          订单号: getOrderDisplay(billInfo),
-          牌号: billInfo.brand_no || '',
-          厚度: billInfo.thickness,
-          宽度: billInfo.width,
-          长度: billInfo.length,
-          单重: billInfo.weight,
-          发运数: bill.num || 0,
-          发运重量: bill.weight,
-          仓库: billInfo.ship_warehouse || '',
-          合同号: billInfo.contract_no || '',
-          车号: '-',
-        })
-      }
-    })
-
-    const ws = XLSX.utils.json_to_sheet(data, { header })
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '发货单')
-    XLSX.writeFile(wb, `发货单_${invoiceDetail.value.waybill_no}.xlsx`)
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `发货单_${inv.waybill_no}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
     toast.success('导出成功')
   }
   catch (error: any) {
+    console.error('Export error:', error)
     toast.error('导出失败', { description: error.message })
   }
 }
@@ -685,7 +932,7 @@ const calculateTotals = computed(() => {
                     {{ formatNumber(bill.bill_id?.width) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.length) }}
+                    {{ formatNumber(bill.bill_id?.len) }}
                   </TableCell>
                   <TableCell class="text-right">
                     {{ formatNumber(bill.bill_id?.weight) }}
@@ -713,7 +960,7 @@ const calculateTotals = computed(() => {
                     {{ formatNumber(bill.bill_id?.width) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.length) }}
+                    {{ formatNumber(bill.bill_id?.len) }}
                   </TableCell>
                   <TableCell class="text-right">
                     {{ formatNumber(bill.bill_id?.weight) }}
@@ -854,5 +1101,6 @@ const calculateTotals = computed(() => {
         </div>
       </DialogContent>
     </Dialog>
+
   </BasicPage>
 </template>

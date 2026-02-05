@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs'
 import * as XLSX from 'xlsx'
 
 // ERP raw data types
@@ -8,7 +9,7 @@ export interface ERPRawRow {
   orderItemNo: string // 订单项次
   weight: number // 重量
   diameter: number // 厚度(直径)
-  length: number // 长度
+  len: number // 长度
   brandNo: string // 牌号
   quantity: number // 支数
   scaleWeight: number // 过磅重量
@@ -88,8 +89,8 @@ const plateHeaderMap: Record<string, string> = {
   '厚': 'thickness',
   '宽度': 'width',
   '宽': 'width',
-  '长度': 'length',
-  '长': 'length',
+  '长度': 'len',
+  '长': 'len',
   '块数': 'quantity',
   '发运数': 'quantity',
 }
@@ -225,7 +226,7 @@ export function parseERPExcel(
               orderItemNo: String(item.orderItemNo || '10'),
               weight: Number.parseFloat(item.weight) || 0,
               diameter: Number.parseFloat(item.diameter || item.thickness) || 0,
-              length: Number.parseFloat(item.length) || 0,
+              len: Number.parseFloat(item.len) || 0,
               brandNo: String(item.brandNo || ''),
               quantity: Number.parseInt(item.quantity) || 1,
               scaleWeight: Number.parseFloat(item.scaleWeight) || 0,
@@ -287,12 +288,12 @@ export function aggregateByOrderItem(data: ERPRawRow[]): AggregatedRow[] {
         orderNo: row.orderNo,
         orderItemNo: row.orderItemNo,
         brandNo: row.brandNo,
-        spec: row.diameter > 0 ? `φ${row.diameter}x${row.length}` : '',
+        spec: row.diameter > 0 ? `φ${row.diameter}x${row.len}` : '',
         unitWeight: row.weight / (row.quantity || 1),
         quantity: row.quantity,
         totalWeight: row.weight || row.scaleWeight,
-        warehouse: row.warehouse,
-        contractNo: row.contractNo,
+        warehouse: row.warehouse || '',
+        contractNo: row.contractNo || '',
         colorMark: '',
       })
     }
@@ -335,32 +336,117 @@ export function groupByContract(data: AggregatedRow[]): ContractGroup[] {
 }
 
 /**
- * Generate output Excel file
+ * Calculate text width for auto-sizing columns
  */
-export function generateOutputExcel(header: HeaderInfo, groups: ContractGroup[]): void {
-  const wb = XLSX.utils.book_new()
-  const aoa: any[][] = []
+function getTextWidth(text: string): number {
+  // Chinese characters count as 2, English as 1
+  let width = 0
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code > 127) {
+      width += 2
+    }
+    else {
+      width += 1
+    }
+  }
+  return width + 2 // Add padding
+}
 
-  // Header section
-  aoa.push(['运单号', header.invoiceNo, '', '开单名称', header.billingName])
-  aoa.push(['车船号', header.vehicle, '', '发货单位', header.shipper])
-  aoa.push(['发货日期', header.shipDate, '', '目的地', header.destination])
-  aoa.push([]) // Empty row
+/**
+ * Generate output Excel file with styles
+ */
+export async function generateOutputExcel(header: HeaderInfo, groups: ContractGroup[]): Promise<void> {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('发货清单')
+
+  // Track column widths
+  const columnWidths: number[] = Array.from({ length: 10 }).fill(10) as number[]
+
+  const updateColumnWidth = (colIndex: number, text: string) => {
+    const width = getTextWidth(String(text))
+    if (width > columnWidths[colIndex]) {
+      columnWidths[colIndex] = width
+    }
+  }
+
+  // Border style
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' },
+  }
+
+  let currentRow = 1
+
+  // Header section (3 rows)
+  const headerData = [
+    ['运单号', header.invoiceNo, '', '开单名称', header.billingName],
+    ['车船号', header.vehicle, '', '发货单位', header.shipper],
+    ['发货日期', header.shipDate, '', '目的地', header.destination],
+  ]
+
+  headerData.forEach((rowData) => {
+    const row = worksheet.getRow(currentRow)
+    rowData.forEach((value, colIndex) => {
+      row.getCell(colIndex + 1).value = value
+      row.getCell(colIndex + 1).border = thinBorder
+      row.getCell(colIndex + 1).font = { size: 11 }
+      updateColumnWidth(colIndex, value)
+    })
+    currentRow++
+  })
+
+  // Empty row
+  currentRow++
 
   // Table header
-  aoa.push(['提单号', '订单号', '项次号', '牌号', '规格', '单重', '发运数', '发运重量', '仓库', '合同号'])
+  const tableHeader = ['提单号', '订单号', '项次号', '牌号', '规格', '单重', '发运数', '发运重量', '仓库', '合同号']
+  const headerRow = worksheet.getRow(currentRow)
+  tableHeader.forEach((header, colIndex) => {
+    const cell = headerRow.getCell(colIndex + 1)
+    cell.value = header
+    cell.border = thinBorder
+    cell.font = { bold: true, size: 11 }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    updateColumnWidth(colIndex, header)
+  })
+  currentRow++
 
   // Calculate totals
   let grandTotalQuantity = 0
   let grandTotalWeight = 0
 
+  // Data rows grouped by contract
   for (const group of groups) {
-    // Contract header
-    aoa.push([`合同号: ${group.contractNo}`, '', '', '', '', '', '', '', '', ''])
+    // Contract header row
+    const contractRow = worksheet.getRow(currentRow)
+    const contractHeader = `合同号: ${group.contractNo}`
+    contractRow.getCell(1).value = contractHeader
+    for (let i = 1; i <= 10; i++) {
+      contractRow.getCell(i).border = thinBorder
+      contractRow.getCell(i).font = { bold: true, size: 11 }
+      contractRow.getCell(i).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF0F0F0' },
+      }
+    }
+    // Merge cells for contract header
+    worksheet.mergeCells(currentRow, 1, currentRow, 10)
+    updateColumnWidth(0, contractHeader)
+    currentRow++
 
     // Data rows
     for (const row of group.rows) {
-      aoa.push([
+      const dataRow = worksheet.getRow(currentRow)
+      const values = [
         row.billNo,
         row.orderNo,
         row.orderItemNo,
@@ -371,63 +457,91 @@ export function generateOutputExcel(header: HeaderInfo, groups: ContractGroup[])
         row.totalWeight.toFixed(3),
         row.warehouse,
         row.contractNo,
-      ])
+      ]
+
+      values.forEach((value, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1)
+        cell.value = value
+        cell.border = thinBorder
+        cell.font = { size: 10 }
+
+        // Right align for numeric columns
+        if ([5, 6, 7].includes(colIndex)) {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        }
+
+        updateColumnWidth(colIndex, String(value))
+      })
+      currentRow++
     }
 
     // Subtotal row
-    aoa.push([
-      `小计: ${group.subtotalQuantity}件`,
-      '',
-      '',
-      '',
-      '',
-      '',
-      group.subtotalQuantity,
-      group.subtotalWeight.toFixed(3),
-      '',
-      '',
-    ])
-    aoa.push([]) // Empty row
+    const subtotalRow = worksheet.getRow(currentRow)
+    const subtotalLabel = `小计: ${group.subtotalQuantity}件`
+    subtotalRow.getCell(1).value = subtotalLabel
+    subtotalRow.getCell(7).value = group.subtotalQuantity
+    subtotalRow.getCell(8).value = group.subtotalWeight.toFixed(3)
+
+    for (let i = 1; i <= 10; i++) {
+      const cell = subtotalRow.getCell(i)
+      cell.border = thinBorder
+      cell.font = { bold: true, size: 10 }
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFD700' },
+      }
+      if ([7, 8].includes(i)) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+      }
+    }
+
+    updateColumnWidth(0, subtotalLabel)
+    currentRow++
+
+    // Empty row
+    currentRow++
 
     grandTotalQuantity += group.subtotalQuantity
     grandTotalWeight += group.subtotalWeight
   }
 
-  // Grand total
-  aoa.push([
-    `总计: ${grandTotalQuantity}件, ${grandTotalWeight.toFixed(3)}吨`,
-    '',
-    '',
-    '',
-    '',
-    '',
-    grandTotalQuantity,
-    grandTotalWeight.toFixed(3),
-    '',
-    '',
-  ])
+  // Grand total row
+  const totalRow = worksheet.getRow(currentRow)
+  const totalLabel = `总计: ${grandTotalQuantity}件, ${grandTotalWeight.toFixed(3)}吨`
+  totalRow.getCell(1).value = totalLabel
+  totalRow.getCell(7).value = grandTotalQuantity
+  totalRow.getCell(8).value = grandTotalWeight.toFixed(3)
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa)
+  for (let i = 1; i <= 10; i++) {
+    const cell = totalRow.getCell(i)
+    cell.border = thinBorder
+    cell.font = { bold: true, size: 11 }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFA500' },
+    }
+    if ([7, 8].includes(i)) {
+      cell.alignment = { horizontal: 'right', vertical: 'middle' }
+    }
+  }
+
+  updateColumnWidth(0, totalLabel)
 
   // Set column widths
-  ws['!cols'] = [
-    { wch: 15 }, // 提单号
-    { wch: 15 }, // 订单号
-    { wch: 8 }, // 项次号
-    { wch: 15 }, // 牌号
-    { wch: 15 }, // 规格
-    { wch: 10 }, // 单重
-    { wch: 8 }, // 发运数
-    { wch: 12 }, // 发运重量
-    { wch: 10 }, // 仓库
-    { wch: 15 }, // 合同号
-  ]
-
-  XLSX.utils.book_append_sheet(wb, ws, '发货清单')
+  worksheet.columns = columnWidths.map(width => ({ width }))
 
   // Generate filename with date
   const dateStr = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `发货清单_${dateStr}.xlsx`)
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `发货清单_${dateStr}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 /**

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Check, Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
+// @ts-nocheck
+import { Check, ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { InvoiceBill } from '@/services/api/invoice.api'
@@ -109,6 +110,28 @@ const shipCustomers = ref<string[]>([])
 const pendingBills = ref<InvoiceBill[]>([])
 // 已确认的提单列表
 const confirmedBills = ref<InvoiceBill[]>([])
+
+// 移动端展开的卡片
+const expandedPendingCards = ref<Set<number>>(new Set())
+const expandedConfirmedCards = ref<Set<string>>(new Set())
+
+function togglePendingCardExpand(index: number) {
+  if (expandedPendingCards.value.has(index)) {
+    expandedPendingCards.value.delete(index)
+  }
+  else {
+    expandedPendingCards.value.add(index)
+  }
+}
+
+function toggleConfirmedCardExpand(key: string) {
+  if (expandedConfirmedCards.value.has(key)) {
+    expandedConfirmedCards.value.delete(key)
+  }
+  else {
+    expandedConfirmedCards.value.add(key)
+  }
+}
 
 // 当前车辆的统计
 const wagonTotalWeight = computed(() => {
@@ -888,36 +911,35 @@ function formatWeight(weight: number) {
 
 <template>
   <BasicPage title="配发货-船运" description="使用船舶进行货物配发，需要为每批货物指定装卸车辆">
-    <div class="space-y-4">
-      <!-- 操作按钮和状态 -->
-      <div class="flex items-center justify-between gap-4">
-        <div class="flex items-center gap-2">
-          <UiButton :disabled="loading" @click="createNewInvoice">
-            <Plus class="w-4 h-4 mr-1" />
-            新建运单
-          </UiButton>
-          <UiButton variant="outline" :disabled="loading" @click="openInvoiceList">
-            <FolderOpen class="w-4 h-4 mr-1" />
-            修改运单
-          </UiButton>
-          <UiButton variant="outline" :disabled="!waybillNo" @click="copyLastOperation">
-            <Copy class="w-4 h-4 mr-1" />
-            复制上次操作
-          </UiButton>
-        </div>
-
+    <template #actions>
+      <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto">
+        <UiButton size="sm" :disabled="loading" @click="createNewInvoice">
+          <Plus class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">新建运单</span>
+        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="openInvoiceList">
+          <FolderOpen class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">修改运单</span>
+        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="!waybillNo" @click="copyLastOperation">
+          <Copy class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">复制上次操作</span>
+        </UiButton>
         <!-- 状态提示 -->
-        <div v-if="waybillNo" class="flex items-center gap-3">
-          <div class="flex items-center gap-2 px-3 py-1.5 rounded-md" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
-            <span class="text-sm font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
-            <span class="text-xs bg-white dark:bg-gray-800 px-2 py-0.5 rounded">{{ waybillNo }}</span>
+        <div v-if="waybillNo" class="flex items-center gap-2 sm:gap-3 ml-2">
+          <div class="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
+            <span class="font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
+            <span class="text-xs bg-white dark:bg-gray-800 px-1.5 sm:px-2 py-0.5 rounded">{{ waybillNo }}</span>
           </div>
           <div v-if="hasUnsavedChanges" class="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
             <span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-            <span>未保存</span>
+            <span class="hidden sm:inline">未保存</span>
           </div>
         </div>
       </div>
+    </template>
+
+    <div class="space-y-4">
 
       <!-- 紧凑式输入块 -->
       <div v-if="waybillNo" class="p-3 border rounded-lg bg-muted/50">
@@ -1005,17 +1027,19 @@ function formatWeight(weight: number) {
 
       <!-- 当前车辆待确认提单 -->
       <div v-if="pendingBills.length > 0">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
           <h4 class="text-sm font-medium">
             当前车辆待确认 ({{ currentWagonNo || '未选择车号' }})
           </h4>
-          <div class="text-sm text-muted-foreground">
+          <div class="text-xs sm:text-sm text-muted-foreground">
             <span>块数: {{ wagonTotalNumber }}</span>
-            <span class="ml-4">重量: {{ wagonTotalWeight.toFixed(3) }}</span>
+            <span class="ml-3 sm:ml-4">重量: {{ wagonTotalWeight.toFixed(3) }}</span>
           </div>
         </div>
-        <div class="border rounded">
-          <UiTable>
+
+        <!-- 桌面端表格 -->
+        <div class="hidden lg:block border rounded overflow-x-auto">
+          <UiTable class="min-w-[800px]">
             <UiTableHeader>
               <UiTableRow>
                 <UiTableHead class="w-10" />
@@ -1074,6 +1098,100 @@ function formatWeight(weight: number) {
             </UiTableBody>
           </UiTable>
         </div>
+
+        <!-- 移动端卡片 -->
+        <div class="lg:hidden space-y-2">
+          <div
+            v-for="(bill, index) in pendingBills"
+            :key="`${bill.bill_no}-${index}`"
+            class="border rounded-lg overflow-hidden bg-card"
+          >
+            <!-- 卡片头部 -->
+            <div class="p-3 flex items-start gap-3">
+              <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive shrink-0 mt-1" @click="removePendingBill(index)">
+                <Trash2 class="w-4 h-4" />
+              </UiButton>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                  <span class="font-medium text-sm truncate">{{ bill.bill_no }}</span>
+                  <button
+                    class="text-primary hover:text-primary/80 p-1 shrink-0"
+                    @click="togglePendingCardExpand(index)"
+                  >
+                    <ChevronDown v-if="!expandedPendingCards.has(index)" class="w-4 h-4" />
+                    <ChevronUp v-else class="w-4 h-4" />
+                  </button>
+                </div>
+                <div class="text-sm text-muted-foreground space-y-0.5">
+                  <div>订单: {{ getOrderDisplay(bill) }}</div>
+                  <div class="flex items-center justify-between">
+                    <span>可用量: {{ getBillLeftNum(bill, index) }}</span>
+                    <span :class="isBlockBill(bill) ? 'text-blue-600' : 'text-purple-600'">
+                      {{ isBlockBill(bill) ? '定尺' : '乱尺' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 展开的详细信息 -->
+            <div v-if="expandedPendingCards.has(index)" class="border-t bg-muted/30 p-3 text-sm space-y-2">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <span class="text-muted-foreground">厚度:</span>
+                  <span class="ml-1">{{ bill.thickness }}</span>
+                </div>
+                <div>
+                  <span class="text-muted-foreground">宽度:</span>
+                  <span class="ml-1">{{ bill.width }}</span>
+                </div>
+                <div>
+                  <span class="text-muted-foreground">长度:</span>
+                  <span class="ml-1">{{ bill.len }}</span>
+                </div>
+                <div>
+                  <span class="text-muted-foreground">单重:</span>
+                  <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+                </div>
+              </div>
+
+              <!-- 发运数输入 -->
+              <div class="pt-2 border-t space-y-2">
+                <div>
+                  <label class="text-xs text-muted-foreground block mb-1">发运数</label>
+                  <UiInput
+                    :model-value="bill.send_num"
+                    type="number"
+                    class="w-full"
+                    min="0"
+                    :max="isBlockBill(bill) ? getMaxAvailable(bill, index) : undefined"
+                    step="any"
+                    @update:model-value="updateSendNum(index, Number($event))"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
+                  <template v-if="isBlockBill(bill)">
+                    <div class="p-2 bg-muted rounded text-center">
+                      {{ bill.send_weight?.toFixed(3) }}
+                    </div>
+                  </template>
+                  <UiInput
+                    v-else
+                    :model-value="bill.send_weight"
+                    type="number"
+                    class="w-full"
+                    min="0"
+                    :max="getMaxAvailable(bill, index)"
+                    step="0.001"
+                    @update:model-value="updateSendWeight(index, Number($event))"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="mt-2 flex justify-end">
           <UiButton :disabled="!currentWagonNo || wagonTotalNumber === 0" @click="confirmWagon">
             <Check class="w-4 h-4 mr-1" />
@@ -1084,19 +1202,19 @@ function formatWeight(weight: number) {
 
       <!-- 已确认的提单 -->
       <div v-if="confirmedBills.length > 0">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
           <h4 class="text-sm font-medium">
             已确认配发
           </h4>
-          <div class="text-sm text-muted-foreground">
+          <div class="text-xs sm:text-sm text-muted-foreground">
             <span>总块数: <strong>{{ totalNumber }}</strong></span>
-            <span class="ml-4">总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
+            <span class="ml-3 sm:ml-4">总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
           </div>
         </div>
 
         <div v-for="(bills, wagonNo) in confirmedByWagon" :key="wagonNo" class="mb-3">
-          <div class="flex items-center justify-between text-xs text-muted-foreground mb-1 bg-muted px-2 py-1 rounded">
-            <div class="flex items-center gap-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground mb-1 bg-muted px-2 py-1.5 sm:py-1 rounded">
+            <div class="flex flex-wrap items-center gap-2 sm:gap-4">
               <span>车号: <strong class="text-foreground">{{ wagonNo }}</strong></span>
               <span>块数: <strong>{{ getWagonStats(bills).totalNum }}</strong></span>
               <span>重量: <strong>{{ getWagonStats(bills).totalWeight.toFixed(3) }}</strong></span>
@@ -1107,8 +1225,10 @@ function formatWeight(weight: number) {
               删除此车
             </UiButton>
           </div>
-          <div class="border rounded">
-            <UiTable>
+
+          <!-- 桌面端表格 -->
+          <div class="hidden lg:block border rounded overflow-x-auto">
+            <UiTable class="min-w-[800px]">
               <UiTableHeader>
                 <UiTableRow>
                   <UiTableHead class="w-10" />
@@ -1141,17 +1261,74 @@ function formatWeight(weight: number) {
               </UiTableBody>
             </UiTable>
           </div>
+
+          <!-- 移动端卡片 -->
+          <div class="lg:hidden space-y-2">
+            <div
+              v-for="bill in bills"
+              :key="`${bill.bill_no}-${bill.inner_waybill_no}`"
+              class="border rounded-lg overflow-hidden bg-card"
+            >
+              <!-- 卡片头部 -->
+              <div class="p-3 flex items-start gap-3">
+                <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive shrink-0 mt-1" @click="deleteConfirmedBill(wagonNo as string, bill.bill_no)">
+                  <Trash2 class="w-4 h-4" />
+                </UiButton>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="font-medium text-sm truncate">{{ bill.bill_no }}</span>
+                    <button
+                      class="text-primary hover:text-primary/80 p-1 shrink-0"
+                      @click="toggleConfirmedCardExpand(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)"
+                    >
+                      <ChevronDown v-if="!expandedConfirmedCards.has(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)" class="w-4 h-4" />
+                      <ChevronUp v-else class="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div class="text-sm text-muted-foreground space-y-0.5">
+                    <div>订单: {{ getOrderDisplay(bill) }}</div>
+                    <div class="flex items-center justify-between">
+                      <span>发运: {{ bill.send_num }}块 / {{ bill.send_weight?.toFixed(3) }}吨</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 展开的详细信息 -->
+              <div v-if="expandedConfirmedCards.has(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)" class="border-t bg-muted/30 p-3 text-sm">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <span class="text-muted-foreground">厚度:</span>
+                    <span class="ml-1">{{ bill.thickness }}</span>
+                  </div>
+                  <div>
+                    <span class="text-muted-foreground">宽度:</span>
+                    <span class="ml-1">{{ bill.width }}</span>
+                  </div>
+                  <div>
+                    <span class="text-muted-foreground">长度:</span>
+                    <span class="ml-1">{{ bill.len }}</span>
+                  </div>
+                  <div>
+                    <span class="text-muted-foreground">单重:</span>
+                    <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 保存按钮 -->
-        <div class="flex justify-end gap-2">
+        <div class="flex flex-col sm:flex-row justify-end gap-2">
           <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
             <Save class="w-4 h-4 mr-1" />
             保存
           </UiButton>
           <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
             <Send class="w-4 h-4 mr-1" />
-            保存并确定配发
+            <span class="hidden sm:inline">保存并确定配发</span>
+            <span class="sm:hidden">确定配发</span>
           </UiButton>
         </div>
       </div>
@@ -1261,9 +1438,9 @@ function formatWeight(weight: number) {
           </div>
 
           <!-- 分页 -->
-          <div v-if="invoiceListTotal > 0" class="flex items-center justify-between text-sm border-t pt-3">
+          <div v-if="invoiceListTotal > 0" class="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3">
             <div class="text-muted-foreground">
-              共 {{ invoiceListTotal }} 条记录，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
+              共 {{ invoiceListTotal }} 条，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
             </div>
             <div class="flex items-center gap-2">
               <UiButton

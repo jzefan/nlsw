@@ -374,46 +374,46 @@ function formatNumber(num: number | undefined) {
 
     <!-- 数据表格 -->
     <div class="border rounded-lg overflow-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">
+            <th class="p-2 text-left w-10 whitespace-nowrap">
               操作
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               订单号
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               订单量
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               客户名称
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               客户代码
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               目的地
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               运输方式
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               收货人
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               下游客户
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               客户业务员
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               业务员
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               合同号
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               接单价
             </th>
           </tr>

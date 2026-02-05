@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 import type { VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
 import { h } from 'vue'

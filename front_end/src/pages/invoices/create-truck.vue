@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { InvoiceBill } from '@/services/api/invoice.api'
@@ -98,6 +98,18 @@ const selectedBills = ref<InvoiceBill[]>([])
 
 // 当前公司的客户列表
 const shipCustomers = ref<string[]>([])
+
+// 移动端展开的卡片
+const expandedCards = ref<Set<number>>(new Set())
+
+function toggleCardExpand(index: number) {
+  if (expandedCards.value.has(index)) {
+    expandedCards.value.delete(index)
+  }
+  else {
+    expandedCards.value.add(index)
+  }
+}
 
 // 总重量和总块数
 const totalWeight = computed(() => {
@@ -699,36 +711,35 @@ function getBillLeftNum(bill: InvoiceBill) {
 
 <template>
   <BasicPage title="配发货-车运" description="使用车辆进行货物配发">
-    <div class="space-y-4">
-      <!-- 操作按钮和状态 -->
-      <div class="flex items-center justify-between gap-4">
-        <div class="flex items-center gap-2">
-          <UiButton :disabled="loading" @click="createNewInvoice">
-            <Plus class="w-4 h-4 mr-1" />
-            新建运单
-          </UiButton>
-          <UiButton variant="outline" :disabled="loading" @click="openInvoiceList">
-            <FolderOpen class="w-4 h-4 mr-1" />
-            修改运单
-          </UiButton>
-          <UiButton variant="outline" :disabled="!waybillNo" @click="copyLastOperation">
-            <Copy class="w-4 h-4 mr-1" />
-            复制上次操作
-          </UiButton>
-        </div>
-
+    <template #actions>
+      <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto">
+        <UiButton size="sm" :disabled="loading" @click="createNewInvoice">
+          <Plus class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">新建运单</span>
+        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="openInvoiceList">
+          <FolderOpen class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">修改运单</span>
+        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="!waybillNo" @click="copyLastOperation">
+          <Copy class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">复制上次操作</span>
+        </UiButton>
         <!-- 状态提示 -->
-        <div v-if="waybillNo" class="flex items-center gap-3">
-          <div class="flex items-center gap-2 px-3 py-1.5 rounded-md" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
-            <span class="text-sm font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
-            <span class="text-xs bg-white dark:bg-gray-800 px-2 py-0.5 rounded">{{ waybillNo }}</span>
+        <div v-if="waybillNo" class="flex items-center gap-2 sm:gap-3 ml-2">
+          <div class="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
+            <span class="font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
+            <span class="text-xs bg-white dark:bg-gray-800 px-1.5 sm:px-2 py-0.5 rounded">{{ waybillNo }}</span>
           </div>
           <div v-if="hasUnsavedChanges" class="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
             <span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-            <span>未保存</span>
+            <span class="hidden sm:inline">未保存</span>
           </div>
         </div>
       </div>
+    </template>
+
+    <div class="space-y-4">
 
       <!-- 紧凑式输入块 -->
       <div v-if="waybillNo" class="p-3 border rounded-lg bg-muted/50">
@@ -796,22 +807,22 @@ function getBillLeftNum(bill: InvoiceBill) {
         </div>
       </div>
 
-      <!-- 已选提单表格 -->
-      <div v-if="selectedBills.length > 0" class="border rounded">
-        <UiTable>
+      <!-- 已选提单 - 桌面端表格 -->
+      <div v-if="selectedBills.length > 0" class="hidden lg:block border rounded overflow-x-auto">
+        <UiTable class="min-w-[800px]">
           <UiTableHeader>
             <UiTableRow>
-              <UiTableHead class="w-10" />
-              <UiTableHead>提单号</UiTableHead>
-              <UiTableHead>订单号</UiTableHead>
-              <UiTableHead>仓库</UiTableHead>
-              <UiTableHead>厚度</UiTableHead>
-              <UiTableHead>宽度</UiTableHead>
-              <UiTableHead>长度</UiTableHead>
-              <UiTableHead>单重</UiTableHead>
-              <UiTableHead>剩余量</UiTableHead>
-              <UiTableHead>发运数</UiTableHead>
-              <UiTableHead>发运重量</UiTableHead>
+              <UiTableHead class="w-10 min-w-[40px]" />
+              <UiTableHead class="min-w-[100px]">提单号</UiTableHead>
+              <UiTableHead class="min-w-[120px]">订单号</UiTableHead>
+              <UiTableHead class="min-w-[80px]">仓库</UiTableHead>
+              <UiTableHead class="min-w-[60px]">厚度</UiTableHead>
+              <UiTableHead class="min-w-[60px]">宽度</UiTableHead>
+              <UiTableHead class="min-w-[60px]">长度</UiTableHead>
+              <UiTableHead class="min-w-[80px]">单重</UiTableHead>
+              <UiTableHead class="min-w-[80px]">剩余量</UiTableHead>
+              <UiTableHead class="min-w-[100px]">发运数</UiTableHead>
+              <UiTableHead class="min-w-[120px]">发运重量</UiTableHead>
             </UiTableRow>
           </UiTableHeader>
           <UiTableBody>
@@ -860,20 +871,115 @@ function getBillLeftNum(bill: InvoiceBill) {
         </UiTable>
       </div>
 
-      <!-- 汇总和操作 -->
-      <div v-if="selectedBills.length > 0" class="flex items-center justify-between">
-        <div class="text-sm text-muted-foreground">
-          <span>总块数: <strong>{{ totalNumber }}</strong></span>
-          <span class="ml-6">总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
+      <!-- 已选提单 - 移动端卡片 -->
+      <div v-if="selectedBills.length > 0" class="lg:hidden space-y-2">
+        <div
+          v-for="(bill, index) in selectedBills"
+          :key="bill.bill_no"
+          class="border rounded-lg overflow-hidden bg-card"
+        >
+          <!-- 卡片头部 -->
+          <div class="p-3 flex items-start gap-3">
+            <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive shrink-0 mt-1" @click="removeBill(index)">
+              <Trash2 class="w-4 h-4" />
+            </UiButton>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <span class="font-medium text-sm truncate">{{ bill.bill_no }}</span>
+                <button
+                  class="text-primary hover:text-primary/80 p-1 shrink-0"
+                  @click="toggleCardExpand(index)"
+                >
+                  <ChevronDown v-if="!expandedCards.has(index)" class="w-4 h-4" />
+                  <ChevronUp v-else class="w-4 h-4" />
+                </button>
+              </div>
+              <div class="text-sm text-muted-foreground space-y-0.5">
+                <div>订单: {{ getOrderDisplay(bill) }}</div>
+                <div>仓库: {{ bill.ship_warehouse }}</div>
+                <div class="flex items-center justify-between">
+                  <span>剩余量: {{ getBillLeftNum(bill) }}</span>
+                  <span :class="isBlockBill(bill) ? 'text-blue-600' : 'text-purple-600'">
+                    {{ isBlockBill(bill) ? '定尺' : '乱尺' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 展开的详细信息 -->
+          <div v-if="expandedCards.has(index)" class="border-t bg-muted/30 p-3 text-sm space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <span class="text-muted-foreground">厚度:</span>
+                <span class="ml-1">{{ bill.thickness }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">宽度:</span>
+                <span class="ml-1">{{ bill.width }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">长度:</span>
+                <span class="ml-1">{{ bill.len }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">单重:</span>
+                <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+              </div>
+            </div>
+
+            <!-- 发运数输入 -->
+            <div class="pt-2 border-t space-y-2">
+              <div>
+                <label class="text-xs text-muted-foreground block mb-1">发运数</label>
+                <UiInput
+                  :model-value="bill.send_num"
+                  type="number"
+                  class="w-full"
+                  min="0"
+                  :max="isBlockBill(bill) ? getOriginalLeftNum(bill) : undefined"
+                  step="any"
+                  @update:model-value="updateSendNum(index, Number($event))"
+                />
+              </div>
+              <div>
+                <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
+                <template v-if="isBlockBill(bill)">
+                  <div class="p-2 bg-muted rounded text-center">
+                    {{ bill.send_weight?.toFixed(3) }}
+                  </div>
+                </template>
+                <UiInput
+                  v-else
+                  :model-value="bill.send_weight"
+                  type="number"
+                  class="w-full"
+                  min="0"
+                  :max="getOriginalLeftNum(bill)"
+                  step="0.001"
+                  @update:model-value="updateSendWeight(index, Number($event))"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="flex gap-2">
+      </div>
+
+      <!-- 汇总和操作 -->
+      <div v-if="selectedBills.length > 0" class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div class="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
+          <span>总块数: <strong>{{ totalNumber }}</strong></span>
+          <span class="ml-3 sm:ml-6">总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2">
           <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
             <Save class="w-4 h-4 mr-1" />
             保存
           </UiButton>
           <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
             <Send class="w-4 h-4 mr-1" />
-            保存并确定配发
+            <span class="hidden sm:inline">保存并确定配发</span>
+            <span class="sm:hidden">确定配发</span>
           </UiButton>
         </div>
       </div>
@@ -980,9 +1086,9 @@ function getBillLeftNum(bill: InvoiceBill) {
           </div>
 
           <!-- 分页 -->
-          <div v-if="invoiceListTotal > 0" class="flex items-center justify-between text-sm border-t pt-3">
+          <div v-if="invoiceListTotal > 0" class="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3">
             <div class="text-muted-foreground">
-              共 {{ invoiceListTotal }} 条记录，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
+              共 {{ invoiceListTotal }} 条，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
             </div>
             <div class="flex items-center gap-2">
               <UiButton

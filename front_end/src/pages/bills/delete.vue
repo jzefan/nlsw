@@ -403,10 +403,10 @@ onMounted(() => {
 
     <!-- 数据表格 -->
     <div class="border rounded-lg overflow-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">
+            <th class="p-2 text-left w-10 whitespace-nowrap">
               <input
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300"
@@ -414,46 +414,46 @@ onMounted(() => {
                 @change="toggleSelectAll"
               >
             </th>
-            <th class="p-2 text-center">
+            <th class="p-2 text-center whitespace-nowrap">
               状态
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               订单号-项次
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               提单号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               牌号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               开单名称
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               销售部门
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               厚
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               宽
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               长
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               块数
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               总重量
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               仓库
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               合同号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               创建日期
             </th>
           </tr>

@@ -2,9 +2,10 @@
 import { Banknote, Download, Filter as FilterIcon, List, Undo2 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
 
 import { BasicPage } from '@/components/global-layout'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,6 +13,8 @@ import { getMoneyList, updateMoney, updateRealPrice } from '@/services/api/money
 import { getSettleDetail } from '@/services/api/ticket.api'
 
 import type { DisplayMode, SettleRecord } from './ticket-types'
+
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 获取默认日期区间（一年前到今天，返回字符串格式）
 function getDefaultDateRange() {
@@ -390,39 +393,42 @@ function exportDetail() {
     return
   }
 
-  try {
-    // 准备导出数据
-    const exportData = detailBills.value.map((bill, index) => ({
-      序号: index + 1,
-      订单号: `${bill.order_no}-${String(bill.order_item_no || 0).padStart(3, '0')}`,
-      提单号: bill.bill_no,
-      规格: `${bill.thickness}*${bill.width}*${bill.len}`,
-      开单名称: bill.billing_name,
-      车船: bill.vessel || '-',
-      目的地: bill.ship_to || '-',
-      单价: bill.price?.toFixed(2) || '0.00',
-      发运块数: bill.settle_num || 0,
-      发运重量: bill.settle_weight?.toFixed(3) || '0.000',
-      金额: bill.amount?.toFixed(2) || '0.00',
-    }))
+  const exportData = detailBills.value.map((bill, index) => ({
+    index: index + 1,
+    order_no: `${bill.order_no}-${String(bill.order_item_no || 0).padStart(3, '0')}`,
+    bill_no: bill.bill_no,
+    spec: `${bill.thickness}*${bill.width}*${bill.len}`,
+    billing_name: bill.billing_name,
+    vessel: bill.vessel || '-',
+    ship_to: bill.ship_to || '-',
+    price: bill.price?.toFixed(2) || '0.00',
+    settle_num: bill.settle_num || 0,
+    settle_weight: bill.settle_weight?.toFixed(3) || '0.000',
+    amount: bill.amount?.toFixed(2) || '0.00',
+  }))
 
-    // 创建工作簿
-    const ws = XLSX.utils.json_to_sheet(exportData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '结算明细')
+  const fileName = currentSettle.value
+    ? `结算明细_${currentSettle.value.serial_number}_${new Date().toLocaleDateString()}`
+    : `结算明细_${new Date().toLocaleDateString()}`
 
-    // 生成文件名
-    const fileName = currentSettle.value
-      ? `结算明细_${currentSettle.value.serial_number}_${new Date().toLocaleDateString()}.xlsx`
-      : `结算明细_${new Date().toLocaleDateString()}.xlsx`
-
-    // 导出文件
-    XLSX.writeFile(wb, fileName)
-    toast.success('导出成功')
-  }
-  catch (error: any) {
-    toast.error(error.message || '导出失败')
-  }
+  exportWithPicker({
+    fileName,
+    sheetName: '结算明细',
+    columns: [
+      { header: '序号', key: 'index' },
+      { header: '订单号', key: 'order_no' },
+      { header: '提单号', key: 'bill_no' },
+      { header: '规格', key: 'spec' },
+      { header: '开单名称', key: 'billing_name' },
+      { header: '车船', key: 'vessel' },
+      { header: '目的地', key: 'ship_to' },
+      { header: '单价', key: 'price' },
+      { header: '发运块数', key: 'settle_num' },
+      { header: '发运重量', key: 'settle_weight' },
+      { header: '金额', key: 'amount' },
+    ],
+    data: exportData,
+  })
 }
 
 // 显示明细
@@ -1079,5 +1085,12 @@ async function handleShowDetail() {
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>
+
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>

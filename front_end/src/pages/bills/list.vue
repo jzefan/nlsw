@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Filter, Pencil, RefreshCw, Search, SearchX, X, Zap } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Filter, Pencil, RefreshCw, Search, SearchX, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { BillFilterValues } from '@/components/bill-filter.vue'
@@ -80,6 +80,18 @@ const batchFields = [
 // 剩余量查询对话框
 const showLeftSearchDialog = ref(false)
 const leftSearchThreshold = ref('')
+
+// 移动端展开的卡片
+const expandedCards = ref<Set<string>>(new Set())
+
+function toggleCardExpand(billId: string) {
+  if (expandedCards.value.has(billId)) {
+    expandedCards.value.delete(billId)
+  }
+  else {
+    expandedCards.value.add(billId)
+  }
+}
 
 // 高级查询对话框
 const showAdvancedSearchDialog = ref(false)
@@ -531,26 +543,26 @@ onMounted(() => {
 <template>
   <BasicPage title="提单列表" description="查询和修改提单信息">
     <template #actions>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 overflow-x-auto">
         <UiButton
           :variant="showFilter ? 'default' : 'outline'"
           size="sm"
           @click="showFilter = !showFilter"
         >
-          <Filter class="w-4 h-4 mr-1" />
-          {{ showFilter ? '收起' : '筛选' }}
+          <Filter class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">{{ showFilter ? '收起' : '筛选' }}</span>
         </UiButton>
         <UiButton variant="outline" size="sm" @click="openAdvancedSearch">
-          <SearchX class="w-4 h-4 mr-1" />
-          高级查询
+          <SearchX class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">高级查询</span>
         </UiButton>
         <UiButton variant="outline" size="sm" @click="showLeftSearchDialog = true">
-          <Search class="w-4 h-4 mr-1" />
-          剩余量查询
+          <Search class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">剩余量查询</span>
         </UiButton>
         <UiButton variant="outline" size="sm" @click="loadData">
-          <RefreshCw class="w-4 h-4 mr-1" />
-          刷新
+          <RefreshCw class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">刷新</span>
         </UiButton>
       </div>
     </template>
@@ -580,45 +592,48 @@ onMounted(() => {
     </div>
 
     <!-- 工具栏 -->
-    <div class="mb-3 flex flex-wrap items-center gap-2">
-      <UiButton
-        variant="outline"
-        size="sm"
-        :disabled="selectedBills.length !== 1"
-        @click="selectedBills.length === 1 && openEditDialog(selectedBills[0])"
-      >
-        <Pencil class="w-4 h-4 mr-1" />
-        单条修改
-      </UiButton>
-      <UiButton
-        variant="outline"
-        size="sm"
-        :disabled="selectedBills.length === 0"
-        @click="openBatchDialog"
-      >
-        批量修改
-      </UiButton>
-      <UiButton
-        variant="outline"
-        size="sm"
-        :disabled="selectedBills.length === 0"
-        @click="zeroLeftNum"
-      >
-        <Zap class="w-4 h-4 mr-1" />
-        剩余量清零
-      </UiButton>
+    <div class="mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
+      <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto pb-1 sm:pb-0">
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="selectedBills.length !== 1"
+          @click="selectedBills.length === 1 && openEditDialog(selectedBills[0])"
+        >
+          <Pencil class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">单条修改</span>
+        </UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="selectedBills.length === 0"
+          @click="openBatchDialog"
+        >
+          <span class="hidden sm:inline">批量修改</span>
+          <span class="sm:hidden">批量</span>
+        </UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="selectedBills.length === 0"
+          @click="zeroLeftNum"
+        >
+          <Zap class="w-4 h-4 sm:mr-1" />
+          <span class="hidden sm:inline">剩余量清零</span>
+        </UiButton>
+      </div>
       <div class="flex-1" />
-      <span class="text-sm text-muted-foreground">
+      <span class="text-xs sm:text-sm text-muted-foreground text-center sm:text-right">
         已选择 {{ selectedBills.length }} 条，共 {{ total }} 条
       </span>
     </div>
 
-    <!-- 数据表格 -->
-    <div class="border rounded-lg overflow-auto">
-      <table class="w-full text-sm">
+    <!-- 桌面端表格 -->
+    <div class="hidden lg:block border rounded-lg overflow-x-auto">
+      <table class="text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10">
+            <th class="p-2 text-left w-10 whitespace-nowrap">
               <input
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300"
@@ -626,49 +641,49 @@ onMounted(() => {
                 @change="toggleSelectAll"
               >
             </th>
-            <th class="p-2 text-center">
+            <th class="p-2 text-center whitespace-nowrap">
               状态
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               订单号-项次
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left min-w-[100px] whitespace-nowrap">
               提单号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               牌号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left min-w-[120px] whitespace-nowrap">
               开单名称
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left min-w-[100px] whitespace-nowrap">
               销售部门
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               厚
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               宽
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               长
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               块数
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               总重量
             </th>
-            <th class="p-2 text-right">
+            <th class="p-2 text-right whitespace-nowrap">
               余量
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               仓库
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left whitespace-nowrap">
               合同号
             </th>
-            <th class="p-2 text-left">
+            <th class="p-2 text-left min-w-[100px] whitespace-nowrap">
               创建日期
             </th>
           </tr>
@@ -697,16 +712,16 @@ onMounted(() => {
             <td class="p-2 font-mono">
               {{ bill.order_no }}-{{ bill.order_item_no }}
             </td>
-            <td class="p-2 font-mono">
+            <td class="p-2 font-mono min-w-[100px]">
               {{ bill.bill_no }}
             </td>
             <td class="p-2">
               {{ bill.brand_no }}
             </td>
-            <td class="p-2">
+            <td class="p-2 min-w-[120px]">
               {{ bill.billing_name }}
             </td>
-            <td class="p-2">
+            <td class="p-2 min-w-[100px]">
               {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
@@ -735,7 +750,7 @@ onMounted(() => {
             <td class="p-2">
               {{ bill.contract_no }}
             </td>
-            <td class="p-2">
+            <td class="p-2 min-w-[100px]">
               {{ formatDate(bill.create_date) }}
             </td>
           </tr>
@@ -748,9 +763,112 @@ onMounted(() => {
       </table>
     </div>
 
+    <!-- 移动端卡片视图 -->
+    <div class="lg:hidden space-y-2">
+      <div
+        v-for="bill in bills"
+        :key="bill._id"
+        class="border rounded-lg overflow-hidden"
+        :class="{ 'border-primary bg-primary/5': isSelected(bill) }"
+      >
+        <!-- 卡片头部 - 关键信息 -->
+        <div class="p-3 flex items-start gap-3" @click="toggleSelect(bill)">
+          <input
+            type="checkbox"
+            class="mt-1 h-4 w-4 rounded border-gray-300 shrink-0"
+            :checked="isSelected(bill)"
+            @click.stop
+            @change="toggleSelect(bill)"
+          >
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <span class="font-medium text-sm truncate">{{ bill.billing_name }}</span>
+              <UiBadge :variant="getStatusVariant(bill.status)" class="shrink-0">
+                {{ bill.status }}
+              </UiBadge>
+            </div>
+            <div class="text-sm text-muted-foreground space-y-0.5">
+              <div class="flex items-center justify-between">
+                <span>订单: {{ bill.order_no }}-{{ bill.order_item_no }}</span>
+                <button
+                  class="text-primary hover:text-primary/80 p-1"
+                  @click.stop="toggleCardExpand(bill._id!)"
+                >
+                  <ChevronDown v-if="!expandedCards.has(bill._id!)" class="w-4 h-4" />
+                  <ChevronUp v-else class="w-4 h-4" />
+                </button>
+              </div>
+              <div>提单号: {{ bill.bill_no }}</div>
+              <div>牌号: {{ bill.brand_no }}</div>
+              <div class="flex items-center justify-between">
+                <span>总重量: {{ formatNumber(bill.total_weight) }}</span>
+                <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
+                  余量: {{ formatNumber(bill.left_num) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 展开的详细信息 -->
+        <div v-if="expandedCards.has(bill._id!)" class="border-t bg-muted/30 p-3 text-sm space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <span class="text-muted-foreground">销售部门:</span>
+              <span class="ml-1">{{ bill.sales_dep }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">仓库:</span>
+              <span class="ml-1">{{ bill.ship_warehouse }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">厚度:</span>
+              <span class="ml-1">{{ formatNumber(bill.thickness) }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">宽度:</span>
+              <span class="ml-1">{{ formatNumber(bill.width) }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">长度:</span>
+              <span class="ml-1">{{ formatNumber(bill.len) }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">块数:</span>
+              <span class="ml-1">{{ bill.block_num }}</span>
+            </div>
+            <div class="col-span-2">
+              <span class="text-muted-foreground">合同号:</span>
+              <span class="ml-1">{{ bill.contract_no }}</span>
+            </div>
+            <div class="col-span-2">
+              <span class="text-muted-foreground">创建日期:</span>
+              <span class="ml-1">{{ formatDate(bill.create_date) }}</span>
+            </div>
+          </div>
+          <div class="pt-2 border-t">
+            <UiButton
+              size="sm"
+              variant="outline"
+              class="w-full"
+              @click="openEditDialog(bill)"
+            >
+              <Pencil class="w-4 h-4 mr-1" />
+              编辑
+            </UiButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- 无数据提示 -->
+      <div v-if="bills.length === 0 && !loading" class="border rounded-lg p-8 text-center text-muted-foreground">
+        暂无数据
+      </div>
+    </div>
+
     <!-- 分页 -->
-    <div class="mt-4 flex items-center justify-between">
-      <div class="text-sm text-muted-foreground">
+    <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div class="text-xs sm:text-sm text-muted-foreground">
         共 {{ total }} 条
       </div>
       <div class="flex items-center gap-2">
@@ -762,7 +880,7 @@ onMounted(() => {
         >
           上一页
         </UiButton>
-        <span class="text-sm">{{ page }} / {{ Math.ceil(total / limit) || 1 }}</span>
+        <span class="text-xs sm:text-sm">{{ page }} / {{ Math.ceil(total / limit) || 1 }}</span>
         <UiButton
           variant="outline"
           size="sm"
@@ -776,14 +894,14 @@ onMounted(() => {
 
     <!-- 单条编辑对话框 -->
     <UiDialog v-model:open="showEditDialog">
-      <UiDialogContent class="max-w-2xl">
+      <UiDialogContent class="max-w-2xl max-h-[90vh] overflow-y-auto">
         <UiDialogHeader>
           <UiDialogTitle>修改提单</UiDialogTitle>
           <UiDialogDescription>
             订单: {{ editingBill?.order_no }}-{{ editingBill?.order_item_no }}
           </UiDialogDescription>
         </UiDialogHeader>
-        <div class="grid grid-cols-2 gap-4 py-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
           <div>
             <label class="text-sm font-medium">提单号</label>
             <UiInput v-model="editForm.billNo" />
@@ -830,7 +948,7 @@ onMounted(() => {
 
     <!-- 批量编辑对话框 -->
     <UiDialog v-model:open="showBatchDialog">
-      <UiDialogContent>
+      <UiDialogContent class="max-h-[90vh] overflow-y-auto">
         <UiDialogHeader>
           <UiDialogTitle>批量修改</UiDialogTitle>
           <UiDialogDescription>
@@ -869,7 +987,7 @@ onMounted(() => {
 
     <!-- 剩余量查询对话框 -->
     <UiDialog v-model:open="showLeftSearchDialog">
-      <UiDialogContent>
+      <UiDialogContent class="max-h-[90vh] overflow-y-auto">
         <UiDialogHeader>
           <UiDialogTitle>剩余量查询</UiDialogTitle>
           <UiDialogDescription>
@@ -896,16 +1014,16 @@ onMounted(() => {
 
     <!-- 高级查询对话框 -->
     <UiDialog v-model:open="showAdvancedSearchDialog">
-      <UiDialogContent class="max-w-3xl">
+      <UiDialogContent class="max-w-3xl max-h-[90vh] overflow-y-auto">
         <UiDialogHeader>
           <UiDialogTitle>高级查询</UiDialogTitle>
           <UiDialogDescription>
             添加多个条件进行组合查询（条件之间为"并且"关系）
           </UiDialogDescription>
         </UiDialogHeader>
-        <div class="py-4 max-h-96 overflow-auto">
-          <div v-for="(condition, index) in advancedConditions" :key="index" class="flex items-center gap-2 mb-2">
-            <UiSelect v-model="condition.field" class="w-36">
+        <div class="py-4 max-h-60 sm:max-h-96 overflow-auto">
+          <div v-for="(condition, index) in advancedConditions" :key="index" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-3">
+            <UiSelect v-model="condition.field" class="w-full sm:w-36">
               <UiSelectTrigger>
                 <UiSelectValue placeholder="字段" />
               </UiSelectTrigger>
@@ -915,7 +1033,7 @@ onMounted(() => {
                 </UiSelectItem>
               </UiSelectContent>
             </UiSelect>
-            <UiSelect v-model="condition.operator" class="w-28">
+            <UiSelect v-model="condition.operator" class="w-full sm:w-28">
               <UiSelectTrigger>
                 <UiSelectValue placeholder="操作" />
               </UiSelectTrigger>
@@ -925,38 +1043,40 @@ onMounted(() => {
                 </UiSelectItem>
               </UiSelectContent>
             </UiSelect>
-            <template v-if="getFieldType(condition.field) === 'select'">
-              <UiSelect v-model="condition.value" class="flex-1">
-                <UiSelectTrigger>
-                  <UiSelectValue placeholder="选择值" />
-                </UiSelectTrigger>
-                <UiSelectContent>
-                  <UiSelectItem v-for="opt in getFieldOptions(condition.field)" :key="opt" :value="opt">
-                    {{ opt }}
-                  </UiSelectItem>
-                </UiSelectContent>
-              </UiSelect>
-            </template>
-            <template v-else-if="getFieldType(condition.field) === 'date'">
-              <UiInput v-model="condition.value" type="date" class="flex-1" />
-            </template>
-            <template v-else>
-              <UiInput
-                v-model="condition.value"
-                :type="getFieldType(condition.field) === 'number' ? 'number' : 'text'"
-                placeholder="输入值"
-                class="flex-1"
-              />
-            </template>
-            <UiButton
-              variant="ghost"
-              size="icon"
-              class="shrink-0"
-              :disabled="advancedConditions.length === 1"
-              @click="removeCondition(index)"
-            >
-              ×
-            </UiButton>
+            <div class="flex items-center gap-2 flex-1">
+              <template v-if="getFieldType(condition.field) === 'select'">
+                <UiSelect v-model="condition.value" class="flex-1">
+                  <UiSelectTrigger>
+                    <UiSelectValue placeholder="选择值" />
+                  </UiSelectTrigger>
+                  <UiSelectContent>
+                    <UiSelectItem v-for="opt in getFieldOptions(condition.field)" :key="opt" :value="opt">
+                      {{ opt }}
+                    </UiSelectItem>
+                  </UiSelectContent>
+                </UiSelect>
+              </template>
+              <template v-else-if="getFieldType(condition.field) === 'date'">
+                <UiInput v-model="condition.value" type="date" class="flex-1" />
+              </template>
+              <template v-else>
+                <UiInput
+                  v-model="condition.value"
+                  :type="getFieldType(condition.field) === 'number' ? 'number' : 'text'"
+                  placeholder="输入值"
+                  class="flex-1"
+                />
+              </template>
+              <UiButton
+                variant="ghost"
+                size="icon"
+                class="shrink-0"
+                :disabled="advancedConditions.length === 1"
+                @click="removeCondition(index)"
+              >
+                ×
+              </UiButton>
+            </div>
           </div>
           <UiButton variant="outline" size="sm" @click="addCondition">
             + 添加条件

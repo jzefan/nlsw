@@ -379,7 +379,7 @@ onMounted(() => {
                       </UiTableCell>
                       <UiTableCell>{{ invBill.bill_id?.thickness || '-' }}</UiTableCell>
                       <UiTableCell>{{ invBill.bill_id?.width || '-' }}</UiTableCell>
-                      <UiTableCell>{{ invBill.bill_id?.length || '-' }}</UiTableCell>
+                      <UiTableCell>{{ invBill.bill_id?.len || '-' }}</UiTableCell>
                       <UiTableCell>{{ invBill.num || 0 }}</UiTableCell>
                       <UiTableCell>{{ formatWeight(invBill.weight) }}</UiTableCell>
                     </UiTableRow>

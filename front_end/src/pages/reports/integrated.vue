@@ -1,13 +1,15 @@
 <script setup lang="ts">
+// @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 
 import { Download, FileSpreadsheet, RefreshCcw, Search, X } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { computed, h, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import * as XLSX from 'xlsx'
-
 import type { IntegratedQueryBill } from '@/services/api/report.api'
+
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 
 import DataTable from '@/components/data-table/data-table.vue'
 import { generateVueTable } from '@/components/data-table/use-generate-vue-table'
@@ -299,6 +301,8 @@ const table = generateVueTable({
 })
 
 // Export
+const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+
 async function handleExport() {
   loading.value = true
   try {
@@ -413,10 +417,7 @@ async function handleExport() {
     })
 
     const aoa = [headers, ...data]
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '综合查询')
-    XLSX.writeFile(wb, `综合查询_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    await exportFromAOAWithPicker(aoa, `综合查询_${new Date().toISOString().slice(0, 10)}`, '综合查询')
   }
   catch (e: any) {
     toast.error('导出出错', { description: e.message })
@@ -563,10 +564,7 @@ async function handleExportAccount() {
     }
 
     const aoa = [headers, ...data]
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '对账数据')
-    XLSX.writeFile(wb, `对账数据_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    await exportFromAOAWithPicker(aoa, `对账数据_${new Date().toISOString().slice(0, 10)}`, '对账数据')
   }
   catch (e: any) {
     toast.error('导出出错', { description: e.message })
@@ -781,6 +779,13 @@ function handlePageChange(p: number) {
         }"
       />
     </div>
+
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>
 

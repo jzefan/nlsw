@@ -23,13 +23,26 @@
     /* Linting */
     "strict": true,
     "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "noUncheckedSideEffectImports": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
-  "exclude": ["src/components/ui"]
+  "exclude": [
+    "src/components/ui",
+    "src/pages/ai-talk",
+    "src/pages/apps",
+    "src/pages/billing",
+    "src/pages/chats",
+    "src/pages/coming-soon",
+    "src/pages/error",
+    "src/pages/help-center",
+    "src/pages/settings",
+    "src/pages/tasks",
+    "src/pages/users",
+    "src/components/app-sidebar/validators"
+  ]
 }

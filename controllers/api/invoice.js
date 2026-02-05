@@ -233,7 +233,7 @@ exports.getInvoiceDetail = async (req, res) => {
     const invoice = await Invoice.findOne({ waybill_no: waybillNo })
       .populate({
         path: 'bills.bill_id',
-        select: 'bill_no order_no order_item_no spec thickness width length block_num weight total_weight left_num status'
+        select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status'
       })
       .lean()
       .exec();

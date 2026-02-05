@@ -9,12 +9,12 @@ defineProps<LayoutHeaderProps>()
 <template>
   <header
     :class="cn(
-      'flex flex-col md:flex-row gap-2 justify-between py-2',
+      'flex flex-col md:flex-row gap-2 justify-between py-1',
       sticky ? 'sticky top-0 z-40 bg-background' : '',
     )"
   >
     <main class="flex items-baseline gap-3">
-      <h1 class="text-2xl font-bold">
+      <h1 class="text-lg font-bold">
         {{ title }}
       </h1>
       <p v-if="description" class="text-sm text-muted-foreground">
