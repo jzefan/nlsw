@@ -37,6 +37,10 @@ const showColumnConfirm = ref(false)
 const pendingColumnKey = ref('')
 const pendingColumnAction = ref<'select' | 'deselect'>('select')
 
+// Missing contract confirmation dialog
+const showMissingContractConfirm = ref(false)
+const missingContractCount = ref(0)
+
 // Step 3: Edit - two sub-steps
 // 3a: Edit merged data (user inputs contractNo and colorMark)
 const mergedData = ref<AggregatedRow[]>([])
@@ -192,12 +196,27 @@ function handleGenerateGroups() {
   // Check if all rows have contractNo
   const missingContract = mergedData.value.filter(r => !r.contractNo)
   if (missingContract.length > 0) {
-    toast.warning(`有 ${missingContract.length} 条数据未填写合同号，将归入"未分组"`)
+    missingContractCount.value = missingContract.length
+    showMissingContractConfirm.value = true
+    return
   }
 
+  doGenerateGroups()
+}
+
+function doGenerateGroups() {
   contractGroups.value = groupByContract(mergedData.value)
   isGrouped.value = true
   toast.success(`分组成功，共 ${contractGroups.value.length} 个合同组`)
+}
+
+function confirmGenerateGroups() {
+  showMissingContractConfirm.value = false
+  doGenerateGroups()
+}
+
+function cancelGenerateGroups() {
+  showMissingContractConfirm.value = false
 }
 
 // Export Excel
@@ -354,11 +373,6 @@ function handleReset() {
     <div v-else-if="currentStep === 3" class="flex flex-col gap-3 h-[calc(100vh-180px)]">
       <!-- Sub-step 3a: Edit merged data -->
       <template v-if="!isGrouped">
-        <div class="p-2 border rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center gap-2 text-blue-800 dark:text-blue-200 flex-shrink-0">
-          <Layers class="w-5 h-5" />
-          <span>数据已合并，请为每条数据填写合同号，然后点击"生成分组"</span>
-        </div>
-
         <!-- Header editor -->
         <div class="flex-shrink-0">
           <HeaderEditor v-model="headerInfo" />
@@ -367,7 +381,7 @@ function handleReset() {
         <!-- Merged data editor with scroll -->
         <div class="flex-1 min-h-0">
           <UiCard class="h-full flex flex-col">
-            <UiCardHeader class="py-3 flex-shrink-0">
+            <UiCardHeader class="py-0 flex-shrink-0">
               <div class="flex items-center justify-between">
                 <div class="flex items-baseline gap-2">
                   <UiCardTitle class="text-base">
@@ -386,7 +400,7 @@ function handleReset() {
                 </div>
               </div>
             </UiCardHeader>
-            <UiCardContent class="flex-1 overflow-hidden">
+            <UiCardContent class="flex-1 overflow-hidden" style="padding: 0">
               <MergedDataEditor v-model="mergedData" />
             </UiCardContent>
           </UiCard>
@@ -455,6 +469,28 @@ function handleReset() {
           </UiAlertDialogCancel>
           <UiAlertDialogAction @click="confirmColumnToggle">
             确定
+          </UiAlertDialogAction>
+        </UiAlertDialogFooter>
+      </UiAlertDialogContent>
+    </UiAlertDialog>
+
+    <!-- Missing contract confirmation dialog -->
+    <UiAlertDialog :open="showMissingContractConfirm" @update:open="showMissingContractConfirm = $event">
+      <UiAlertDialogContent>
+        <UiAlertDialogHeader>
+          <UiAlertDialogTitle>部分数据未填写合同号</UiAlertDialogTitle>
+          <UiAlertDialogDescription>
+            有 <strong>{{ missingContractCount }}</strong> 条数据未填写合同号，这些数据将归入"未分组"。
+            <br><br>
+            是否继续生成分组？或者返回填写合同号？
+          </UiAlertDialogDescription>
+        </UiAlertDialogHeader>
+        <UiAlertDialogFooter>
+          <UiAlertDialogCancel @click="cancelGenerateGroups">
+            返回填写
+          </UiAlertDialogCancel>
+          <UiAlertDialogAction @click="confirmGenerateGroups">
+            继续分组
           </UiAlertDialogAction>
         </UiAlertDialogFooter>
       </UiAlertDialogContent>

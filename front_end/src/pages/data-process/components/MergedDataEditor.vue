@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Trash2 } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 import type { AggregatedRow } from '@/utils/excel-transform'
 
@@ -15,16 +15,19 @@ const emit = defineEmits<{
 // Editing state
 const editingCell = ref<{ rowIndex: number, field: string } | null>(null)
 const editingValue = ref('')
+const contractNoInputRef = ref<{ $el: HTMLInputElement } | null>(null)
+
+// Hover state for showing border and fill handle
+const hoveredCell = ref<{ rowIndex: number, field: string } | null>(null)
 
 // Drag-to-copy state
-const selectedCell = ref<{ rowIndex: number, field: string } | null>(null)
 const isDragging = ref(false)
 const dragStartCell = ref<{ rowIndex: number, field: string } | null>(null)
 const dragEndRow = ref<number | null>(null)
 
-// Click delay for distinguishing single/double click
-const clickTimer = ref<number | null>(null)
-const clickDelay = 250 // milliseconds
+// Scroll container ref for auto-scroll during drag
+const scrollContainerRef = ref<HTMLElement | null>(null)
+const scrollInterval = ref<number | null>(null)
 
 // Totals
 const totalQuantity = computed(() =>
@@ -71,6 +74,21 @@ function handleKeydown(e: KeyboardEvent) {
   else if (e.key === 'Escape') {
     cancelEdit()
   }
+  else if (e.key === 'Tab' && editingCell.value?.field === 'contractNo') {
+    // Tab to next row's contractNo
+    e.preventDefault()
+    const nextIndex = editingCell.value.rowIndex + 1
+    saveEdit()
+    if (nextIndex < props.modelValue.length) {
+      nextTick(() => {
+        startEdit(nextIndex, 'contractNo', props.modelValue[nextIndex].contractNo)
+        nextTick(() => {
+          const inputEl = contractNoInputRef.value?.$el as HTMLInputElement | undefined
+          inputEl?.focus()
+        })
+      })
+    }
+  }
 }
 
 function deleteRow(index: number) {
@@ -87,39 +105,39 @@ function formatNumber(value: number, decimals: number = 3): string {
   return value.toFixed(decimals)
 }
 
-// Drag-to-copy functionality
-function selectCell(rowIndex: number, field: string) {
-  selectedCell.value = { rowIndex, field }
+// Mouse enter/leave for hover state
+function handleCellMouseEnter(rowIndex: number, field: string) {
+  if (!isDragging.value) {
+    hoveredCell.value = { rowIndex, field }
+  }
 }
 
-function handleCellClick(rowIndex: number, field: string, currentValue: any) {
-  // Clear any existing timer
-  if (clickTimer.value) {
-    clearTimeout(clickTimer.value)
-    clickTimer.value = null
+function handleCellMouseLeave() {
+  if (!isDragging.value) {
+    hoveredCell.value = null
   }
-
-  // Set a timer for single click (edit mode)
-  clickTimer.value = window.setTimeout(() => {
-    startEdit(rowIndex, field, currentValue)
-    clickTimer.value = null
-  }, clickDelay)
 }
 
-function handleCellDoubleClick(rowIndex: number, field: string) {
-  // Cancel the single click timer
-  if (clickTimer.value) {
-    clearTimeout(clickTimer.value)
-    clickTimer.value = null
-  }
-
-  // Select cell and show drag handle
-  selectCell(rowIndex, field)
+// Click on contractNo cell - enter edit mode and focus input
+function handleContractNoClick(rowIndex: number, currentValue: any) {
+  startEdit(rowIndex, 'contractNo', currentValue)
+  nextTick(() => {
+    // UiInput is a component, access the underlying input via $el
+    const inputEl = contractNoInputRef.value?.$el as HTMLInputElement | undefined
+    inputEl?.focus()
+  })
 }
 
 function startDrag(rowIndex: number, field: string, e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
+
+  // Don't start drag if value is empty
+  const currentValue = (props.modelValue[rowIndex] as any)[field]
+  if (!currentValue) {
+    return
+  }
+
   isDragging.value = true
   dragStartCell.value = { rowIndex, field }
   dragEndRow.value = rowIndex
@@ -140,11 +158,52 @@ function handleDragMove(e: MouseEvent) {
     const rowIndex = Number.parseInt(row.getAttribute('data-row-index') || '0')
     dragEndRow.value = rowIndex
   }
+
+  // Auto-scroll when dragging near edges
+  const container = scrollContainerRef.value
+  if (!container)
+    return
+
+  const rect = container.getBoundingClientRect()
+  const scrollThreshold = 50 // pixels from edge to start scrolling
+  const scrollSpeed = 10 // pixels per frame
+
+  // Clear existing scroll interval
+  if (scrollInterval.value) {
+    clearInterval(scrollInterval.value)
+    scrollInterval.value = null
+  }
+
+  // Check if mouse is near bottom edge
+  if (e.clientY > rect.bottom - scrollThreshold) {
+    scrollInterval.value = window.setInterval(() => {
+      container.scrollTop += scrollSpeed
+    }, 16)
+  }
+  // Check if mouse is near top edge
+  else if (e.clientY < rect.top + scrollThreshold) {
+    scrollInterval.value = window.setInterval(() => {
+      container.scrollTop -= scrollSpeed
+    }, 16)
+  }
 }
 
 function handleDragEnd() {
-  if (!isDragging.value || !dragStartCell.value || dragEndRow.value === null)
+  // Clear scroll interval
+  if (scrollInterval.value) {
+    clearInterval(scrollInterval.value)
+    scrollInterval.value = null
+  }
+
+  if (!isDragging.value || !dragStartCell.value || dragEndRow.value === null) {
+    isDragging.value = false
+    dragStartCell.value = null
+    dragEndRow.value = null
+    hoveredCell.value = null
+    document.removeEventListener('mousemove', handleDragMove)
+    document.removeEventListener('mouseup', handleDragEnd)
     return
+  }
 
   const { rowIndex: startRow, field } = dragStartCell.value
   const endRow = dragEndRow.value
@@ -167,6 +226,7 @@ function handleDragEnd() {
   isDragging.value = false
   dragStartCell.value = null
   dragEndRow.value = null
+  hoveredCell.value = null
 
   // Remove global listeners
   document.removeEventListener('mousemove', handleDragMove)
@@ -181,41 +241,57 @@ function isInDragRange(rowIndex: number, field: string): boolean {
   return field === dragField && rowIndex >= startRow && rowIndex <= dragEndRow.value
 }
 
-function getCellClass(rowIndex: number, field: string): string {
-  const baseClass = 'p-2 cursor-pointer hover:bg-muted/50 relative'
-  const isSelected = selectedCell.value?.rowIndex === rowIndex && selectedCell.value?.field === field
-  const inRange = isInDragRange(rowIndex, field)
+function getContractNoCellClass(rowIndex: number): string {
+  const baseClass = 'p-2 cursor-cell relative min-w-[200px] bg-yellow-50 dark:bg-yellow-950/30'
+  const isEditingThis = isEditing(rowIndex, 'contractNo')
+  const isHovered = hoveredCell.value?.rowIndex === rowIndex && hoveredCell.value?.field === 'contractNo'
+  const inRange = isInDragRange(rowIndex, 'contractNo')
 
   if (inRange) {
-    // Add border to show drag range
+    // Drag range styling
     const isStart = dragStartCell.value?.rowIndex === rowIndex
     const isEnd = dragEndRow.value === rowIndex
-    let borderClass = 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500'
+    let borderClass = 'bg-blue-100 dark:bg-blue-900/30'
 
-    // Add specific border styles for start and end
-    if (isStart && isEnd) {
-      borderClass += ' border-2'
-    } else if (isStart) {
-      borderClass += ' border-t-2 border-l-2 border-r-2 border-b-0'
-    } else if (isEnd) {
-      borderClass += ' border-b-2 border-l-2 border-r-2 border-t-0'
-    } else {
-      borderClass += ' border-l-2 border-r-2 border-t-0 border-b-0'
+    if (isStart) {
+      borderClass += ' ring-2 ring-blue-500 ring-inset'
+    }
+    else if (isEnd) {
+      borderClass += ' ring-2 ring-blue-500 ring-inset'
+    }
+    else {
+      borderClass += ' ring-1 ring-blue-400 ring-inset'
     }
 
     return `${baseClass} ${borderClass}`
   }
-  if (isSelected) {
-    return `${baseClass} outline outline-2 outline-blue-500 outline-offset-[-2px]`
+
+  // No special styling when editing - just show the input
+  if (isEditingThis) {
+    return baseClass
   }
+
+  // Hover styling with border and highlight
+  if (isHovered && !isDragging.value) {
+    return `${baseClass} ring-2 ring-gray-400 ring-inset bg-yellow-100 dark:bg-yellow-950/50`
+  }
+
   return baseClass
+}
+
+// Check if fill handle should be visible - only on hover, not when editing
+function showFillHandle(rowIndex: number): boolean {
+  const isHovered = hoveredCell.value?.rowIndex === rowIndex && hoveredCell.value?.field === 'contractNo'
+  const isEditingThis = isEditing(rowIndex, 'contractNo')
+  const hasValue = !!props.modelValue[rowIndex]?.contractNo
+  return isHovered && !isEditingThis && hasValue && !isDragging.value
 }
 </script>
 
 <template>
-  <div class="h-full flex flex-col gap-4">
+  <div class="h-full flex flex-col gap-2">
     <!-- Editable table -->
-    <div class="border rounded-lg overflow-auto flex-1">
+    <div ref="scrollContainerRef" class="border rounded-lg overflow-auto flex-1">
       <table class="w-full text-sm">
         <thead class="bg-muted/50 sticky top-0 z-10">
           <tr>
@@ -425,21 +501,19 @@ function getCellClass(rowIndex: number, field: string): string {
               </template>
             </td>
 
-            <!-- Contract No (highlighted) -->
+            <!-- Contract No (highlighted) - Excel-like interaction -->
             <td
-              :class="[
-                'bg-yellow-50 dark:bg-yellow-950/30 hover:bg-yellow-100 dark:hover:bg-yellow-950/50 min-w-[200px]',
-                getCellClass(index, 'contractNo')
-              ]"
-              @click="handleCellClick(index, 'contractNo', row.contractNo)"
-              @dblclick="handleCellDoubleClick(index, 'contractNo')"
+              :class="getContractNoCellClass(index)"
+              @click="handleContractNoClick(index, row.contractNo)"
+              @mouseenter="handleCellMouseEnter(index, 'contractNo')"
+              @mouseleave="handleCellMouseLeave"
             >
               <template v-if="isEditing(index, 'contractNo')">
                 <UiInput
+                  ref="contractNoInputRef"
                   v-model="editingValue"
                   class="h-7 w-full"
                   placeholder="输入合同号和色标"
-                  autofocus
                   @blur="saveEdit"
                   @keydown="handleKeydown"
                 />
@@ -448,13 +522,14 @@ function getCellClass(rowIndex: number, field: string): string {
                 <span :class="row.contractNo ? '' : 'text-muted-foreground italic'">
                   {{ row.contractNo || '点击输入' }}
                 </span>
-                <!-- Fill handle for drag-to-copy -->
-                <div
-                  v-if="selectedCell?.rowIndex === index && selectedCell?.field === 'contractNo'"
-                  class="absolute bottom-0.5 right-0.5 w-4 h-4 bg-blue-600 cursor-crosshair border-2 border-white shadow-md hover:w-5 hover:h-5 hover:bg-blue-700"
-                  @mousedown="startDrag(index, 'contractNo', $event)"
-                />
               </template>
+              <!-- Excel-style fill handle (bottom-right corner) -->
+              <div
+                v-if="showFillHandle(index)"
+                class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-blue-600 cursor-crosshair border border-white shadow-sm translate-x-[1px] translate-y-[1px] hover:w-3 hover:h-3 hover:bg-blue-700 transition-all"
+                title="拖动复制到下方行"
+                @mousedown="startDrag(index, 'contractNo', $event)"
+              />
             </td>
           </tr>
         </tbody>
@@ -477,7 +552,7 @@ function getCellClass(rowIndex: number, field: string): string {
 
     <!-- Help text -->
     <p class="text-sm text-muted-foreground flex-shrink-0">
-      点击单元格可编辑内容，按 Enter 保存，按 Esc 取消。黄色背景列为必填项。点击合同号单元格后，拖动右下角的十字图标可快速复制内容到下方行。
+      点击单元格可编辑，按 Enter 保存，Esc 取消，Tab 跳转下一行。鼠标悬停在合同号单元格上时，拖动右下角的小方块可快速复制到下方行。
     </p>
   </div>
 </template>

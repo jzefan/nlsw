@@ -354,11 +354,6 @@ function handleReset() {
     <div v-else-if="currentStep === 3" class="flex flex-col gap-3 h-[calc(100vh-220px)]">
       <!-- Sub-step 3a: Edit merged data -->
       <template v-if="!isGrouped">
-        <div class="p-2 border rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center gap-2 text-blue-800 dark:text-blue-200 flex-shrink-0">
-          <Layers class="w-5 h-5" />
-          <span>数据已合并，请为每条数据填写合同号和色标，然后点击"生成分组"</span>
-        </div>
-
         <!-- Header editor -->
         <div class="flex-shrink-0">
           <HeaderEditor v-model="headerInfo" />

@@ -9,7 +9,9 @@ export interface ERPRawRow {
   orderItemNo: string // 订单项次
   weight: number // 重量
   diameter: number // 厚度(直径)
+  width: number // 宽度
   len: number // 长度
+  fixedLength: number // 定尺
   brandNo: string // 牌号
   quantity: number // 支数
   scaleWeight: number // 过磅重量
@@ -64,7 +66,11 @@ const roundSteelHeaderMap: Record<string, string> = {
   '重量': 'weight',
   '厚度': 'diameter',
   '直径': 'diameter',
-  '长度': 'length',
+  '宽度': 'width',
+  '宽': 'width',
+  '长度': 'len',
+  '长': 'len',
+  '定尺': 'fixedLength',
   '牌号': 'brandNo',
   '钢号': 'brandNo',
   '标准全名': 'brandNo',
@@ -85,12 +91,13 @@ const roundSteelHeaderMap: Record<string, string> = {
 // Table header mapping for plate
 const plateHeaderMap: Record<string, string> = {
   ...roundSteelHeaderMap,
-  '厚度': 'thickness',
-  '厚': 'thickness',
+  '厚度': 'diameter', // 板材用厚度代替直径
+  '厚': 'diameter',
   '宽度': 'width',
   '宽': 'width',
   '长度': 'len',
   '长': 'len',
+  '定尺': 'fixedLength',
   '块数': 'quantity',
   '发运数': 'quantity',
 }
@@ -118,8 +125,8 @@ export interface ParsedFile {
 
 // Required fields for processing (these columns will be marked with checkmark)
 const requiredFields = new Set([
-  'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'thickness',
-  'length', 'quantity', 'weight', 'customerName', 'contractNo', 'warehouse',
+  'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'width', 'len', 'fixedLength',
+  'quantity', 'weight', 'customerName', 'contractNo', 'warehouse',
 ])
 
 /**
@@ -225,8 +232,10 @@ export function parseERPExcel(
               orderNo: String(item.orderNo || ''),
               orderItemNo: String(item.orderItemNo || '10'),
               weight: Number.parseFloat(item.weight) || 0,
-              diameter: Number.parseFloat(item.diameter || item.thickness) || 0,
+              diameter: Number.parseFloat(item.diameter) || 0,
+              width: Number.parseFloat(item.width) || 0,
               len: Number.parseFloat(item.len) || 0,
+              fixedLength: Number.parseFloat(item.fixedLength) || 0,
               brandNo: String(item.brandNo || ''),
               quantity: Number.parseInt(item.quantity) || 1,
               scaleWeight: Number.parseFloat(item.scaleWeight) || 0,
@@ -269,6 +278,23 @@ export function mergeFiles(files: ParsedFile[]): ERPRawRow[] {
 }
 
 /**
+ * Generate spec string based on available dimensions
+ */
+function generateSpec(row: ERPRawRow): string {
+  // Round steel: φ直径x长度 or φ直径x定尺
+  if (row.diameter > 0 && row.width === 0) {
+    const length = row.fixedLength > 0 ? row.fixedLength : row.len
+    return length > 0 ? `φ${row.diameter}x${length}` : `φ${row.diameter}`
+  }
+  // Plate: 厚x宽x长 or 厚x宽x定尺
+  if (row.diameter > 0 && row.width > 0) {
+    const length = row.fixedLength > 0 ? row.fixedLength : row.len
+    return length > 0 ? `${row.diameter}x${row.width}x${length}` : `${row.diameter}x${row.width}`
+  }
+  return ''
+}
+
+/**
  * Aggregate by order + item (sum quantity and weight)
  */
 export function aggregateByOrderItem(data: ERPRawRow[]): AggregatedRow[] {
@@ -288,7 +314,7 @@ export function aggregateByOrderItem(data: ERPRawRow[]): AggregatedRow[] {
         orderNo: row.orderNo,
         orderItemNo: row.orderItemNo,
         brandNo: row.brandNo,
-        spec: row.diameter > 0 ? `φ${row.diameter}x${row.len}` : '',
+        spec: generateSpec(row),
         unitWeight: row.weight / (row.quantity || 1),
         quantity: row.quantity,
         totalWeight: row.weight || row.scaleWeight,
