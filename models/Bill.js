@@ -2,6 +2,14 @@ var mongoose = require('mongoose');
 var Schema = mongoose.Schema;
 
 var billSchema = new Schema({
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
   order: String,
   bill_no: String,         // 提单号
   order_no: String,        // 订单号
@@ -70,10 +78,12 @@ var billSchema = new Schema({
   product_type: String // 产品型态
 });
 
-billSchema.index({ order: 1, bill_no: 1 }); // schema level
-billSchema.index({ billing_name: 1, create_date: -1, left_num: 1 }); // Optimize customer active bill search
-billSchema.index({ billing_name: 1, order_no: 1 }); // Optimize specific order lookup
-billSchema.index({ order_no: 1 }); // Optimize order lookup
+// 索引 (包含 tenantId 以支持多租户查询)
+billSchema.index({ tenantId: 1, order: 1, bill_no: 1 });
+billSchema.index({ tenantId: 1, billing_name: 1, create_date: -1, left_num: 1 });
+billSchema.index({ tenantId: 1, billing_name: 1, order_no: 1 });
+billSchema.index({ tenantId: 1, order_no: 1 });
+billSchema.index({ tenantId: 1, status_flag: 1, create_date: -1 });
 
 billSchema.pre('save', function (next) {
   if (this.isModified('status')) {

@@ -5,6 +5,14 @@
 var mongoose = require('mongoose');
 
 var vesselCostSchema = new mongoose.Schema({
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
   name: String, // 车名或 'chuan'
   ic: Number,   // 保险费用 insurance cost
   hc: Number,   // 吊装 hoisting cost
@@ -22,5 +30,8 @@ var vesselCostSchema = new mongoose.Schema({
   month: String,
   vv_type: String
 });
+
+// 租户内按名称和月份查询
+vesselCostSchema.index({ tenantId: 1, name: 1, month: 1 });
 
 module.exports = mongoose.model('VesselCost', vesselCostSchema);

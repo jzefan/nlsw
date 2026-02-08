@@ -9,7 +9,15 @@ var Schema = mongoose.Schema,
     ObjectId = Schema.ObjectId;
 
 var invoiceSchema = new Schema({
-  waybill_no: { type: String, unique: true },
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
+  waybill_no: { type: String },  // 改为租户内唯一
   vehicle_vessel_name: String, // 车船号
   ship_warehouse: String,       // 发货仓库
   ship_name: String,             // 发货名称/单位

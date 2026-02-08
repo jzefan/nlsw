@@ -3,7 +3,25 @@ var bcrypt = require('bcrypt-nodejs');
 var crypto = require('crypto');
 
 var userSchema = new mongoose.Schema({
-  userid: { type: String, unique: true },
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    index: true
+  },
+  tenantCode: {
+    type: String,
+    uppercase: true,
+    index: true
+  },
+  role: {
+    type: String,
+    enum: ['platform', 'owner', 'member'],
+    default: 'member'
+  },
+
+  // === 原有字段 ===
+  userid: { type: String, required: true },
   password: String,
   no: Number,    // 顺序号
   title: String, // 职务
@@ -19,8 +37,21 @@ var userSchema = new mongoose.Schema({
   tokens: Array,
   resetPasswordToken: String,
   resetPasswordExpires: Date,
-  createDate: { type: Date, default: Date.now()}
+  createDate: { type: Date, default: Date.now() },
+
+  // 状态
+  status: {
+    type: String,
+    enum: ['active', 'disabled'],
+    default: 'active'
+  },
+  lastLoginAt: Date,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 });
+
+// 复合唯一索引：同一租户内 userid 唯一
+// 平台用户 (tenantCode 为空) userid 全局唯一
+userSchema.index({ tenantCode: 1, userid: 1 }, { unique: true });
 
 /**
  * Hash the password for security.

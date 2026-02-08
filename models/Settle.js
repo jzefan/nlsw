@@ -7,6 +7,14 @@ var Schema = mongoose.Schema,
   ObjectId = Schema.ObjectId;
 
 var settleSchema = new Schema({
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
   serial_number: String,
   billing_name: String,   // 开单名称
   price: Number,           // 结算价格

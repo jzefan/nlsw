@@ -2,7 +2,7 @@
  * Module dependencies.
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: process.env.ENV_FILE || '.env' });
 
 const schedule = require('node-schedule');
 var express = require('express');

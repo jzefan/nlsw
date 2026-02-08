@@ -6,6 +6,14 @@
 const mongoose = require('mongoose');
 
 const receiptImageSchema = new mongoose.Schema({
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
   // 运单号
   waybill_no: {
     type: String,
@@ -45,7 +53,7 @@ const receiptImageSchema = new mongoose.Schema({
   },
 });
 
-// 创建复合索引，便于查询某个运单的所有图片
-receiptImageSchema.index({ waybill_no: 1, upload_time: -1 });
+// 创建复合索引，便于查询某个租户的运单图片
+receiptImageSchema.index({ tenantId: 1, waybill_no: 1, upload_time: -1 });
 
 module.exports = mongoose.model('ReceiptImage', receiptImageSchema);

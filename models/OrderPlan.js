@@ -3,6 +3,14 @@ let Schema = mongoose.Schema;
 
 let orderPlanSchema = new Schema(
 {
+  // === SaaS 多租户字段 ===
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  },
+
   order_no: String,
   order_weight: Number,     // 订单量
   left_weight: Number,      // 未发量
