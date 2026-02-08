@@ -69,47 +69,76 @@ function handleEndChange(event: Event) {
 </script>
 
 <template>
-  <Card>
+  <Card class="h-full flex flex-col border-0 shadow-md bg-gradient-to-br from-slate-50 to-white dark:from-slate-950/50 dark:to-background">
     <CardHeader class="flex flex-row items-center justify-between pb-2">
       <div class="space-y-1">
-        <CardTitle>每月配发吨数变化</CardTitle>
-        <CardDescription>展示选定时间段内的配发总吨数趋势</CardDescription>
+        <CardTitle class="flex items-center gap-2">
+          <div class="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-blue-600">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+          </div>
+          每月配发吨数变化
+        </CardTitle>
+        <CardDescription class="pl-10">展示选定时间段内的配发总吨数趋势</CardDescription>
       </div>
-      <div class="flex items-center space-x-2 bg-background border rounded-md p-1">
-        <input 
-          type="month" 
+      <div class="flex items-center space-x-2 bg-white dark:bg-slate-900 border rounded-lg p-1.5 shadow-sm">
+        <input
+          type="month"
           :value="startDate"
           @input="handleStartChange"
           class="bg-transparent text-sm border-none focus:ring-0 focus:outline-none px-2 py-1"
         />
-        <span class="text-muted-foreground text-sm">-</span>
-        <input 
-          type="month" 
+        <span class="text-muted-foreground text-sm">至</span>
+        <input
+          type="month"
           :value="endDate"
           @input="handleEndChange"
           class="bg-transparent text-sm border-none focus:ring-0 focus:outline-none px-2 py-1"
         />
       </div>
     </CardHeader>
-    <CardContent class="pl-0">
-      <VisXYContainer :data="chartData" :height="380" :xDomain="xDomain" :yDomain="[0, undefined]">
-        <VisStackedBar 
-          :x="x" 
-          :y="y" 
-          :color="color" 
-          :barPadding="0.5" 
-          :roundedCorners="4"
-        />
-        <VisAxis 
-          type="x" 
-          :tickFormat="tickFormat" 
-          :tickValues="chartData.map(d => d.index)"
-          label="月份" 
-        />
-        <VisAxis type="y" label="吨数" />
-        <VisTooltip />
-        <VisCrosshair />
-      </VisXYContainer>
+    <CardContent class="chart-content pl-0 flex-1 min-h-0 overflow-hidden">
+      <div class="chart-wrapper h-full w-full">
+        <VisXYContainer :data="chartData" :height="'100%'" :xDomain="xDomain" :yDomain="[0, undefined]">
+          <VisStackedBar
+            :x="x"
+            :y="y"
+            :color="color"
+            :barPadding="0.5"
+            :roundedCorners="4"
+          />
+          <VisAxis
+            type="x"
+            :tickFormat="tickFormat"
+            :tickValues="chartData.map(d => d.index)"
+            label="月份"
+          />
+          <VisAxis type="y" label="吨数" />
+          <VisTooltip />
+          <VisCrosshair />
+        </VisXYContainer>
+      </div>
     </CardContent>
   </Card>
 </template>
+
+<style scoped>
+.chart-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-wrapper :deep(.unovis-xy-container) {
+  height: 100% !important;
+}
+
+.chart-wrapper :deep(svg) {
+  height: 100% !important;
+}
+</style>

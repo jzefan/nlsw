@@ -55,6 +55,7 @@ module.exports = function (app) {
   app.post('/build_ship_invoice', invoiceApiController.buildShipInvoice);
   app.post('/build_truck_invoice', invoiceApiController.buildTruckInvoice);
   app.post('/delete_invoice', invoiceApiController.deleteInvoice);
+  app.get('/public-key', userApiController.getPublicKey);
   app.get('/me', userApiController.getMe);
   app.get('/users', userApiController.getUsers);
   app.get('/user_mgr', userApiController.getUserMgr);
@@ -106,9 +107,9 @@ module.exports = function (app) {
   app.get('/ticket/detail', ticketApiController.getSettleDetail);
 
   // Money API (回款管理)
-  app.get('/api/money/list', moneyApiController.getMoneyList);
-  app.post('/api/money/update', moneyApiController.updateMoney);
-  app.post('/api/money/real-price', moneyApiController.updateRealPrice);
+  app.get('/money/list', moneyApiController.getMoneyList);
+  app.post('/money/update', moneyApiController.updateMoney);
+  app.post('/money/real-price', moneyApiController.updateRealPrice);
 
   // Drayage Forklift API
   app.get('/drayage_forklifts', drayageForkliftApiController.getList);

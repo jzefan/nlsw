@@ -1,4 +1,22 @@
 const User = require('../../models/User');
+const { getPublicKey } = require('../../utils/crypto');
+
+// 获取 RSA 公钥 (用于密码加密传输)
+exports.getPublicKey = (req, res) => {
+  try {
+    const publicKey = getPublicKey();
+    res.json({
+      ok: true,
+      publicKey
+    });
+  } catch (error) {
+    console.error('获取公钥失败:', error);
+    res.status(500).json({
+      ok: false,
+      message: '获取公钥失败'
+    });
+  }
+};
 
 exports.getMe = async (req, res) => {
   try {

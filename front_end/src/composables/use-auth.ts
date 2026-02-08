@@ -2,6 +2,7 @@ import { storeToRefs } from 'pinia'
 
 import { useAxios } from '@/composables/use-axios'
 import { useAuthStore } from '@/stores/auth'
+import { encryptPassword } from '@/utils/crypto'
 
 export function useAuth() {
   const router = useRouter()
@@ -34,9 +35,12 @@ export function useAuth() {
     error.value = null
 
     try {
+      // Encrypt password before transmission
+      const encryptedPassword = await encryptPassword(password)
+
       const response = await axiosInstance.post('/login', {
         userid,
-        password,
+        password: encryptedPassword,
       }, {
         headers: {
           Accept: 'application/json',

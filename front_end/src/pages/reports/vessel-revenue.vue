@@ -6,6 +6,8 @@ import ExcelJS from 'exceljs'
 import { Download, Filter, Search } from 'lucide-vue-next'
 import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
 
+import { useDevice } from '@/composables/use-device'
+import VesselRevenueMobile from './components/VesselRevenueMobile.vue'
 import type { ChartConfig } from '@/components/ui/chart'
 import {
   ChartContainer,
@@ -49,6 +51,9 @@ import {
   type VesselDetailItem,
   type VesselSummaryItem
 } from '@/services/api/vessel-statistics.api'
+
+// 设备检测
+const { isMobile } = useDevice()
 
 // State
 const loading = ref(false)
@@ -200,6 +205,9 @@ function formatDateRange(start?: Date, end?: Date) {
   const displayEnd = new Date(end.getTime() - 1)
   return `${start.toLocaleDateString('zh-CN')} 到 ${displayEnd.toLocaleDateString('zh-CN')}`
 }
+
+// 日期范围字符串（供移动端使用）
+const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
 
 function formatNum(val: number) {
   return val.toFixed(3)
@@ -607,37 +615,54 @@ async function handleExport() {
 </script>
 
 <template>
-  <BasicPage title="车船营业额统计" description="查看车船运输营业额及利润统计">
+  <!-- 移动端视图 -->
+  <VesselRevenueMobile
+    v-if="isMobile"
+    :loading="loading"
+    :statistics-data="statisticsData"
+    :summary-totals="summaryTotals"
+    :date-range="dateRange"
+    @open-date-dialog="showDateDialog = true"
+    @handle-export="handleExport"
+    @open-drill-down="openDrillDown"
+  />
+
+  <!-- 桌面端视图 -->
+  <BasicPage v-else title="车船营业额统计" description="查看车船运输营业额及利润统计">
     <!-- Toolbar -->
-    <div class="flex flex-col gap-4 mb-6 p-4 border rounded-lg bg-muted/30">
+    <div class="mb-6 p-5 border-0 rounded-xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 shadow-sm">
       <div class="flex flex-wrap items-center justify-between gap-4">
+        <!-- Left Side: Date & Toggle -->
         <div class="flex flex-wrap items-center gap-4">
-          <Button variant="default" @click="showDateDialog = true">
+          <Button @click="showDateDialog = true" class="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md border-0">
             <Filter class="w-4 h-4 mr-2" />
             选择统计日期
           </Button>
-          
-          <div class="flex items-center gap-2">
-            <input
-              id="show-chart"
-              type="checkbox"
-              v-model="showChart"
-              class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-            />
-            <Label for="show-chart" class="cursor-pointer">显示图表</Label>
-          </div>
+
+          <label class="flex items-center gap-2 cursor-pointer group">
+            <div class="relative">
+              <input
+                type="checkbox"
+                v-model="showChart"
+                class="peer sr-only"
+              />
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
+            </div>
+            <span class="text-sm text-muted-foreground group-hover:text-foreground transition-colors">显示图表</span>
+          </label>
         </div>
 
+        <!-- Right Side: Actions -->
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex gap-1 border-r pr-2 mr-2">
-            <Button variant="outline" size="sm" @click="openDrillDown('自有', 'summary')">自有统计</Button>
-            <Button variant="outline" size="sm" @click="openDrillDown('自有', 'detail')">自有清单</Button>
+          <div class="flex gap-1 pr-2 mr-2 border-r border-gray-300 dark:border-gray-600">
+            <Button variant="outline" size="sm" @click="openDrillDown('自有', 'summary')" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">自有统计</Button>
+            <Button variant="outline" size="sm" @click="openDrillDown('自有', 'detail')" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">自有清单</Button>
           </div>
-          <div class="flex gap-1 border-r pr-2 mr-2">
-            <Button variant="outline" size="sm" @click="openDrillDown('外挂', 'summary')">外挂统计</Button>
-            <Button variant="outline" size="sm" @click="openDrillDown('外挂', 'detail')">外挂清单</Button>
+          <div class="flex gap-1 pr-2 mr-2 border-r border-gray-300 dark:border-gray-600">
+            <Button variant="outline" size="sm" @click="openDrillDown('外挂', 'summary')" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">外挂统计</Button>
+            <Button variant="outline" size="sm" @click="openDrillDown('外挂', 'detail')" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">外挂清单</Button>
           </div>
-          <Button variant="secondary" size="sm" @click="handleExport">
+          <Button variant="outline" @click="handleExport" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">
             <Download class="w-4 h-4 mr-2" />
             导出数据
           </Button>
@@ -646,7 +671,18 @@ async function handleExport() {
     </div>
 
     <!-- Chart Section -->
-    <div v-if="showChart && statisticsData.length > 0" class="mb-8 p-6 border rounded-lg bg-card shadow-sm">
+    <div v-if="showChart && statisticsData.length > 0" class="mb-8 p-6 border-0 rounded-xl bg-gradient-to-br from-slate-50 to-white dark:from-slate-950/50 dark:to-background shadow-md">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" class="h-5 w-5">
+            <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="font-semibold text-lg">营业额趋势图</h3>
+          <p class="text-sm text-muted-foreground">按月份统计船运与车运金额</p>
+        </div>
+      </div>
       <ChartContainer :config="chartConfig" class="aspect-auto h-[350px] w-full" :cursor="false">
         <VisXYContainer :data="statisticsData">
           <VisGroupedBar
@@ -671,49 +707,61 @@ async function handleExport() {
       </ChartContainer>
     </div>
 
-    <!-- Table Section -->
-    <div v-if="loading" class="flex flex-col items-center justify-center p-24 border rounded-lg bg-muted/5">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-4"></div>
-        <p class="text-lg font-medium text-muted-foreground animate-pulse">正在查询数据，请稍等...</p>
+    <!-- Loading State -->
+    <div v-if="loading" class="flex flex-col items-center justify-center p-24 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-white dark:from-gray-950/50 dark:to-background shadow-sm">
+        <div class="relative">
+          <div class="h-16 w-16 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-6 w-6 text-blue-500">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+          </div>
+        </div>
+        <p class="text-lg font-medium text-muted-foreground mt-6">正在查询数据，请稍等...</p>
+        <p class="text-sm text-muted-foreground/70 mt-1">数据加载中</p>
     </div>
 
-    <div v-else-if="statisticsData.length > 0" class="space-y-6">
-      <div class="text-2xl font-bold text-center">
-        车船数据统计日期：{{ formatDateRange(startDate, endDate) }}
+    <!-- Table Section -->
+    <div v-else-if="statisticsData.length > 0" class="space-y-4">
+      <div class="flex items-center gap-2 px-4 py-0 text-sm text-muted-foreground">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-4 w-4">
+          <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
+        </svg>
+        <span>统计区间：{{ formatDateRange(startDate, endDate) }}</span>
       </div>
-      
-      <div class="border rounded-md overflow-x-auto">
+
+      <div class="border-0 rounded-xl overflow-hidden shadow-md bg-white dark:bg-slate-900 overflow-x-auto">
         <Table id="stat-table" class="border-collapse min-w-[1200px]">
-          <TableHeader class="bg-muted/50">
-            <TableRow>
-              <TableHead colspan="2" rowspan="2" class="text-center border font-bold bg-muted">月份</TableHead>
-              <TableHead colspan="2" class="text-center border bg-orange-100 text-black font-bold">总营业额</TableHead>
-              <TableHead colspan="4" class="text-center border bg-blue-100 text-black font-bold">自有车船</TableHead>
-              <TableHead colspan="4" class="text-center border bg-emerald-100 text-black font-bold">外挂车船</TableHead>
-              <TableHead rowspan="2" class="text-center border font-bold bg-gray-50">固定成本</TableHead>
-              <TableHead rowspan="2" class="text-center border font-bold bg-gray-50">短驳应收</TableHead>
-              <TableHead rowspan="2" class="text-center border font-bold bg-gray-50">叉车应收</TableHead>
-              <TableHead rowspan="2" class="text-center border font-bold bg-gray-50">总利润</TableHead>
+          <TableHeader>
+            <TableRow class="border-b-2 border-gray-200">
+              <TableHead colspan="2" rowspan="2" class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold">月份</TableHead>
+              <TableHead colspan="2" class="text-center border bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 text-amber-800 dark:text-amber-300 font-semibold">总营业额</TableHead>
+              <TableHead colspan="4" class="text-center border bg-gradient-to-r from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-800 dark:text-blue-300 font-semibold">自有车船</TableHead>
+              <TableHead colspan="4" class="text-center border bg-gradient-to-r from-emerald-100 to-green-100 dark:from-emerald-900/30 dark:to-green-900/30 text-emerald-800 dark:text-emerald-300 font-semibold">外挂车船</TableHead>
+              <TableHead rowspan="2" class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold">固定成本</TableHead>
+              <TableHead rowspan="2" class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold">短驳应收</TableHead>
+              <TableHead rowspan="2" class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold">叉车应收</TableHead>
+              <TableHead rowspan="2" class="text-center border bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30 text-indigo-800 dark:text-indigo-300 font-bold">总利润</TableHead>
             </TableRow>
             <TableRow>
-              <TableHead class="text-center border bg-orange-50">总吨位</TableHead>
-              <TableHead class="text-center border bg-orange-50">总金额</TableHead>
-              <TableHead class="text-center border bg-blue-50">吨位</TableHead>
-              <TableHead class="text-center border bg-blue-50">应收金额</TableHead>
-              <TableHead class="text-center border bg-blue-50">应付金额</TableHead>
-              <TableHead class="text-center border bg-blue-50 font-bold">利润</TableHead>
-              <TableHead class="text-center border bg-emerald-50">吨位</TableHead>
-              <TableHead class="text-center border bg-emerald-50">应收金额</TableHead>
-              <TableHead class="text-center border bg-emerald-50">应付金额</TableHead>
-              <TableHead class="text-center border bg-emerald-50 font-bold">利润</TableHead>
+              <TableHead class="text-center border bg-amber-50 dark:bg-amber-900/20 text-xs font-medium">总吨位</TableHead>
+              <TableHead class="text-center border bg-amber-50 dark:bg-amber-900/20 text-xs font-medium">总金额</TableHead>
+              <TableHead class="text-center border bg-blue-50 dark:bg-blue-900/20 text-xs font-medium">吨位</TableHead>
+              <TableHead class="text-center border bg-blue-50 dark:bg-blue-900/20 text-xs font-medium">应收金额</TableHead>
+              <TableHead class="text-center border bg-blue-50 dark:bg-blue-900/20 text-xs font-medium">应付金额</TableHead>
+              <TableHead class="text-center border bg-blue-50 dark:bg-blue-900/20 text-xs font-medium">利润</TableHead>
+              <TableHead class="text-center border bg-emerald-50 dark:bg-emerald-900/20 text-xs font-medium">吨位</TableHead>
+              <TableHead class="text-center border bg-emerald-50 dark:bg-emerald-900/20 text-xs font-medium">应收金额</TableHead>
+              <TableHead class="text-center border bg-emerald-50 dark:bg-emerald-900/20 text-xs font-medium">应付金额</TableHead>
+              <TableHead class="text-center border bg-emerald-50 dark:bg-emerald-900/20 text-xs font-medium">利润</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <template v-for="item in statisticsData" :key="item.month">
               <!-- Vessel Row -->
-              <TableRow>
-                <TableCell rowspan="2" class="text-center border font-medium align-middle">{{ item.month }}</TableCell>
-                <TableCell class="text-center border bg-indigo-50/30 text-xs font-bold">船运</TableCell>
+              <TableRow class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors">
+                <TableCell rowspan="2" class="text-center border font-medium align-middle bg-gray-50/50 dark:bg-gray-800/30">{{ item.month }}</TableCell>
+                <TableCell class="text-center border bg-indigo-50/50 dark:bg-indigo-900/20 text-xs font-bold text-indigo-700 dark:text-indigo-400">船运</TableCell>
                 <TableCell class="text-right border">{{ formatNum(item.vsTotal) }}</TableCell>
                 <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vsRevenue) }}</TableCell>
                 <TableCell class="text-right border">{{ formatNum(item.vsOwnWeight) }}</TableCell>
@@ -732,8 +780,8 @@ async function handleExport() {
                 </TableCell>
               </TableRow>
               <!-- Truck Row -->
-              <TableRow>
-                <TableCell class="text-center border bg-amber-50/30 text-xs font-bold">车运</TableCell>
+              <TableRow class="hover:bg-amber-50/30 dark:hover:bg-amber-900/10 transition-colors">
+                <TableCell class="text-center border bg-amber-50/50 dark:bg-amber-900/20 text-xs font-bold text-amber-700 dark:text-amber-400">车运</TableCell>
                 <TableCell class="text-right border">{{ formatNum(item.vhTotal) }}</TableCell>
                 <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vhRevenue) }}</TableCell>
                 <TableCell class="text-right border">{{ formatNum(item.vhOwnWeight) }}</TableCell>
@@ -755,9 +803,11 @@ async function handleExport() {
 
             <!-- Summary Total Row -->
             <template v-if="summaryTotals">
-              <TableRow class="bg-muted font-bold">
-                <TableCell rowspan="2" class="text-center border align-middle">总计</TableCell>
-                <TableCell class="text-center border text-xs">船运</TableCell>
+              <TableRow class="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800/50 dark:to-gray-800/50 font-bold">
+                <TableCell rowspan="2" class="text-center border align-middle">
+                  <span class="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm">总计</span>
+                </TableCell>
+                <TableCell class="text-center border text-xs text-indigo-700 dark:text-indigo-400">船运</TableCell>
                 <TableCell class="text-right border">{{ formatNum(summaryTotals.vsTotal) }}</TableCell>
                 <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsRevenue) }}</TableCell>
                 <TableCell class="text-right border">{{ formatNum(summaryTotals.vsOwnWeight) }}</TableCell>
@@ -775,8 +825,8 @@ async function handleExport() {
                   <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsNetProfit) }}
                 </TableCell>
               </TableRow>
-              <TableRow class="bg-muted font-bold">
-                <TableCell class="text-center border text-xs">车运</TableCell>
+              <TableRow class="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800/50 dark:to-gray-800/50 font-bold">
+                <TableCell class="text-center border text-xs text-amber-700 dark:text-amber-400">车运</TableCell>
                 <TableCell class="text-right border">{{ formatNum(summaryTotals.vhTotal) }}</TableCell>
                 <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhRevenue) }}</TableCell>
                 <TableCell class="text-right border">{{ formatNum(summaryTotals.vhOwnWeight) }}</TableCell>
@@ -800,19 +850,39 @@ async function handleExport() {
       </div>
     </div>
 
-    <div v-else-if="!loading" class="flex flex-col items-center justify-center p-12 border rounded-lg border-dashed bg-muted/10 text-muted-foreground">
-      <p>请选择日期范围并点击“选择统计日期”开始查询</p>
+    <!-- Empty State -->
+    <div v-else-if="!loading" class="flex flex-col items-center justify-center p-16 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-950/50 dark:to-slate-950/50 shadow-sm">
+      <div class="h-20 w-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center mb-6">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-10 w-10 text-blue-500">
+          <path d="M21 21l-6-6m6 6v-4.8m0 4.8h-4.8"/><path d="M3 16.2V21h4.8"/><path d="M21 7.8V3h-4.8"/><path d="M3 7.8V3h4.8"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <p class="text-lg font-medium text-muted-foreground mb-2">暂无统计数据</p>
+      <p class="text-sm text-muted-foreground/70">请选择日期范围并点击"选择统计日期"开始查询</p>
     </div>
+  </BasicPage>
 
-    <!-- Reuse Date Selection Dialog -->
+  <!-- 对话框（移动端和桌面端共用） -->
+  <!-- Date Selection Dialog -->
     <Dialog v-model:open="showDateDialog">
-        <DialogContent class="sm:max-w-[425px]">
-            <DialogHeader><DialogTitle>选择统计日期</DialogTitle></DialogHeader>
+        <DialogContent class="sm:max-w-[450px] border-0 shadow-xl">
+            <DialogHeader class="pb-4 border-b">
+                <DialogTitle class="flex items-center gap-2 text-xl">
+                  <div class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" class="h-4 w-4">
+                      <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
+                    </svg>
+                  </div>
+                  选择统计日期
+                </DialogTitle>
+                <DialogDescription>选择要统计的时间范围</DialogDescription>
+            </DialogHeader>
             <div class="grid gap-4 py-4">
-                <div class="flex items-center gap-4">
-                     <Button :variant="dateSelectionMode === 'month' ? 'default' : 'outline'" size="sm" @click="dateSelectionMode = 'month'">按月</Button>
-                     <Button :variant="dateSelectionMode === 'year' ? 'default' : 'outline'" size="sm" @click="dateSelectionMode = 'year'">按年</Button>
-                     <Button :variant="dateSelectionMode === 'custom' ? 'default' : 'outline'" size="sm" @click="dateSelectionMode = 'custom'">自定义</Button>
+                <div class="flex items-center justify-center gap-2 p-1 bg-muted/50 rounded-lg">
+                     <Button :variant="dateSelectionMode === 'month' ? 'default' : 'ghost'" size="sm" class="flex-1" :class="dateSelectionMode === 'month' ? 'shadow-sm' : ''" @click="dateSelectionMode = 'month'">按月</Button>
+                     <Button :variant="dateSelectionMode === 'year' ? 'default' : 'ghost'" size="sm" class="flex-1" :class="dateSelectionMode === 'year' ? 'shadow-sm' : ''" @click="dateSelectionMode = 'year'">按年</Button>
+                     <Button :variant="dateSelectionMode === 'custom' ? 'default' : 'ghost'" size="sm" class="flex-1" :class="dateSelectionMode === 'custom' ? 'shadow-sm' : ''" @click="dateSelectionMode = 'custom'">自定义</Button>
                 </div>
                 <div v-if="dateSelectionMode === 'month'" class="space-y-4">
                     <div class="grid gap-2">
@@ -845,9 +915,12 @@ async function handleExport() {
 
     <!-- Summary Dialog -->
     <Dialog v-model:open="showSummaryDialog">
-      <DialogContent class="min-w-[60vw] flex flex-col max-h-[80vh]">
-        <DialogHeader><DialogTitle>{{ detailTitle }}</DialogTitle></DialogHeader>
-        <div class="flex-1 overflow-auto border rounded-md">
+      <DialogContent class="min-w-[60vw] flex flex-col max-h-[80vh] border-0 shadow-xl">
+        <DialogHeader>
+          <DialogTitle>{{ detailTitle }}</DialogTitle>
+          <DialogDescription>车船费用汇总统计</DialogDescription>
+        </DialogHeader>
+        <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900">
           <Table>
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow><TableHead>车船号</TableHead><TableHead>吨位</TableHead><TableHead>金额</TableHead><TableHead>车船联系人</TableHead></TableRow>
@@ -862,15 +935,24 @@ async function handleExport() {
             </TableBody>
           </Table>
         </div>
-        <DialogFooter><Button variant="outline" @click="() => {}">导出Excel</Button><Button @click="showSummaryDialog = false">关闭</Button></DialogFooter>
+        <DialogFooter class="mt-2">
+          <Button variant="outline" @click="() => {}" class="shadow-sm">
+            <Download class="w-4 h-4 mr-2" />
+            导出Excel
+          </Button>
+          <Button @click="showSummaryDialog = false">关闭</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 
     <!-- Detailed List Dialog -->
     <Dialog v-model:open="showDetailDialog">
-      <DialogContent class="min-w-[90vw] flex flex-col h-[90vh]">
-        <DialogHeader><DialogTitle>{{ detailTitle }}</DialogTitle></DialogHeader>
-        <div class="flex-1 overflow-auto border rounded-md">
+      <DialogContent class="min-w-[90vw] flex flex-col h-[90vh] border-0 shadow-xl">
+        <DialogHeader>
+          <DialogTitle>{{ detailTitle }}</DialogTitle>
+          <DialogDescription>车船费用明细清单</DialogDescription>
+        </DialogHeader>
+        <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900">
           <Table>
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
@@ -892,10 +974,15 @@ async function handleExport() {
             </TableBody>
           </Table>
         </div>
-        <DialogFooter><Button variant="outline" @click="() => {}">导出Excel</Button><Button @click="showDetailDialog = false">关闭</Button></DialogFooter>
+        <DialogFooter class="mt-2">
+          <Button variant="outline" @click="() => {}" class="shadow-sm">
+            <Download class="w-4 h-4 mr-2" />
+            导出Excel
+          </Button>
+          <Button @click="showDetailDialog = false">关闭</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
-  </BasicPage>
 </template>
 
 <style scoped>

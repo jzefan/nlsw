@@ -1,7 +1,36 @@
+// MongoDB configuration
+const mongoHost = process.env.MONGO_HOST || "localhost";
+const mongoPort = process.env.MONGO_PORT || "27027";
+const mongoDatabase = process.env.MONGO_DATABASE || "nldb";
+const mongoUser = process.env.MONGO_USER || "";
+const mongoPassword = process.env.MONGO_PASSWORD || "";
+const mongoAuthSource = process.env.MONGO_AUTH_SOURCE || "admin";
+
+// Build MongoDB connection string
+function buildMongoUri() {
+  if (process.env.MONGODB) {
+    return process.env.MONGODB; // Allow full URI override
+  }
+
+  if (mongoUser && mongoPassword) {
+    return `mongodb://${mongoUser}:${mongoPassword}@${mongoHost}:${mongoPort}/${mongoDatabase}?authSource=${mongoAuthSource}`;
+  }
+
+  return `mongodb://${mongoHost}:${mongoPort}/${mongoDatabase}`;
+}
+
 module.exports = {
-  db: process.env.MONGODB || "mongodb://localhost:27027/test",
+  db: buildMongoUri(),
   port: process.env.PORT || 1080,
   env: process.env.NODE_ENV || "development",
+
+  // MongoDB config (exposed for reference)
+  mongo: {
+    host: mongoHost,
+    port: mongoPort,
+    database: mongoDatabase,
+    user: mongoUser,
+  },
 
   development: {
     port: 1080,

@@ -125,7 +125,7 @@ export interface ParsedFile {
 
 // Required fields for processing (these columns will be marked with checkmark)
 const requiredFields = new Set([
-  'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'width', 'len', 'fixedLength',
+  'bundleNo', 'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'width', 'len', 'fixedLength',
   'quantity', 'weight', 'customerName', 'contractNo', 'warehouse',
 ])
 

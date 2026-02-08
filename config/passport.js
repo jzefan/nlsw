@@ -3,6 +3,7 @@ var passport = require('passport');
 var LocalStrategy = require('passport-local').Strategy;
 var User = require('../models/User');
 var secrets = require('./secrets');
+var { decryptPassword, isEncryptedPassword } = require('../utils/crypto');
 
 passport.serializeUser(function(user, done) {
   done(null, user.id);
@@ -23,10 +24,22 @@ passport.use(new LocalStrategy({ usernameField: 'userid' }, async function(useri
     console.log('Passport Strategy: Attempting login for userid:', userid);
     const user = await User.findOne({ userid: userid });
     console.log('Passport Strategy: Find result:', user ? 'User found' : 'User NOT found');
-    
+
     if (!user) return done(null, false, { message: '用户名 ' + userid + ' 不存在!'});
-    
-    const isMatch = await user.comparePassword(password);
+
+    // Decrypt password if encrypted, otherwise use as-is (backward compatible)
+    let plainPassword = password;
+    if (isEncryptedPassword(password)) {
+      try {
+        plainPassword = decryptPassword(password);
+        console.log('Passport Strategy: Password decrypted successfully');
+      } catch (decryptError) {
+        console.error('Passport Strategy: Password decryption failed:', decryptError.message);
+        return done(null, false, { message: '密码解密失败' });
+      }
+    }
+
+    const isMatch = await user.comparePassword(plainPassword);
     console.log('Passport Strategy: Password match:', isMatch);
 
     if (isMatch) {

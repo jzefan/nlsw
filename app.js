@@ -2,6 +2,8 @@
  * Module dependencies.
  */
 
+require('dotenv').config();
+
 const schedule = require('node-schedule');
 var express = require('express');
 var cookieParser = require('cookie-parser');

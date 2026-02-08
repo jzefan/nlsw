@@ -8,6 +8,8 @@ import { computed, h, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import type { IntegratedQueryBill } from '@/services/api/report.api'
 
+import { useDevice } from '@/composables/use-device'
+import IntegratedMobile from './components/IntegratedMobile.vue'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 
@@ -23,6 +25,9 @@ import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const { user } = storeToRefs(authStore)
+
+// 设备检测
+const { isMobile } = useDevice()
 
 // State
 const loading = ref(false)
@@ -585,6 +590,22 @@ async function searchDestinationsFn(search: string, limit: number, page: number)
   return getDestinations({ search, limit, page })
 }
 
+// 移动端需要的方法
+function updateFilter(newFilter: typeof filter) {
+  Object.assign(filter, newFilter)
+}
+
+function updateShowNotSent(val: boolean) {
+  showNotSent.value = val
+}
+
+function updateShowDestForVessel(val: boolean) {
+  showDestForVessel.value = val
+}
+
+// 权限检查
+const hasPrivilege = computed(() => user.value?.privilege === '11111111')
+
 // Watchers for "Show Not Sent"
 watch(showNotSent, (val) => {
   if (val) {
@@ -607,7 +628,37 @@ function handlePageChange(p: number) {
 </script>
 
 <template>
-  <BasicPage title="综合查询" description="综合查询提单、运单及发货情况">
+  <!-- 移动端视图 -->
+  <IntegratedMobile
+    v-if="isMobile"
+    :loading="loading"
+    :bills="bills"
+    :total="total"
+    :total-num="totalNum"
+    :total-weight="totalWeight"
+    :show-not-sent="showNotSent"
+    :show-dest-for-vessel="showDestForVessel"
+    :filter="filter"
+    :customers="customers"
+    :vehicle-modes="vehicleModes"
+    :page="page"
+    :limit="limit"
+    :has-privilege="hasPrivilege"
+    :search-billing-names="searchBillingNames"
+    :search-vehicles-fn="searchVehiclesFn"
+    :search-destinations-fn="searchDestinationsFn"
+    @update:filter="updateFilter"
+    @update:show-not-sent="updateShowNotSent"
+    @update:show-dest-for-vessel="updateShowDestForVessel"
+    @query="handleQuery"
+    @reset="handleReset"
+    @export="handleExport"
+    @export-account="handleExportAccount"
+    @page-change="handlePageChange"
+  />
+
+  <!-- 桌面端视图 -->
+  <BasicPage v-else title="综合查询" description="综合查询提单、运单及发货情况">
     <template #actions>
       <UiButton variant="outline" size="sm" @click="handleExportAccount">
         <FileSpreadsheet class="w-4 h-4 mr-1" />
@@ -779,14 +830,14 @@ function handlePageChange(p: number) {
         }"
       />
     </div>
-
-    <!-- 导出对话框 -->
-    <ExportDialog
-      v-model:open="showExportDialog"
-      :default-file-name="exportFileName"
-      @confirm="confirmExport"
-    />
   </BasicPage>
+
+  <!-- 导出对话框（移动端和桌面端共用） -->
+  <ExportDialog
+    v-model:open="showExportDialog"
+    :default-file-name="exportFileName"
+    @confirm="confirmExport"
+  />
 </template>
 
 <route lang="yaml">

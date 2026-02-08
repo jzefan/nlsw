@@ -58,4 +58,13 @@ export default defineConfig({
     drop: ['debugger'],
     pure: ['console.log'],
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:1080', // The URL of your backend server
+        changeOrigin: true, // Needed for virtual hosted sites
+        rewrite: (path) => path.replace(/^\/api/, ''), // Rewrite the path: '/api/users' becomes '/users' on the backend
+      },
+    },
+  },
 })

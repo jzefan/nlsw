@@ -36,8 +36,8 @@ import AllVehiclesTable from './all-vehicles-table.vue'
 
 const now = new Date()
 const currentYear = now.getFullYear()
-// Generate last 10 years
-const years = Array.from({ length: 10 }, (_, i) => (currentYear - i).toString())
+// Generate last 20 years
+const years = Array.from({ length: 20 }, (_, i) => (currentYear - i).toString())
 
 const startDate = ref(`${currentYear}-01`)
 const endDate = ref(`${currentYear}-12`)
@@ -338,13 +338,16 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-6">
     <!-- Header with Year Selector -->
     <div class="flex items-center justify-between">
-      <h2 class="text-2xl font-bold tracking-tight">概览</h2>
+      <div>
+        <h2 class="text-xl font-bold tracking-tight">数据概览</h2>
+        <p class="text-muted-foreground text-sm mt-1">实时监控配发、开票及回款数据</p>
+      </div>
       <div class="flex items-center space-x-2">
         <Select v-model="selectedYear">
-          <SelectTrigger class="w-[140px]">
+          <SelectTrigger class="w-[140px] bg-white dark:bg-slate-900 shadow-sm">
             <Calendar class="mr-2 h-4 w-4" />
             <SelectValue placeholder="选择年份" />
           </SelectTrigger>
@@ -358,126 +361,110 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
     </div>
 
     <!-- KPI Cards -->
-    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <UiCard>
+    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <UiCard class="border-0 shadow-md bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/20 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             总配发吨数
           </UiCardTitle>
-            <div class="h-4 w-4 text-muted-foreground flex items-center justify-center">
-              ¥
-            </div>
+          <div class="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-blue-600">
+              <path d="M12 12v10M7 3l5 7 5-7M7 10h10M7 14h10"/>
+            </svg>
+          </div>
         </UiCardHeader>
         <UiCardContent>
-          <div class="text-2xl font-bold cursor-pointer hover:text-primary hover:underline" @click="drillDownInvoices">
-            {{ stats.totalTonnage.toLocaleString() }} 吨
+          <div class="text-3xl font-bold cursor-pointer hover:text-primary transition-colors" @click="drillDownInvoices">
+            {{ stats.totalTonnage.toLocaleString() }} <span class="text-lg font-normal text-muted-foreground">吨</span>
           </div>
-          <div class="mt-2 space-y-1">
-            <p class="text-sm text-muted-foreground">
-              开票: <span class="font-medium text-foreground">{{ stats.totalInvoiceTonnage.toLocaleString() }}</span> 吨
-              <span class="ml-2 text-blue-600 font-semibold">{{ ((stats.totalInvoiceTonnage / stats.totalTonnage) * 100).toFixed(2) }}%</span>
-            </p>
-            <p class="text-sm text-muted-foreground">
-              回款: <span class="font-medium text-foreground">{{ stats.totalPaymentTonnage.toLocaleString() }}</span> 吨
-              <span class="ml-2 text-green-600 font-semibold">{{ ((stats.totalPaymentTonnage / stats.totalTonnage) * 100).toFixed(2) }}%</span>
-            </p>
+          <div class="mt-3 space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-muted-foreground">开票</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ stats.totalInvoiceTonnage.toLocaleString() }} 吨</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  {{ stats.totalTonnage > 0 ? ((stats.totalInvoiceTonnage / stats.totalTonnage) * 100).toFixed(1) : '0' }}%
+                </span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-muted-foreground">回款</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ stats.totalPaymentTonnage.toLocaleString() }} 吨</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  {{ stats.totalTonnage > 0 ? ((stats.totalPaymentTonnage / stats.totalTonnage) * 100).toFixed(1) : '0' }}%
+                </span>
+              </div>
+            </div>
           </div>
-          <p class="text-xs text-muted-foreground mt-2">
-            {{ startDate }} 至 {{ endDate }}
-          </p>
         </UiCardContent>
       </UiCard>
 
-      <UiCard>
+      <UiCard class="border-0 shadow-md bg-gradient-to-br from-purple-50 to-white dark:from-purple-950/20 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             配发开单名称数
           </UiCardTitle>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            class="h-4 w-4 text-muted-foreground"
-          >
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
+          <div class="h-8 w-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-purple-600">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
         </UiCardHeader>
         <UiCardContent>
-          <div class="text-2xl font-bold cursor-pointer hover:text-primary hover:underline" @click="drillDownBillingNames">
-            {{ stats.billingNameCount }}
+          <div class="text-3xl font-bold cursor-pointer hover:text-primary transition-colors" @click="drillDownBillingNames">
+            {{ stats.billingNameCount }} <span class="text-lg font-normal text-muted-foreground">个</span>
           </div>
-          <p class="text-xs text-muted-foreground">
-            {{ startDate }} 至 {{ endDate }}
+          <p class="text-sm text-muted-foreground mt-3">
+            {{ startDate }} 至 {{ endDate }} 期间有配发记录的客户数量
           </p>
         </UiCardContent>
       </UiCard>
-      
-       <UiCard>
+
+      <UiCard class="border-0 shadow-md bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             配发车船数
           </UiCardTitle>
-           <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            class="h-4 w-4 text-muted-foreground"
-          >
-            <rect width="20" height="14" x="2" y="5" rx="2" />
-            <path d="M2 10h20" />
-          </svg>
+          <div class="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-emerald-600">
+              <rect width="20" height="14" x="2" y="5" rx="2" />
+              <path d="M2 10h20" />
+            </svg>
+          </div>
         </UiCardHeader>
         <UiCardContent>
-          <div class="text-2xl font-bold">
-            {{ stats.allVehicles.length }}
+          <div class="text-3xl font-bold">
+            {{ stats.allVehicles.length }} <span class="text-lg font-normal text-muted-foreground">辆/艘</span>
           </div>
-          <div class="mt-2 space-y-1">
-            <p class="text-sm text-muted-foreground">
-              自有: <span
-                class="font-medium text-foreground cursor-pointer hover:text-primary hover:underline"
-                @click="drillDownVehicle('own')"
-              >{{ stats.ownVehicleCount }}</span> 辆
-              <span class="text-xs ml-1">({{ stats.ownVehicleTonnage.toLocaleString() }}吨)</span>
-              <span class="mx-2">|</span>
-              外挂: <span
-                class="font-medium text-foreground cursor-pointer hover:text-primary hover:underline"
-                @click="drillDownVehicle('outsourced')"
-              >{{ stats.outsourcedVehicleCount }}</span> 辆
-              <span class="text-xs ml-1">({{ stats.outsourcedVehicleTonnage.toLocaleString() }}吨)</span>
-            </p>
-            <p class="text-sm text-muted-foreground">
-              车运: <span
-                class="font-medium text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
-                @click="drillDownVehicle('truck')"
-              >{{ stats.truckTonnage.toLocaleString() }}</span> 吨
-              <span class="mx-2">|</span>
-              船运: <span
-                class="font-medium text-indigo-600 cursor-pointer hover:text-indigo-800 hover:underline"
-                @click="drillDownVehicle('vessel')"
-              >{{ stats.vesselTonnage.toLocaleString() }}</span> 吨
-            </p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="flex items-center justify-between p-2 rounded-lg bg-background/50">
+              <span class="text-muted-foreground">自有</span>
+              <span class="font-medium cursor-pointer hover:text-primary" @click="drillDownVehicle('own')">{{ stats.ownVehicleCount }}</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded-lg bg-background/50">
+              <span class="text-muted-foreground">外挂</span>
+              <span class="font-medium cursor-pointer hover:text-primary" @click="drillDownVehicle('outsourced')">{{ stats.outsourcedVehicleCount }}</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+              <span class="text-blue-600">车运</span>
+              <span class="font-medium text-blue-700 dark:text-blue-400 cursor-pointer" @click="drillDownVehicle('truck')">{{ stats.truckTonnage.toLocaleString() }}吨</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20">
+              <span class="text-indigo-600">船运</span>
+              <span class="font-medium text-indigo-700 dark:text-indigo-400 cursor-pointer" @click="drillDownVehicle('vessel')">{{ stats.vesselTonnage.toLocaleString() }}吨</span>
+            </div>
           </div>
-          <p class="text-xs text-muted-foreground mt-2">
-            {{ startDate }} 至 {{ endDate }}
-          </p>
         </UiCardContent>
       </UiCard>
     </div>
 
     <!-- Charts Section -->
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-7">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-7">
       <!-- Monthly Trend -->
-      <div class="col-span-1 lg:col-span-4 h-auto lg:h-[500px]">
+      <div class="col-span-1 lg:col-span-4 h-[500px]">
         <OverviewChart
           :data="stats.monthlyTrend"
           v-model:startDate="startDate"
@@ -486,7 +473,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       </div>
 
       <!-- Top Billing Names -->
-      <div class="col-span-1 lg:col-span-3 h-auto lg:h-[500px]">
+      <div class="col-span-1 lg:col-span-3 h-[500px]">
         <TopList
           title="开单名称排名 (Top 8)"
           description="按配发吨数排名"
@@ -495,21 +482,9 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       </div>
     </div>
 
-    <!-- Bottom Section -->
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-7 h-[600px]">
-      <!-- Top Vehicles -->
-      <div class="col-span-1 lg:col-span-3 h-full">
-         <TopList 
-          title="车船排名 (Top 5)" 
-          description="按配发吨数排名" 
-          :data="stats.top5Vehicles" 
-        />
-      </div>
-
-      <!-- All Vehicles Table -->
-      <div class="col-span-1 lg:col-span-4 h-full">
-         <AllVehiclesTable :data="stats.allVehicles" />
-      </div>
+    <!-- All Vehicles Table -->
+    <div class="h-[500px]">
+      <AllVehiclesTable :data="stats.allVehicles" />
     </div>
 
     <!-- 车辆下钻明细对话框 -->

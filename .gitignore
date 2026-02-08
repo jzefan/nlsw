@@ -20,3 +20,7 @@ uploads/
 .idea/
 *.swp
 
+# RSA keys - NEVER commit
+keys/
+*.pem
+
