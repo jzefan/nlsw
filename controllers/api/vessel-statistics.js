@@ -11,12 +11,22 @@ const utils = require('../utils');
  */
 exports.getVesselRevenueData = async (req, res) => {
   try {
-    const { fDate1, fDate2, fMonths } = req.query;
-    if (!fMonths || !Array.isArray(fMonths)) {
-      return res.json({ ok: false, message: '缺少月份列表' });
+    const { fDate1, fDate2 } = req.query;
+    if (!fDate1 || !fDate2) {
+      return res.json({ ok: false, message: '缺少日期范围' });
     }
 
-    const months = fMonths;
+    // 根据起止日期计算月份列表
+    const months = [];
+    const current = new Date(fDate1);
+    const end = new Date(fDate2);
+    current.setDate(1);
+    while (current < end) {
+      const y = current.getFullYear();
+      const m = current.getMonth() + 1;
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+      current.setMonth(current.getMonth() + 1);
+    }
     const resultData = months.map(m => ({
       month: m,
       vhTotal: 0, vhRevenue: 0, vhOwnWeight: 0, vhOwnIncome: 0, vhOwnDeposit: 0, vhOwnProfit: 0, 

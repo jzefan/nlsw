@@ -244,23 +244,6 @@ function formatDateRange(start?: Date, end?: Date) {
 // 日期范围字符串（供移动端使用）
 const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
 
-function getMonthsList(start: Date, end: Date) {
-  const list = []
-  const current = new Date(start)
-  const last = new Date(end)
-  
-  // Reset to start of month to avoid issues
-  current.setDate(1)
-  
-  while (current < last) {
-    const y = current.getFullYear()
-    const m = current.getMonth() + 1
-    list.push(`${y}-${m.toString().padStart(2, '0')}`)
-    current.setMonth(current.getMonth() + 1)
-  }
-  return list
-}
-
 async function loadCompanies() {
   try {
     const res = await getCompanies({ page: 1, limit: 1000 })
@@ -289,7 +272,6 @@ async function fetchData() {
       fDate1: startDate.value.toISOString(),
       fDate2: endDate.value.toISOString(),
       fName: selectedNames.value.length > 0 ? selectedNames.value : undefined,
-      fMonths: getMonthsList(startDate.value, endDate.value)
     }
 
     // Fetch Table Data and Chart Data in parallel
@@ -373,7 +355,6 @@ async function openAllDetails() {
       fDate1: startDate.value.toISOString(),
       fDate2: endDate.value.toISOString(),
       fName: selectedNames.value.length > 0 ? selectedNames.value : undefined,
-      fMonths: getMonthsList(startDate.value, endDate.value)
     }
 
     const res = await getCustomerDetail(params)
@@ -405,7 +386,6 @@ async function openSingleDetail(name: string) {
       fDate1: startDate.value.toISOString(),
       fDate2: endDate.value.toISOString(),
       fName: [name],
-      fMonths: getMonthsList(startDate.value, endDate.value)
     }
 
     const res = await getCustomerDetail(params)
@@ -1057,7 +1037,7 @@ loadCompanies()
                     <div class="grid gap-2">
                         <Label>开始月份</Label>
                         <div class="grid grid-cols-2 gap-2">
-                            <Select v-model="startYear">
+                            <Select v-model="startYear" class="w-full">
                                 <SelectTrigger>
                                     <SelectValue placeholder="年份" />
                                 </SelectTrigger>
@@ -1065,7 +1045,7 @@ loadCompanies()
                                     <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <Select v-model="startMonth">
+                            <Select v-model="startMonth" class="w-full">
                                 <SelectTrigger>
                                     <SelectValue placeholder="月份" />
                                 </SelectTrigger>

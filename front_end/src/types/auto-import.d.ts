@@ -70,6 +70,7 @@ declare global {
   const useAxios: typeof import('../composables/use-axios').useAxios
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
+  const useDevice: typeof import('../composables/use-device').useDevice
   const useExport: typeof import('../composables/use-export').useExport
   const useId: typeof import('vue').useId
   const useLink: typeof import('vue-router')['useLink']

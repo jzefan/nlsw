@@ -136,20 +136,6 @@ const summaryTotals = computed(() => {
 })
 
 // Methods
-function getMonthsList(start: Date, end: Date) {
-  const list = []
-  const current = new Date(start)
-  const last = new Date(end)
-  current.setDate(1)
-  while (current < last) {
-    const y = current.getFullYear()
-    const m = current.getMonth() + 1
-    list.push(`${y}-${m.toString().padStart(2, '0')}`)
-    current.setMonth(current.getMonth() + 1)
-  }
-  return list
-}
-
 async function fetchData() {
   if (!startDate.value || !endDate.value) {
     toast.error('请选择日期范围')
@@ -166,7 +152,6 @@ async function fetchData() {
     const res = await getVesselRevenue({
       fDate1: startDate.value.toISOString(),
       fDate2: endDate.value.toISOString(),
-      fMonths: getMonthsList(startDate.value, endDate.value)
     })
     if (res.ok) {
       statisticsData.value = res.stat_data

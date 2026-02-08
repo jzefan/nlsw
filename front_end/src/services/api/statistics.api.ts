@@ -6,7 +6,6 @@ export interface StatisticsQueryParams {
   fName?: string[]
   fDate1: string // ISO string
   fDate2: string // ISO string
-  fMonths?: string[]
 }
 
 export interface StatisticsData {

@@ -269,7 +269,20 @@ exports.getCustomerDetail = async function (req, res) {
  */
 exports.getCustomerChartData = async function (req, res) {
   var query = req.query;
-  var months = query.fMonths || [];
+
+  // 根据起止日期计算月份列表
+  var months = [];
+  if (query.fDate1 && query.fDate2) {
+    var current = new Date(query.fDate1);
+    var end = new Date(query.fDate2);
+    current.setDate(1);
+    while (current < end) {
+      var y = current.getFullYear();
+      var m = current.getMonth() + 1;
+      months.push(y + '-' + String(m).padStart(2, '0'));
+      current.setMonth(current.getMonth() + 1);
+    }
+  }
 
   try {
     // Ensure fName is handled correctly if it's "undefined" or empty string

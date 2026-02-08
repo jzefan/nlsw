@@ -5,7 +5,6 @@ const { axiosInstance } = useAxios()
 export interface VesselRevenueParams {
   fDate1: string
   fDate2: string
-  fMonths: string[]
 }
 
 export interface VesselRevenueData {
