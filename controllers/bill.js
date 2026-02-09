@@ -15,6 +15,7 @@ let Settle = require('../models/Settle');
 let OrderPlan = require('../models/OrderPlan');
 let utils = require('./utils');
 let bunyan = require('bunyan');
+const { hasPermission, PERMISSIONS } = require('../utils/permissions');
 
 let logger = bunyan.createLogger({
   name: 'XHT',
@@ -33,17 +34,21 @@ function pushArr(arr, elem) {
 };
 
 exports.createBills = async function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
   else {
     await getDictDataAndRender('bill', false, false, false, function (data) {
+      const tenantCompanyName = req.tenant
+        ? (req.tenant.fullName || req.tenant.name || '')
+        : '';
       res.render('bill/create_bill', {
         title: '提单管理',
         curr_page: '新建提单',
         curr_page_name: '新建',
         bShowDataTable: true,
+        tenantCompanyName,
         dDataDict: data,
         scripts: [
           '/js/plugins/sheetJS/shim.js',
@@ -228,7 +233,7 @@ exports.postCreateBills = async function (req, res) {
 };
 
 exports.modifyBill = function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
@@ -459,7 +464,7 @@ exports.getBillsWithCondition = async function (req, res) {
 };
 
 exports.deleteBill = function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
@@ -504,7 +509,7 @@ function pushInvVehs(arr, bills) {
 }
 
 exports.getSettleBill = async function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
     res.status(404);
     res.render('404');
   }
@@ -569,7 +574,7 @@ exports.getSettleBill = async function (req, res) {
 };
 
 exports.getSettleBillSelf = async function (req, res) {
-  if (req.user.privilege[6] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) { // === ACCOUNT) {
     res.status(404);
     res.render('404');
   }
@@ -954,7 +959,7 @@ exports.postDeleteSettle = async function (req, res) {
 };
 
 exports.getSettleTicket = async function (req, res) {
-  if (req.user.privilege[2] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
     res.render('404');
   } else {
@@ -963,7 +968,7 @@ exports.getSettleTicket = async function (req, res) {
 };
 
 exports.getSettleTicketSelf = async function (req, res) {
-  if (req.user.privilege[6] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   } else {
@@ -972,7 +977,7 @@ exports.getSettleTicketSelf = async function (req, res) {
 };
 
 exports.getSettleMoney = async function (req, res) {
-  if (req.user.privilege[2] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
     res.render('404');
   }
@@ -982,7 +987,7 @@ exports.getSettleMoney = async function (req, res) {
 };
 
 exports.getSettleMoneySelf = async function (req, res) {
-  if (req.user.privilege[6] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
@@ -1142,7 +1147,7 @@ async function getSettleVesselData(selfOwned) {
 }
 
 exports.getSettleVesselSelf = async function (req, res) {
-  if (req.user.privilege[6] === '0') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
@@ -1168,7 +1173,7 @@ exports.getSettleVesselSelf = async function (req, res) {
 };
 
 exports.getSettleVessel = async function (req, res) {
-  if (req.user.privilege[1] === '0' && req.user.privilege[2] === '0') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
     res.render('404');
   }
@@ -1606,7 +1611,7 @@ exports.getMaxWaybillNo = async function (req, res) {
 };
 
 exports.getBuildInvoice = async function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
     res.status(404);
     res.render('404');
   }
@@ -1633,7 +1638,7 @@ exports.getBuildInvoice = async function (req, res) {
 };
 
 exports.getBuildInvoiceSelf = async function (req, res) {
-  if (req.user.privilege[6] === '0') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
     res.render('404');
   }
@@ -2243,7 +2248,7 @@ function buildTargetData(list) {
 }
 
 exports.distributeInvoice = async function (req, res) {
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0') { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
     res.status(404);
     res.render('404');
   }
@@ -2282,7 +2287,7 @@ exports.postDistributeInvoice = async function (req, res) {
 };
 
 exports.deleteInvoice = async function (req, res) {
-  if (req.user.privilege[1] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
     res.status(404);
     res.render('404');
   }
@@ -2365,12 +2370,16 @@ exports.getInvoiceReport = async function (req, res) {
   let destination = await Destination.find({}).exec();
   let company = await Company.find({}).exec();
   let vehInfo = await Vehicle.find({}).exec();
+  const tenantCompanyName = req.tenant
+    ? (req.tenant.fullName || req.tenant.name || '')
+    : '';
   res.render('statistics/invoice_report', {
     title: '报表和打印',
     curr_page: '运单报表',
     curr_page_name: '报表',
     bUseJstree: true,
     bTableSort: true,
+    tenantCompanyName,
     dDataDict: {
       company,
       destination,

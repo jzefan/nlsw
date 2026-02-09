@@ -270,6 +270,27 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/platform/business': RouteRecordInfo<
+      '/platform/business',
+      '/platform/business',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/platform/statistics': RouteRecordInfo<
+      '/platform/statistics',
+      '/platform/statistics',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/platform/tenants': RouteRecordInfo<
+      '/platform/tenants',
+      '/platform/tenants',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/reports/customer-revenue': RouteRecordInfo<
       '/reports/customer-revenue',
       '/reports/customer-revenue',
@@ -607,6 +628,24 @@ declare module 'vue-router/auto-routes' {
     'src/pages/plans/create.vue': {
       routes:
         | '/plans/create'
+      views:
+        | never
+    }
+    'src/pages/platform/business.vue': {
+      routes:
+        | '/platform/business'
+      views:
+        | never
+    }
+    'src/pages/platform/statistics.vue': {
+      routes:
+        | '/platform/statistics'
+      views:
+        | never
+    }
+    'src/pages/platform/tenants.vue': {
+      routes:
+        | '/platform/tenants'
       views:
         | never
     }

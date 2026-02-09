@@ -6,23 +6,25 @@ const fs = require('fs');
 const path = require('path');
 const utils = require('../utils');
 const { uploadReceiptImages } = require('../../config/multer');
+const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
 
 // 查询车船结算运单
 exports.getInvoiceSettleVessel = async (req, res) => {
   try {
     const { fVeh, fContact, fName, fDest, fDate1, fDate2, fSettledState, fReceipt, fAmount, fWeight } = req.query;
 
-    const query = { state: { $in: ['已配发', '已结算'] } };
+    const baseQuery = { state: { $in: ['已配发', '已结算'] } };
 
-    if (fVeh) query.$or = [{ vehicle_vessel_name: fVeh }, { 'bills.vehicles.veh_name': fVeh }];
-    if (fName) query.ship_name = fName;
-    if (fDest) query.ship_to = fDest;
-    if (fDate1 && fDate2) query.ship_date = { $gte: new Date(fDate1), $lte: new Date(fDate2) };
-    if (fSettledState && fSettledState !== '全部') query.vessel_settle_state = fSettledState;
-    if (fReceipt != null && fReceipt != 2) query.receipt = parseInt(fReceipt);
-    if (fAmount) query.vessel_price = parseFloat(fAmount);
-    if (fWeight) query.total_weight = parseFloat(fWeight);
+    if (fVeh) baseQuery.$or = [{ vehicle_vessel_name: fVeh }, { 'bills.vehicles.veh_name': fVeh }];
+    if (fName) baseQuery.ship_name = fName;
+    if (fDest) baseQuery.ship_to = fDest;
+    if (fDate1 && fDate2) baseQuery.ship_date = { $gte: new Date(fDate1), $lte: new Date(fDate2) };
+    if (fSettledState && fSettledState !== '全部') baseQuery.vessel_settle_state = fSettledState;
+    if (fReceipt != null && fReceipt != 2) baseQuery.receipt = parseInt(fReceipt);
+    if (fAmount) baseQuery.vessel_price = parseFloat(fAmount);
+    if (fWeight) baseQuery.total_weight = parseFloat(fWeight);
 
+    const query = buildTenantQuery(req, baseQuery);
     const invs = await Invoice.find(query).populate('bills.bill_id').sort({ ship_date: -1 }).lean().exec();
 
     res.json({ ok: true, invs });
@@ -36,7 +38,8 @@ exports.getInvoiceSettleVessel = async (req, res) => {
 exports.updateVesselPrice = async (req, res) => {
   try {
     const { wnoList, priceData } = req.body;
-    const invoices = await Invoice.find({ waybill_no: { $in: wnoList } }).exec();
+    const invQuery = buildTenantQuery(req, { waybill_no: { $in: wnoList } });
+    const invoices = await Invoice.find(invQuery).exec();
 
     for (const pd of priceData) {
       const invoice = invoices.find(inv => inv.waybill_no === pd.wno || inv.waybill_no === pd.wno.substring(0, 17));
@@ -73,14 +76,16 @@ exports.settleVessel = async (req, res) => {
     const state = settle ? '已结算' : '未结算';
 
     if (allSelectedInvNo?.length > 0) {
+      const updateQuery = buildTenantQuery(req, { waybill_no: { $in: allSelectedInvNo } });
       await Invoice.updateMany(
-        { waybill_no: { $in: allSelectedInvNo } },
+        updateQuery,
         { $set: { vessel_settle_state: state, vessel_settle_date: date } }
       ).exec();
     }
 
     if (allInvNoFromInner?.length > 0) {
-      const invoices = await Invoice.find({ waybill_no: { $in: allInvNoFromInner } }).exec();
+      const innerQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNoFromInner } });
+      const invoices = await Invoice.find(innerQuery).exec();
       for (const invoice of invoices) {
         if (!invoice.inner_settle) invoice.inner_settle = [];
         allInnerNo.forEach(innerNo => {
@@ -113,14 +118,16 @@ exports.settleVesselPay = async (req, res) => {
     const state = forPay ? '已付款' : '已结算';
 
     if (allPayInvNo?.length > 0) {
+      const payQuery = buildTenantQuery(req, { waybill_no: { $in: allPayInvNo } });
       await Invoice.updateMany(
-        { waybill_no: { $in: allPayInvNo } },
+        payQuery,
         { $set: { vessel_settle_state: state, pay_date: date } }
       ).exec();
     }
 
     if (allInvNoFromInner?.length > 0) {
-      const invoices = await Invoice.find({ waybill_no: { $in: allInvNoFromInner } }).exec();
+      const innerPayQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNoFromInner } });
+      const invoices = await Invoice.find(innerPayQuery).exec();
       for (const invoice of invoices) {
         allInnerNo.forEach(innerNo => {
           const innerSettle = invoice.inner_settle?.find(is => is.inner_waybill_no === innerNo);
@@ -147,7 +154,8 @@ exports.updateVesselDelayInfo = async (req, res) => {
 
     for (const wno of wnoList) {
       const waybillNo = wno.substring(0, 17);
-      const invoice = await Invoice.findOne({ waybill_no: waybillNo }).exec();
+      const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+      const invoice = await Invoice.findOne(invQ).exec();
       if (!invoice) continue;
 
       if (wno.length > 17) {
@@ -190,7 +198,8 @@ exports.settleVesselNotNeeded = async (req, res) => {
 
     for (const wno of wayNoList) {
       const waybillNo = wno.substring(0, 17);
-      const invoice = await Invoice.findOne({ waybill_no: waybillNo }).exec();
+      const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+      const invoice = await Invoice.findOne(invQ).exec();
       if (!invoice) continue;
 
       if (wno.length > 17) {
@@ -240,7 +249,8 @@ exports.settleVesselNotNeeded = async (req, res) => {
 exports.postCarrierDepartment = async (req, res) => {
   try {
     const { vehName, wno, boss } = req.body;
-    const vehicle = await Vehicle.findOne({ name: vehName }).exec();
+    const vehQ = buildTenantQuery(req, { name: vehName });
+    const vehicle = await Vehicle.findOne(vehQ).exec();
     if (!vehicle) return res.status(404).json({ ok: false, message: '车辆不存在' });
 
     if (!vehicle.real_boss) vehicle.real_boss = [];
@@ -276,7 +286,8 @@ exports.uploadReceiptImg = [
 
       // 验证运单是否存在
       const waybillNo = inv_no.substring(0, 17);
-      const invoice = await Invoice.findOne({ waybill_no: waybillNo }).exec();
+      const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+      const invoice = await Invoice.findOne(invQ).exec();
       if (!invoice) {
         // 删除已上传的文件
         req.files.forEach(file => {
@@ -307,7 +318,7 @@ exports.uploadReceiptImg = [
         // 确保 original_filename 正确处理 UTF-8 编码
         const originalFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
 
-        const receiptImage = new ReceiptImage({
+        const receiptData = injectTenantId(req, {
           waybill_no: inv_no,
           uploader: uploader,
           upload_time: new Date(),
@@ -316,6 +327,7 @@ exports.uploadReceiptImg = [
           file_size: file.size,
           mime_type: file.mimetype
         });
+        const receiptImage = new ReceiptImage(receiptData);
 
         await receiptImage.save();
         savedImages.push(receiptImage);
@@ -392,7 +404,8 @@ exports.getReceiptImg = async (req, res) => {
     if (!wno) return res.status(400).json({ ok: false, message: '缺少运单号' });
 
     const waybillNo = wno.substring(0, 17);
-    const invoice = await Invoice.findOne({ waybill_no: waybillNo }).lean().exec();
+    const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+    const invoice = await Invoice.findOne(invQ).lean().exec();
     if (!invoice) return res.status(404).json({ ok: false, message: '运单不存在' });
 
     let receiptImage = null;
@@ -432,7 +445,8 @@ exports.getReceiptImagesList = async (req, res) => {
     }
 
     // 从数据库查询该运单的所有回执图片
-    const images = await ReceiptImage.find({ waybill_no: wno })
+    const imgQuery = buildTenantQuery(req, { waybill_no: wno });
+    const images = await ReceiptImage.find(imgQuery)
       .sort({ upload_time: -1 }) // 按上传时间倒序
       .lean()
       .exec();
@@ -467,7 +481,8 @@ exports.getReceiptImageById = async (req, res) => {
       return res.status(400).json({ ok: false, message: '缺少图片ID' });
     }
 
-    const image = await ReceiptImage.findById(imageId).lean().exec();
+    const imgByIdQuery = buildTenantQuery(req, { _id: imageId });
+    const image = await ReceiptImage.findOne(imgByIdQuery).lean().exec();
     if (!image) {
       return res.status(404).json({ ok: false, message: '图片记录不存在' });
     }
@@ -499,7 +514,8 @@ exports.deleteReceiptImage = async (req, res) => {
       return res.status(400).json({ ok: false, message: '缺少图片ID' });
     }
 
-    const image = await ReceiptImage.findById(imageId).exec();
+    const delImgQuery = buildTenantQuery(req, { _id: imageId });
+    const image = await ReceiptImage.findOne(delImgQuery).exec();
     if (!image) {
       return res.status(404).json({ ok: false, message: '图片记录不存在' });
     }
@@ -510,15 +526,17 @@ exports.deleteReceiptImage = async (req, res) => {
     }
 
     // 删除数据库记录
-    await ReceiptImage.findByIdAndDelete(imageId).exec();
+    await ReceiptImage.deleteOne(delImgQuery).exec();
 
     // 检查该运单是否还有其他图片
-    const remainingImages = await ReceiptImage.find({ waybill_no: image.waybill_no }).exec();
+    const remainImgQuery = buildTenantQuery(req, { waybill_no: image.waybill_no });
+    const remainingImages = await ReceiptImage.find(remainImgQuery).exec();
 
     // 如果没有剩余图片，更新运单的回执状态为0
     if (remainingImages.length === 0) {
       const waybillNo = image.waybill_no.substring(0, 17);
-      const invoice = await Invoice.findOne({ waybill_no: waybillNo }).exec();
+      const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+      const invoice = await Invoice.findOne(invQ).exec();
 
       if (invoice) {
         if (image.waybill_no.length > 17) {
@@ -548,11 +566,13 @@ exports.getWaybill = async (req, res) => {
     const wno = req.query.q;
     if (!wno) return res.status(400).json({ ok: false, message: '缺少运单号' });
 
-    const invoice = await Invoice.findOne({ waybill_no: wno }).lean().exec();
+    const wbQuery = buildTenantQuery(req, { waybill_no: wno });
+    const invoice = await Invoice.findOne(wbQuery).lean().exec();
     if (!invoice) return res.status(404).json({ ok: false, message: '运单不存在' });
 
     const billIds = invoice.bills.map(b => b.bill_id);
-    const bills = await Bill.find({ _id: { $in: billIds } }).lean().exec();
+    const billQ = buildTenantQuery(req, { _id: { $in: billIds } });
+    const bills = await Bill.find(billQ).lean().exec();
 
     res.json({ bills, invoices: [invoice] });
   } catch (error) {
@@ -569,9 +589,9 @@ exports.getVesselInitialData = async (req, res) => {
       selfOwned = true;
     }
 
-    var query = { state: { $ne: '新建' }, selfOwned: 1 };
+    var baseQ = { state: { $ne: '新建' }, selfOwned: 1 };
     if (!selfOwned) {
-      query.selfOwned = { $ne: 1 };
+      baseQ.selfOwned = { $ne: 1 };
     }
 
     let data = {
@@ -582,7 +602,8 @@ exports.getVesselInitialData = async (req, res) => {
       vehPersonMap: {},
     }
 
-    const invs = await Invoice.find(query).select({ "_id": 0, "settle_flag": 1, "ship_name": 1, "vehicle_vessel_name": 1, "ship_to": 1, "bills": 1 }).exec();
+    const initQuery = buildTenantQuery(req, baseQ);
+    const invs = await Invoice.find(initQuery).select({ "_id": 0, "settle_flag": 1, "ship_name": 1, "vehicle_vessel_name": 1, "ship_to": 1, "bills": 1 }).exec();
     
     function pushArr(arr, elem) {
       if (elem && arr.indexOf(elem) < 0) {
@@ -606,7 +627,8 @@ exports.getVesselInitialData = async (req, res) => {
       }
     });
 
-    const vehs = await Vehicle.find({}).select('name contact_name boss real_boss').lean().exec()
+    const vehInitQuery = buildTenantQuery(req, {});
+    const vehs = await Vehicle.find(vehInitQuery).select('name contact_name boss real_boss').lean().exec()
     vehs.forEach(function (veh) {
       const isExist = data.vehList.find((item) => item === veh.name);
       if (isExist) {

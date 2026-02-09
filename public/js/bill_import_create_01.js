@@ -280,8 +280,9 @@ $(function () {
 
     var iLen = items.length;
     var hLen = head.length;
-    if (departmentIdx >= 0 && departmentIdx < iLen && $.trim(items[departmentIdx]) != '南京军铁储运有限公司') {
-      return ""; // skip non-hongyuntu's record
+    var myCompanyName = (typeof local_company_name !== 'undefined' && local_company_name) ? local_company_name : '';
+    if (myCompanyName && departmentIdx >= 0 && departmentIdx < iLen && $.trim(items[departmentIdx]) != myCompanyName) {
+      return ""; // skip records not belonging to current company
     }
 
     var allCommas = true;

@@ -5,24 +5,26 @@ import { storeToRefs } from 'pinia'
 import { SYSTEM_NAME } from '@/config/constants'
 import { useAuthStore } from '@/stores/auth'
 
-import { generateNavData } from './data/sidebar-data'
+import { generateNavData, generatePlatformNavData } from './data/sidebar-data'
 import NavFooter from './nav-footer.vue'
 import NavTeam from './nav-team.vue'
 
 const authStore = useAuthStore()
-const { user } = storeToRefs(authStore)
+const { user, isPlatformUser } = storeToRefs(authStore)
 
-// 根据用户权限动态生成菜单
+// 根据用户角色和权限动态生成菜单
 const navMain = computed(() => {
-  const privilege = user.value?.privilege || '00000000'
+  if (isPlatformUser.value) {
+    return generatePlatformNavData()
+  }
+  const privilege = user.value?.privilege ?? []
   return generateNavData(privilege)
 })
 
-// 公司信息
-const companyInfo = {
-  name: SYSTEM_NAME,
-  logo: GalleryVerticalEnd,
-}
+// 侧边栏标题：平台用户显示"物流管理平台"，租户用户显示系统名
+const sidebarTitle = computed(() =>
+  isPlatformUser.value ? '物流管理平台' : SYSTEM_NAME,
+)
 </script>
 
 <template>
@@ -33,10 +35,10 @@ const companyInfo = {
           <UiSidebarMenuButton size="lg" as-child>
             <router-link to="/dashboard">
               <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <component :is="companyInfo.logo" class="size-4" />
+                <GalleryVerticalEnd class="size-4" />
               </div>
               <div class="flex flex-col gap-0.5 leading-none">
-                <span class="font-semibold">{{ companyInfo.name }}</span>
+                <span class="font-semibold">{{ sidebarTitle }}</span>
               </div>
             </router-link>
           </UiSidebarMenuButton>

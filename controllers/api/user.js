@@ -1,5 +1,13 @@
 const User = require('../../models/User');
 const { getPublicKey } = require('../../utils/crypto');
+const { isAdmin } = require('../../utils/permissions');
+const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
+
+// 是否有用户管理权限：平台用户、公司主账号、或 admin 权限
+function canManageUsers(req) {
+  if (!req.user) return false;
+  return isPlatformUser(req) || isOwner(req) || isAdmin(req.user.privilege);
+}
 
 // 获取 RSA 公钥 (用于密码加密传输)
 exports.getPublicKey = (req, res) => {
@@ -35,12 +43,26 @@ exports.getMe = async (req, res) => {
       email: req.user.email || '',
       title: req.user.title || '',
       phone: req.user.profile?.phone || '',
-      privilege: req.user.privilege || '00000000',
+      privilege: Array.isArray(req.user.privilege) ? req.user.privilege : [],
+      role: req.user.role || 'member',
     };
+
+    // 租户上下文 (平台用户返回 null)
+    const tenant = req.isPlatformUser ? null : (
+      req.tenant ? {
+        id: req.tenant._id,
+        code: req.tenant.code,
+        name: req.tenant.name,
+        fullName: req.tenant.fullName || '',
+        plan: req.tenant.plan,
+        maxUsers: req.tenant.maxUsers
+      } : null
+    );
 
     res.json({
       ok: true,
-      user
+      user,
+      tenant
     });
   } catch (error) {
     console.error('获取用户信息失败:', error);
@@ -54,27 +76,30 @@ exports.getMe = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('userid profile.name').lean().exec();
+    const query = buildTenantQuery(req, {});
+    const users = await User.find(query).select('userid profile.name').lean().exec();
     res.json({ ok: true, data: users });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
 };
 
-// 获取用户管理列表 (需要管理员权限)
+// 获取用户管理列表 (需要管理权限)
 exports.getUserMgr = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!canManageUsers(req)) {
       return res.status(403).json({ ok: false, message: '无权限访问' });
     }
 
-    const users = await User.find({}).exec();
+    const query = buildTenantQuery(req, {});
+    const users = await User.find(query).exec();
     const uData = users.map(u => ({
       userid: u.userid,
       name: u.profile?.name || '',
       title: u.title || '',
       phone: u.profile?.phone || '',
-      privilege: u.privilege || ''
+      privilege: Array.isArray(u.privilege) ? u.privilege : [],
+      role: u.role || 'member',
     }));
 
     res.json({ ok: true, data: uData });
@@ -87,29 +112,38 @@ exports.getUserMgr = async (req, res) => {
 // 用户管理操作 (添加/修改/删除)
 exports.postUserMgr = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!canManageUsers(req)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
 
     const action = req.body.act;
+    const tenantQuery = buildTenantQuery(req, {});
 
     if (action === 'add') {
       const data = req.body.data;
-      const users = await User.find({}).sort({ no: 'desc' }).exec();
+      const users = await User.find(tenantQuery).sort({ no: 'desc' }).exec();
 
       let maxNo = 1;
       if (users && users.length > 0 && users[0].no) {
         maxNo = users[0].no + 1;
       }
 
-      const user = new User({
+      const userData = {
         userid: data.userid,
         password: '123456',
         no: maxNo,
         title: data.title,
-        privilege: data.privilege
-      });
+        privilege: data.privilege,
+        role: 'member',
+      };
 
+      // 注入租户信息（非平台用户自动绑定当前租户）
+      if (!isPlatformUser(req) && req.tenantId) {
+        userData.tenantId = req.tenantId;
+        userData.tenantCode = req.tenantCode;
+      }
+
+      const user = new User(userData);
       user.profile.name = data.name;
       user.profile.gender = '';
       user.profile.location = '';
@@ -120,12 +154,12 @@ exports.postUserMgr = async (req, res) => {
 
     } else if (action === 'delete') {
       const uid = req.body.userid;
-      await User.deleteOne({ userid: uid });
+      await User.deleteOne({ ...tenantQuery, userid: uid });
       res.json({ ok: true });
 
     } else if (action === 'modify') {
       const modData = req.body.data;
-      const user = await User.findOne({ userid: modData.userid }).exec();
+      const user = await User.findOne({ ...tenantQuery, userid: modData.userid }).exec();
 
       if (!user) {
         return res.json({ ok: false, message: '用户未找到' });
@@ -151,11 +185,12 @@ exports.postUserMgr = async (req, res) => {
 // 重置密码
 exports.resetPassword = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!canManageUsers(req)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
 
-    const user = await User.findOne({ userid: req.body.user.userid });
+    const tenantQuery = buildTenantQuery(req, {});
+    const user = await User.findOne({ ...tenantQuery, userid: req.body.user.userid });
     if (!user) {
       return res.json({ ok: false, message: '用户未找到' });
     }

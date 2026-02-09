@@ -36,13 +36,14 @@ import VesselPrintDialog from './components/VesselPrintDialog.vue'
 import VesselReceiptImageDialog from './components/VesselReceiptImageDialog.vue'
 import VesselUploadReceiptDialog from './components/VesselUploadReceiptDialog.vue'
 import { useSettleBasket } from './composables/useSettleBasket'
+import { hasPermission, PERMISSIONS } from '@/constants/permissions'
 
 const authStore = useAuthStore()
 
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 权限
-const hasPrivilegePrice = computed(() => authStore.user?.privilege?.[7] === '1')
+const hasPrivilegePrice = computed(() => hasPermission(authStore.user?.privilege ?? [], PERMISSIONS.SEE_PRICE))
 
 // 对话框引用
 const priceInputDialog = ref<InstanceType<typeof VesselPriceInputDialog>>()

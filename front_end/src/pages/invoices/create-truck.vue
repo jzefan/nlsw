@@ -20,6 +20,7 @@ import {
 } from '@/services/api/invoice.api'
 import { searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
+import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
 const authStore = useAuthStore()
 
@@ -40,9 +41,7 @@ const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
 
 // 判断是否是管理员
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
 
 // 检查是否有未保存的改动
 const hasUnsavedChanges = computed(() => {

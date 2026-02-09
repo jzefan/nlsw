@@ -3,6 +3,7 @@ const Invoice = require('../../models/Invoice');
 const Settle = require('../../models/Settle');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
+const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
 
 // Helper to get start/end date
 function getStartEndDate(start, end, isDay) {
@@ -248,7 +249,7 @@ exports.getIntegratedQuery = async function (req, res) {
       // Simple approach: Fetch all matching invoices first (might be large), then paginate the combined result?
       // Or paginate invoices? If we paginate invoices, we get a subset of bills.
       
-      const db_invs = await Invoice.find(obj)
+      const db_invs = await Invoice.find(buildTenantQuery(req, obj))
         .select('waybill_no ship_customer ship_date shipper bills incoming_price_remark')
         .lean()
         .exec();
@@ -259,7 +260,7 @@ exports.getIntegratedQuery = async function (req, res) {
         if (bBNo) billQueryObj["$and"].push({ bill_no: { $regex: new RegExp(query.fBno, 'gi') } });
         if (bOrder) billQueryObj["$and"].push({ order_no: { $regex: new RegExp(query.fOrder, 'gi') } });
 
-        const bills = await Bill.find(billQueryObj).lean().exec();
+        const bills = await Bill.find(buildTenantQuery(req, billQueryObj)).lean().exec();
         if (bills && bills.length) {
           const combined = combineBill(bills, db_invs);
           const total = combined.length;
@@ -276,7 +277,7 @@ exports.getIntegratedQuery = async function (req, res) {
       var showUnsend = (utils.isExist(query.fShowUnsend) && (query.fShowUnsend == 1)) ? true : false;
       var bc = !utils.isEmpty(query.fCustomerName);
 
-      const vehList = await Vehicle.find({ veh_category: '自有' }).select('name').lean().exec();
+      const vehList = await Vehicle.find(buildTenantQuery(req, { veh_category: '自有' })).select('name').lean().exec();
       var vehs = utils.getAllList(false, vehList, "name", "");
 
       obj = { $and: [] };
@@ -313,9 +314,9 @@ exports.getIntegratedQuery = async function (req, res) {
               obj = { $and: [{ vehicle_vessel_name: { $nin: vehs_inner } }, { 'bills.vehicles.veh_name': { $nin: vehs_inner } }] };
             }
           }
-          invoices = await Invoice.find(obj).select('waybill_no ship_customer ship_date shipper bills').lean().exec();
+          invoices = await Invoice.find(buildTenantQuery(req, obj)).select('waybill_no ship_customer ship_date shipper bills').lean().exec();
         } else {
-          invoices = await Invoice.find(obj).select('waybill_no ship_customer ship_date shipper bills').lean().exec();
+          invoices = await Invoice.find(buildTenantQuery(req, obj)).select('waybill_no ship_customer ship_date shipper bills').lean().exec();
         }
 
         if (invoices && invoices.length) {
@@ -328,8 +329,8 @@ exports.getIntegratedQuery = async function (req, res) {
             if (bOrder) billQueryObj["$and"].push({ order_no: { $regex: new RegExp(query.fOrder, 'gi') } });
           }
 
-          const bills = await Bill.find(billQueryObj).lean().exec();
-          const settles = await Settle.find({ status: { '$ne': '已结算' } }).select('bills status').lean().exec();
+          const bills = await Bill.find(buildTenantQuery(req, billQueryObj)).lean().exec();
+          const settles = await Settle.find(buildTenantQuery(req, { status: { '$ne': '已结算' } })).select('bills status').lean().exec();
           finalBills = getBillArray(bills, invoices, settles, query.fVeh, showVehicles);
         }
 
@@ -353,17 +354,17 @@ exports.getIntegratedQuery = async function (req, res) {
             }
           }
 
-          const bills = await Bill.find(obj).lean().exec();
+          const bills = await Bill.find(buildTenantQuery(req, obj)).lean().exec();
           if (showUnsend) {
             finalBills = bills;
           } else {
             var invNoList = utils.getAllList(true, bills, "invoices", "inv_no");
             if (invNoList.length) {
-              const db_invs = await Invoice.find({ waybill_no: { $in: invNoList } })
+              const db_invs = await Invoice.find(buildTenantQuery(req, { waybill_no: { $in: invNoList } }))
                 .select('waybill_no ship_customer ship_date shipper')
                 .lean()
                 .exec();
-              const settles = await Settle.find({ status: { '$ne': '已结算' } }).select('bills status').lean().exec();
+              const settles = await Settle.find(buildTenantQuery(req, { status: { '$ne': '已结算' } })).select('bills status').lean().exec();
               finalBills = getBillArray(bills, db_invs, settles, query.fVeh, showVehicles);
             } else {
               finalBills = getBillArray(bills, [], [], query.fVeh, showVehicles);
@@ -413,14 +414,14 @@ exports.getInvoiceReport = async function (req, res) {
   }
 
   try {
-    const db_invs = await Invoice.find(obj).sort({ ship_date: 'desc' }).lean().exec();
+    const db_invs = await Invoice.find(buildTenantQuery(req, obj)).sort({ ship_date: 'desc' }).lean().exec();
     if (db_invs && db_invs.length > 0) {
       if (db_invs.length > 150) {
         return res.json({ ok: true, hint: true, num: db_invs.length, invs: db_invs });
       }
 
       const ids = utils.getAllList(true, db_invs, "bills", "bill_id");
-      const bills = await Bill.find({ _id: { $in: ids } }).lean().exec();
+      const bills = await Bill.find(buildTenantQuery(req, { _id: { $in: ids } })).lean().exec();
       
       if (!bills || bills.length === 0) {
         return res.json({ ok: false, message: '未找到相关提单' });

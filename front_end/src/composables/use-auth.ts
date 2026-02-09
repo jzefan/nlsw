@@ -30,7 +30,7 @@ export function useAuth() {
     router.push({ path: '/dashboard' })
   }
 
-  async function login(userid: string, password: string) {
+  async function login(userid: string, password: string, tenantCode?: string) {
     loading.value = true
     error.value = null
 
@@ -41,6 +41,7 @@ export function useAuth() {
       const response = await axiosInstance.post('/login', {
         userid,
         password: encryptedPassword,
+        tenantCode: tenantCode?.toUpperCase().trim() || undefined,
       }, {
         headers: {
           Accept: 'application/json',
@@ -48,7 +49,7 @@ export function useAuth() {
       })
 
       if (response.data.ok) {
-        authStore.setUser(response.data.user)
+        authStore.setUser(response.data.user, response.data.tenant || null)
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -76,7 +77,7 @@ export function useAuth() {
     try {
       const response = await axiosInstance.get('/me')
       if (response.data.ok) {
-        authStore.setUser(response.data.user)
+        authStore.setUser(response.data.user, response.data.tenant || null)
         return true
       }
     }

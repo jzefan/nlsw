@@ -2,6 +2,7 @@ const Settle = require('../../models/Settle');
 const Bill = require('../../models/Bill');
 const Invoice = require('../../models/Invoice');
 const utils = require('../utils');
+const { buildTenantQuery } = require('../../utils/tenant');
 
 const CUSTOMER_SETTLE_FLAG = 1; // 0001
 const COLLECTION_SETTLE_FLAG = 2; // 0010
@@ -66,30 +67,31 @@ exports.getSettleList = async (req, res) => {
     const { settle_type, display_mode, selfOwned } = req.query;
 
     // 构建查询条件
-    const query = {};
+    const baseQuery = {};
 
     // 只有当selfOwned为'1'或1时，才作为查询条件
     if (selfOwned === '1' || selfOwned === 1) {
-      query.selfOwned = 1;
+      baseQuery.selfOwned = 1;
     }
 
     // 根据结算类型过滤
     if (settle_type === 'CUSTOMER') {
-      query.settle_type = '客户结算';
+      baseQuery.settle_type = '客户结算';
     } else if (settle_type === 'COLLECTION') {
-      query.settle_type = '代收代付结算';
+      baseQuery.settle_type = '代收代付结算';
     }
 
     // 根据显示模式过滤状态
     if (display_mode === 'settle') {
-      query.status = '已结算';
+      baseQuery.status = '已结算';
     } else if (display_mode === 'ticket') {
-      query.status = '已开票';
+      baseQuery.status = '已开票';
     } else {
       // 默认显示已结算和已开票
-      query.status = { $in: ['已结算', '已开票'] };
+      baseQuery.status = { $in: ['已结算', '已开票'] };
     }
 
+    const query = buildTenantQuery(req, baseQuery);
     const settles = await Settle.find(query)
       .sort({ settle_date: -1, createdAt: -1 })
       .lean()
@@ -114,10 +116,11 @@ exports.updateTicket = async (req, res) => {
     }
 
     for (const settle of settles) {
-      const dbSettle = await Settle.findById(settle._id).exec();
+      const query = buildTenantQuery(req, { _id: settle._id });
+      const dbSettle = await Settle.findOne(query).exec();
 
       if (!dbSettle) {
-        console.warn('updateTicket: 未找到结算记录 _id=' + settle._id);
+        console.warn('updateTicket: 未找到结算记录或无权限 _id=' + settle._id);
         continue;
       }
 
@@ -149,10 +152,11 @@ exports.deleteSettle = async (req, res) => {
     }
 
     for (const settleId of settle_ids) {
-      const dbSettle = await Settle.findById(settleId).exec();
+      const settleQuery = buildTenantQuery(req, { _id: settleId });
+      const dbSettle = await Settle.findOne(settleQuery).exec();
 
       if (!dbSettle) {
-        console.warn('deleteSettle: 未找到结算记录 _id=' + settleId);
+        console.warn('deleteSettle: 未找到结算记录或无权限 _id=' + settleId);
         continue;
       }
 
@@ -176,7 +180,8 @@ exports.deleteSettle = async (req, res) => {
       });
 
       // 更新Bill的结算状态
-      const dbBills = await Bill.find({ _id: { $in: billIds } }).exec();
+      const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
+      const dbBills = await Bill.find(billQuery).exec();
 
       for (const bill of dbBills) {
         dbSettle.bills.forEach((sb) => {
@@ -224,11 +229,13 @@ exports.deleteSettle = async (req, res) => {
       }
 
       // 更新Invoice的结算状态
-      const dbInvs = await Invoice.find({ waybill_no: { $in: allInvNo } }).exec();
+      const invQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNo } });
+      const dbInvs = await Invoice.find(invQuery).exec();
 
       for (const invoice of dbInvs) {
         const ids = invoice.bills.map((b) => b.bill_id);
-        const billArr = await Bill.find({ _id: { $in: ids } }).lean().exec();
+        const billArrQuery = buildTenantQuery(req, { _id: { $in: ids } });
+        const billArr = await Bill.find(billArrQuery).lean().exec();
 
         // 检查该运单下的所有提单是否都已结算
         let settled = true;
@@ -259,7 +266,8 @@ exports.deleteSettle = async (req, res) => {
       }
 
       // 删除结算记录
-      await Settle.deleteOne({ _id: settleId });
+      const deleteQuery = buildTenantQuery(req, { _id: settleId });
+      await Settle.deleteOne(deleteQuery);
     }
 
     res.json({ ok: true });
@@ -281,17 +289,19 @@ exports.getSettleDetail = async (req, res) => {
     }
 
     // 查找结算记录
-    const settle = await Settle.findOne({ serial_number }).lean().exec();
+    const settleQuery = buildTenantQuery(req, { serial_number });
+    const settle = await Settle.findOne(settleQuery).lean().exec();
 
     if (!settle) {
-      return res.status(404).json({ ok: false, message: '结算记录不存在' });
+      return res.status(404).json({ ok: false, message: '结算记录不存在或无权限' });
     }
 
     // 获取所有提单ID
     const billIds = settle.bills.map(b => b.bill_id);
 
     // 查询提单详情
-    const bills = await Bill.find({ _id: { $in: billIds } }).lean().exec();
+    const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
+    const bills = await Bill.find(billQuery).lean().exec();
 
     // 返回结算记录、提单详情和结算中的提单信息
     res.json({

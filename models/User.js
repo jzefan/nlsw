@@ -25,7 +25,7 @@ var userSchema = new mongoose.Schema({
   password: String,
   no: Number,    // 顺序号
   title: String, // 职务
-  privilege: String, // admin, account, statistician, operator
+  privilege: { type: mongoose.Schema.Types.Mixed, default: [] }, // ['admin'] or ['operator', 'account', ...]
   profile: {
     name: { type: String, default: '' },
     gender: { type: String, default: '' },

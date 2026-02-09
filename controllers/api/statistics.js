@@ -3,9 +3,11 @@ const Bill = require('../../models/Bill');
 const Settle = require('../../models/Settle');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
+const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
+const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
 
 // Helper function: Search DB Data
-async function searchDbData(res, query, inv_f_selected, bill_f_selected) {
+async function searchDbData(req, res, query, inv_f_selected, bill_f_selected) {
   var obj = { $and: [{ state: { $ne: '新建' } }] };
 
   if (query.fDate1 && query.fDate2) {
@@ -20,7 +22,7 @@ async function searchDbData(res, query, inv_f_selected, bill_f_selected) {
   }
 
   try {
-    let invQuery = Invoice.find(obj);
+    let invQuery = Invoice.find(buildTenantQuery(req, obj));
     if (inv_f_selected) {
       invQuery.select(inv_f_selected);
     }
@@ -31,7 +33,7 @@ async function searchDbData(res, query, inv_f_selected, bill_f_selected) {
     }
 
     const ids = utils.getAllList(true, db_invs, "bills", "bill_id");
-    let billQuery = Bill.find({ _id: { $in: ids } });
+    let billQuery = Bill.find(buildTenantQuery(req, { _id: { $in: ids } }));
     if (bill_f_selected) {
       billQuery.select(bill_f_selected);
     }
@@ -74,12 +76,12 @@ exports.getStatisticsDataByCondition = async function (req, res) {
       delete req.query.fName;
     }
 
-    const searchResult = await searchDbData(res, req.query, 'waybill_no ship_name ship_date bills', 'billing_name block_num weight collection_price invoices');
+    const searchResult = await searchDbData(req, res, req.query, 'waybill_no ship_name ship_date bills', 'billing_name block_num weight collection_price invoices');
     if (!searchResult.ok) {
       return res.json({ ok: false, error: searchResult.error });
     }
     const { db_invs, bills } = searchResult;
-    
+
     var allNames = [];
     var invNoObj = {};
     var inv;
@@ -210,7 +212,7 @@ exports.getCustomerDetail = async function (req, res) {
       delete req.query.fName;
     }
     
-    const searchResult = await searchDbData(res, req.query, 'waybill_no ship_name ship_customer ship_date bills', null);
+    const searchResult = await searchDbData(req, res, req.query, 'waybill_no ship_name ship_customer ship_date bills', null);
     if (!searchResult.ok) {
       return res.json({ ok: false, error: searchResult.error });
     }
@@ -277,7 +279,7 @@ exports.getCustomerChartData = async function (req, res) {
       delete req.query.fName;
     }
 
-    const searchResult = await searchDbData(res, query, 'waybill_no ship_name ship_date bills', 'billing_name block_num weight collection_price invoices');
+    const searchResult = await searchDbData(req, res, query, 'waybill_no ship_name ship_date bills', 'billing_name block_num weight collection_price invoices');
     if (!searchResult.ok) {
       return res.json({ ok: false, error: searchResult.error });
     }
@@ -347,8 +349,8 @@ exports.getCustomerChartData = async function (req, res) {
  */
 exports.getDashboardStatistics = async function (req, res) {
   try {
-    const user = req.user || { userid: 'admin', privilege: 'admin' }; 
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const user = req.user || { userid: 'admin', privilege: ['admin'] };
+    const isAdmin = isAdminPrivilege(user.privilege);
 
     let startDate, endDate;
     // Check for YYYY-MM format from frontend input type="month"
@@ -381,7 +383,11 @@ exports.getDashboardStatistics = async function (req, res) {
       matchStage.shipper = user.userid;
     }
 
-    const facetPipeline = [
+    const facetPipeline = [];
+    if (!isPlatformUser(req)) {
+      facetPipeline.push({ $match: { tenantId: req.tenantId } });
+    }
+    facetPipeline.push(
       { $match: matchStage },
       {
         $facet: {
@@ -426,7 +432,7 @@ exports.getDashboardStatistics = async function (req, res) {
           ]
         }
       }
-    ];
+    );
 
     const results = await Invoice.aggregate(facetPipeline).exec();
     const data = results[0];
@@ -456,7 +462,11 @@ exports.getDashboardStatistics = async function (req, res) {
       settleMatchStage.settler = user.userid;
     }
 
-    const settleTonnageResult = await Settle.aggregate([
+    const settlePipeline = [];
+    if (!isPlatformUser(req)) {
+      settlePipeline.push({ $match: { tenantId: req.tenantId } });
+    }
+    settlePipeline.push(
       { $match: settleMatchStage },
       {
         $group: {
@@ -481,7 +491,8 @@ exports.getDashboardStatistics = async function (req, res) {
           }
         }
       }
-    ]).exec();
+    );
+    const settleTonnageResult = await Settle.aggregate(settlePipeline).exec();
 
     const totalInvoiceTonnage = settleTonnageResult[0] ? settleTonnageResult[0].invoiceTonnage : 0;
     const totalPaymentTonnage = settleTonnageResult[0] ? settleTonnageResult[0].paymentTonnage : 0;
@@ -491,7 +502,7 @@ exports.getDashboardStatistics = async function (req, res) {
     const vehicleNames = data.byVehicle.map(v => v._id).filter(name => name); // 过滤掉空名称
 
     // 查询Vehicle表获取车辆信息
-    const vehicles = await Vehicle.find({ name: { $in: vehicleNames } })
+    const vehicles = await Vehicle.find(buildTenantQuery(req, { name: { $in: vehicleNames } }))
       .select('name veh_type veh_category')
       .lean()
       .exec();
@@ -576,8 +587,8 @@ exports.getDashboardStatistics = async function (req, res) {
  */
 exports.getDashboardInvoiceDetails = async function (req, res) {
   try {
-    const user = req.user || { userid: 'admin', privilege: 'admin' };
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const user = req.user || { userid: 'admin', privilege: ['admin'] };
+    const isAdmin = isAdminPrivilege(user.privilege);
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
@@ -602,7 +613,7 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
     }
 
     // Get invoices with required fields
-    const invoices = await Invoice.find(matchStage)
+    const invoices = await Invoice.find(buildTenantQuery(req, matchStage))
       .select('waybill_no vehicle_vessel_name ship_name ship_date total_weight vessel_price bills')
       .lean()
       .exec();
@@ -618,7 +629,7 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
     });
 
     // Get bill details to calculate customer and collection prices
-    const bills = await Bill.find({ _id: { $in: billIds } })
+    const bills = await Bill.find(buildTenantQuery(req, { _id: { $in: billIds } }))
       .select('_id collection_price weight')
       .lean()
       .exec();
@@ -691,8 +702,8 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
  */
 exports.getDashboardBillingNamesStats = async function (req, res) {
   try {
-    const user = req.user || { userid: 'admin', privilege: 'admin' };
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const user = req.user || { userid: 'admin', privilege: ['admin'] };
+    const isAdmin = isAdminPrivilege(user.privilege);
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
@@ -716,7 +727,11 @@ exports.getDashboardBillingNamesStats = async function (req, res) {
       settleMatchStage.settler = user.userid;
     }
 
-    const settleStats = await Settle.aggregate([
+    const settleStatsPipeline = [];
+    if (!isPlatformUser(req)) {
+      settleStatsPipeline.push({ $match: { tenantId: req.tenantId } });
+    }
+    settleStatsPipeline.push(
       { $match: settleMatchStage },
       {
         $group: {
@@ -754,7 +769,8 @@ exports.getDashboardBillingNamesStats = async function (req, res) {
         }
       },
       { $sort: { _id: 1 } }
-    ]).exec();
+    );
+    const settleStats = await Settle.aggregate(settleStatsPipeline).exec();
 
     const data = settleStats.map(item => ({
       name: item._id || '未命名',

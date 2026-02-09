@@ -1,4 +1,5 @@
 const Warehouse = require('../../models/Warehouse');
+const { buildTenantQuery } = require('../../utils/tenant');
 
 exports.getWarehouses = async (req, res) => {
   try {
@@ -6,10 +7,12 @@ exports.getWarehouses = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
 
-    const query = {};
+    const baseQuery = {};
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      baseQuery.name = { $regex: search, $options: 'i' };
     }
+
+    const query = buildTenantQuery(req, baseQuery);
 
     const count = await Warehouse.countDocuments(query);
     const warehouses = await Warehouse.find(query)

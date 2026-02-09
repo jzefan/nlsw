@@ -5,13 +5,13 @@
 
 export const APP_CONFIG = {
   // 公司名称
-  companyName: import.meta.env.VITE_COMPANY_NAME || '军铁物流',
+  companyName: import.meta.env.VITE_COMPANY_NAME || '物流管理平台',
 
   // 公司全称
-  companyFullName: import.meta.env.VITE_COMPANY_FULL_NAME || '南京军铁储运有限公司',
+  companyFullName: import.meta.env.VITE_COMPANY_FULL_NAME || '物流管理平台',
 
   // 系统名称
-  systemName: import.meta.env.VITE_SYSTEM_NAME || '军铁物流系统',
+  systemName: import.meta.env.VITE_SYSTEM_NAME || '物流管理平台',
   
   // API 基础 URL
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:1080',

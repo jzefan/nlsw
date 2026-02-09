@@ -1,4 +1,5 @@
 const Settle = require('../../models/Settle');
+const { buildTenantQuery } = require('../../utils/tenant');
 
 /**
  * 获取回款列表
@@ -16,15 +17,16 @@ exports.getMoneyList = async (req, res) => {
     }
 
     // 构建查询条件
-    let query = {
+    let baseQuery = {
       status: { $in: status_list }
     };
 
     // 只有当selfOwned为'1'或1时，才作为查询条件
     if (selfOwned === '1' || selfOwned === 1) {
-      query.selfOwned = 1;
+      baseQuery.selfOwned = 1;
     }
 
+    const query = buildTenantQuery(req, baseQuery);
     const settles = await Settle.find(query, { bills: 0 })
       .sort({ settle_date: -1 })
       .lean()
@@ -50,7 +52,8 @@ exports.updateMoney = async (req, res) => {
     }
 
     for (const settle of settles) {
-      const dbSettle = await Settle.findById(settle._id).exec();
+      const query = buildTenantQuery(req, { _id: settle._id });
+      const dbSettle = await Settle.findOne(query).exec();
       if (dbSettle) {
         dbSettle.status = settle.status;
         dbSettle.return_money_date = settle.return_money_date;
@@ -78,9 +81,10 @@ exports.updateRealPrice = async (req, res) => {
       return res.json({ ok: false, message: '缺少必要参数' });
     }
 
-    const settle = await Settle.findOne({ serial_number: sno }).exec();
+    const query = buildTenantQuery(req, { serial_number: sno });
+    const settle = await Settle.findOne(query).exec();
     if (!settle) {
-      return res.json({ ok: false, message: '未找到结算记录' });
+      return res.json({ ok: false, message: '未找到结算记录或无权限' });
     }
 
     settle.real_price = parseFloat(price);

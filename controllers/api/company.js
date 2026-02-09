@@ -1,4 +1,5 @@
 const Company = require('../../models/Company');
+const { buildTenantQuery } = require('../../utils/tenant');
 
 exports.getCompanies = async (req, res) => {
   try {
@@ -6,10 +7,12 @@ exports.getCompanies = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
 
-    const query = {};
+    const baseQuery = {};
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      baseQuery.name = { $regex: search, $options: 'i' };
     }
+
+    const query = buildTenantQuery(req, baseQuery);
 
     const count = await Company.countDocuments(query);
     const companies = await Company.find(query)

@@ -2,6 +2,8 @@ const Invoice = require('../../models/Invoice');
 const Bill = require('../../models/Bill');
 const OrderPlan = require('../../models/OrderPlan');
 const utils = require('../../controllers/utils');
+const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
+const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
 
 const EPSILON = 0.0001;
 
@@ -95,7 +97,7 @@ exports.getMaxWaybillNo = async (req, res) => {
     const date_no = new Date().yyyymmdd() + uno;
     const reg = new RegExp('^01' + date_no + '.*', 'g');
 
-    const inv_wnos = await Invoice.find({ waybill_no: { $regex: reg } })
+    const inv_wnos = await Invoice.find(buildTenantQuery(req, { waybill_no: { $regex: reg } }))
       .select('waybill_no')
       .sort({ waybill_no: 'desc' })
       .limit(1)
@@ -134,9 +136,9 @@ exports.getInvoiceList = async (req, res) => {
       startDate,
       endDate
     } = req.query;
-    const user = req.user || { userid: 'admin', privilege: 'admin' };
+    const user = req.user || { userid: 'admin', privilege: ['admin'] };
     const userId = user.userid;
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111' || userId === 'admin';
+    const isAdmin = isAdminPrivilege(user.privilege) || userId === 'admin';
 
     // 构建查询条件
     const query = {};
@@ -198,8 +200,10 @@ exports.getInvoiceList = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    const tenantQuery = buildTenantQuery(req, query);
+
     // 查询运单列表
-    const invoices = await Invoice.find(query)
+    const invoices = await Invoice.find(tenantQuery)
       .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state createdAt shipper')
       .sort({ ship_date: -1, createdAt: -1 })
       .limit(parseInt(limit))
@@ -208,7 +212,7 @@ exports.getInvoiceList = async (req, res) => {
       .exec();
 
     // 查询总数
-    const total = await Invoice.countDocuments(query);
+    const total = await Invoice.countDocuments(tenantQuery);
 
     res.json({
       ok: true,
@@ -230,7 +234,7 @@ exports.getInvoiceDetail = async (req, res) => {
   try {
     const { waybillNo } = req.params;
 
-    const invoice = await Invoice.findOne({ waybill_no: waybillNo })
+    const invoice = await Invoice.findOne(buildTenantQuery(req, { waybill_no: waybillNo }))
       .populate({
         path: 'bills.bill_id',
         select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status'
@@ -289,7 +293,7 @@ exports.buildShipInvoice = async (req, res) => {
     const userId = req.user ? req.user.userid : 'admin';
 
     // 1. 查找是否已存在该运单
-    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
+    let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();
 
     // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
     if (flatBills.length === 0) {
@@ -300,7 +304,7 @@ exports.buildShipInvoice = async (req, res) => {
       // 恢复所有提单的 left_num 和状态
       const orderWeightDeltas = {};
       for (const oldBill of dbInv.bills) {
-        const dbBill = await Bill.findById(oldBill.bill_id).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: oldBill.bill_id })).exec();
         if (dbBill) {
           let restoredWeight = 0;
           if (dbBill.block_num > 0) {
@@ -334,7 +338,7 @@ exports.buildShipInvoice = async (req, res) => {
 
       // 恢复订单计划的 left_weight
       for (const orderNo in orderWeightDeltas) {
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           plan.left_weight += orderWeightDeltas[orderNo];
           plan.status = 0;
@@ -391,7 +395,7 @@ exports.buildShipInvoice = async (req, res) => {
 
     // 4. 查找每个 _id 对应的数据库记录
     const billIdList = Object.keys(billGroups);
-    const dbBillsForValidation = await Bill.find({ _id: { $in: billIdList } }).exec();
+    const dbBillsForValidation = await Bill.find(buildTenantQuery(req, { _id: { $in: billIdList } })).exec();
     const billIdToDbBill = {};
     for (const db of dbBillsForValidation) {
       billIdToDbBill[db._id.toString()] = db;
@@ -481,7 +485,7 @@ exports.buildShipInvoice = async (req, res) => {
     // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
-      const invoice = new Invoice(invoiceData);
+      const invoice = new Invoice(injectTenantId(req, invoiceData));
       buildInnerSettleData(invoice);
 
       let totalWeight = 0;
@@ -490,7 +494,7 @@ exports.buildShipInvoice = async (req, res) => {
 
       // 更新每个提单
       for (const invBill of invoice.bills) {
-        const dbBill = await Bill.findById(invBill.bill_id).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: invBill.bill_id })).exec();
         if (dbBill) {
           let w = 0;
           if (dbBill.block_num > 0) {
@@ -534,7 +538,7 @@ exports.buildShipInvoice = async (req, res) => {
       let ok = true;
       const savedPlans = [];
       for (const orderNo in orderWeights) {
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           const delta = plan.left_weight - orderWeights[orderNo];
           if (delta < 0 && Math.abs(delta) > EPSILON) {
@@ -601,7 +605,7 @@ exports.buildShipInvoice = async (req, res) => {
       // 3. 处理被删除的提单（在旧运单中但不在新运单中）- 恢复 left_num
       for (const oldBillId in oldBillMap) {
         if (!newBillMap[oldBillId]) {
-          const dbBill = await Bill.findById(oldBillId).exec();
+          const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: oldBillId })).exec();
           if (dbBill) {
             const old = oldBillMap[oldBillId];
             let restoredWeight = 0;
@@ -639,7 +643,7 @@ exports.buildShipInvoice = async (req, res) => {
       // 4. 处理新增和修改的提单
       let totalWeight = 0;
       for (const newBillId in newBillMap) {
-        const dbBill = await Bill.findById(newBillId).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: newBillId })).exec();
         if (!dbBill) continue;
 
         const newData = newBillMap[newBillId];
@@ -733,7 +737,7 @@ exports.buildShipInvoice = async (req, res) => {
         const delta = orderWeightDeltas[orderNo];
         if (Math.abs(delta) < EPSILON) continue;
 
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           plan.left_weight -= delta;
           if (plan.left_weight < 0 && Math.abs(plan.left_weight) > EPSILON) {
@@ -801,7 +805,7 @@ exports.deleteInvoice = async (req, res) => {
     const userId = req.user ? req.user.userid : 'admin';
 
     // 1. 查找运单
-    const invoice = await Invoice.findOne({ waybill_no: waybill.waybill_no }).exec();
+    const invoice = await Invoice.findOne(buildTenantQuery(req, { waybill_no: waybill.waybill_no })).exec();
     if (!invoice) {
       return res.json({ ok: false, message: '运单不存在' });
     }
@@ -816,7 +820,7 @@ exports.deleteInvoice = async (req, res) => {
 
     // 4. 处理每个提单
     for (const invBill of invoice.bills) {
-      const dbBill = await Bill.findById(invBill.bill_id).exec();
+      const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: invBill.bill_id })).exec();
       if (!dbBill) {
         console.warn('deleteInvoice: 未找到提单 bill_id=' + invBill.bill_id);
         continue;
@@ -861,7 +865,7 @@ exports.deleteInvoice = async (req, res) => {
 
     // 5. 恢复订单计划的 left_weight 和 status
     for (const orderNo in orderWeightDeltas) {
-      const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+      const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
       if (plan) {
         plan.left_weight += orderWeightDeltas[orderNo];
         plan.left_weight = utils.toFixedNumber(plan.left_weight, 3);
@@ -876,7 +880,7 @@ exports.deleteInvoice = async (req, res) => {
     }
 
     // 6. 删除运单
-    await Invoice.deleteOne({ waybill_no: waybill.waybill_no }).exec();
+    await Invoice.deleteOne(buildTenantQuery(req, { waybill_no: waybill.waybill_no })).exec();
 
     res.json({ ok: true });
   }
@@ -893,7 +897,7 @@ exports.buildTruckInvoice = async (req, res) => {
     const userId = req.user ? req.user.userid : 'admin';
 
     // 1. 查找是否已存在该运单
-    let dbInv = await Invoice.findOne({ waybill_no: data.waybill_no }).exec();
+    let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();
 
     // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
     if (flatBills.length === 0) {
@@ -904,7 +908,7 @@ exports.buildTruckInvoice = async (req, res) => {
       // 恢复所有提单的 left_num 和状态
       const orderWeightDeltas = {};
       for (const oldBill of dbInv.bills) {
-        const dbBill = await Bill.findById(oldBill.bill_id).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: oldBill.bill_id })).exec();
         if (dbBill) {
           let restoredWeight = 0;
           if (dbBill.block_num > 0) {
@@ -938,7 +942,7 @@ exports.buildTruckInvoice = async (req, res) => {
 
       // 恢复订单计划的 left_weight
       for (const orderNo in orderWeightDeltas) {
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           plan.left_weight += orderWeightDeltas[orderNo];
           plan.status = 0;
@@ -970,7 +974,7 @@ exports.buildTruckInvoice = async (req, res) => {
 
     // 4. 查找每个 _id 对应的数据库记录
     const billIdList = flatBills.map(fb => fb._id);
-    const dbBillsForValidation = await Bill.find({ _id: { $in: billIdList } }).exec();
+    const dbBillsForValidation = await Bill.find(buildTenantQuery(req, { _id: { $in: billIdList } })).exec();
     const billIdToDbBill = {};
     for (const db of dbBillsForValidation) {
       billIdToDbBill[db._id.toString()] = db;
@@ -1058,7 +1062,7 @@ exports.buildTruckInvoice = async (req, res) => {
     // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
-      const invoice = new Invoice(invoiceData);
+      const invoice = new Invoice(injectTenantId(req, invoiceData));
 
       let totalWeight = 0;
       const orderWeights = {};
@@ -1067,7 +1071,7 @@ exports.buildTruckInvoice = async (req, res) => {
       // 更新每个提单
       for (let i = 0; i < invoice.bills.length; i++) {
         const invBill = invoice.bills[i];
-        const dbBill = await Bill.findById(invBill.bill_id).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: invBill.bill_id })).exec();
         if (dbBill) {
           let w = 0;
           if (dbBill.block_num > 0) {
@@ -1137,7 +1141,7 @@ exports.buildTruckInvoice = async (req, res) => {
       let ok = true;
       const savedPlans = [];
       for (const orderNo in orderWeights) {
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           const delta = plan.left_weight - orderWeights[orderNo];
           if (delta < 0 && Math.abs(delta) > EPSILON) {
@@ -1202,7 +1206,7 @@ exports.buildTruckInvoice = async (req, res) => {
       // 3. 处理被删除的提单（在旧运单中但不在新运单中）- 恢复 left_num
       for (const oldBillId in oldBillMap) {
         if (!newBillMap[oldBillId]) {
-          const dbBill = await Bill.findById(oldBillId).exec();
+          const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: oldBillId })).exec();
           if (dbBill) {
             const old = oldBillMap[oldBillId];
             let restoredWeight = 0;
@@ -1240,7 +1244,7 @@ exports.buildTruckInvoice = async (req, res) => {
       // 4. 处理新增和修改的提单
       let totalWeight = 0;
       for (const newBillId in newBillMap) {
-        const dbBill = await Bill.findById(newBillId).exec();
+        const dbBill = await Bill.findOne(buildTenantQuery(req, { _id: newBillId })).exec();
         if (!dbBill) continue;
 
         const newData = newBillMap[newBillId];
@@ -1325,7 +1329,7 @@ exports.buildTruckInvoice = async (req, res) => {
         const delta = orderWeightDeltas[orderNo];
         if (Math.abs(delta) < EPSILON) continue;
 
-        const plan = await OrderPlan.findOne({ order_no: orderNo }).exec();
+        const plan = await OrderPlan.findOne(buildTenantQuery(req, { order_no: orderNo })).exec();
         if (plan) {
           plan.left_weight -= delta;
           if (plan.left_weight < 0 && Math.abs(plan.left_weight) > EPSILON) {

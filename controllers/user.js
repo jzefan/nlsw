@@ -4,7 +4,9 @@ var crypto = require('crypto');
 // var nodemailer = require('nodemailer'); // Removed - not used
 var passport = require('passport');
 var User = require('../models/User');
+var Tenant = require('../models/Tenant');
 var secrets = require('../config/secrets');
+var { isAdmin } = require('../utils/permissions');
 
 /**
  * GET /login
@@ -124,102 +126,38 @@ exports.postLogin = function (req, res, next) {
       
 
                               if (isApi) {
-
-      
-
-            
-
-      
-
-                                  // For API, we can rely on auto-save or save and then json.
-
-      
-
-            
-
-      
-
-                                  // But to be safe and avoid 500 if save fails or is slow:
-
-      
-
-            
-
-      
-
-                                  req.session.save(function(err) {
-
-      
-
-            
-
-      
-
+                                  req.session.save(async function(err) {
                                       if (err) console.error('Session save error:', err);
 
-      
+                                      // Build user response with role
+                                      var userRole = user.role || 'member';
+                                      var userData = {
+                                          userid: user.userid,
+                                          name: user.profile.name,
+                                          privilege: user.privilege,
+                                          role: userRole
+                                      };
 
-            
+                                      // Look up tenant for non-platform users
+                                      var tenantData = null;
+                                      if (userRole !== 'platform' && user.tenantId) {
+                                          try {
+                                              var t = await Tenant.findById(user.tenantId).lean();
+                                              if (t) {
+                                                  tenantData = {
+                                                      id: t._id,
+                                                      code: t.code,
+                                                      name: t.name,
+                                                      plan: t.plan,
+                                                      maxUsers: t.maxUsers
+                                                  };
+                                              }
+                                          } catch (e) {
+                                              console.error('Login tenant lookup error:', e);
+                                          }
+                                      }
 
-      
-
-                                      return res.json({ 
-
-      
-
-            
-
-      
-
-                                          ok: true, 
-
-      
-
-            
-
-      
-
-                                          user: { 
-
-      
-
-            
-
-      
-
-                                          userid: user.userid, 
-
-      
-
-            
-
-      
-
-                                          name: user.profile.name, 
-
-      
-
-            
-
-      
-
-                                          privilege: user.privilege 
-
-      
-
-            
-
-      
-
-                                          } 
-
-      
-
-            
-
-      
-
-                                      });
+                                      return res.json({ ok: true, user: userData, tenant: tenantData });
 
       
 
@@ -365,19 +303,18 @@ exports.postSignup = async function (req, res, next) {
     }
 
     var title = '业务员';
-    var privilege = req.body.employee_title;
+    var employeeTitle = req.body.employee_title;
+    var privilege = ['operator'];
 
-    if (privilege === 'account') {
+    if (employeeTitle === 'account') {
       title = '会计';
-      privilege = '00100000';
-    } else if (privilege === 'operator') {
+      privilege = ['account'];
+    } else if (employeeTitle === 'operator') {
       title = '业务员';
-      privilege = '10000000';
-    } else if (privilege === 'statistician') {
+      privilege = ['operator'];
+    } else if (employeeTitle === 'statistician') {
       title = '统计员';
-      privilege = '01000000';
-    } else {
-      privilege = '10000000';
+      privilege = ['statistics'];
     }
 
     var user = new User({
@@ -678,7 +615,7 @@ exports.postForgot = async function (req, res, next) {
 };
 
 exports.getUserMgr = async function (req, res) {
-  if (req.user.privilege != '11111111') {
+  if (!isAdmin(req.user.privilege)) {
     res.status(404);
     res.render('404');
     return;

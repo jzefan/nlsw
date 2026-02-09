@@ -296,7 +296,7 @@ pm2 startup systemd -u $SERVER_USER --hp /home/$SERVER_USER || true
 
 # 停止可能运行的 MongoDB
 echo "停止已有 MongoDB 进程..."
-pkill -f "mongod.*27027" 2>/dev/null || true
+pkill -f "mongod.*27028" 2>/dev/null || true
 sleep 2
 
 # 创建目录
@@ -321,7 +321,7 @@ echo "创建 MongoDB 启动脚本..."
 cat > $DEPLOY_PATH/startdb.sh << 'DBEOF'
 #!/bin/bash
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-mongod --dbpath=\$SCRIPT_DIR/data/db --port=27027 --logpath=\$SCRIPT_DIR/log/mongod.log --auth --fork
+mongod --dbpath=\$SCRIPT_DIR/data/db --port=27028 --logpath=\$SCRIPT_DIR/log/mongod.log --auth --fork
 DBEOF
 chmod +x $DEPLOY_PATH/startdb.sh
 
@@ -329,18 +329,18 @@ chmod +x $DEPLOY_PATH/startdb.sh
 cat > $DEPLOY_PATH/stopdb.sh << 'DBEOF'
 #!/bin/bash
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-mongod --shutdown --dbpath=\$SCRIPT_DIR/data/db 2>/dev/null || pkill -f "mongod.*27027" || true
+mongod --shutdown --dbpath=\$SCRIPT_DIR/data/db 2>/dev/null || pkill -f "mongod.*27028" || true
 DBEOF
 chmod +x $DEPLOY_PATH/stopdb.sh
 
 # 首次启动 MongoDB（无认证模式，用于创建用户）
 echo "启动 MongoDB（初始化模式）..."
-mongod --dbpath=$DEPLOY_PATH/data/db --port=27027 --logpath=$DEPLOY_PATH/log/mongod.log --fork
+mongod --dbpath=$DEPLOY_PATH/data/db --port=27028 --logpath=$DEPLOY_PATH/log/mongod.log --fork
 sleep 3
 
 # 创建 MongoDB 用户
 echo "创建 MongoDB 用户..."
-mongosh --port 27027 << MONGOEOF
+mongosh --port 27028 << MONGOEOF
 use $MONGO_DATABASE
 db.createUser({
   user: "$MONGO_USER",
@@ -351,14 +351,14 @@ MONGOEOF
 
 # 停止并重启（认证模式）
 echo "重启 MongoDB（认证模式）..."
-mongod --shutdown --dbpath=$DEPLOY_PATH/data/db 2>/dev/null || pkill -f "mongod.*27027" || true
+mongod --shutdown --dbpath=$DEPLOY_PATH/data/db 2>/dev/null || pkill -f "mongod.*27028" || true
 sleep 2
 $DEPLOY_PATH/startdb.sh
 sleep 3
 
 # 验证 MongoDB 运行状态
-if pgrep -f "mongod.*27027" > /dev/null; then
-    echo "✓ MongoDB 已成功启动在端口 27027（认证模式）"
+if pgrep -f "mongod.*27028" > /dev/null; then
+    echo "✓ MongoDB 已成功启动在端口 27028（认证模式）"
 else
     echo "✗ MongoDB 启动失败，请检查日志: $DEPLOY_PATH/log/mongod.log"
 fi
@@ -372,7 +372,7 @@ NODE_ENV=production
 
 # MongoDB Configuration
 MONGO_HOST=localhost
-MONGO_PORT=27027
+MONGO_PORT=27028
 MONGO_DATABASE=$MONGO_DATABASE
 MONGO_USER=$MONGO_USER
 MONGO_PASSWORD=$MONGO_PASSWORD
@@ -506,7 +506,7 @@ NODE_ENV=production
 
 # MongoDB Configuration
 MONGO_HOST=localhost
-MONGO_PORT=27027
+MONGO_PORT=27028
 MONGO_DATABASE=$MONGO_DATABASE
 MONGO_USER=$MONGO_USER
 MONGO_PASSWORD=$MONGO_PASSWORD
@@ -535,7 +535,7 @@ cp \$DEPLOY_PATH/deploy/ecosystem.config.js \$DEPLOY_PATH/ 2>/dev/null || true
 
 # 确保 MongoDB 运行中
 echo "检查 MongoDB..."
-if ! pgrep -f "mongod.*27027" > /dev/null; then
+if ! pgrep -f "mongod.*27028" > /dev/null; then
     echo "启动 MongoDB..."
     \$DEPLOY_PATH/startdb.sh 2>/dev/null || true
     sleep 3

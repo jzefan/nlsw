@@ -9,6 +9,8 @@ let Company = require('../models/Company');
 let Bill = require('../models/Bill');
 let Destination = require('../models/Destination');
 let utils = require('./utils');
+const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../utils/tenant');
+const { hasPermission, PERMISSIONS } = require('../utils/permissions');
 
 let bunyan = require('bunyan');
 let logger = bunyan.createLogger({
@@ -22,12 +24,12 @@ exports.getCreateOrderPlan = async function (req, res) {
     return res.status(403).render('404');
   }
 
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404).render('404');
   }
   else {
-    let customer_name = await Company.distinct('name').lean().exec();
-    let destination = await Destination.distinct('name').lean().exec();
+    let customer_name = await Company.distinct('name', buildTenantQuery(req, {})).exec();
+    let destination = await Destination.distinct('name', buildTenantQuery(req, {})).exec();
 
     res.render('plan/create_plan', {
       title: '订单计划管理',
@@ -52,7 +54,7 @@ exports.getCreateOrderPlan = async function (req, res) {
 };
 
 exports.orderPlanExist = async function(req, res) {
-  let plan = await OrderPlan.findOne({order_no: req.query.q}).exec();
+  let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: req.query.q})).exec();
   if (plan) {
     res.end(JSON.stringify({exist: true}));
   } else {
@@ -74,9 +76,9 @@ exports.postCreateOrderPlan = async function (req, res) {
       let price = utils.getFloatValue(row_data.receivingCharge, 3);
       let exist = false;
 
-      let plan = await OrderPlan.findOne({order_no: orderNo}).exec();
+      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: orderNo})).exec();
       if (!plan) {
-        plan = new OrderPlan({
+        plan = new OrderPlan(injectTenantId(req, {
           order_no: orderNo,
           order_weight: weight,
           left_weight:  weight,
@@ -92,7 +94,7 @@ exports.postCreateOrderPlan = async function (req, res) {
           receiving_charge:price,
           entry_time:      new Date(),
           creator: req.user.userid
-        });
+        }));
       } else {
         exist = true;
         console.log("Order exist. " + orderNo);
@@ -112,7 +114,7 @@ exports.postCreateOrderPlan = async function (req, res) {
         plan.creator = req.user.userid
       }
 
-      let bills = await Bill.find({order_no: orderNo}).exec();
+      let bills = await Bill.find(buildTenantQuery(req, {order_no: orderNo})).exec();
       if (bills.length > 0) {
         let w = 0, left = 0;
         bills.forEach(b => {
@@ -165,13 +167,13 @@ exports.getPlanList = async function (req, res) {
     return res.status(403).render('404');
   }
 
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404).render('404');
   }
   else {
-    let customer_name = await Company.distinct('name').lean().exec();
-    let destination = await Destination.distinct('name').lean().exec();
-    let plans = await OrderPlan.find({status: 0}).lean().sort({order_no: 1}).exec();
+    let customer_name = await Company.distinct('name', buildTenantQuery(req, {})).exec();
+    let destination = await Destination.distinct('name', buildTenantQuery(req, {})).exec();
+    let plans = await OrderPlan.find(buildTenantQuery(req, {status: 0})).lean().sort({order_no: 1}).exec();
 
     res.render('plan/plan_list', {
       title: '订单计划管理',
@@ -197,7 +199,7 @@ exports.getPlanList = async function (req, res) {
 
 exports.postUpdatePlan = async function(req, res) {
   let data = req.body;
-  let plan = await OrderPlan.findOne({order_no: data.orderNo}).exec();
+  let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data.orderNo})).exec();
   if (plan) {
 
     if (Math.abs(plan.order_weight - data.orderWeight) > DELTA) {
@@ -244,7 +246,7 @@ exports.postDeletePlan = async function(req, res) {
 
   try {
     for (let i = 0; i < data.length; ++i) {
-      let res = await OrderPlan.deleteOne({order_no: data[i].order_no}).exec();
+      let res = await OrderPlan.deleteOne(buildTenantQuery(req, {order_no: data[i].order_no})).exec();
     }
 
     res.end(JSON.stringify({ok: true}));
@@ -258,7 +260,7 @@ exports.postPlanStatusClosed = async function(req, res) {
 
   try {
     for (let i = 0; i < data.length; ++i) {
-      let plan = await OrderPlan.findOne({order_no: data[i]}).exec();
+      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data[i]})).exec();
       if (plan) {
         plan.status = 1;
         await plan.save();
@@ -276,7 +278,7 @@ exports.postPlanStatusUnClosed = async function(req, res) {
   try {
     let plans = [];
     for (let i = 0; i < data.length; ++i) {
-      let plan = await OrderPlan.findOne({order_no: data[i], status: 1}).exec();
+      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data[i], status: 1})).exec();
       if (plan) {
         plan.status = 0;
         plans.push(plan);
@@ -315,7 +317,7 @@ exports.searchPlans = async function(req, res) {
     obj["$and"].push({ status: st });
   }
 
-  let plans = await OrderPlan.find(obj).lean().sort({order_no: 1}).exec();
+  let plans = await OrderPlan.find(buildTenantQuery(req, obj)).lean().sort({order_no: 1}).exec();
   if (plans.length > 0) {
     let w = 0, left = 0;
     plans.forEach(p => {

@@ -58,6 +58,7 @@ export default defineConfig({
     drop: ['debugger'],
     pure: ['console.log'],
   },
+  /*
   server: {
     proxy: {
       '/api': {
@@ -67,4 +68,5 @@ export default defineConfig({
       },
     },
   },
+  */
 })

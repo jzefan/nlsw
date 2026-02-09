@@ -30,6 +30,8 @@ let ReceiptImg = require('./models/Receipt');
 let ArchivedReceiptImg = require('./models/ArchivedReceiptImg');
 
 const dataCfg = require('./controllers/cache');
+const { migrateAllUsers } = require('./utils/privilege-migration');
+const User = require('./models/User');
 
 /**
  * API keys.
@@ -48,7 +50,11 @@ var app = express();
  */
 
 //mongoose.set('debug', true);
-mongoose.connect(secrets.db).catch(err => {
+mongoose.connect(secrets.db).then(() => {
+  migrateAllUsers(User).catch(err => {
+    console.error('✗ Privilege migration error:', err);
+  });
+}).catch(err => {
   console.error('✗ MongoDB Connection Error: %s', err);
 });
 
@@ -68,7 +74,7 @@ if (secrets.env === 'production') {
   app.enable('view cache');
 }
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://localhost:5174',
   credentials: true
 }));
 app.use('/', connectAssets({
@@ -99,6 +105,11 @@ app.use(session({
 //app.use(csrf());
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Tenant context middleware - sets req.tenantId, req.tenant, req.isPlatformUser
+const { tenantContext } = require('./middleware/tenantContext');
+app.use(tenantContext);
+
 app.use(function (req, res, next) {
   res.locals.user = req.user;
   //res.locals._csrf = req.csrfToken();

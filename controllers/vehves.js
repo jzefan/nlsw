@@ -5,15 +5,17 @@
 var Vehicle = require('../models/Vehicle');
 var VehVesCost = require('../models/VesselCost');
 var utils = require('./utils');
+const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../utils/tenant');
+const { hasPermission, PERMISSIONS } = require('../utils/permissions');
 
 exports.getVehVesMgt = async function (req, res) {
-  if (req.user.privilege[2] !== '1') {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
     res.render('404');
   }
   else {
     try {
-      const vehs = await Vehicle.find({veh_category:'自有'}).exec();
+      const vehs = await Vehicle.find(buildTenantQuery(req, {veh_category:'自有'})).exec();
       var vehList = [];
       vehs.forEach(function (veh) {
         if (veh.veh_type === '车') {
@@ -22,7 +24,7 @@ exports.getVehVesMgt = async function (req, res) {
       });
 
       var vehicles = [];
-      const vvc = await VehVesCost.find({vv_type:'che'}).select('name').sort({month: 'asc'}).exec();
+      const vvc = await VehVesCost.find(buildTenantQuery(req, {vv_type:'che'})).select('name').sort({month: 'asc'}).exec();
       vvc.forEach(function (item) {
         if (vehicles.indexOf(item.name) < 0) {
           vehicles.push(item.name);
@@ -79,7 +81,7 @@ exports.getVFCData = async function(req, res) {
   }
 
   try {
-    const vvcList = await VehVesCost.find(qObj).sort({month: 'asc'}).exec();
+    const vvcList = await VehVesCost.find(buildTenantQuery(req, qObj)).sort({month: 'asc'}).exec();
     res.end(JSON.stringify({ ok: true, vvcList: vvcList }));
   } catch (err) {
     res.end(JSON.stringify({ ok: false, response: err }));
@@ -89,7 +91,7 @@ exports.getVFCData = async function(req, res) {
 exports.getOneVFCData = async function(req, res) {
   var query = req.query;
   try {
-    const vvc = await VehVesCost.findOne({name: query.fName, month: query.fMonth}).exec();
+    const vvc = await VehVesCost.findOne(buildTenantQuery(req, {name: query.fName, month: query.fMonth})).exec();
     if (!vvc) {
       res.end(JSON.stringify({ ok: false }));
     }
@@ -104,9 +106,9 @@ exports.getOneVFCData = async function(req, res) {
 exports.postOneVFCData = async function(req, res) {
   var data = req.body;
   try {
-    let dbVVCost = await VehVesCost.findOne({name: data.name, month: data.month}).exec();
+    let dbVVCost = await VehVesCost.findOne(buildTenantQuery(req, {name: data.name, month: data.month})).exec();
     if (!dbVVCost) {
-      dbVVCost = new VehVesCost(data);
+      dbVVCost = new VehVesCost(injectTenantId(req, data));
     } else {
       dbVVCost.ic = data.ic;
       dbVVCost.pc = data.pc;
@@ -134,7 +136,7 @@ exports.postDeleteVFCData = async function(req, res) {
   var data = req.body;
   if (data.name && data.month) {
     try {
-      await VehVesCost.deleteMany({name: data.name, month: data.month}).exec();
+      await VehVesCost.deleteMany(buildTenantQuery(req, {name: data.name, month: data.month})).exec();
       res.end(JSON.stringify({ ok: true }));
     } catch (err) {
       console.error('remove vehves cost error! %s', err);
@@ -148,18 +150,19 @@ exports.postDeleteVFCData = async function(req, res) {
 exports.searchVehicles = async function(req, res) {
   try {
     const { search, type, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const baseQuery = {};
 
     // 只有明确指定 type 时才过滤类型，否则搜索所有车船
     if (type) {
-      query.veh_type = type;
+      baseQuery.veh_type = type;
     }
 
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      baseQuery.name = { $regex: search, $options: 'i' };
     }
 
     // 过滤掉异常的长车船号（正常车船号不会超过20个字符）
+    const query = buildTenantQuery(req, baseQuery);
     const vehicles = await Vehicle.find(query)
       .sort({ create_time: -1 })
       .lean();

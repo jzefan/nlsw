@@ -1,11 +1,13 @@
 const DrayageForklift = require('../../models/DrayageForklift');
+const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
 
 /**
  * Get all Drayage Forklift records
  */
 exports.getList = async function (req, res) {
   try {
-    const list = await DrayageForklift.find({}).sort({ month: 'desc' }).lean().exec();
+    const query = buildTenantQuery(req, {});
+    const list = await DrayageForklift.find(query).sort({ month: 'desc' }).lean().exec();
     res.json({ ok: true, data: list });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -18,7 +20,8 @@ exports.getList = async function (req, res) {
 exports.getByMonth = async function (req, res) {
   try {
     const { month } = req.params;
-    const item = await DrayageForklift.findOne({ month }).lean().exec();
+    const query = buildTenantQuery(req, { month });
+    const item = await DrayageForklift.findOne(query).lean().exec();
     if (item) {
       res.json({ ok: true, data: item });
     } else {
@@ -35,19 +38,21 @@ exports.getByMonth = async function (req, res) {
 exports.upsert = async function (req, res) {
   try {
     const { month, drayage, forklift } = req.body;
-    let item = await DrayageForklift.findOne({ month }).exec();
-    
+    const query = buildTenantQuery(req, { month });
+    let item = await DrayageForklift.findOne(query).exec();
+
     if (item) {
       item.drayage = drayage;
       item.forklift = forklift;
     } else {
-      item = new DrayageForklift({
+      const data = injectTenantId(req, {
         month,
         drayage,
         forklift
       });
+      item = new DrayageForklift(data);
     }
-    
+
     await item.save();
     res.json({ ok: true });
   } catch (err) {
@@ -61,7 +66,8 @@ exports.upsert = async function (req, res) {
 exports.delete = async function (req, res) {
   try {
     const { month } = req.params;
-    await DrayageForklift.deleteMany({ month }).exec();
+    const query = buildTenantQuery(req, { month });
+    await DrayageForklift.deleteMany(query).exec();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

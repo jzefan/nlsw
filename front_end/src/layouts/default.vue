@@ -16,12 +16,22 @@ import {
 } from '@/components/ui/breadcrumb'
 import { SIDEBAR_COOKIE_NAME } from '@/components/ui/sidebar/utils'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 
 const defaultOpen = useCookies([SIDEBAR_COOKIE_NAME])
 const themeStore = useThemeStore()
 const { contentLayout } = storeToRefs(themeStore)
 const route = useRoute()
+
+const authStore = useAuthStore()
+const { tenant, user, isPlatformUser, isOwner } = storeToRefs(authStore)
+
+const roleBadgeText = computed(() => {
+  if (isPlatformUser.value) return '平台管理员'
+  if (isOwner.value) return '管理员'
+  return ''
+})
 
 // 路由到面包屑的映射
 const routeMap: Record<string, { parent?: string, title: string }> = {
@@ -50,6 +60,11 @@ const routeMap: Record<string, { parent?: string, title: string }> = {
   '/data/destinations': { parent: '数据字典', title: '目的地' },
   '/data/brands': { parent: '数据字典', title: '牌号' },
   '/data/sale-deps': { parent: '数据字典', title: '销售部门' },
+  '/data-process/round-steel': { parent: '数据处理', title: '圆钢' },
+  '/data-process/plate': { parent: '数据处理', title: '板材' },
+  '/platform/tenants': { parent: '平台管理', title: '公司账号管理' },
+  '/platform/business': { parent: '平台管理', title: '公司业务查看' },
+  '/platform/statistics': { parent: '平台管理', title: '平台统计报告' },
 }
 
 // 计算面包屑（不包括首页，首页在模板中固定显示）
@@ -108,6 +123,15 @@ const breadcrumbs = computed(() => {
 
         <div class="flex-1" />
         <div class="ml-auto flex items-center space-x-4">
+          <!-- 租户信息 -->
+          <div v-if="tenant" class="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <span class="font-medium text-foreground">{{ tenant.name }}</span>
+            <span class="text-xs">[{{ tenant.code }}]</span>
+          </div>
+          <span v-if="roleBadgeText" class="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            {{ roleBadgeText }}
+          </span>
+          <UiSeparator v-if="tenant || roleBadgeText" orientation="vertical" class="h-4" />
           <ToggleTheme />
           <ThemePopover />
         </div>

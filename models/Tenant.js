@@ -31,7 +31,7 @@ var tenantSchema = new mongoose.Schema({
   plan: {
     type: String,
     enum: ['free', 'basic', 'pro', 'enterprise'],
-    default: 'free'
+    default: 'basic'
   },
   maxUsers: {
     type: Number,
@@ -63,8 +63,7 @@ var tenantSchema = new mongoose.Schema({
   creator: String
 });
 
-// 索引
-tenantSchema.index({ code: 1 });
+// 索引 (code index already created by unique: true)
 tenantSchema.index({ status: 1 });
 tenantSchema.index({ createDate: -1 });
 

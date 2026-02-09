@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
 import { useAuth } from '@/composables/use-auth'
+import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 import type { User, UserFormData } from '@/services/api/user.api'
 import {
   addUser,
@@ -15,13 +16,17 @@ import {
   updateUser,
 } from '@/services/api/user.api'
 
-// 权限检查
+// 权限检查：平台管理员、公司管理员、或权限管理员可访问
 const router = useRouter()
 const { user: authUser } = useAuth()
-const isAdmin = computed(() => authUser.value?.privilege === '11111111')
+const canAccess = computed(() =>
+  authUser.value?.role === 'platform'
+  || authUser.value?.role === 'owner'
+  || isAdminPrivilege(authUser.value?.privilege ?? []),
+)
 
-// 非管理员用户重定向
-watch(isAdmin, (val) => {
+// 无权限用户重定向
+watch(canAccess, (val) => {
   if (val === false) {
     toast.error('无权限访问此页面')
     router.push('/dashboard')
@@ -44,19 +49,19 @@ const editForm = ref<UserFormData>({
   name: '',
   title: '',
   phone: '',
-  privilege: '',
+  privilege: [],
 })
 
 // 权限选项
 const permissionOptions = [
-  { id: 'admin', label: '管理员', index: -1 },
-  { id: 'operator', label: '业务', index: 0 },
-  { id: 'statistics', label: '统计', index: 1 },
-  { id: 'account', label: '会计', index: 2 },
-  { id: 'custRevenue', label: '客户营业额', index: 4 },
-  { id: 'vesselRevenue', label: '车船营业额', index: 5 },
-  { id: 'selfVehicle', label: '自有车管理', index: 6 },
-  { id: 'seePrice', label: '查看价格', index: 7 },
+  { id: 'admin', label: '管理员' },
+  { id: 'operator', label: '业务' },
+  { id: 'statistics', label: '统计' },
+  { id: 'account', label: '会计' },
+  { id: 'custRevenue', label: '客户营业额' },
+  { id: 'vesselRevenue', label: '车船营业额' },
+  { id: 'selfVehicle', label: '自有车管理' },
+  { id: 'seePrice', label: '查看价格' },
 ]
 
 // 权限状态
@@ -139,7 +144,7 @@ function openAddDialog() {
     name: '',
     title: '',
     phone: '',
-    privilege: '',
+    privilege: [],
   }
   resetPermissions()
   usernameDuplicate.value = false
@@ -187,42 +192,41 @@ function resetPermissions() {
   }
 }
 
-// 解析权限字符串
-function parsePrivilege(privilege: string) {
+// 解析权限数组到 checkbox 状态
+function parsePrivilege(privilege: string[]) {
   resetPermissions()
-  if (privilege === '11111111') {
+  if (!Array.isArray(privilege)) return
+
+  if (privilege.includes('admin')) {
     permissions.value.admin = true
     return
   }
 
-  if (privilege) {
-    permissions.value.operator = privilege[0] === '1'
-    permissions.value.statistics = privilege[1] === '1'
-    permissions.value.account = privilege[2] === '1'
-    permissions.value.custRevenue = privilege[4] === '1'
-    permissions.value.vesselRevenue = privilege[5] === '1'
-    permissions.value.selfVehicle = privilege[6] === '1'
-    permissions.value.seePrice = privilege[7] === '1'
-  }
+  permissions.value.operator = privilege.includes('operator')
+  permissions.value.statistics = privilege.includes('statistics')
+  permissions.value.account = privilege.includes('account')
+  permissions.value.custRevenue = privilege.includes('custRevenue')
+  permissions.value.vesselRevenue = privilege.includes('vesselRevenue')
+  permissions.value.selfVehicle = privilege.includes('selfVehicle')
+  permissions.value.seePrice = privilege.includes('seePrice')
 }
 
-// 生成权限字符串
-function generatePrivilege(): string {
+// 生成权限数组
+function generatePrivilege(): string[] {
   if (permissions.value.admin) {
-    return '11111111'
+    return ['admin']
   }
 
-  let p = ''
-  p += permissions.value.operator ? '1' : '0'
-  p += permissions.value.statistics ? '1' : '0'
-  p += permissions.value.account ? '1' : '0'
-  p += (permissions.value.custRevenue && permissions.value.vesselRevenue) ? '1' : '0'
-  p += permissions.value.custRevenue ? '1' : '0'
-  p += permissions.value.vesselRevenue ? '1' : '0'
-  p += permissions.value.selfVehicle ? '1' : '0'
-  p += permissions.value.seePrice ? '1' : '0'
+  const result: string[] = []
+  if (permissions.value.operator) result.push('operator')
+  if (permissions.value.statistics) result.push('statistics')
+  if (permissions.value.account) result.push('account')
+  if (permissions.value.custRevenue) result.push('custRevenue')
+  if (permissions.value.vesselRevenue) result.push('vesselRevenue')
+  if (permissions.value.selfVehicle) result.push('selfVehicle')
+  if (permissions.value.seePrice) result.push('seePrice')
 
-  return p
+  return result
 }
 
 // 管理员权限切换
@@ -332,8 +336,23 @@ async function handleSave() {
   }
 }
 
+// 是否为主账号（不可删除/编辑角色）
+function isOwnerUser(user: User) {
+  return user.role === 'owner'
+}
+
+// 角色显示
+function getRoleDisplay(role?: string) {
+  if (role === 'owner') return '主账号'
+  return ''
+}
+
 // 删除单个用户
 async function handleDeleteOne(user: User) {
+  if (isOwnerUser(user)) {
+    toast.warning('主账号不可删除')
+    return
+  }
   if (!confirm(`确定要删除用户 "${user.name || user.userid}" 吗?`))
     return
 
@@ -355,20 +374,22 @@ async function handleDeleteOne(user: User) {
 
 // 批量删除用户
 async function handleDeleteSelected() {
-  if (selectedUsers.value.length === 0) {
-    toast.warning('请先选择用户')
+  // 过滤掉主账号
+  const deletable = selectedUsers.value.filter(u => !isOwnerUser(u))
+  if (deletable.length === 0) {
+    toast.warning('没有可删除的用户（主账号不可删除）')
     return
   }
 
-  const count = selectedUsers.value.length
-  const names = selectedUsers.value.map(u => u.name || u.userid).join(', ')
+  const count = deletable.length
+  const names = deletable.map(u => u.name || u.userid).join(', ')
   if (!confirm(`确定要删除 ${count} 个用户吗?\n${names}`))
     return
 
   try {
     let successCount = 0
     let failCount = 0
-    for (const user of selectedUsers.value) {
+    for (const user of deletable) {
       const result = await deleteUser(user.userid)
       if (result.ok) {
         successCount++
@@ -495,6 +516,9 @@ onMounted(() => {
               真实名字
             </th>
             <th class="p-3 text-left">
+              角色
+            </th>
+            <th class="p-3 text-left">
               职务
             </th>
             <th class="p-3 text-left">
@@ -531,10 +555,15 @@ onMounted(() => {
               {{ user.name }}
             </td>
             <td class="p-3">
+              <UiBadge v-if="isOwnerUser(user)" variant="outline">
+                {{ getRoleDisplay(user.role) }}
+              </UiBadge>
+            </td>
+            <td class="p-3">
               {{ user.title }}
             </td>
             <td class="p-3">
-              <UiBadge v-if="user.privilege === '11111111'" variant="destructive">
+              <UiBadge v-if="user.privilege.includes('admin')" variant="destructive">
                 管理
               </UiBadge>
               <span v-else>{{ getPrivilegeDisplay(user.privilege) }}</span>
@@ -544,6 +573,7 @@ onMounted(() => {
             </td>
             <td class="p-3 text-center" @click.stop>
               <UiButton
+                v-if="!isOwnerUser(user)"
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8 text-muted-foreground hover:text-destructive"
@@ -554,7 +584,7 @@ onMounted(() => {
             </td>
           </tr>
           <tr v-if="users.length === 0 && !loading">
-            <td colspan="7" class="p-8 text-center text-muted-foreground">
+            <td colspan="8" class="p-8 text-center text-muted-foreground">
               暂无数据
             </td>
           </tr>
@@ -787,4 +817,5 @@ onMounted(() => {
 <route lang="yaml">
 meta:
   auth: true
+  requiresOwner: true
 </route>

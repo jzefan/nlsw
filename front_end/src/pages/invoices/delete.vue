@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 import { BasicPage } from '@/components/global-layout'
 import { deleteInvoice, getInvoiceDetail, getInvoiceList } from '@/services/api/invoice.api'
 import { useAuthStore } from '@/stores/auth'
+import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
 const authStore = useAuthStore()
 
@@ -22,9 +23,7 @@ const selectedInvoice = ref<any | null>(null)
 const invoiceDetail = ref<any | null>(null)
 
 // 判断是否是管理员
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
 
 // 监听showMyOnly变化，自动刷新列表
 watch(showMyOnly, async () => {

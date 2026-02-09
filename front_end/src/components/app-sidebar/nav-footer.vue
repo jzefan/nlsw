@@ -8,6 +8,7 @@ import {
 
 import { useSidebar } from '@/components/ui/sidebar'
 import { useAuth } from '@/composables/use-auth'
+import { isAdmin } from '@/constants/permissions'
 
 import type { User } from './types'
 
@@ -24,8 +25,12 @@ const avatarFallback = computed(() => {
   const name = authUser.value?.name || authUser.value?.userid || 'U'
   return name.substring(0, 2).toUpperCase()
 })
-// 是否是管理员
-const isAdmin = computed(() => authUser.value?.privilege === '11111111')
+// 是否可以管理用户（平台管理员、公司管理员、或权限管理员）
+const canManageUsers = computed(() =>
+  authUser.value?.role === 'platform'
+  || authUser.value?.role === 'owner'
+  || isAdmin(authUser.value?.privilege ?? []),
+)
 </script>
 
 <template>
@@ -71,7 +76,7 @@ const isAdmin = computed(() => authUser.value?.privilege === '11111111')
 
           <UiDropdownMenuSeparator />
           <UiDropdownMenuGroup>
-            <UiDropdownMenuItem v-if="isAdmin" @click="$router.push('/admin/users')">
+            <UiDropdownMenuItem v-if="canManageUsers" @click="$router.push('/admin/users')">
               <Users />
               用户管理
             </UiDropdownMenuItem>

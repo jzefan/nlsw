@@ -44,6 +44,9 @@ import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
 import { useAuthStore } from '@/stores/auth'
 import { COMPANY_FULL_NAME } from '@/config/constants'
 
+const companyName = computed(() => authStore.companyDisplayName || COMPANY_FULL_NAME)
+import { isAdmin } from '@/constants/permissions'
+
 const authStore = useAuthStore()
 
 // State
@@ -67,9 +70,7 @@ const advForm = ref({
 })
 
 // Computed
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+const isAdminUser = computed(() => isAdmin(authStore.user?.privilege ?? []))
 
 // Search function for the combobox
 async function searchInvoices(keyword: string, limit: number, page: number) {
@@ -332,7 +333,7 @@ function handlePrint() {
 
   const content = `
     <div class="header">
-      <h2><i class="fa fa-globe"></i> ${COMPANY_FULL_NAME}发货单</h2>
+      <h2><i class="fa fa-globe"></i> ${companyName.value}发货单</h2>
     </div>
     <div class="info-grid">
       <div class="info-column">
@@ -496,7 +497,7 @@ async function handleExport() {
   // 标题行
   sheet.mergeCells(rowNum, 1, rowNum, 12)
   const titleCell = sheet.getCell(rowNum, 1)
-  const titleText = `${COMPANY_FULL_NAME}发货单`
+  const titleText = `${companyName.value}发货单`
   titleCell.value = titleText
   titleCell.font = { bold: true, size: 16 }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -823,7 +824,7 @@ const calculateTotals = computed(() => {
       <div class="text-center mb-8">
         <h2 class="text-2xl font-bold flex items-center justify-center gap-2">
           <i class="hidden print:inline-block">🌏</i> <!-- Icon placeholder for print -->
-          {{ COMPANY_FULL_NAME }}发货单
+          {{ companyName }}发货单
         </h2>
       </div>
 

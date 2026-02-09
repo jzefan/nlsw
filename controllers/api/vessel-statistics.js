@@ -5,6 +5,7 @@ const Invoice = require('../../models/Invoice');
 const VesselCost = require('../../models/VesselCost');
 const DrayageForklift = require('../../models/DrayageForklift');
 const utils = require('../utils');
+const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
 
 /**
  * Get Vessel Revenue Statistics Data
@@ -27,14 +28,14 @@ exports.getVesselRevenueData = async (req, res) => {
     }));
 
     // 1. Get Vehicle Categories
-    const vehList = await Vehicle.find({}).select('name veh_category').lean().exec();
+    const vehList = await Vehicle.find(buildTenantQuery(req, {})).select('name veh_category').lean().exec();
     const vehObject = {};
     vehList.forEach(v => { vehObject[v.name] = v.veh_category; });
 
     // 2. Get Fixed Costs
-    const vvcList = await VesselCost.find({ 
-      month: { $in: months } 
-    }).select('name total month').lean().exec();
+    const vvcList = await VesselCost.find(buildTenantQuery(req, {
+      month: { $in: months }
+    })).select('name total month').lean().exec();
     
     const costMap = {};
     vvcList.forEach(item => {
@@ -43,9 +44,9 @@ exports.getVesselRevenueData = async (req, res) => {
     });
 
     // 3. Get Drayage/Forklift Receivables
-    const dfList = await DrayageForklift.find({
+    const dfList = await DrayageForklift.find(buildTenantQuery(req, {
       month: { $in: months }
-    }).lean().exec();
+    })).lean().exec();
     
     dfList.forEach(df => {
       const idx = months.indexOf(df.month);
@@ -56,11 +57,11 @@ exports.getVesselRevenueData = async (req, res) => {
     });
 
     // 4. Get Invoices within Date Range
-    const invQuery = { 
+    const invQuery = buildTenantQuery(req, {
       state: { $ne: '新建' },
       ship_date: { $gte: new Date(fDate1), $lt: new Date(fDate2) }
-    };
-    
+    });
+
     const db_invs = await Invoice.find(invQuery)
       .select('waybill_no vehicle_vessel_name ship_date bills total_weight')
       .lean()
@@ -77,7 +78,7 @@ exports.getVesselRevenueData = async (req, res) => {
 
       // Fetch related bills
       const billIds = inv.bills.map(b => b.bill_id);
-      const bills = await Bill.find({ _id: { $in: billIds } })
+      const bills = await Bill.find(buildTenantQuery(req, { _id: { $in: billIds } }))
         .select('block_num weight collection_price invoices')
         .lean()
         .exec();
@@ -189,16 +190,16 @@ exports.getVesselAllocationDetail = async (req, res) => {
     const { fDate1, fDate2, fVehType, fSummary } = req.query;
     const isSummary = fSummary === 'YES';
 
-    const vehList = await Vehicle.find({ veh_category: fVehType })
+    const vehList = await Vehicle.find(buildTenantQuery(req, { veh_category: fVehType }))
       .select('name contact_name')
       .lean()
       .exec();
     const vehNames = vehList.map(v => v.name);
 
-    const invQuery = { 
+    const invQuery = buildTenantQuery(req, {
       state: { $ne: '新建' },
       ship_date: { $gte: new Date(fDate1), $lt: new Date(fDate2) }
-    };
+    });
 
     const db_invs = await Invoice.find(invQuery).lean().exec();
     if (!db_invs || db_invs.length === 0) return res.json({ ok: true, vessel_detail: {}, summary_data: {} });
@@ -206,7 +207,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
     const billIds = [];
     db_invs.forEach(inv => inv.bills.forEach(b => billIds.push(b.bill_id)));
     
-    const bills = await Bill.find({ _id: { $in: billIds } })
+    const bills = await Bill.find(buildTenantQuery(req, { _id: { $in: billIds } }))
       .select('bill_no order_no order_item_no block_num weight invoices')
       .lean()
       .exec();

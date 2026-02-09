@@ -20,7 +20,7 @@ export function authGuard(router: Router) {
         const { axiosInstance } = useAxios()
         const response = await axiosInstance.get('/me')
         if (response.data.ok) {
-          authStore.setUser(response.data.user)
+          authStore.setUser(response.data.user, response.data.tenant || null)
         }
       }
       catch (e) {
@@ -34,6 +34,15 @@ export function authGuard(router: Router) {
         path: '/auth/sign-in',
         query: { redirect: to.fullPath },
       }
+    }
+
+    // 角色权限检查
+    if (to.meta.requiresOwner && !authStore.isPlatformUser && !authStore.isOwner) {
+      return { path: '/dashboard' }
+    }
+
+    if (to.meta.requiresPlatformUser && !authStore.isPlatformUser) {
+      return { path: '/dashboard' }
     }
   })
 }

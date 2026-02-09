@@ -1,4 +1,5 @@
 const Brand = require('../../models/Brand');
+const { buildTenantQuery } = require('../../utils/tenant');
 
 exports.getBrands = async (req, res) => {
   try {
@@ -6,10 +7,12 @@ exports.getBrands = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
 
-    const query = {};
+    const baseQuery = {};
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      baseQuery.name = { $regex: search, $options: 'i' };
     }
+
+    const query = buildTenantQuery(req, baseQuery);
 
     const count = await Brand.countDocuments(query);
     const brands = await Brand.find(query)

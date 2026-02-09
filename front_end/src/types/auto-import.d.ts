@@ -10,6 +10,8 @@ declare global {
   const DEFAULT_PAGE_SIZE: typeof import('../constants/pagination').DEFAULT_PAGE_SIZE
   const EffectScope: typeof import('vue').EffectScope
   const PAGE_SIZES: typeof import('../constants/pagination').PAGE_SIZES
+  const PERMISSIONS: typeof import('../constants/permissions').PERMISSIONS
+  const PERMISSION_LABELS: typeof import('../constants/permissions').PERMISSION_LABELS
   const RADIUS: typeof import('../constants/themes').RADIUS
   const RouterPath: typeof import('../constants/route-path').RouterPath
   const THEMES: typeof import('../constants/themes').THEMES
@@ -24,8 +26,11 @@ declare global {
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
+  const getPrivilegeDisplay: typeof import('../constants/permissions').getPrivilegeDisplay
   const h: typeof import('vue').h
+  const hasPermission: typeof import('../constants/permissions').hasPermission
   const inject: typeof import('vue').inject
+  const isAdmin: typeof import('../constants/permissions').isAdmin
   const isProxy: typeof import('vue').isProxy
   const isReactive: typeof import('vue').isReactive
   const isReadonly: typeof import('vue').isReadonly
@@ -70,6 +75,7 @@ declare global {
   const useAxios: typeof import('../composables/use-axios').useAxios
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
+  const useDevice: typeof import('../composables/use-device').useDevice
   const useExport: typeof import('../composables/use-export').useExport
   const useId: typeof import('vue').useId
   const useLink: typeof import('vue-router')['useLink']
@@ -97,9 +103,12 @@ declare global {
   export type { ExportColumn, ExportOptions, ExportAOAOptions } from '../composables/use-export'
   import('../composables/use-export')
   // @ts-ignore
+  export type { Permission } from '../constants/permissions'
+  import('../constants/permissions')
+  // @ts-ignore
   export type { Theme, Radius, ContentLayout } from '../constants/themes'
   import('../constants/themes')
   // @ts-ignore
-  export type { User } from '../stores/auth'
+  export type { User, Tenant } from '../stores/auth'
   import('../stores/auth')
 }

@@ -13,8 +13,7 @@ module.exports = {
       max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production',
-        PORT: 1080,
-        MONGODB: 'mongodb://localhost:27027/test',
+        PORT: 1081,
       },
       error_file: '/home/ubuntu/nlsw2/logs/backend-error.log',
       out_file: '/home/ubuntu/nlsw2/logs/backend-out.log',

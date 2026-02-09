@@ -4,6 +4,7 @@ const Warehouse = require('../../models/Warehouse');
 const Brand = require('../../models/Brand');
 const utils = require('../../controllers/utils');
 const fastcsv = require('fast-csv');
+const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
 
 function pushArr(arr, elem) {
   if (elem && arr.indexOf(elem) < 0) {
@@ -23,44 +24,45 @@ exports.getBills = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const query = {};
+    const baseQuery = {};
 
     // Filters
     if (req.query.billNo) {
-      query.bill_no = { $regex: req.query.billNo, $options: 'i' };
+      baseQuery.bill_no = { $regex: req.query.billNo, $options: 'i' };
     }
     if (req.query.orderNo) {
-      query.order_no = req.query.orderNo; // Use exact match for performance
+      baseQuery.order_no = req.query.orderNo; // Use exact match for performance
     }
     if (req.query.billingName) {
-      query.billing_name = req.query.billingName;
+      baseQuery.billing_name = req.query.billingName;
     }
     if (req.query.brandNo) {
-      query.brand_no = { $regex: req.query.brandNo, $options: 'i' };
+      baseQuery.brand_no = { $regex: req.query.brandNo, $options: 'i' };
     }
     if (req.query.contractNo) {
-      query.contract_no = { $regex: req.query.contractNo, $options: 'i' };
+      baseQuery.contract_no = { $regex: req.query.contractNo, $options: 'i' };
     }
     if (req.query.status) {
-      query.status = req.query.status;
+      baseQuery.status = req.query.status;
     }
     if (req.query.leftNumOnly === 'true') {
-      query.left_num = { $gt: 0 };
+      baseQuery.left_num = { $gt: 0 };
     }
 
     if (req.query.startTime || req.query.endTime) {
-      query.create_date = {};
+      baseQuery.create_date = {};
       if (req.query.startTime) {
-        query.create_date.$gte = new Date(req.query.startTime);
+        baseQuery.create_date.$gte = new Date(req.query.startTime);
       }
       if (req.query.endTime) {
         // Add 1 day to include the end date fully
         const end = new Date(req.query.endTime);
         end.setDate(end.getDate() + 1);
-        query.create_date.$lt = end;
+        baseQuery.create_date.$lt = end;
       }
     }
 
+    const query = buildTenantQuery(req, baseQuery);
     const count = await Bill.countDocuments(query);
     const bills = await Bill.find(query)
       .sort({ create_date: -1 })
@@ -108,6 +110,9 @@ exports.getOrders = async (req, res) => {
     }
 
     // 使用聚合按订单号分组
+    if (!isPlatformUser(req)) {
+      matchStage.tenantId = req.tenantId;
+    }
     const pipeline = [
       { $match: matchStage },
       {
@@ -189,10 +194,10 @@ exports.createBills = async (req, res) => {
       let bno = row_data.billNo || row_data.bill_no;
       let order_combined = order_no + '-' + utils.leftPad(order_item_no, 3);
 
-      let bill = await Bill.findOne({ order: order_combined, bill_no: bno }).exec();
+      let bill = await Bill.findOne(buildTenantQuery(req, { order: order_combined, bill_no: bno })).exec();
       if (!bill) {
-        bill = new Bill({
-          order: order_combined, 
+        bill = new Bill(injectTenantId(req, {
+          order: order_combined,
           bill_no: bno,
           order_no: order_no,
           order_item_no: order_item_no,
@@ -210,7 +215,7 @@ exports.createBills = async (req, res) => {
           invoices: [],
           customer_price: 0,
           collection_price: 0
-        });
+        }));
 
         // Handle Brand
         let brandNo = row_data.brandNo || row_data.brand_no;
@@ -299,25 +304,25 @@ exports.createBills = async (req, res) => {
     // Update Dictionaries
     for (let w of allWarehouse) {
       if (!w) continue;
-      let ware = await Warehouse.findOne({ name: w }).exec();
+      let ware = await Warehouse.findOne(buildTenantQuery(req, { name: w })).exec();
       if (!ware) {
-        ware = new Warehouse({ name: w });
+        ware = new Warehouse(injectTenantId(req, { name: w }));
         await ware.save();
       }
     }
     for (let b of allBrandNo) {
       if (!b) continue;
-      let brand = await Brand.findOne({ name: b }).exec();
+      let brand = await Brand.findOne(buildTenantQuery(req, { name: b })).exec();
       if (!brand) {
-        brand = new Brand({ name: b });
+        brand = new Brand(injectTenantId(req, { name: b }));
         await brand.save();
       }
     }
     for (let bn of allBillName) {
       if (!bn) continue;
-      let comp = await Company.findOne({ name: bn }).exec();
+      let comp = await Company.findOne(buildTenantQuery(req, { name: bn })).exec();
       if (!comp) {
-        comp = new Company({ name: bn });
+        comp = new Company(injectTenantId(req, { name: bn }));
         await comp.save();
       }
     }
@@ -332,7 +337,7 @@ exports.createBills = async (req, res) => {
 exports.deleteBills = async (req, res) => {
   try {
     const ids = req.body;
-    await Bill.deleteMany({ _id: { $in: ids } }).exec();
+    await Bill.deleteMany(buildTenantQuery(req, { _id: { $in: ids } })).exec();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -346,13 +351,13 @@ exports.updateBill = async (req, res) => {
     delete updateData._id;
 
     if (updateData.billing_name) {
-       let company = await Company.findOne({ name: updateData.billing_name }).exec();
+       let company = await Company.findOne(buildTenantQuery(req, { name: updateData.billing_name })).exec();
        if (!company) {
-         await new Company({ name: updateData.billing_name }).save();
+         await new Company(injectTenantId(req, { name: updateData.billing_name })).save();
        }
     }
 
-    await Bill.findByIdAndUpdate(id, updateData).exec();
+    await Bill.findOneAndUpdate(buildTenantQuery(req, { _id: id }), updateData).exec();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -396,10 +401,11 @@ exports.searchBills = async (req, res) => {
   try {
     const { queryTree, sort, page = 1, limit = 20 } = req.body;
     
-    let query = {};
+    let baseQuery = {};
     if (queryTree) {
-      query = buildQuery(queryTree);
+      baseQuery = buildQuery(queryTree);
     }
+    const query = buildTenantQuery(req, baseQuery);
 
     const sortObj = {};
     if (sort && Array.isArray(sort)) {
@@ -435,11 +441,12 @@ exports.searchBills = async (req, res) => {
 exports.exportBills = async (req, res) => {
   try {
     const { queryTree, sort, columns } = req.body;
-    let query = {};
+    let baseQuery = {};
     if (queryTree) {
-      query = buildQuery(queryTree);
+      baseQuery = buildQuery(queryTree);
     }
-    
+    const query = buildTenantQuery(req, baseQuery);
+
     const sortObj = {};
     if (sort && Array.isArray(sort)) {
       sort.forEach(s => {

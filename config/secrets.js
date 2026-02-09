@@ -1,6 +1,6 @@
 // MongoDB configuration
 const mongoHost = process.env.MONGO_HOST || "localhost";
-const mongoPort = process.env.MONGO_PORT || "27027";
+const mongoPort = process.env.MONGO_PORT || "27028";
 const mongoDatabase = process.env.MONGO_DATABASE || "nldb";
 const mongoUser = process.env.MONGO_USER || "";
 const mongoPassword = process.env.MONGO_PASSWORD || "";
@@ -21,7 +21,7 @@ function buildMongoUri() {
 
 module.exports = {
   db: buildMongoUri(),
-  port: process.env.PORT || 1080,
+  port: process.env.PORT || 1081,
   env: process.env.NODE_ENV || "development",
 
   // MongoDB config (exposed for reference)
@@ -33,12 +33,12 @@ module.exports = {
   },
 
   development: {
-    port: 1080,
+    port: 1081,
     host: "127.0.0.1",
     errorHandlerOptions: { dumpExceptions: true, showStack: true },
   },
   production: {
-    port: 1080,
+    port: 1081,
     host: "127.0.0.1",
     errorHandlerOptions: { dumpExceptions: false, showStack: false },
   },
@@ -57,5 +57,5 @@ module.exports = {
     password: process.env.SENDGRID_PASSWORD || "hspassword00",
   },
 
-  companyName: process.env.COMPANY_NAME || "军铁物流",
+  companyName: process.env.COMPANY_NAME || "物流管理平台",
 };

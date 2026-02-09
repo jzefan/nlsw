@@ -3,6 +3,7 @@ const Invoice = require('../../models/Invoice');
 const OrderPlan = require('../../models/OrderPlan');
 const Settle = require('../../models/Settle');
 const utils = require('../utils');
+const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
 
 const EPSILON = 0.0001;
 
@@ -62,13 +63,15 @@ function isSameSettleFlag(bill, type) {
 }
 
 // 更新运单状态
-async function updateInvoiceStatus(allInvNo, settle_type) {
+async function updateInvoiceStatus(allInvNo, settle_type, req) {
   try {
-    const invs = await Invoice.find({ waybill_no: { $in: allInvNo } }).exec();
+    const invQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNo } });
+    const invs = await Invoice.find(invQuery).exec();
 
     for (const invoice of invs) {
       const ids = invoice.bills.map(b => b.bill_id);
-      const billArr = await Bill.find({ _id: { $in: ids } }).exec();
+      const billQuery = buildTenantQuery(req, { _id: { $in: ids } });
+      const billArr = await Bill.find(billQuery).exec();
 
       // 检查该运单下的所有提单是否都已结算
       let settled = true;
@@ -157,8 +160,9 @@ exports.getSettleBills = async (req, res) => {
     // 只查询已配发的运单
     invoiceQuery.state = { $in: ['已配发', '新建'] };
 
-    // 查询运单
-    const invoices = await Invoice.find(invoiceQuery)
+    // 查询运单 - 应用租户过滤
+    const query = buildTenantQuery(req, invoiceQuery);
+    const invoices = await Invoice.find(query)
       .populate({
         path: 'bills.bill_id',
         select: 'bill_no order_no order_item_no thickness width len contract_no ship_warehouse'
@@ -249,7 +253,8 @@ exports.getSettleBills = async (req, res) => {
 
     // 获取每个提单的价格和结算信息
     const billIds = [...new Set(bills.map(b => b._id.toString()))];
-    const dbBills = await Bill.find({ _id: { $in: billIds } })
+    const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
+    const dbBills = await Bill.find(billQuery)
       .select('_id bill_no collection_price incoming_price_remark settle_flag invoices')
       .lean()
       .exec();
@@ -318,10 +323,11 @@ exports.inputPrice = async (req, res) => {
 
     for (const bid in billGroups) {
       const items = billGroups[bid];
-      const dbBill = await Bill.findById(bid).exec();
+      const billQ = buildTenantQuery(req, { _id: bid });
+      const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('inputPrice: 未找到提单 bid=' + bid);
+        console.warn('inputPrice: 未找到提单或无权限 bid=' + bid);
         continue;
       }
 
@@ -384,7 +390,8 @@ exports.settleBills = async (req, res) => {
     const date_no = new Date().yyyymmdd() + uno;
     const reg = new RegExp('^JS' + date_no + '.*', 'g');
 
-    const settles = await Settle.find({ serial_number: { $regex: reg } })
+    const settleNumQuery = buildTenantQuery(req, { serial_number: { $regex: reg } });
+    const settles = await Settle.find(settleNumQuery)
       .sort({ serial_number: 'desc' })
       .exec();
 
@@ -431,10 +438,11 @@ exports.settleBills = async (req, res) => {
     // 更新每个提单的结算状态
     for (const bid in billGroups) {
       const items = billGroups[bid];
-      const dbBill = await Bill.findById(bid).exec();
+      const billQ = buildTenantQuery(req, { _id: bid });
+      const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('settleBills: 未找到提单 bid=' + bid);
+        console.warn('settleBills: 未找到提单或无权限 bid=' + bid);
         continue;
       }
 
@@ -491,7 +499,7 @@ exports.settleBills = async (req, res) => {
     // 创建结算记录
     const settleTypeText = settle_type === 'CUSTOMER' ? '客户结算' : '代收代付结算';
 
-    const settle = new Settle({
+    const settleData = injectTenantId(req, {
       serial_number: serialNumber,
       billing_name: billName,
       price: parseFloat(price),
@@ -506,11 +514,12 @@ exports.settleBills = async (req, res) => {
       selfOwned: selfOwned || 0,
       status: '已结算'
     });
+    const settle = new Settle(settleData);
 
     await settle.save();
 
     // 更新运单状态
-    await updateInvoiceStatus(allInvNo, settle_type);
+    await updateInvoiceStatus(allInvNo, settle_type, req);
 
     res.json({ ok: true });
   } catch (error) {
@@ -552,10 +561,11 @@ exports.markNotRequireSettle = async (req, res) => {
     // 更新每个提单
     for (const bid in billGroups) {
       const items = billGroups[bid];
-      const dbBill = await Bill.findById(bid).exec();
+      const billQ = buildTenantQuery(req, { _id: bid });
+      const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('markNotRequireSettle: 未找到提单 bid=' + bid);
+        console.warn('markNotRequireSettle: 未找到提单或无权限 bid=' + bid);
         continue;
       }
 
@@ -605,7 +615,7 @@ exports.markNotRequireSettle = async (req, res) => {
     }
 
     // 更新运单状态
-    await updateInvoiceStatus(allInvNo, settle_type);
+    await updateInvoiceStatus(allInvNo, settle_type, req);
 
     res.json({ ok: true });
   } catch (error) {
@@ -619,7 +629,8 @@ exports.markNotRequireSettle = async (req, res) => {
  */
 exports.getVehicleList = async (req, res) => {
   try {
-    const invoices = await Invoice.find({ state: { $in: ['已配发', '新建'] } })
+    const vehQuery = buildTenantQuery(req, { state: { $in: ['已配发', '新建'] } });
+    const invoices = await Invoice.find(vehQuery)
       .select('vehicle_vessel_name')
       .distinct('vehicle_vessel_name')
       .lean()

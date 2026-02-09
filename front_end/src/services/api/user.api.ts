@@ -1,4 +1,5 @@
 import { useAxios } from '@/composables/use-axios'
+import { getPrivilegeDisplay } from '@/constants/permissions'
 
 const { axiosInstance } = useAxios()
 
@@ -7,7 +8,8 @@ export interface User {
   name: string
   title: string
   phone: string
-  privilege: string
+  privilege: string[]
+  role?: 'platform' | 'owner' | 'member'
 }
 
 export interface UserFormData {
@@ -15,7 +17,7 @@ export interface UserFormData {
   name: string
   title: string
   phone: string
-  privilege: string
+  privilege: string[]
 }
 
 // 职务选项
@@ -39,27 +41,8 @@ export function getTitleCode(label: string): string {
   return option?.value || label
 }
 
-// 权限显示
-export function getPrivilegeDisplay(privilege: string): string {
-  if (privilege === '11111111') {
-    return '管理'
-  }
-
-  if (!privilege) {
-    return ''
-  }
-
-  const parts: string[] = []
-  if (privilege[0] === '1') parts.push('业务')
-  if (privilege[1] === '1') parts.push('统计')
-  if (privilege[2] === '1') parts.push('会计')
-  if (privilege[4] === '1') parts.push('客户营业额')
-  if (privilege[5] === '1') parts.push('车船营业额')
-  if (privilege[6] === '1') parts.push('自有车管理')
-  if (privilege[7] === '1') parts.push('查看价格')
-
-  return parts.join(',')
-}
+// Re-export from permissions constants
+export { getPrivilegeDisplay }
 
 // 获取用户列表
 export async function getUsers() {

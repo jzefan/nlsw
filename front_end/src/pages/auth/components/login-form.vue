@@ -4,6 +4,7 @@ import AuthTitle from './auth-title.vue'
 
 const { login, loading, error } = useAuth()
 
+const tenantCode = ref('')
 const userid = ref('')
 const password = ref('')
 
@@ -11,7 +12,7 @@ async function handleLogin() {
   if (!userid.value || !password.value) {
     return
   }
-  await login(userid.value, password.value)
+  await login(userid.value, password.value, tenantCode.value)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -29,6 +30,21 @@ function handleKeydown(e: KeyboardEvent) {
 
       <div v-if="error" class="text-sm text-red-500 bg-red-50 p-2 rounded">
         {{ error }}
+      </div>
+
+      <div class="grid gap-2">
+        <UiLabel for="tenantCode">
+          公司代码
+          <span class="text-xs text-gray-500">(平台管理员可留空)</span>
+        </UiLabel>
+        <UiInput
+          id="tenantCode"
+          v-model="tenantCode"
+          type="text"
+          placeholder="请输入公司代码"
+          @keydown="handleKeydown"
+          style="text-transform: uppercase"
+        />
       </div>
 
       <div class="grid gap-2">

@@ -18,108 +18,127 @@ const statisticsApiController = require('./controllers/api/statistics');
 const vesselStatisticsApiController = require('./controllers/api/vessel-statistics');
 const drayageForkliftApiController = require('./controllers/api/drayage_forklift');
 const vesselFixedCostApiController = require('./controllers/api/vessel_fixed_cost');
+const platformApiController = require('./controllers/api/platform');
 
 const planController = require('./controllers/order_plan');
 
+// Tenant middleware guards
+const { requireTenant, requirePlatformUser, requireOwnerOrPlatform } = require('./middleware/tenantContext');
+
 module.exports = function (app) {
-  // New API Routes for Frontend
-  app.get('/companies', companyApiController.getCompanies);
-  app.get('/destinations', destinationApiController.getDestinations);
-  app.get('/brands', brandApiController.getBrands);
-  app.get('/sale_deps', saleDepApiController.getSaleDeps);
-  app.get('/warehouses', warehouseApiController.getWarehouses);
+  // New API Routes for Frontend - Data Dictionary (tenant-scoped)
+  app.get('/companies', requireTenant, companyApiController.getCompanies);
+  app.get('/destinations', requireTenant, destinationApiController.getDestinations);
+  app.get('/brands', requireTenant, brandApiController.getBrands);
+  app.get('/sale_deps', requireTenant, saleDepApiController.getSaleDeps);
+  app.get('/warehouses', requireTenant, warehouseApiController.getWarehouses);
 
-  // Statistics API
-  app.get('/statistics/customer/data', statisticsApiController.getStatisticsDataByCondition);
-  app.get('/statistics/customer/detail', statisticsApiController.getCustomerDetail);
-  app.get('/statistics/customer/chart', statisticsApiController.getCustomerChartData);
-  app.get('/statistics/dashboard', statisticsApiController.getDashboardStatistics);
-  app.get('/statistics/dashboard/invoices', statisticsApiController.getDashboardInvoiceDetails);
-  app.get('/statistics/dashboard/billing-names', statisticsApiController.getDashboardBillingNamesStats);
+  // Statistics API (tenant-scoped)
+  app.get('/statistics/customer/data', requireTenant, statisticsApiController.getStatisticsDataByCondition);
+  app.get('/statistics/customer/detail', requireTenant, statisticsApiController.getCustomerDetail);
+  app.get('/statistics/customer/chart', requireTenant, statisticsApiController.getCustomerChartData);
+  app.get('/statistics/dashboard', requireTenant, statisticsApiController.getDashboardStatistics);
+  app.get('/statistics/dashboard/invoices', requireTenant, statisticsApiController.getDashboardInvoiceDetails);
+  app.get('/statistics/dashboard/billing-names', requireTenant, statisticsApiController.getDashboardBillingNamesStats);
+
+  app.get('/statistics/vessel/revenue', requireTenant, vesselStatisticsApiController.getVesselRevenueData);
+  app.get('/statistics/vessel/detail', requireTenant, vesselStatisticsApiController.getVesselAllocationDetail);
+
+  // Plan API (tenant-scoped)
+  app.get('/plans', requireTenant, planApiController.getPlans);
+  app.post('/plans', requireTenant, planController.postCreateOrderPlan);
+  app.post('/plans/update', requireTenant, planController.postUpdatePlan);
+  app.post('/plans/delete', requireTenant, planController.postDeletePlan);
+  app.post('/plans/close', requireTenant, planController.postPlanStatusClosed);
+  app.post('/plans/unclose', requireTenant, planController.postPlanStatusUnClosed);
+  app.get('/plans/check', requireTenant, planController.orderPlanExist);
+
+  // Invoice API (tenant-scoped)
+  app.get('/get_max_waybill_no', requireTenant, invoiceApiController.getMaxWaybillNo);
+  app.get('/invoices', requireTenant, invoiceApiController.getInvoiceList);
+  app.get('/invoices/:waybillNo', requireTenant, invoiceApiController.getInvoiceDetail);
+  app.post('/build_ship_invoice', requireTenant, invoiceApiController.buildShipInvoice);
+  app.post('/build_truck_invoice', requireTenant, invoiceApiController.buildTruckInvoice);
+  app.post('/delete_invoice', requireTenant, invoiceApiController.deleteInvoice);
+
+  // User API (public endpoints and owner/platform only)
+  app.get('/public-key', userApiController.getPublicKey);  // Public
+  app.get('/me', userApiController.getMe);  // Public (authenticated)
+  app.get('/users', requireTenant, userApiController.getUsers);  // Tenant-scoped user list
+  app.get('/user_mgr', requireOwnerOrPlatform, userApiController.getUserMgr);  // Owner or platform only
+  app.post('/user_mgr', requireOwnerOrPlatform, userApiController.postUserMgr);  // Owner or platform only
+  app.post('/resetPwd', requireOwnerOrPlatform, userApiController.resetPassword);  // Owner or platform only
   
-  app.get('/statistics/vessel/revenue', vesselStatisticsApiController.getVesselRevenueData);
-  app.get('/statistics/vessel/detail', vesselStatisticsApiController.getVesselAllocationDetail);
+  // Report API (tenant-scoped)
+  app.get('/get_invoices_bill', requireTenant, reportApiController.getIntegratedQuery);
+  app.get('/report/invoice_report', requireTenant, reportApiController.getInvoiceReport);
 
-  // Plan API
-  app.get('/plans', planApiController.getPlans);
-  app.post('/plans', planController.postCreateOrderPlan);
-  app.post('/plans/update', planController.postUpdatePlan);
-  app.post('/plans/delete', planController.postDeletePlan);
-  app.post('/plans/close', planController.postPlanStatusClosed);
-  app.post('/plans/unclose', planController.postPlanStatusUnClosed);
-  app.get('/plans/check', planController.orderPlanExist);
+  // Bill API (tenant-scoped)
+  app.get('/bills', requireTenant, billApiController.getBills);
+  app.get('/bills/orders', requireTenant, billApiController.getOrders);
+  app.post('/bills', requireTenant, billApiController.createBills);
+  app.post('/bills/delete', requireTenant, billApiController.deleteBills);
+  app.post('/bills/update', requireTenant, billApiController.updateBill);
+  app.post('/bills/search', requireTenant, billApiController.searchBills);
+  app.post('/bills/export', requireTenant, billApiController.exportBills);
 
-  app.get('/get_max_waybill_no', invoiceApiController.getMaxWaybillNo);
-  app.get('/invoices', invoiceApiController.getInvoiceList);
-  app.get('/invoices/:waybillNo', invoiceApiController.getInvoiceDetail);
-  app.post('/build_ship_invoice', invoiceApiController.buildShipInvoice);
-  app.post('/build_truck_invoice', invoiceApiController.buildTruckInvoice);
-  app.post('/delete_invoice', invoiceApiController.deleteInvoice);
-  app.get('/public-key', userApiController.getPublicKey);
-  app.get('/me', userApiController.getMe);
-  app.get('/users', userApiController.getUsers);
-  app.get('/user_mgr', userApiController.getUserMgr);
-  app.post('/user_mgr', userApiController.postUserMgr);
-  app.post('/resetPwd', userApiController.resetPassword);
-  
-  app.get('/get_invoices_bill', reportApiController.getIntegratedQuery);
-  app.get('/report/invoice_report', reportApiController.getInvoiceReport);
+  // Vehicle API (tenant-scoped)
+  app.get('/vehicles/search', requireTenant, vehvesController.searchVehicles);
 
-  // Bill API
-  app.get('/bills', billApiController.getBills);
-  app.get('/bills/orders', billApiController.getOrders); // New orders endpoint
-  app.post('/bills', billApiController.createBills); // Batch create
-  app.post('/bills/delete', billApiController.deleteBills); // Batch delete
-  app.post('/bills/update', billApiController.updateBill); // Single update
-  app.post('/bills/search', billApiController.searchBills); // Advanced search
-  app.post('/bills/export', billApiController.exportBills); // Advanced export
+  // Settle API (tenant-scoped)
+  app.get('/settle/bills', requireTenant, settleApiController.getSettleBills);
+  app.post('/settle/price_input', requireTenant, settleApiController.inputPrice);
+  app.post('/settle/settle_bill', requireTenant, settleApiController.settleBills);
+  app.post('/settle/not_require_settle', requireTenant, settleApiController.markNotRequireSettle);
+  app.get('/settle/vehicles', requireTenant, settleApiController.getVehicleList);
 
-  // Vehicle API
-  app.get('/vehicles/search', vehvesController.searchVehicles);
+  // Vessel Settle API (车船结算) (tenant-scoped)
+  app.get('/settle/vessel_initial_data', requireTenant, vesselSettleController.getVesselInitialData);
+  app.get('/get_invoice_settle_vellel', requireTenant, vesselSettleController.getInvoiceSettleVessel);
+  app.post('/settle_vessel_price', requireTenant, vesselSettleController.updateVesselPrice);
+  app.post('/settle_vessel', requireTenant, vesselSettleController.settleVessel);
+  app.post('/settle_vessel_pay', requireTenant, vesselSettleController.settleVesselPay);
+  app.post('/settle_vessel_delay_info', requireTenant, vesselSettleController.updateVesselDelayInfo);
+  app.post('/settle_vessel_not_needed', requireTenant, vesselSettleController.settleVesselNotNeeded);
+  app.post('/post-carrier-department', requireTenant, vesselSettleController.postCarrierDepartment);
+  app.post('/upload-receipt-img', requireTenant, vesselSettleController.uploadReceiptImg);
+  app.get('/get-receipt-img', requireTenant, vesselSettleController.getReceiptImg);
+  app.get('/get-receipt-images-list', requireTenant, vesselSettleController.getReceiptImagesList);
+  app.get('/get-receipt-image-by-id', requireTenant, vesselSettleController.getReceiptImageById);
+  app.delete('/delete-receipt-image', requireTenant, vesselSettleController.deleteReceiptImage);
+  app.get('/get_waybill', requireTenant, vesselSettleController.getWaybill);
 
-  // Settle API
-  app.get('/settle/bills', settleApiController.getSettleBills);
-  app.post('/settle/price_input', settleApiController.inputPrice);
-  app.post('/settle/settle_bill', settleApiController.settleBills);
-  app.post('/settle/not_require_settle', settleApiController.markNotRequireSettle);
-  app.get('/settle/vehicles', settleApiController.getVehicleList);
+  // Ticket API (开票管理) (tenant-scoped)
+  app.get('/ticket/settles', requireTenant, ticketApiController.getSettleList);
+  app.post('/ticket/update', requireTenant, ticketApiController.updateTicket);
+  app.post('/ticket/delete', requireTenant, ticketApiController.deleteSettle);
+  app.get('/ticket/detail', requireTenant, ticketApiController.getSettleDetail);
 
-  // Vessel Settle API (车船结算)
-  app.get('/settle/vessel_initial_data', vesselSettleController.getVesselInitialData);
-  app.get('/get_invoice_settle_vellel', vesselSettleController.getInvoiceSettleVessel);
-  app.post('/settle_vessel_price', vesselSettleController.updateVesselPrice);
-  app.post('/settle_vessel', vesselSettleController.settleVessel);
-  app.post('/settle_vessel_pay', vesselSettleController.settleVesselPay);
-  app.post('/settle_vessel_delay_info', vesselSettleController.updateVesselDelayInfo);
-  app.post('/settle_vessel_not_needed', vesselSettleController.settleVesselNotNeeded);
-  app.post('/post-carrier-department', vesselSettleController.postCarrierDepartment);
-  app.post('/upload-receipt-img', vesselSettleController.uploadReceiptImg);
-  app.get('/get-receipt-img', vesselSettleController.getReceiptImg);
-  app.get('/get-receipt-images-list', vesselSettleController.getReceiptImagesList);
-  app.get('/get-receipt-image-by-id', vesselSettleController.getReceiptImageById);
-  app.delete('/delete-receipt-image', vesselSettleController.deleteReceiptImage);
-  app.get('/get_waybill', vesselSettleController.getWaybill);
+  // Money API (回款管理) (tenant-scoped)
+  app.get('/money/list', requireTenant, moneyApiController.getMoneyList);
+  app.post('/money/update', requireTenant, moneyApiController.updateMoney);
+  app.post('/money/real-price', requireTenant, moneyApiController.updateRealPrice);
 
-  // Ticket API (开票管理)
-  app.get('/ticket/settles', ticketApiController.getSettleList);
-  app.post('/ticket/update', ticketApiController.updateTicket);
-  app.post('/ticket/delete', ticketApiController.deleteSettle);
-  app.get('/ticket/detail', ticketApiController.getSettleDetail);
+  // Drayage Forklift API (tenant-scoped)
+  app.get('/drayage_forklifts', requireTenant, drayageForkliftApiController.getList);
+  app.get('/drayage_forklifts/:month', requireTenant, drayageForkliftApiController.getByMonth);
+  app.post('/drayage_forklifts', requireTenant, drayageForkliftApiController.upsert);
+  app.delete('/drayage_forklifts/:month', requireTenant, drayageForkliftApiController.delete);
 
-  // Money API (回款管理)
-  app.get('/money/list', moneyApiController.getMoneyList);
-  app.post('/money/update', moneyApiController.updateMoney);
-  app.post('/money/real-price', moneyApiController.updateRealPrice);
+  // Vessel Fixed Cost API (tenant-scoped)
+  app.get('/vessel_fixed_costs', requireTenant, vesselFixedCostApiController.getList);
+  app.get('/vessel_fixed_costs/detail', requireTenant, vesselFixedCostApiController.getOne);
+  app.post('/vessel_fixed_costs', requireTenant, vesselFixedCostApiController.upsert);
+  app.post('/vessel_fixed_costs/delete', requireTenant, vesselFixedCostApiController.delete);
 
-  // Drayage Forklift API
-  app.get('/drayage_forklifts', drayageForkliftApiController.getList);
-  app.get('/drayage_forklifts/:month', drayageForkliftApiController.getByMonth);
-  app.post('/drayage_forklifts', drayageForkliftApiController.upsert);
-  app.delete('/drayage_forklifts/:month', drayageForkliftApiController.delete);
-
-  // Vessel Fixed Cost API
-  app.get('/vessel_fixed_costs', vesselFixedCostApiController.getList);
-  app.get('/vessel_fixed_costs/detail', vesselFixedCostApiController.getOne);
-  app.post('/vessel_fixed_costs', vesselFixedCostApiController.upsert);
-  app.post('/vessel_fixed_costs/delete', vesselFixedCostApiController.delete); // Using POST for delete with body
+  // Platform Admin API (platform-only)
+  app.get('/platform/tenants', requirePlatformUser, platformApiController.getTenants);
+  app.post('/platform/tenants', requirePlatformUser, platformApiController.createTenant);
+  app.post('/platform/tenants/update', requirePlatformUser, platformApiController.updateTenant);
+  app.post('/platform/tenants/delete', requirePlatformUser, platformApiController.deleteTenant);
+  app.post('/platform/tenants/status', requirePlatformUser, platformApiController.updateTenantStatus);
+  app.get('/platform/tenants/:tenantId/users', requirePlatformUser, platformApiController.getTenantUsers);
+  app.get('/platform/tenants/:tenantId/bills', requirePlatformUser, platformApiController.getTenantBills);
+  app.get('/platform/tenants/:tenantId/invoices', requirePlatformUser, platformApiController.getTenantInvoices);
+  app.get('/platform/statistics', requirePlatformUser, platformApiController.getPlatformStats);
 };

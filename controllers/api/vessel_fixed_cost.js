@@ -1,5 +1,6 @@
 const VehVesCost = require('../../models/VesselCost');
 const utils = require('../../controllers/utils');
+const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
 
 /**
  * Get Vessel Fixed Cost list with filtering
@@ -7,21 +8,22 @@ const utils = require('../../controllers/utils');
 exports.getList = async function (req, res) {
   try {
     const { name, startDate, endDate, type } = req.query;
-    const query = {};
+    const baseQuery = {};
 
     if (type) {
-      query.vv_type = type; // 'che' or 'chuan'
+      baseQuery.vv_type = type; // 'che' or 'chuan'
     }
 
     if (name) {
       // Support multiple names if needed, but simple string for now
-      query.name = name; 
+      baseQuery.name = name;
     }
 
     if (startDate && endDate) {
-      query.month = { $gte: startDate, $lte: endDate };
+      baseQuery.month = { $gte: startDate, $lte: endDate };
     }
 
+    const query = buildTenantQuery(req, baseQuery);
     const list = await VehVesCost.find(query).sort({ month: 'desc' }).lean().exec();
     res.json({ ok: true, data: list });
   } catch (err) {
@@ -38,7 +40,8 @@ exports.getOne = async function (req, res) {
     if (!name || !month) {
       return res.status(400).json({ ok: false, message: 'Name and month are required' });
     }
-    const item = await VehVesCost.findOne({ name, month }).lean().exec();
+    const query = buildTenantQuery(req, { name, month });
+    const item = await VehVesCost.findOne(query).lean().exec();
     if (item) {
       res.json({ ok: true, data: item });
     } else {
@@ -55,8 +58,9 @@ exports.getOne = async function (req, res) {
 exports.upsert = async function (req, res) {
   try {
     const data = req.body;
-    let item = await VehVesCost.findOne({ name: data.name, month: data.month }).exec();
-    
+    const query = buildTenantQuery(req, { name: data.name, month: data.month });
+    let item = await VehVesCost.findOne(query).exec();
+
     if (item) {
       // Update fields
       item.ic = data.ic;
@@ -74,9 +78,10 @@ exports.upsert = async function (req, res) {
       item.total = data.total;
       item.vv_type = data.vv_type;
     } else {
-      item = new VehVesCost(data);
+      const newData = injectTenantId(req, data);
+      item = new VehVesCost(newData);
     }
-    
+
     await item.save();
     res.json({ ok: true });
   } catch (err) {
@@ -93,7 +98,8 @@ exports.delete = async function (req, res) {
     if (!name || !month) {
       return res.status(400).json({ ok: false, message: 'Name and month are required' });
     }
-    await VehVesCost.deleteMany({ name, month }).exec();
+    const query = buildTenantQuery(req, { name, month });
+    await VehVesCost.deleteMany(query).exec();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

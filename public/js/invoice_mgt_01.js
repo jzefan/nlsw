@@ -392,7 +392,8 @@ $(function () {
       }
       var str = '';
       if (isVessel) {
-        str = '<table><tr><th colspan="12">南京军铁储运有限公司发货单</th>';
+        var companyTitle = (typeof local_company_name !== 'undefined' && local_company_name) ? local_company_name : '';
+        str = '<table><tr><th colspan="12">' + companyTitle + '发货单</th>';
         str += '<tr><td colspan="3">运单号：' + selectedWaybill.waybill_no + '</td><td colspan="6">开单名称:' + selectedWaybill.ship_name + '</td><td colspan="3" align="right">目的地:' + selectedWaybill.ship_to + '</td></tr>';
         str += '<tr><td colspan="3">车船号：' + selectedWaybill.vehicle_vessel_name + '</td><td colspan="6">发货单位:' + customer + '</td><td colspan="3" align="right">电话:' + $('#report-shipto-phone').text() + '</td>';
         str += '<tr><td colspan="3">发货日期：' + $('#report-ship-date').text() + '</td></td><td colspan="6">电话:' + $('#report-bill-phone').text() + '</td><td colspan="3" align="right">联系人:' + $('#report-shipto-contact').text() + '</td></tr>';
@@ -403,7 +404,7 @@ $(function () {
         str += '<tr><th colspan="10" align="right">总重量:</th><th colspan="2" align="left">' + $('#report-total-weight').text() + '</th></tr>';
         str += '<tr><th colspan="10" align="right">总块数:</th><th colspan="2" align="left">' + $('#report-total-number').text() + '</th></tr></table>';
       } else {
-        str = '<table><tr><th colspan="11">南京军铁储运有限公司发货单</th>';
+        str = '<table><tr><th colspan="11">' + companyTitle + '发货单</th>';
         str += '<tr><td colspan="3">运单号：' + selectedWaybill.waybill_no + '</td><td colspan="5">开单名称:' + selectedWaybill.ship_name + '</td><td colspan="3" align="right">目的地:' + selectedWaybill.ship_to + '</td></tr>';
         str += '<tr><td colspan="3">车船号：' + selectedWaybill.vehicle_vessel_name + '</td><td colspan="5">发货单位:' + customer + '</td><td colspan="3" align="right">电话:' + $('#report-shipto-phone').text() + '</td>';
         str += '<tr><td colspan="3">发货日期：' + $('#report-ship-date').text() + '</td></td><td colspan="5">电话:' + $('#report-bill-phone').text() + '</td><td colspan="3" align="right">联系人:' + $('#report-shipto-contact').text() + '</td></tr>';
