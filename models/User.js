@@ -1,5 +1,5 @@
 var mongoose = require('mongoose');
-var bcrypt = require('bcrypt-nodejs');
+var bcrypt = require('bcryptjs');
 var crypto = require('crypto');
 
 var userSchema = new mongoose.Schema({
@@ -57,20 +57,15 @@ userSchema.index({ tenantCode: 1, userid: 1 }, { unique: true });
  * Hash the password for security.
  * "Pre" is a Mongoose middleware that executes before each user.save() call.
  */
-userSchema.pre('save', function(next) {
-  var user = this;
-
-  if (!user.isModified('password')) return next();
-
-  bcrypt.genSalt(5, function(err, salt) {
-    if (err) return next(err);
-
-    bcrypt.hash(user.password, salt, null, function(err, hash) {
-      if (err) return next(err);
-      user.password = hash;
-      next();
-    });
-  });
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  try {
+    var salt = await bcrypt.genSalt(5);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
@@ -79,12 +74,7 @@ userSchema.pre('save', function(next) {
  */
 
 userSchema.methods.comparePassword = function(candidatePassword) {
-  return new Promise((resolve, reject) => {
-    bcrypt.compare(candidatePassword, this.password, function(err, isMatch) {
-      if (err) return reject(err);
-      resolve(isMatch);
-    });
-  });
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
 /**
