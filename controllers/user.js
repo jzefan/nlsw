@@ -243,15 +243,16 @@ async function udpateUserNo(user) {
  * Log out.
  */
 
-exports.logout = function (req, res) {
-  req.logout();
-  
-  const isApi = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') > -1);
-  if (isApi) {
-    res.json({ ok: true });
-  } else {
-    res.redirect('/login');
-  }
+exports.logout = function (req, res, next) {
+  req.logout(function (err) {
+    if (err) return next(err);
+    const isApi = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') > -1);
+    if (isApi) {
+      res.json({ ok: true });
+    } else {
+      res.redirect('/login');
+    }
+  });
 };
 
 /**
@@ -427,8 +428,10 @@ exports.postResetPassword = async function (req, res, next) {
 exports.postDeleteAccount = async function (req, res, next) {
   try {
     await User.deleteOne({ _id: req.user.id });
-    req.logout();
-    res.redirect('/');
+    req.logout(function (err) {
+      if (err) return next(err);
+      res.redirect('/');
+    });
   } catch (err) {
     return next(err);
   }
