@@ -50,6 +50,7 @@ var invoiceSchema = new Schema({
   shipper: String,  // 发货人
   username: String, // 创建人
   state: String,    // 新建, 配发, 结算 (客户/代收代付)
+  create_date: Date,  // 创建日期
   settle_flag: { type: Number, default: 0 },
 
   vessel_settle_state: { type: String, default: '未结算' }, // 车船结算状态

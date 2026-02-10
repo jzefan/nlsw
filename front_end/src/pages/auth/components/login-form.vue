@@ -2,7 +2,10 @@
 import { useAuth } from '@/composables/use-auth'
 import AuthTitle from './auth-title.vue'
 
+const route = useRoute()
 const { login, loading, error } = useAuth()
+
+const isSessionExpired = computed(() => route.query.expired === '1')
 
 const tenantCode = ref('')
 const userid = ref('')
@@ -27,6 +30,10 @@ function handleKeydown(e: KeyboardEvent) {
     <UiCardContent class="grid gap-6 pt-6">
       <!-- 图标和系统标题 -->
       <AuthTitle class="mb-4" />
+
+      <div v-if="isSessionExpired && !error" class="text-sm text-amber-600 bg-amber-50 p-2 rounded">
+        登录已过期，请重新登录
+      </div>
 
       <div v-if="error" class="text-sm text-red-500 bg-red-50 p-2 rounded">
         {{ error }}

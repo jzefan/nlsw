@@ -482,27 +482,37 @@ function removePendingBill(index: number) {
 // 更新发运数量
 function updateSendNum(index: number, value: number) {
   const bill = pendingBills.value[index]
-  const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
+  const isBlock = isBlockBill(bill)
 
   // 获取最大可用量
   const maxNum = getMaxAvailable(bill, index)
 
   // 定尺时：发运数受剩余量限制
   // 非定尺时：发运数不受限制，只有发运重量受限制
-  if (originalBill?.block_num > 0) {
-    // 定尺：发运数范围 [0, 最大可用量]
-    if (value > maxNum) {
-      value = maxNum
-    }
+  let clamped = value
+  if (isBlock && clamped > maxNum) {
+    clamped = maxNum
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_num = value
-  // 定尺时自动计算发运重量
-  if (originalBill?.block_num > 0) {
-    bill.send_weight = Number((value * (originalBill.weight || 0)).toFixed(3))
+  // 当输入值被截断时（如剩余30输入300），需要强制刷新输入框显示
+  // Vue 在 model-value 未变化时不会重新渲染输入框
+  if (value !== clamped) {
+    bill.send_num = value
+    nextTick(() => {
+      bill.send_num = clamped
+      if (isBlock) {
+        bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
+      }
+    })
+  }
+  else {
+    bill.send_num = clamped
+    if (isBlock) {
+      bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
+    }
   }
 }
 
@@ -513,15 +523,23 @@ function updateSendWeight(index: number, value: number) {
   // 获取最大可用量（乱尺时left_num存储的是重量）
   const maxWeight = getMaxAvailable(bill, index)
 
-  // 发运重量范围 [0, 最大可用量]，超过则设为最大可用量
-  if (value > maxWeight) {
-    value = maxWeight
+  let clamped = value
+  if (clamped > maxWeight) {
+    clamped = maxWeight
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_weight = value
+  if (value !== clamped) {
+    bill.send_weight = value
+    nextTick(() => {
+      bill.send_weight = clamped
+    })
+  }
+  else {
+    bill.send_weight = clamped
+  }
 }
 
 // 确认当前车辆的配发
@@ -680,14 +698,29 @@ function getOrderDisplay(bill: any) {
 // 判断是否为定尺
 function isBlockBill(bill: InvoiceBill) {
   const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
-  return originalBill?.block_num > 0
+  if (originalBill) return originalBill.block_num > 0
+  // 已加载运单的提单可能不在 availableOrdersData 中，使用自身属性
+  return (bill as any).block_num > 0
+}
+
+// 获取提单的原始剩余量（还原扣减前）
+function getBaseLeft(billId: string) {
+  // 优先使用已加载运单中预计算的还原剩余量
+  const confirmedWithOriginal = confirmedBills.value.find(
+    cb => cb._id === billId && (cb as any)._originalLeft != null,
+  )
+  if (confirmedWithOriginal) {
+    return (confirmedWithOriginal as any)._originalLeft
+  }
+  // 新建运单：使用 availableOrdersData 中的 left_num
+  const originalBill = findBillById(billId)
+  return originalBill?.left_num || originalBill?.left || 0
 }
 
 // 获取提单的最大可用量（用于输入框验证）
 function getMaxAvailable(bill: InvoiceBill, index: number) {
-  const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
-  const baseLeft = originalBill?.left_num || originalBill?.left || 0
-  const isBlock = originalBill?.block_num > 0
+  const baseLeft = getBaseLeft(bill._id!)
+  const isBlock = isBlockBill(bill)
 
   if (isBlock) {
     // 定尺：按块数计算
@@ -718,9 +751,8 @@ function getMaxAvailable(bill: InvoiceBill, index: number) {
 // 获取提单的动态剩余量（最大可用量 - 当前发运量）
 function getBillLeftNum(bill: InvoiceBill, index: number) {
   const maxAvailable = getMaxAvailable(bill, index)
-  const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
 
-  if (originalBill?.block_num > 0) {
+  if (isBlockBill(bill)) {
     // 定尺：剩余量 = 最大可用量 - 当前发运数
     return maxAvailable - (bill.send_num || 0)
   }
@@ -785,6 +817,7 @@ async function loadInvoiceList() {
       keyword: invoiceSearchKeyword.value,
       page: invoiceListPage.value,
       limit: invoiceListLimit.value,
+      transportType: '船',
     }
 
     // 只有在勾选时才传递myOnly参数
@@ -851,6 +884,12 @@ async function loadInvoiceDetail(invoice: any) {
         if (!billInfo)
           continue
 
+        // 还原此运单扣减前的原始剩余量（invBill.num/weight 是该提单的总发运量）
+        const currentLeft = billInfo.left_num || 0
+        const originalLeft = billInfo.block_num > 0
+          ? currentLeft + (invBill.num || 0)
+          : Number((currentLeft + (invBill.weight || 0)).toFixed(3))
+
         // 处理每个车辆
         for (const vehicle of invBill.vehicles || []) {
           confirmedBills.value.push({
@@ -871,6 +910,7 @@ async function loadInvoiceDetail(invoice: any) {
             wagon_no: vehicle.veh_name || '',
             inner_waybill_no: vehicle.inner_waybill_no || '',
             ship_from: vehicle.veh_ship_from || inv.ship_from,
+            _originalLeft: originalLeft,
           })
         }
       }
@@ -1384,6 +1424,7 @@ function formatWeight(weight: number) {
                     <UiTableHead>开单名称</UiTableHead>
                     <UiTableHead>始发地</UiTableHead>
                     <UiTableHead>目的地</UiTableHead>
+                    <UiTableHead>创建日期</UiTableHead>
                     <UiTableHead>配发日期</UiTableHead>
                     <UiTableHead>总重量(吨)</UiTableHead>
                     <UiTableHead>状态</UiTableHead>
@@ -1403,6 +1444,7 @@ function formatWeight(weight: number) {
                     <UiTableCell>{{ invoice.ship_name }}</UiTableCell>
                     <UiTableCell>{{ invoice.ship_from }}</UiTableCell>
                     <UiTableCell>{{ invoice.ship_to }}</UiTableCell>
+                    <UiTableCell>{{ formatDate(invoice.create_date) }}</UiTableCell>
                     <UiTableCell>{{ formatDate(invoice.ship_date) }}</UiTableCell>
                     <UiTableCell>{{ formatWeight(invoice.total_weight) }}</UiTableCell>
                     <UiTableCell>{{ invoice.state }}</UiTableCell>

@@ -20,13 +20,13 @@ axiosInstance.interceptors.request.use((config) => {
 axiosInstance.interceptors.response.use((response) => {
   return response
 }, (error: AxiosError) => {
-  // 401 未认证错误处理
+  // 401 未认证错误处理（session 过期或未登录）
   if (error.response?.status === 401) {
-    // 检查是否不是登录相关的请求
     const url = error.config?.url || ''
     if (!url.includes('/login') && !url.includes('/me')) {
-      // 跳转到登录页面
-      window.location.href = '/auth/sign-in'
+      const currentPath = window.location.pathname + window.location.search
+      const redirect = encodeURIComponent(currentPath)
+      window.location.href = `/auth/sign-in?redirect=${redirect}&expired=1`
     }
   }
   return Promise.reject(error)

@@ -1,0 +1,177 @@
+import {
+  BarChart3,
+  BookOpen,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  Database,
+  Eye,
+  FileText,
+  LayoutDashboard,
+  Receipt,
+  Settings,
+  Ship,
+  TrendingUp,
+  Truck,
+  Wrench,
+} from 'lucide-vue-next'
+
+import type { NavGroup } from '../types'
+import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
+
+export function generateNavData(privilege: string[]): NavGroup[] {
+  const groups: NavGroup[] = []
+
+  // 总览 - 所有人可见
+  groups.push({
+    title: '总览',
+    items: [
+      { title: '首页', url: '/dashboard', icon: LayoutDashboard },
+    ],
+  })
+
+  // 业务管理 - 业务员或管理员
+  if (hasPermission(privilege, PERMISSIONS.OPERATOR)) {
+    groups.push({
+      title: '业务管理',
+      items: [
+        {
+          title: '订单计划',
+          icon: ClipboardList,
+          items: [
+            { title: '新建计划', url: '/plans/create' },
+            { title: '计划列表', url: '/plans' },
+          ],
+        },
+        {
+          title: '提单管理',
+          icon: FileText,
+          items: [
+            { title: '新建提单', url: '/bills/create' },
+            { title: '提单列表', url: '/bills/list' },
+            { title: '删除提单', url: '/bills/delete' },
+          ],
+        },
+        {
+          title: '运单管理',
+          icon: Receipt,
+          items: [
+            { title: '配发货-车运', url: '/invoices/create-truck' },
+            { title: '配发货-船运', url: '/invoices/create-ship' },
+            { title: '删除运单', url: '/invoices/delete' },
+          ],
+        },
+      ],
+    })
+  }
+
+  // 结算 - 会计或管理员
+  if (hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+    groups.push({
+      title: '结算管理',
+      items: [
+        { title: '结算', url: '/settle/bill', icon: Truck },
+        { title: '开票', url: '/settle/ticket', icon: CreditCard },
+        { title: '回款', url: '/settle/money', icon: CreditCard },
+        { title: '车船结算', url: '/settle/vessel', icon: Ship },
+      ],
+    })
+  }
+
+  // 数据与报表
+  if (hasPermission(privilege, PERMISSIONS.STATISTICS) || hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+    const groupItems: NavGroup['items'] = []
+
+    // 报表
+    const reportItems: NavGroup['items'][0] = {
+      title: '报表',
+      icon: TrendingUp,
+      items: [
+        { title: '综合查询', url: '/reports/integrated' },
+        { title: '运单报表', url: '/reports/invoice' },
+        { title: '运输价格报表', url: '/reports/shipping-charge' },
+        { title: '短驳叉车应收款', url: '/reports/drayage-forklift' },
+        { title: '车船固定费用', url: '/reports/vessel-fixed-cost' },
+      ],
+    }
+    if (hasPermission(privilege, PERMISSIONS.CUST_REVENUE)) {
+      reportItems.items!.push({ title: '客户营业额', url: '/reports/customer-revenue' })
+    }
+    if (hasPermission(privilege, PERMISSIONS.VESSEL_REVENUE)) {
+      reportItems.items!.push({ title: '车船营业额', url: '/reports/vessel-revenue' })
+    }
+    groupItems.push(reportItems)
+
+    // 数据字典 - 管理员
+    if (isAdmin(privilege)) {
+      groupItems.push({
+        title: '基础数据',
+        icon: Database,
+        items: [
+          { title: '车船号', url: '/data/vehicles' },
+          { title: '发货单位', url: '/data/companies' },
+          { title: '仓库', url: '/data/warehouses' },
+          { title: '目的地', url: '/data/destinations' },
+          { title: '牌号', url: '/data/brands' },
+          { title: '销售部门', url: '/data/sale-deps' },
+        ],
+      })
+
+      // 数据处理
+      groupItems.push({
+        title: '数据处理',
+        icon: BookOpen,
+        items: [
+          { title: '圆钢', url: '/data-process/round-steel' },
+          { title: '板材', url: '/data-process/plate' },
+        ],
+      })
+    }
+
+    groups.push({
+      title: '数据与报表',
+      items: groupItems,
+    })
+  }
+
+  // 设置 - 所有人可见
+  groups.push({
+    title: '其他',
+    items: [
+      {
+        title: '设置',
+        icon: Settings,
+        items: [
+          { title: '密码修改', url: '/settings/account', icon: Wrench },
+        ],
+      },
+    ],
+  })
+
+  return groups
+}
+
+export function generatePlatformNavData(): NavGroup[] {
+  return [
+    {
+      title: '平台管理',
+      items: [
+        { title: '公司账号管理', url: '/platform/tenants', icon: Building2 },
+        { title: '公司业务查看', url: '/platform/business', icon: Eye },
+        { title: '平台统计报告', url: '/platform/statistics', icon: BarChart3 },
+      ],
+    },
+    {
+      title: '其他',
+      items: [
+        {
+          title: '设置',
+          icon: Settings,
+          items: [
+            { title: '密码修改', url: '/settings/account', icon: Wrench },
+          ],
+        },
+      ],
+    },
+  ]
+}

@@ -1,6 +1,7 @@
 const Invoice = require('../../models/Invoice');
 const Bill = require('../../models/Bill');
 const OrderPlan = require('../../models/OrderPlan');
+const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
 const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
 const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
@@ -124,17 +125,18 @@ exports.getMaxWaybillNo = async (req, res) => {
  */
 exports.getInvoiceList = async (req, res) => {
   try {
-    const { 
-      keyword, 
-      limit = 50, 
-      page = 1, 
+    const {
+      keyword,
+      limit = 50,
+      page = 1,
       myOnly,
       waybillNo,
       vehicleName,
       shipName,
       state,
       startDate,
-      endDate
+      endDate,
+      transportType
     } = req.query;
     const user = req.user || { userid: 'admin', privilege: ['admin'] };
     const userId = user.userid;
@@ -149,6 +151,14 @@ exports.getInvoiceList = async (req, res) => {
       query.shipper = userId;
     } else if (myOnly === 'true' || myOnly === true) {
       query.shipper = userId;
+    }
+
+    // 按运输类型过滤（车/船）：通过 Vehicle 表的 veh_type 查找对应车船名称
+    if (transportType) {
+      const vehicleNames = await Vehicle.distinct('name',
+        buildTenantQuery(req, { veh_type: transportType })
+      );
+      query.vehicle_vessel_name = { $in: vehicleNames };
     }
 
     if (keyword) {
@@ -204,8 +214,8 @@ exports.getInvoiceList = async (req, res) => {
 
     // 查询运单列表
     const invoices = await Invoice.find(tenantQuery)
-      .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state createdAt shipper')
-      .sort({ ship_date: -1, createdAt: -1 })
+      .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state create_date shipper')
+      .sort({ create_date: -1, ship_date: -1 })
       .limit(parseInt(limit))
       .skip(skip)
       .lean()
@@ -479,7 +489,8 @@ exports.buildShipInvoice = async (req, res) => {
       username: data.username || userId,
       shipper: userId,
       state: data.state || '新建',
-      selfOwned: data.selfOwned ? 1 : 0
+      selfOwned: data.selfOwned ? 1 : 0,
+      create_date: new Date()
     };
 
     // 9. 根据是否已存在运单，执行新建或更新
@@ -1056,7 +1067,8 @@ exports.buildTruckInvoice = async (req, res) => {
       username: data.username || userId,
       shipper: userId,
       state: data.state || '新建',
-      selfOwned: data.selfOwned ? 1 : 0
+      selfOwned: data.selfOwned ? 1 : 0,
+      create_date: new Date()
     };
 
     // 9. 根据是否已存在运单，执行新建或更新
