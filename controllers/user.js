@@ -7,6 +7,7 @@ var User = require('../models/User');
 var Tenant = require('../models/Tenant');
 var secrets = require('../config/secrets');
 var { isAdmin } = require('../utils/permissions');
+var { getDeployMode, getStandaloneCompany } = require('../utils/deploy-mode');
 
 /**
  * GET /login
@@ -157,7 +158,7 @@ exports.postLogin = function (req, res, next) {
                                           }
                                       }
 
-                                      return res.json({ ok: true, user: userData, tenant: tenantData });
+                                      return res.json({ ok: true, user: userData, tenant: tenantData, deployMode: getDeployMode(), standaloneCompany: getStandaloneCompany() });
 
       
 

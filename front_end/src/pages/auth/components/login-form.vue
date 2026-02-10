@@ -1,21 +1,41 @@
 <script lang="ts" setup>
 import { useAuth } from '@/composables/use-auth'
+import { useAuthStore } from '@/stores/auth'
+import { useAxios } from '@/composables/use-axios'
 import AuthTitle from './auth-title.vue'
 
 const route = useRoute()
 const { login, loading, error } = useAuth()
+const authStore = useAuthStore()
+const { axiosInstance } = useAxios()
 
 const isSessionExpired = computed(() => route.query.expired === '1')
+const isStandalone = computed(() => authStore.isStandalone)
 
 const tenantCode = ref('')
 const userid = ref('')
 const password = ref('')
 
+// Fetch deploy mode on mount
+onMounted(async () => {
+  try {
+    const res = await axiosInstance.get('/deploy-info')
+    if (res.data.deployMode) {
+      authStore.setDeployMode(res.data.deployMode)
+    }
+    if (res.data.standaloneCompany) {
+      authStore.setStandaloneCompany(res.data.standaloneCompany)
+    }
+  } catch (e) {
+    // Default to saas if fetch fails
+  }
+})
+
 async function handleLogin() {
   if (!userid.value || !password.value) {
     return
   }
-  await login(userid.value, password.value, tenantCode.value)
+  await login(userid.value, password.value, isStandalone.value ? '' : tenantCode.value)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -39,7 +59,7 @@ function handleKeydown(e: KeyboardEvent) {
         {{ error }}
       </div>
 
-      <div class="grid gap-2">
+      <div v-if="!isStandalone" class="grid gap-2">
         <UiLabel for="tenantCode">
           公司代码
           <span class="text-xs text-gray-500">(平台管理员可留空)</span>

@@ -25,16 +25,15 @@ export function generateNavData(privilege: string[]): NavGroup[] {
   // 总览 - 所有人可见
   groups.push({
     title: '总览',
-    items: [
-      { title: '首页', url: '/dashboard', icon: LayoutDashboard },
-    ],
+    items: [{ title: '首页', url: '/dashboard', icon: LayoutDashboard }],
   })
 
-  // 业务管理 - 业务员或管理员
-  if (hasPermission(privilege, PERMISSIONS.OPERATOR)) {
-    groups.push({
-      title: '业务管理',
-      items: [
+  // 业务管理 - 业务员或会计或管理员
+  if (hasPermission(privilege, PERMISSIONS.OPERATOR) || hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+    const bizItems: NavGroup['items'] = []
+
+    if (hasPermission(privilege, PERMISSIONS.OPERATOR)) {
+      bizItems.push(
         {
           title: '订单计划',
           icon: ClipboardList,
@@ -54,27 +53,33 @@ export function generateNavData(privilege: string[]): NavGroup[] {
         },
         {
           title: '运单管理',
-          icon: Receipt,
+          icon: Truck,
+          // icon: Receipt,
           items: [
             { title: '配发货-车运', url: '/invoices/create-truck' },
             { title: '配发货-船运', url: '/invoices/create-ship' },
             { title: '删除运单', url: '/invoices/delete' },
           ],
         },
-      ],
-    })
-  }
+      )
+    }
 
-  // 结算 - 会计或管理员
-  if (hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+    if (hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+      bizItems.push({
+        title: '结算管理',
+        icon: Receipt,
+        items: [
+          { title: '结算', url: '/settle/bill', icon: Receipt },
+          { title: '开票', url: '/settle/ticket', icon: CreditCard },
+          { title: '回款', url: '/settle/money', icon: CreditCard },
+          { title: '车船结算', url: '/settle/vessel', icon: Ship },
+        ],
+      })
+    }
+
     groups.push({
-      title: '结算管理',
-      items: [
-        { title: '结算', url: '/settle/bill', icon: Truck },
-        { title: '开票', url: '/settle/ticket', icon: CreditCard },
-        { title: '回款', url: '/settle/money', icon: CreditCard },
-        { title: '车船结算', url: '/settle/vessel', icon: Ship },
-      ],
+      title: '业务管理',
+      items: bizItems,
     })
   }
 
@@ -84,7 +89,7 @@ export function generateNavData(privilege: string[]): NavGroup[] {
 
     // 报表
     const reportItems: NavGroup['items'][0] = {
-      title: '报表',
+      title: '报表统计',
       icon: TrendingUp,
       items: [
         { title: '综合查询', url: '/reports/integrated' },
@@ -141,9 +146,7 @@ export function generateNavData(privilege: string[]): NavGroup[] {
       {
         title: '设置',
         icon: Settings,
-        items: [
-          { title: '密码修改', url: '/settings/account', icon: Wrench },
-        ],
+        items: [{ title: '密码修改', url: '/settings/account', icon: Wrench }],
       },
     ],
   })
@@ -167,9 +170,7 @@ export function generatePlatformNavData(): NavGroup[] {
         {
           title: '设置',
           icon: Settings,
-          items: [
-            { title: '密码修改', url: '/settings/account', icon: Wrench },
-          ],
+          items: [{ title: '密码修改', url: '/settings/account', icon: Wrench }],
         },
       ],
     },

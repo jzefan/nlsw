@@ -24,8 +24,14 @@ const planController = require('./controllers/order_plan');
 
 // Tenant middleware guards
 const { requireTenant, requirePlatformUser, requireOwnerOrPlatform } = require('./middleware/tenantContext');
+const { isSaas, getDeployMode, getStandaloneCompany } = require('./utils/deploy-mode');
 
 module.exports = function (app) {
+  // Deploy info (public, no auth required)
+  app.get('/deploy-info', (req, res) => {
+    res.json({ deployMode: getDeployMode(), standaloneCompany: getStandaloneCompany() });
+  });
+
   // New API Routes for Frontend - Data Dictionary (tenant-scoped)
   app.get('/companies', requireTenant, companyApiController.getCompanies);
   app.get('/destinations', requireTenant, destinationApiController.getDestinations);
@@ -131,14 +137,16 @@ module.exports = function (app) {
   app.post('/vessel_fixed_costs', requireTenant, vesselFixedCostApiController.upsert);
   app.post('/vessel_fixed_costs/delete', requireTenant, vesselFixedCostApiController.delete);
 
-  // Platform Admin API (platform-only)
-  app.get('/platform/tenants', requirePlatformUser, platformApiController.getTenants);
-  app.post('/platform/tenants', requirePlatformUser, platformApiController.createTenant);
-  app.post('/platform/tenants/update', requirePlatformUser, platformApiController.updateTenant);
-  app.post('/platform/tenants/delete', requirePlatformUser, platformApiController.deleteTenant);
-  app.post('/platform/tenants/status', requirePlatformUser, platformApiController.updateTenantStatus);
-  app.get('/platform/tenants/:tenantId/users', requirePlatformUser, platformApiController.getTenantUsers);
-  app.get('/platform/tenants/:tenantId/bills', requirePlatformUser, platformApiController.getTenantBills);
-  app.get('/platform/tenants/:tenantId/invoices', requirePlatformUser, platformApiController.getTenantInvoices);
-  app.get('/platform/statistics', requirePlatformUser, platformApiController.getPlatformStats);
+  // Platform Admin API (platform-only, SaaS mode only)
+  if (isSaas()) {
+    app.get('/platform/tenants', requirePlatformUser, platformApiController.getTenants);
+    app.post('/platform/tenants', requirePlatformUser, platformApiController.createTenant);
+    app.post('/platform/tenants/update', requirePlatformUser, platformApiController.updateTenant);
+    app.post('/platform/tenants/delete', requirePlatformUser, platformApiController.deleteTenant);
+    app.post('/platform/tenants/status', requirePlatformUser, platformApiController.updateTenantStatus);
+    app.get('/platform/tenants/:tenantId/users', requirePlatformUser, platformApiController.getTenantUsers);
+    app.get('/platform/tenants/:tenantId/bills', requirePlatformUser, platformApiController.getTenantBills);
+    app.get('/platform/tenants/:tenantId/invoices', requirePlatformUser, platformApiController.getTenantInvoices);
+    app.get('/platform/statistics', requirePlatformUser, platformApiController.getPlatformStats);
+  }
 };

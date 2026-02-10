@@ -5,6 +5,7 @@ var User = require('../models/User');
 var Tenant = require('../models/Tenant');
 var secrets = require('./secrets');
 var { decryptPassword, isEncryptedPassword } = require('../utils/crypto');
+var { isStandalone } = require('../utils/deploy-mode');
 
 passport.serializeUser(function(user, done) {
   done(null, user.id);
@@ -30,7 +31,20 @@ passport.use(new LocalStrategy(
 
       let user;
 
-      if (!tenantCode) {
+      if (isStandalone()) {
+        // 独立模式：所有用户在默认租户中查找，忽略 tenantCode
+        const tenant = await Tenant.findOne({ code: 'DEFAULT' });
+        if (!tenant) {
+          return done(null, false, { message: '系统尚未初始化' });
+        }
+        user = await User.findOne({ tenantId: tenant._id, userid: userid });
+        if (!user) {
+          return done(null, false, { message: '用户名 ' + userid + ' 不存在' });
+        }
+        if (user.status === 'disabled') {
+          return done(null, false, { message: '该账号已被禁用' });
+        }
+      } else if (!tenantCode) {
         // 无租户代码：查找平台用户
         user = await User.findOne({ userid: userid, role: 'platform' });
         if (!user) {

@@ -50,6 +50,12 @@ export function useAuth() {
 
       if (response.data.ok) {
         authStore.setUser(response.data.user, response.data.tenant || null)
+        if (response.data.deployMode) {
+          authStore.setDeployMode(response.data.deployMode)
+        }
+        if (response.data.standaloneCompany) {
+          authStore.setStandaloneCompany(response.data.standaloneCompany)
+        }
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -78,6 +84,12 @@ export function useAuth() {
       const response = await axiosInstance.get('/me')
       if (response.data.ok) {
         authStore.setUser(response.data.user, response.data.tenant || null)
+        if (response.data.deployMode) {
+          authStore.setDeployMode(response.data.deployMode)
+        }
+        if (response.data.standaloneCompany) {
+          authStore.setStandaloneCompany(response.data.standaloneCompany)
+        }
         return true
       }
     }

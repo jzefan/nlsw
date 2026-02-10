@@ -18,10 +18,14 @@ export interface Tenant {
   maxUsers?: number
 }
 
+export type DeployMode = 'saas' | 'standalone'
+
 export const useAuthStore = defineStore('user', () => {
   const isLogin = ref(false)
   const user = ref<User | null>(null)
   const tenant = ref<Tenant | null>(null)
+  const deployMode = ref<DeployMode>('saas')
+  const standaloneCompany = ref('')
 
   function setUser(userData: User | null, tenantData: Tenant | null = null) {
     user.value = userData
@@ -29,10 +33,19 @@ export const useAuthStore = defineStore('user', () => {
     isLogin.value = !!userData
   }
 
+  function setDeployMode(mode: DeployMode) {
+    deployMode.value = mode
+  }
+
+  function setStandaloneCompany(name: string) {
+    standaloneCompany.value = name
+  }
+
   function clearUser() {
     user.value = null
     tenant.value = null
     isLogin.value = false
+    // deployMode is not cleared — it persists across login/logout
   }
 
   // Computed role checks
@@ -40,6 +53,12 @@ export const useAuthStore = defineStore('user', () => {
   const isOwner = computed(() => user.value?.role === 'owner')
   const isMember = computed(() => user.value?.role === 'member')
   const isAppAdmin = computed(() => isAdmin(user.value?.privilege ?? []))
+  const isStandalone = computed(() => deployMode.value === 'standalone')
+
+  // standalone 模式下的系统标题：公司名+物流系统
+  const standaloneSystemTitle = computed(() =>
+    standaloneCompany.value ? `${standaloneCompany.value}物流系统` : '物流系统',
+  )
 
   // 公司显示名称：优先 fullName，其次 name
   const companyDisplayName = computed(() => tenant.value?.fullName || tenant.value?.name || '')
@@ -48,12 +67,18 @@ export const useAuthStore = defineStore('user', () => {
     isLogin,
     user,
     tenant,
+    deployMode,
+    standaloneCompany,
     isPlatformUser,
     isOwner,
     isMember,
     isAppAdmin,
+    isStandalone,
+    standaloneSystemTitle,
     companyDisplayName,
     setUser,
+    setDeployMode,
+    setStandaloneCompany,
     clearUser,
   }
 })

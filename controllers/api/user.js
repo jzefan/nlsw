@@ -2,6 +2,7 @@ const User = require('../../models/User');
 const { getPublicKey } = require('../../utils/crypto');
 const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
+const { getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
 
 // 是否有用户管理权限：平台用户、公司主账号、或 admin 权限
 function canManageUsers(req) {
@@ -62,7 +63,9 @@ exports.getMe = async (req, res) => {
     res.json({
       ok: true,
       user,
-      tenant
+      tenant,
+      deployMode: getDeployMode(),
+      standaloneCompany: getStandaloneCompany()
     });
   } catch (error) {
     console.error('获取用户信息失败:', error);

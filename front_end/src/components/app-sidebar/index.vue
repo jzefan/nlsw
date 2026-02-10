@@ -21,10 +21,11 @@ const navMain = computed(() => {
   return generateNavData(privilege)
 })
 
-// 侧边栏标题：平台用户显示"物流管理平台"，租户用户显示系统名
-const sidebarTitle = computed(() =>
-  isPlatformUser.value ? '物流管理平台' : SYSTEM_NAME,
-)
+// 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名
+const sidebarTitle = computed(() => {
+  if (authStore.isStandalone) return authStore.standaloneSystemTitle
+  return isPlatformUser.value ? '物流管理平台' : SYSTEM_NAME
+})
 </script>
 
 <template>

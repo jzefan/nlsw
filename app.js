@@ -32,6 +32,8 @@ let ArchivedReceiptImg = require('./models/ArchivedReceiptImg');
 const dataCfg = require('./controllers/cache');
 const { migrateAllUsers } = require('./utils/privilege-migration');
 const User = require('./models/User');
+const { isStandalone } = require('./utils/deploy-mode');
+const { initStandalone } = require('./utils/standalone-init');
 
 /**
  * API keys.
@@ -50,10 +52,19 @@ var app = express();
  */
 
 //mongoose.set('debug', true);
-mongoose.connect(secrets.db).then(() => {
+mongoose.connect(secrets.db).then(async () => {
   migrateAllUsers(User).catch(err => {
     console.error('✗ Privilege migration error:', err);
   });
+
+  if (isStandalone()) {
+    try {
+      await initStandalone();
+      console.log('✔ Standalone mode initialized');
+    } catch (err) {
+      console.error('✗ Standalone init error:', err);
+    }
+  }
 }).catch(err => {
   console.error('✗ MongoDB Connection Error: %s', err);
 });

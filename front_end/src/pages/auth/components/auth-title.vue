@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { Truck } from 'lucide-vue-next'
 import { SYSTEM_NAME } from '@/config/constants'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+const title = computed(() =>
+  authStore.isStandalone ? authStore.standaloneSystemTitle : SYSTEM_NAME,
+)
 </script>
 
 <template>
@@ -11,7 +17,7 @@ import { SYSTEM_NAME } from '@/config/constants'
     </div>
     <!-- 系统标题 -->
     <h1 class="text-2xl font-bold text-foreground">
-      {{ SYSTEM_NAME }}
+      {{ title }}
     </h1>
   </div>
 </template>

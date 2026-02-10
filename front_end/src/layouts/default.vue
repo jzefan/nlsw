@@ -34,7 +34,7 @@ const roleBadgeText = computed(() => {
 })
 
 // 路由到面包屑的映射
-const routeMap: Record<string, { parent?: string, title: string }> = {
+const routeMap: Record<string, { parent?: string; title: string }> = {
   '/dashboard': { title: '首页' },
   '/plans': { parent: '业务操作', title: '计划列表' },
   '/plans/create': { parent: '业务操作', title: '新建计划' },
@@ -77,7 +77,7 @@ const breadcrumbs = computed(() => {
     return []
   }
 
-  const items: { title: string, path?: string }[] = []
+  const items: { title: string; path?: string }[] = []
 
   if (info.parent) {
     items.push({ title: info.parent })
@@ -92,7 +92,9 @@ const breadcrumbs = computed(() => {
 <template>
   <UiSidebarProvider :default-open="defaultOpen.get(SIDEBAR_COOKIE_NAME)">
     <AppSidebar />
-    <UiSidebarInset class="w-full max-w-full peer-data-[state=collapsed]:w-[calc(100%-var(--sidebar-width-icon)-1rem)] peer-data-[state=expanded]:w-[calc(100%-var(--sidebar-width))]">
+    <UiSidebarInset
+      class="w-full max-w-full peer-data-[state=collapsed]:w-[calc(100%-var(--sidebar-width-icon)-1rem)] peer-data-[state=expanded]:w-[calc(100%-var(--sidebar-width))]"
+    >
       <header
         class="flex items-center gap-3 sm:gap-4 h-12 px-4 shrink-0 transition-[width,height] ease-linear border-b"
       >
@@ -103,9 +105,7 @@ const breadcrumbs = computed(() => {
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="/dashboard">
-                首页
-              </BreadcrumbLink>
+              <BreadcrumbLink href="/dashboard"> 首页 </BreadcrumbLink>
             </BreadcrumbItem>
             <template v-for="(item, index) in breadcrumbs" :key="index">
               <BreadcrumbSeparator />
@@ -123,25 +123,25 @@ const breadcrumbs = computed(() => {
 
         <div class="flex-1" />
         <div class="ml-auto flex items-center space-x-4">
-          <!-- 租户信息 -->
-          <div v-if="tenant" class="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <span class="font-medium text-foreground">{{ tenant.name }}</span>
-            <span class="text-xs">[{{ tenant.code }}]</span>
-          </div>
-          <span v-if="roleBadgeText" class="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-            {{ roleBadgeText }}
-          </span>
-          <UiSeparator v-if="tenant || roleBadgeText" orientation="vertical" class="h-4" />
+          <template v-if="!authStore.isStandalone">
+            <!-- 租户信息 (standalone 模式下隐藏) -->
+            <div v-if="tenant" class="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <span class="font-medium text-foreground">{{ tenant.name }}</span>
+              <span class="text-xs">[{{ tenant.code }}]</span>
+            </div>
+            <span
+              v-if="roleBadgeText"
+              class="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+            >
+              {{ roleBadgeText }}
+            </span>
+            <UiSeparator v-if="tenant" orientation="vertical" class="h-4" />
+          </template>
           <ToggleTheme />
           <ThemePopover />
         </div>
       </header>
-      <div
-        :class="cn(
-          'p-4 grow',
-          contentLayout === 'centered' ? 'container mx-auto ' : '',
-        )"
-      >
+      <div :class="cn('p-4 grow', contentLayout === 'centered' ? 'container mx-auto ' : '')">
         <router-view />
       </div>
     </UiSidebarInset>

@@ -110,6 +110,6 @@ declare global {
   export type { Theme, Radius, ContentLayout } from '../constants/themes'
   import('../constants/themes')
   // @ts-ignore
-  export type { User, Tenant } from '../stores/auth'
+  export type { User, Tenant, DeployMode } from '../stores/auth'
   import('../stores/auth')
 }
