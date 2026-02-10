@@ -38,6 +38,23 @@ echo ""
 read -p "是否首次部署? (y/n) [n]: " FIRST_DEPLOY
 FIRST_DEPLOY=${FIRST_DEPLOY:-"n"}
 
+# 部署模式选择
+echo ""
+echo -e "${YELLOW}选择部署模式:${NC}"
+echo "  1) 独立部署 (standalone) — 单公司，无平台概念"
+echo "  2) SaaS 多租户部署 (saas) — 平台管理多公司"
+read -p "请选择 [1]: " DEPLOY_MODE_CHOICE
+DEPLOY_MODE_CHOICE=${DEPLOY_MODE_CHOICE:-"1"}
+
+if [ "$DEPLOY_MODE_CHOICE" = "2" ]; then
+    DEPLOY_MODE="saas"
+    STANDALONE_COMPANY=""
+else
+    DEPLOY_MODE="standalone"
+    read -p "公司名称 (STANDALONE_COMPANY) [江苏联润]: " STANDALONE_COMPANY
+    STANDALONE_COMPANY=${STANDALONE_COMPANY:-"江苏联润"}
+fi
+
 # MongoDB 认证配置（首次部署或后端部署时需要）
 if [ "$FIRST_DEPLOY" = "y" ]; then
     echo ""
@@ -142,6 +159,15 @@ echo "首次部署: $FIRST_DEPLOY"
 echo "部署类型: $DEPLOY_TYPE_DESC"
 echo "备份旧版本: $BACKUP"
 echo "项目目录: $PROJECT_ROOT"
+if [ -n "$DEPLOY_MODE" ]; then
+    echo "--------------------------------------"
+    if [ "$DEPLOY_MODE" = "standalone" ]; then
+        echo "部署模式: standalone (独立部署)"
+        echo "独立公司: $STANDALONE_COMPANY"
+    else
+        echo "部署模式: saas (多租户)"
+    fi
+fi
 if [ "$FIRST_DEPLOY" = "y" ] || [ "$UPDATE_ENV" = "y" ]; then
     echo "--------------------------------------"
     echo "MongoDB 用户: $MONGO_USER"
@@ -201,7 +227,12 @@ if [ "$DEPLOY_FRONTEND" = "y" ]; then
     fi
     # 使用首次部署的配置或本地配置
     PROD_COMPANY_NAME="${COMPANY_NAME:-${LOCAL_COMPANY_NAME:-江苏联润}}"
-    PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-江苏联润物流系统}}"
+    # standalone 模式下，系统名称使用 STANDALONE_COMPANY + 物流系统
+    if [ "$DEPLOY_MODE" = "standalone" ] && [ -n "$STANDALONE_COMPANY" ]; then
+        PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-${STANDALONE_COMPANY}物流系统}}"
+    else
+        PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-江苏联润物流系统}}"
+    fi
     PROD_COMPANY_FULL_NAME="${LOCAL_COMPANY_FULL_NAME:-${PROD_COMPANY_NAME}有限公司}"
 
     cat > .env.production << EOF
@@ -370,6 +401,10 @@ cat > $DEPLOY_PATH/.env << ENVEOF
 PORT=1080
 NODE_ENV=production
 
+# Deploy Mode: standalone | saas
+DEPLOY_MODE=$DEPLOY_MODE
+STANDALONE_COMPANY=$STANDALONE_COMPANY
+
 # MongoDB Configuration
 MONGO_HOST=localhost
 MONGO_PORT=27028
@@ -503,6 +538,10 @@ if [ "\$UPDATE_ENV" = "y" ]; then
 # Server Configuration
 PORT=1080
 NODE_ENV=production
+
+# Deploy Mode: standalone | saas
+DEPLOY_MODE=$DEPLOY_MODE
+STANDALONE_COMPANY=$STANDALONE_COMPANY
 
 # MongoDB Configuration
 MONGO_HOST=localhost
