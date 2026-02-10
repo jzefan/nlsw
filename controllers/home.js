@@ -8,6 +8,7 @@ var utils = require('./utils');
 var User = require('../models/User');
 var fs = require('fs');
 var secrets = require('../config/secrets');
+var { validationResult } = require('express-validator');
 
 exports.index = async function (req, res) {
   if (req.headers.accept && req.headers.accept.indexOf('application/json') > -1) {
@@ -72,10 +73,9 @@ exports.postUpdateNews = function(req, res) {
 };
 
 exports.search = async function (req, res) {
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/');
   }
 

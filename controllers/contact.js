@@ -1,6 +1,5 @@
 var secrets = require('../config/secrets');
-// var nodemailer = require("nodemailer"); // Removed - not used
-// Email transport removed - nodemailer not in use
+var { body, validationResult } = require('express-validator');
 
 /**
  * GET /contact
@@ -22,14 +21,13 @@ exports.getContact = function(req, res) {
  */
 
 exports.postContact = async function(req, res) {
-  req.assert('name', 'Name cannot be blank').notEmpty();
-  req.assert('email', 'Email is not valid').isEmail();
-  req.assert('message', 'Message cannot be blank').notEmpty();
+  await body('name').notEmpty().withMessage('Name cannot be blank').run(req);
+  await body('email').isEmail().withMessage('Email is not valid').run(req);
+  await body('message').notEmpty().withMessage('Message cannot be blank').run(req);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/contact');
   }
 

@@ -1,8 +1,7 @@
 var _ = require('underscore');
-// var async = require('async'); // Removed as we use async/await
 var crypto = require('crypto');
-// var nodemailer = require('nodemailer'); // Removed - not used
 var passport = require('passport');
+var { body, validationResult } = require('express-validator');
 var User = require('../models/User');
 var Tenant = require('../models/Tenant');
 var secrets = require('../config/secrets');
@@ -36,22 +35,14 @@ exports.getLogin = function (req, res) {
  * @param password
  */
 
-exports.postLogin = function (req, res, next) {
+exports.postLogin = async function (req, res, next) {
+  await body('userid').notEmpty().withMessage('用户名不能为空').run(req);
+  await body('password').notEmpty().withMessage('密码不能为空').run(req);
 
-  req.assert('userid', '用户名不能为空').notEmpty();
-
-  req.assert('password', '密码不能为空').notEmpty();
-
-
-
-  var errors = req.validationErrors();
-
-  if (errors) {
-
-    req.flash('errors', errors);
-
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/login');
-
   }
 
 
@@ -283,14 +274,14 @@ exports.getSignup = function (req, res) {
  */
 
 exports.postSignup = async function (req, res, next) {
-  req.assert('userid', '用户名不能为空').notEmpty();
-  req.assert('password', '密码长度至少2位长').len(2);
-  req.assert('confirmPassword', '两次输入的密码不一样').equals(req.body.password);
-  req.assert('employee_title', '职务不能为空').notEmpty();
+  await body('userid').notEmpty().withMessage('用户名不能为空').run(req);
+  await body('password').isLength({ min: 2 }).withMessage('密码长度至少2位长').run(req);
+  await body('confirmPassword').equals(req.body.password).withMessage('两次输入的密码不一样').run(req);
+  await body('employee_title').notEmpty().withMessage('职务不能为空').run(req);
 
-  var errors = req.validationErrors();
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/signup');
   }
 
@@ -388,13 +379,12 @@ exports.postUpdateProfile = async function (req, res, next) {
  */
 
 exports.postUpdatePassword = async function (req, res, next) {
-  req.assert('password', '密码长度至少2位长').len(2);
-  req.assert('confirmPassword', '两次输入的密码不一致').equals(req.body.password);
+  await body('password').isLength({ min: 2 }).withMessage('密码长度至少2位长').run(req);
+  await body('confirmPassword').equals(req.body.password).withMessage('两次输入的密码不一致').run(req);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/account');
   }
 
@@ -507,13 +497,12 @@ exports.getReset = async function (req, res) {
  */
 
 exports.postReset = async function (req, res, next) {
-  req.assert('password', 'Password must be at least 4 characters long.').len(4);
-  req.assert('confirm', 'Passwords must match.').equals(req.body.password);
+  await body('password').isLength({ min: 4 }).withMessage('Password must be at least 4 characters long.').run(req);
+  await body('confirm').equals(req.body.password).withMessage('Passwords must match.').run(req);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('back');
   }
 
@@ -574,12 +563,11 @@ exports.getForgot = function (req, res) {
  */
 
 exports.postForgot = async function (req, res, next) {
-  req.assert('email', 'Please enter a valid email address.').isEmail();
+  await body('email').isEmail().withMessage('Please enter a valid email address.').run(req);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/forgot');
   }
 
