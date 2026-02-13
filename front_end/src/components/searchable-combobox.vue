@@ -104,9 +104,10 @@ function handleScroll(e: Event) {
   }
 }
 
-// 选择
-function selectItem(name: string) {
-  modelValue.value = name === modelValue.value ? '' : name
+// 选择 — 支持 item.value 作为唯一标识（默认使用 item.name）
+function selectItem(item: SearchResult) {
+  const val = item.value ?? item.name
+  modelValue.value = val === modelValue.value ? '' : val
   open.value = false
 }
 
@@ -183,14 +184,14 @@ function clearValue(e: Event) {
           <!-- 列表项 -->
           <div
             v-for="item in items"
-            :key="item.name"
+            :key="item.value ?? item.name"
             class="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
-            @click="selectItem(item.name)"
+            @click="selectItem(item)"
           >
             <Check
               :class="cn(
                 'mr-2 h-4 w-4',
-                modelValue === item.name ? 'opacity-100' : 'opacity-0',
+                modelValue === (item.value ?? item.name) ? 'opacity-100' : 'opacity-0',
               )"
             />
             <span class="flex-1 flex items-center justify-between gap-2">

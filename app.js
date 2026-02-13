@@ -21,6 +21,11 @@ var MongoStore = require('connect-mongo');
 var flash = require('express-flash');
 var path = require('path');
 var mongoose = require('mongoose');
+
+// Global tenant plugin — must be registered BEFORE any model is require()'d
+const mongooseTenantPlugin = require('./utils/mongoose-tenant-plugin');
+mongoose.plugin(mongooseTenantPlugin);
+
 var passport = require('passport');
 var connectAssets = require('connect-assets');
 var routes = require('./routes');

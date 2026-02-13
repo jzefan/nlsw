@@ -5,6 +5,13 @@ import { toast } from 'vue-sonner'
 import * as z from 'zod'
 
 import { FormField } from '@/components/ui/form'
+import {
+  TagsInput,
+  TagsInputInput,
+  TagsInputItem,
+  TagsInputItemDelete,
+  TagsInputItemText,
+} from '@/components/ui/tags-input'
 import { useModal } from '@/composables/use-modal'
 import { addCompany, updateCompany } from '@/services/api/data-dict.api'
 
@@ -21,7 +28,7 @@ const { Modal } = useModal()
 
 const formSchema = toTypedSchema(z.object({
   name: z.string().min(1, 'Name is required'),
-  customers: z.string().optional(),
+  customers: z.array(z.string()).default([]),
   contact_name: z.string().optional(),
   phone: z.string().optional(),
   address: z.string().optional(),
@@ -31,7 +38,7 @@ const { handleSubmit, isSubmitting } = useForm({
   validationSchema: formSchema,
   initialValues: {
     name: props.item?.name || '',
-    customers: props.item?.customers?.join('\n') || '',
+    customers: props.item?.customers ?? [],
     contact_name: props.item?.contact_name || '',
     phone: props.item?.phone || '',
     address: props.item?.address || '',
@@ -40,15 +47,12 @@ const { handleSubmit, isSubmitting } = useForm({
 
 const onSubmit = handleSubmit(async (values) => {
   try {
-    const customers = values.customers?.split(/[\n,，]/).map(s => s.trim()).filter(Boolean) || []
-    const data = { ...values, customers }
-
     if (props.item) {
-      await updateCompany(data)
+      await updateCompany(values)
       toast.success('更新成功')
     }
     else {
-      await addCompany(data)
+      await addCompany(values)
       toast.success('添加成功')
     }
     emit('refresh')
@@ -78,11 +82,21 @@ const onSubmit = handleSubmit(async (values) => {
       </UiFormItem>
     </FormField>
 
-    <FormField v-slot="{ componentField }" name="customers">
+    <FormField v-slot="{ value, setValue }" name="customers">
       <UiFormItem>
-        <UiFormLabel>现有货主 (每行一个)</UiFormLabel>
+        <UiFormLabel>现有货主</UiFormLabel>
         <UiFormControl>
-          <UiTextarea v-bind="componentField" rows="4" />
+          <TagsInput :model-value="value" class="min-h-10" @update:model-value="setValue">
+            <TagsInputItem
+              v-for="tag in value"
+              :key="tag"
+              :value="tag"
+            >
+              <TagsInputItemText />
+              <TagsInputItemDelete />
+            </TagsInputItem>
+            <TagsInputInput placeholder="输入后回车添加" />
+          </TagsInput>
         </UiFormControl>
         <UiFormMessage />
       </UiFormItem>

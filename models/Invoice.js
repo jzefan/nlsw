@@ -59,6 +59,7 @@ var invoiceSchema = new Schema({
   vessel_price: { type: Number, default: 0 },
   price_mode: { type: Number, default: 0 }, // 价格方式， 0 每吨， 1 打包
   price_remark: String, // 车船价格备注
+  ticket_no: String, // 票号
   incoming_price_remark: String, // 客户或代收代付价格备注
 
   unship_date: Date,                        // 卸船日期
@@ -83,6 +84,7 @@ var invoiceSchema = new Schema({
       charge_oil: { type: Number, default: 0 },
       receipt: { type: Number, default: 0 },
       remark: String,
+      ticket_no: String,
       pay_date: Date
     }
   ],

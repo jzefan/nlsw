@@ -5,31 +5,29 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
 
 const emit = defineEmits(['confirm'])
 
-interface VesselGroup {
+interface RecordGroup {
   id: string
   name: string
+  wno: string
+  shipFrom: string
+  shipTo: string
   totalWeight: number
+  totalPrice: number
   price: number
   priceInput: string
   remarkInput: string
-  details: Array<{ wno: string, weight: number }>
+  details: Array<{ wno: string; weight: number }>
 }
 
-interface VehicleGroup {
-  id: string
-  name: string
-  totalWeight: number
-  price: number
-  priceInput: string
-  remarkInput: string
-  details: Array<{ wno: string, weight: number }>
-}
+type VesselGroup = RecordGroup
+type VehicleGroup = RecordGroup
 
 const visible = ref(false)
 const saving = ref(false)
@@ -41,70 +39,79 @@ const selectedRecords = ref<any[]>([])
 const selectedInnerNo = ref<string[]>([])
 const dbRecords = ref<any[]>([])
 
+// 统一价格
+const unifiedPrice = ref('')
+const unifiedRemark = ref('')
+
+function applyUnifiedPrice() {
+  vesselGroups.value.forEach((group) => {
+    group.priceInput = unifiedPrice.value
+    group.remarkInput = unifiedRemark.value
+  })
+  vehicleGroups.value.forEach((group) => {
+    group.priceInput = unifiedPrice.value
+    group.remarkInput = unifiedRemark.value
+  })
+}
+
 function open(selected: any[], innerNos: string[], allRecords: any[]) {
   selectedRecords.value = selected
   selectedInnerNo.value = innerNos
   dbRecords.value = allRecords
   priceMode.value = 'unit'
+  unifiedPrice.value = ''
+  unifiedRemark.value = ''
 
-  // 构建车船号分组（主运单）
-  const vehNameWeightMap = new Map<string, VesselGroup>()
+  // 构建车船号列表（主运单，每条记录独立）
+  const vesselList: VesselGroup[] = []
   selected.forEach((record) => {
     const vehName = record.vehicle_vessel_name
-    if (!vehName)
-      return
+    if (!vehName) return
 
-    const existing = vehNameWeightMap.get(vehName)
-    if (existing) {
-      existing.totalWeight += record.total_weight
-      existing.details.push({ wno: record.waybill_no, weight: record.total_weight })
-    }
-    else {
-      vehNameWeightMap.set(vehName, {
-        id: generateId(vehName),
-        name: vehName,
-        totalWeight: record.total_weight,
-        price: record.vessel_price || 0,
-        priceInput: record.vessel_price > 0 ? record.vessel_price.toString() : '',
-        remarkInput: record.price_remark || '',
-        details: [{ wno: record.waybill_no, weight: record.total_weight }],
-      })
-    }
+    vesselList.push({
+      id: generateId(`${vehName}_${record.waybill_no}`),
+      name: vehName,
+      wno: record.waybill_no,
+      shipFrom: record.ship_from || '',
+      shipTo: record.ship_to || '',
+      totalWeight: record.total_weight,
+      totalPrice: record.vessel_price > 0 ? record.vessel_price * record.total_weight : 0,
+      price: record.vessel_price || 0,
+      priceInput: record.vessel_price > 0 ? record.vessel_price.toString() : '',
+      remarkInput: record.price_remark || '',
+      details: [{ wno: record.waybill_no, weight: record.total_weight }],
+    })
   })
 
-  // 构建车辆分组（内部运单）
-  const vehNameVesselWeightMap = new Map<string, VehicleGroup>()
+  // 构建车辆列表（内部运单，每条记录独立）
+  const vehicleList: VehicleGroup[] = []
   innerNos.forEach((innerNo) => {
     const inv = getInvoiceByInnerNo(innerNo, allRecords)
-    if (!inv)
-      return
+    if (!inv) return
 
     inv.bills?.forEach((bill: any) => {
       bill.vehicles?.forEach((veh: any) => {
         if (veh.inner_waybill_no === innerNo) {
-          const existing = vehNameVesselWeightMap.get(veh.veh_name)
-          if (existing) {
-            existing.totalWeight += veh.send_weight
-            existing.details.push({ wno: veh.inner_waybill_no, weight: veh.send_weight })
-          }
-          else {
-            vehNameVesselWeightMap.set(veh.veh_name, {
-              id: generateId(veh.veh_name),
-              name: veh.veh_name,
-              totalWeight: veh.send_weight,
-              price: veh.veh_price || 0,
-              priceInput: veh.veh_price > 0 ? veh.veh_price.toString() : '',
-              remarkInput: veh.price_remark || '',
-              details: [{ wno: veh.inner_waybill_no, weight: veh.send_weight }],
-            })
-          }
+          vehicleList.push({
+            id: generateId(`${veh.veh_name}_${innerNo}`),
+            name: veh.veh_name,
+            wno: innerNo,
+            shipFrom: inv.ship_from || '',
+            shipTo: inv.ship_to || '',
+            totalWeight: veh.send_weight,
+            totalPrice: veh.veh_price > 0 ? veh.veh_price * veh.send_weight : 0,
+            price: veh.veh_price || 0,
+            priceInput: veh.veh_price > 0 ? veh.veh_price.toString() : '',
+            remarkInput: veh.price_remark || '',
+            details: [{ wno: veh.inner_waybill_no, weight: veh.send_weight }],
+          })
         }
       })
     })
   })
 
-  vesselGroups.value = Array.from(vehNameWeightMap.values())
-  vehicleGroups.value = Array.from(vehNameVesselWeightMap.values())
+  vesselGroups.value = vesselList
+  vehicleGroups.value = vehicleList
 
   visible.value = true
 }
@@ -113,6 +120,9 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
 function handlePriceModeChange(newMode: string) {
   const isToUnit = newMode === 'unit'
 
+  // 统一价格无法转换（没有对应重量），直接清空
+  unifiedPrice.value = ''
+
   // 转换车船号价格
   vesselGroups.value.forEach((group) => {
     if (group.priceInput && Number.parseFloat(group.priceInput) > 0) {
@@ -120,8 +130,7 @@ function handlePriceModeChange(newMode: string) {
       if (isToUnit) {
         // 打包价 -> 单价
         group.priceInput = (currentValue / group.totalWeight).toFixed(3)
-      }
-      else {
+      } else {
         // 单价 -> 打包价
         group.priceInput = (currentValue * group.totalWeight).toFixed(2)
       }
@@ -135,8 +144,7 @@ function handlePriceModeChange(newMode: string) {
       if (isToUnit) {
         // 打包价 -> 单价
         group.priceInput = (currentValue / group.totalWeight).toFixed(3)
-      }
-      else {
+      } else {
         // 单价 -> 打包价
         group.priceInput = (currentValue * group.totalWeight).toFixed(2)
       }
@@ -154,19 +162,16 @@ async function handleConfirm() {
 
     // 处理车船号价格
     selectedRecords.value.forEach((record) => {
-      const group = vesselGroups.value.find(g => g.name === record.vehicle_vessel_name)
-      if (!group || !group.priceInput)
-        return
+      const group = vesselGroups.value.find((g) => g.wno === record.waybill_no)
+      if (!group || !group.priceInput) return
 
       const price = Number.parseFloat(group.priceInput)
-      if (isNaN(price) || (price < 0 && price !== -1))
-        return
+      if (isNaN(price) || (price < 0 && price !== -1)) return
 
       let unitPrice = 0
       if (priceMode.value === 'unit') {
         unitPrice = price
-      }
-      else {
+      } else {
         unitPrice = price / group.totalWeight
       }
 
@@ -184,25 +189,21 @@ async function handleConfirm() {
     // 处理车辆价格
     selectedInnerNo.value.forEach((innerNo) => {
       const inv = getInvoiceByInnerNo(innerNo, dbRecords.value)
-      if (!inv)
-        return
+      if (!inv) return
 
       inv.bills?.forEach((bill: any) => {
         bill.vehicles?.forEach((veh: any) => {
           if (veh.inner_waybill_no === innerNo) {
-            const group = vehicleGroups.value.find(g => g.name === veh.veh_name)
-            if (!group || !group.priceInput)
-              return
+            const group = vehicleGroups.value.find((g) => g.wno === innerNo)
+            if (!group || !group.priceInput) return
 
             const price = Number.parseFloat(group.priceInput)
-            if (isNaN(price) || (price < 0 && price !== -1))
-              return
+            if (isNaN(price) || (price < 0 && price !== -1)) return
 
             let unitPrice = 0
             if (priceMode.value === 'unit') {
               unitPrice = price
-            }
-            else {
+            } else {
               unitPrice = price / group.totalWeight
             }
 
@@ -236,11 +237,9 @@ async function handleConfirm() {
     toast.success('批量价格更新成功')
     visible.value = false
     emit('confirm', priceData)
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '批量价格更新失败')
-  }
-  finally {
+  } finally {
     saving.value = false
   }
 }
@@ -254,7 +253,7 @@ function handleClose(open: boolean) {
 // 根据内部运单号查找运单
 function getInvoiceByInnerNo(innerNo: string, records: any[]) {
   const wno = innerNo.substring(0, 17)
-  return records.find(inv => inv.waybill_no === wno)
+  return records.find((inv) => inv.waybill_no === wno)
 }
 
 // 生成唯一ID（替换特殊字符）
@@ -263,8 +262,7 @@ function generateId(name: string): string {
 }
 
 function formatNumber(num: number | string | undefined): string {
-  if (num === null || num === undefined || num === '')
-    return '0.000'
+  if (num === null || num === undefined || num === '') return '0.000'
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
   return isNaN(n) ? '0.000' : n.toFixed(3)
 }
@@ -297,73 +295,117 @@ defineExpose({ open })
           </div>
         </div>
 
-        <!-- 车船号分组 -->
-        <div v-if="vesselGroups.length > 0" class="mb-6">
-          <h4 class="text-sm font-bold border-b pb-2 mb-4 text-foreground">
-            车船号列表
-          </h4>
-          <div v-for="group in vesselGroups" :key="group.id" class="mb-4 p-3 bg-muted/30 rounded-md border hover:bg-muted/50 transition-colors">
-            <div class="grid grid-cols-4 items-start gap-4">
-              <Label class="text-right pt-2 font-medium">{{ group.name }}</Label>
-              <div class="col-span-3 space-y-2">
-                <div class="flex items-center gap-4">
-                  <div class="flex items-center gap-2 flex-1">
-                    <Input v-model="group.priceInput" type="number" placeholder="请输入价格" step="0.01" class="flex-1" />
-                    <span class="text-sm bg-muted px-3 py-2 rounded-md border">¥</span>
-                  </div>
-                  <Input v-model="group.remarkInput" placeholder="备注" class="flex-1" />
-                </div>
-
-                <div class="text-[11px] text-muted-foreground">
-                  发运重量: {{ formatNumber(group.totalWeight) }} 吨
-                </div>
-                <div v-if="priceMode === 'unit' && group.priceInput" class="text-[11px] text-muted-foreground">
-                  总价: ¥{{ formatNumber(parseFloat(group.priceInput) * group.totalWeight) }}
-                </div>
-                <div v-if="priceMode === 'bale' && group.priceInput && group.totalWeight" class="text-[11px] text-muted-foreground">
-                  单价: ¥{{ formatNumber(parseFloat(group.priceInput) / group.totalWeight) }}/吨
-                </div>
+        <!-- 统一价格 -->
+        <div class="mb-6 p-3 bg-primary/5 rounded-md border border-primary/20">
+          <div class="grid grid-cols-4 items-start gap-4">
+            <Label class="text-right pt-2 font-medium">统一价格</Label>
+            <div class="col-span-3 space-y-2">
+              <div class="flex items-center gap-4">
+                <InputGroup class="flex-1">
+                  <InputGroupInput v-model="unifiedPrice" type="number" placeholder="输入统一价格" step="0.01" />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupText>¥</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
+                <Input v-model="unifiedRemark" placeholder="统一备注" class="flex-1" />
               </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] text-muted-foreground">设置后点击"应用"将价格填入下方所有车船号</span>
+                <Button size="sm" variant="secondary" :disabled="!unifiedPrice" @click="applyUnifiedPrice">
+                  应用到全部
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 车船号列表 -->
+        <div v-if="vesselGroups.length > 0" class="mb-6">
+          <h4 class="text-sm font-bold border-b pb-2 mb-4 text-foreground">车船号列表</h4>
+          <div
+            v-for="group in vesselGroups"
+            :key="group.id"
+            class="mb-3 p-3 bg-muted/30 rounded-md border hover:bg-muted/50 transition-colors space-y-2"
+          >
+            <div class="flex items-center gap-3 text-sm">
+              <span class="font-semibold shrink-0">{{ group.name }}</span>
+              <span class="text-muted-foreground text-xs">{{ group.wno }}</span>
+              <span v-if="group.shipFrom || group.shipTo" class="text-muted-foreground text-xs">
+                {{ group.shipFrom }} → {{ group.shipTo }}
+              </span>
+              <span class="text-muted-foreground text-xs">{{ formatNumber(group.totalWeight) }}吨</span>
+              <span v-if="priceMode === 'unit' && group.priceInput" class="text-xs text-blue-600 whitespace-nowrap">
+                ¥{{ formatNumber(parseFloat(group.priceInput) * group.totalWeight) }}
+              </span>
+              <span
+                v-if="priceMode === 'bale' && group.priceInput && group.totalWeight"
+                class="text-xs text-blue-600 whitespace-nowrap"
+              >
+                ¥{{ formatNumber(parseFloat(group.priceInput) / group.totalWeight) }}/吨
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <InputGroup class="flex-1">
+                <InputGroupInput
+                  v-model="group.priceInput"
+                  type="number"
+                  :placeholder="priceMode === 'unit' ? '单价(元/吨)' : '打包价(元)'"
+                  step="0.001"
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupText>¥</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
+              <Input v-model="group.remarkInput" placeholder="备注" class="flex-1" />
             </div>
           </div>
         </div>
 
         <!-- 目的地为船的车辆 -->
         <div v-if="vehicleGroups.length > 0" class="mb-6">
-          <h4 class="text-sm font-bold border-b pb-2 mb-4 text-foreground">
-            目的地为(船)的车辆
-          </h4>
-          <div v-for="group in vehicleGroups" :key="group.id" class="mb-4 p-3 bg-muted/30 rounded-md border hover:bg-muted/50 transition-colors">
-            <div class="grid grid-cols-4 items-start gap-4">
-              <Label class="text-right pt-2 font-medium">{{ group.name }}</Label>
-              <div class="col-span-3 space-y-2">
-                <div class="flex items-center gap-4">
-                  <div class="flex items-center gap-2 flex-1">
-                    <Input v-model="group.priceInput" type="number" placeholder="请输入价格" step="0.01" class="flex-1" />
-                    <span class="text-sm bg-muted px-3 py-2 rounded-md border">¥</span>
-                  </div>
-                  <Input v-model="group.remarkInput" placeholder="备注" class="flex-1" />
-                </div>
-
-                <div class="text-[11px] text-muted-foreground">
-                  发运重量: {{ formatNumber(group.totalWeight) }} 吨
-                </div>
-                <div v-if="priceMode === 'unit' && group.priceInput" class="text-[11px] text-muted-foreground">
-                  总价: ¥{{ formatNumber(parseFloat(group.priceInput) * group.totalWeight) }}
-                </div>
-                <div v-if="priceMode === 'bale' && group.priceInput && group.totalWeight" class="text-[11px] text-muted-foreground">
-                  单价: ¥{{ formatNumber(parseFloat(group.priceInput) / group.totalWeight) }}/吨
-                </div>
-              </div>
+          <h4 class="text-sm font-bold border-b pb-2 mb-4 text-foreground">目的地为(船)的车辆</h4>
+          <div
+            v-for="group in vehicleGroups"
+            :key="group.id"
+            class="mb-3 p-3 bg-muted/30 rounded-md border hover:bg-muted/50 transition-colors space-y-2"
+          >
+            <div class="flex items-center gap-3 text-sm">
+              <span class="font-semibold shrink-0">{{ group.name }}</span>
+              <span class="text-muted-foreground text-xs">{{ group.wno }}</span>
+              <span v-if="group.shipFrom || group.shipTo" class="text-muted-foreground text-xs">
+                {{ group.shipFrom }} → {{ group.shipTo }}
+              </span>
+              <span class="text-muted-foreground text-xs">{{ formatNumber(group.totalWeight) }}吨</span>
+              <span v-if="priceMode === 'unit' && group.priceInput" class="text-xs text-blue-600 whitespace-nowrap">
+                ¥{{ formatNumber(parseFloat(group.priceInput) * group.totalWeight) }}
+              </span>
+              <span
+                v-if="priceMode === 'bale' && group.priceInput && group.totalWeight"
+                class="text-xs text-blue-600 whitespace-nowrap"
+              >
+                ¥{{ formatNumber(parseFloat(group.priceInput) / group.totalWeight) }}/吨
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <InputGroup class="flex-1">
+                <InputGroupInput
+                  v-model="group.priceInput"
+                  type="number"
+                  :placeholder="priceMode === 'unit' ? '单价(元/吨)' : '打包价(元)'"
+                  step="0.001"
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupText>¥</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
+              <Input v-model="group.remarkInput" placeholder="备注" class="flex-1" />
             </div>
           </div>
         </div>
       </div>
 
       <DialogFooter>
-        <Button variant="outline" @click="visible = false">
-          取消
-        </Button>
+        <Button variant="outline" @click="visible = false"> 取消 </Button>
         <Button :disabled="saving" @click="handleConfirm">
           <span v-if="saving" class="mr-2 animate-spin">⏳</span>
           确定

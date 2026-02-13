@@ -6,6 +6,7 @@ import { Pencil, Trash2 } from 'lucide-vue-next'
 import { h, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useModal } from '@/composables/use-modal'
@@ -29,8 +30,7 @@ async function loadData() {
       data.value = res.data
       total.value = res.total
     }
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -61,47 +61,72 @@ function openEdit(item: any) {
 }
 
 async function handleDelete(item: any) {
-  if (!confirm(`确定要删除 ${item.name} 吗？`))
-    return
+  if (!confirm(`确定要删除 ${item.name} 吗？`)) return
   try {
     const result = await deleteCompany(item.name)
     if (result.ok) {
       toast.success('删除成功')
       loadData()
-    }
-    else {
+    } else {
       toast.error(result.response || '删除失败')
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error(e.message)
   }
 }
 
 const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '开单名称' },
-  { accessorKey: 'customers', header: '现有货主', cell: ({ row }) => row.original.customers?.join(', ') },
-  { accessorKey: 'contact_name', header: '联系人' },
-  { accessorKey: 'phone', header: '电话' },
-  { accessorKey: 'address', header: '地址' },
+  {
+    accessorKey: 'customers',
+    header: '现有货主',
+    meta: { width: '40%' },
+    cell: ({ row }) => {
+      const customers = row.original.customers as string[] | undefined
+      if (!customers?.length) return ''
+      return h('div', { class: 'flex flex-wrap gap-1' },
+        customers.map(c => h(Badge, { variant: 'outline', class: 'bg-muted' }, () => c)),
+      )
+    },
+  },
+  {
+    id: 'contact',
+    header: '联系信息',
+    cell: ({ row }) => h('div', [
+      h('div', [
+        row.original.contact_name || '',
+        row.original.phone ? h('span', { class: 'text-xs text-muted-foreground ml-2' }, row.original.phone) : null,
+      ]),
+      row.original.address ? h('div', { class: 'text-xs text-muted-foreground' }, row.original.address) : null,
+    ]),
+  },
   {
     id: 'actions',
-    size: 180,
-    header: '操作',
-    cell: ({ row }) => h('div', { class: 'flex items-center gap-2' }, [
-      h(Button, {
-        variant: 'outline',
-        size: 'sm',
-        class: 'h-8 px-2',
-        onClick: () => openEdit(row.original),
-      }, () => [h(Pencil, { class: 'size-3.5 mr-1' }), '修改']),
-      h(Button, {
-        variant: 'destructive',
-        size: 'sm',
-        class: 'h-8 px-2',
-        onClick: () => handleDelete(row.original),
-      }, () => [h(Trash2, { class: 'size-3.5 mr-1' }), '删除']),
-    ]),
+    meta: { fixedWidth: '120px' },
+    header: () => h('div', { class: 'text-center' }, '操作'),
+    cell: ({ row }) =>
+      h('div', { class: 'flex items-center justify-end gap-2' }, [
+        h(
+          Button,
+          {
+            variant: 'outline',
+            size: 'sm',
+            class: 'h-8 px-2',
+            onClick: () => openEdit(row.original),
+          },
+          () => [h(Pencil, { class: 'size-3.5 mr-1' }), '修改'],
+        ),
+        h(
+          Button,
+          {
+            variant: 'destructive',
+            size: 'sm',
+            class: 'h-8 px-2',
+            onClick: () => handleDelete(row.original),
+          },
+          () => [h(Trash2, { class: 'size-3.5 mr-1' }), '删除'],
+        ),
+      ]),
   },
 ]
 </script>
@@ -115,7 +140,12 @@ const columns: ColumnDef<any>[] = [
     :total="total"
     :page="page"
     :limit="limit"
-    @update:page="(p) => { page = p; loadData() }"
+    @update:page="
+      (p) => {
+        page = p
+        loadData()
+      }
+    "
     @refresh="loadData"
     @add="openAdd"
   >
@@ -127,7 +157,7 @@ const columns: ColumnDef<any>[] = [
 
     <template #dialog>
       <component :is="Modal.Root" v-model:open="dialogOpen">
-        <component :is="Modal.Content">
+        <component :is="Modal.Content" class="max-h-[90vh] overflow-y-auto w-[95vw] sm:w-[65vw] sm:max-w-[65vw]">
           <CompanyDialog
             v-if="dialogOpen"
             :item="editingItem ?? undefined"

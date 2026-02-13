@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
@@ -230,10 +231,12 @@ defineExpose({ open })
           <div class="grid grid-cols-4 items-start gap-4">
             <Label class="text-right pt-2">{{ invoiceData?.vehicle_vessel_name || '车船号' }}</Label>
             <div class="col-span-3">
-              <div class="flex items-center gap-2">
-                <Input v-model="priceValue" type="number" placeholder="请输入价格" step="0.01" class="flex-1" />
-                <span class="text-sm bg-muted px-3 py-2 rounded-md border">¥</span>
-              </div>
+              <InputGroup>
+                <InputGroupInput v-model="priceValue" type="number" placeholder="请输入价格" step="0.01" />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupText>¥</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
               <div class="text-[11px] text-muted-foreground mt-1">
                 始发: {{ invoiceData?.ship_from || '' }}, 目的地: {{ invoiceData?.ship_to || '' }}, 发运重量: {{ formatNumber(invoiceData?.total_weight) }} 吨
               </div>
@@ -252,10 +255,12 @@ defineExpose({ open })
           <div class="grid grid-cols-4 items-start gap-4">
             <Label class="text-right pt-2">{{ vehInfo?.name || '车辆' }}</Label>
             <div class="col-span-3">
-              <div class="flex items-center gap-2">
-                <Input v-model="priceValue" type="number" placeholder="请输入价格" step="0.01" :disabled="vehInfo?.price < 0" class="flex-1" />
-                <span class="text-sm bg-muted px-3 py-2 rounded-md border">¥</span>
-              </div>
+              <InputGroup>
+                <InputGroupInput v-model="priceValue" type="number" placeholder="请输入价格" step="0.01" :disabled="vehInfo?.price < 0" />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupText>¥</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
               <div class="text-[11px] text-muted-foreground mt-1">
                 始发: {{ vehInfo?.ship_from || '' }}, 发运重量: {{ formatNumber(vehInfo?.weight) }} 吨
               </div>

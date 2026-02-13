@@ -138,6 +138,7 @@ export async function settleVesselPay(data: {
   allInvNoFromInner: string[]
   allInnerNo: string[]
   forPay: boolean
+  ticketNo?: string
 }) {
   const response = await axiosInstance.post<{ ok: boolean, message?: string }>(
     '/settle_vessel_pay',

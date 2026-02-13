@@ -113,16 +113,17 @@ exports.settleVessel = async (req, res) => {
 // 付款/取消付款
 exports.settleVesselPay = async (req, res) => {
   try {
-    const { allPayInvNo, allInvNoFromInner, allInnerNo, forPay } = req.body;
+    const { allPayInvNo, allInvNoFromInner, allInnerNo, forPay, ticketNo } = req.body;
     const date = forPay ? new Date() : null;
     const state = forPay ? '已付款' : '已结算';
 
     if (allPayInvNo?.length > 0) {
       const payQuery = buildTenantQuery(req, { waybill_no: { $in: allPayInvNo } });
-      await Invoice.updateMany(
-        payQuery,
-        { $set: { vessel_settle_state: state, pay_date: date } }
-      ).exec();
+      const updateData = { vessel_settle_state: state, pay_date: date };
+      if (forPay && ticketNo) {
+        updateData.ticket_no = ticketNo;
+      }
+      await Invoice.updateMany(payQuery, { $set: updateData }).exec();
     }
 
     if (allInvNoFromInner?.length > 0) {
@@ -134,6 +135,9 @@ exports.settleVesselPay = async (req, res) => {
           if (innerSettle && innerNo.substring(0, 17) === invoice.waybill_no) {
             innerSettle.state = state;
             innerSettle.pay_date = date;
+            if (forPay && ticketNo) {
+              innerSettle.ticket_no = ticketNo;
+            }
           }
         });
         await invoice.save();

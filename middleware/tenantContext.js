@@ -10,6 +10,7 @@
  */
 
 const Tenant = require('../models/Tenant');
+const { tenantStore } = require('../utils/tenant-context');
 
 /**
  * 租户上下文中间件
@@ -31,7 +32,7 @@ async function tenantContext(req, res, next) {
     req.tenantId = null;
     req.tenantCode = null;
     req.tenant = null;
-    return next();
+    return tenantStore.run({ tenantId: null, isPlatform: true }, next);
   }
 
   // 普通用户必须有租户信息
@@ -77,7 +78,8 @@ async function tenantContext(req, res, next) {
     req.tenantCode = tenant.code;
     req.tenant = tenant;
 
-    next();
+    // Wrap downstream middleware so Mongoose hooks can read tenant context
+    tenantStore.run({ tenantId: tenant._id, isPlatform: false }, next);
   } catch (error) {
     console.error('租户上下文中间件错误:', error);
     return res.status(500).json({

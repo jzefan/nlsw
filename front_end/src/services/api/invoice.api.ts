@@ -116,6 +116,14 @@ export async function getInvoicesByCondition(params: {
   return response.data
 }
 
+// 搜索可配发提单的开单名称（新建或部分配发状态）
+export async function searchBillingNames(search: string, limit = 20, page = 1) {
+  const response = await axiosInstance.get('/bills/billing-names', {
+    params: { search, limit, page },
+  })
+  return response.data
+}
+
 // 根据开单名称获取提单（2年内剩余量大于0的提单）
 export async function getBillsByBillingName(billingName: string, search?: string, page = 1, limit = 100) {
   const response = await axiosInstance.get('/bills/orders', {

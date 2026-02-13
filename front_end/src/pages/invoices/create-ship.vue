@@ -6,6 +6,7 @@ import { toast } from 'vue-sonner'
 import type { InvoiceBill } from '@/services/api/invoice.api'
 
 import { BasicPage } from '@/components/global-layout'
+import ConfirmDialog from '@/components/confirm-dialog.vue'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
 import {
@@ -14,7 +15,7 @@ import {
   getInvoiceDetail,
   getInvoiceList,
   getMaxWaybillNo,
-
+  searchBillingNames,
   searchDestinations,
   searchVehicles,
   searchWarehouses,
@@ -48,12 +49,10 @@ const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? [])
 // 检查是否有未保存的改动
 const hasUnsavedChanges = computed(() => {
   // 如果没有运单号，没有改动
-  if (!waybillNo.value)
-    return false
+  if (!waybillNo.value) return false
 
   // 如果有待确认的提单，说明有改动
-  if (pendingBills.value.length > 0)
-    return true
+  if (pendingBills.value.length > 0) return true
 
   // 对于新建运单，如果有已确认的提单，说明有改动
   if (!isExistingInvoice.value && confirmedBills.value.length > 0) {
@@ -117,8 +116,7 @@ const expandedConfirmedCards = ref<Set<string>>(new Set())
 function togglePendingCardExpand(index: number) {
   if (expandedPendingCards.value.has(index)) {
     expandedPendingCards.value.delete(index)
-  }
-  else {
+  } else {
     expandedPendingCards.value.add(index)
   }
 }
@@ -126,8 +124,7 @@ function togglePendingCardExpand(index: number) {
 function toggleConfirmedCardExpand(key: string) {
   if (expandedConfirmedCards.value.has(key)) {
     expandedConfirmedCards.value.delete(key)
-  }
-  else {
+  } else {
     expandedConfirmedCards.value.add(key)
   }
 }
@@ -162,9 +159,7 @@ async function searchTrucks(search: string, limit: number, page: number) {
 async function searchShipCustomers(search: string, limit: number, page: number) {
   let filtered = shipCustomers.value
   if (search) {
-    filtered = filtered.filter((c: string) =>
-      c.toLowerCase().includes(search.toLowerCase()),
-    )
+    filtered = filtered.filter((c: string) => c.toLowerCase().includes(search.toLowerCase()))
   }
   const start = (page - 1) * limit
   const data = filtered.slice(start, start + limit).map((c: string) => ({
@@ -178,8 +173,7 @@ async function createNewInvoice() {
   // 检查是否有未保存的改动
   if (hasUnsavedChanges.value) {
     const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并新建运单吗？')
-    if (!confirmed)
-      return
+    if (!confirmed) return
   }
 
   loading.value = true
@@ -192,15 +186,12 @@ async function createNewInvoice() {
       originalConfirmedBills.value = []
       resetForm()
       toast.success(`新建运单号: ${result.max_no}`)
-    }
-    else {
+    } else {
       toast.error('获取运单号失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '获取运单号失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -247,17 +238,33 @@ function findBillById(billId: string) {
   return null
 }
 
-// 确认对话框
-function confirmDialog(message: string): Promise<boolean> {
+// 确认对话框（Promise 模式）
+const confirmDialogOpen = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+let confirmDialogResolve: ((value: boolean) => void) | null = null
+
+function confirmDialog(message: string, title = '确认'): Promise<boolean> {
   return new Promise((resolve) => {
-    if (window.confirm(message)) {
-      resolve(true)
-    }
-    else {
-      resolve(false)
-    }
+    confirmDialogTitle.value = title
+    confirmDialogMessage.value = message
+    confirmDialogResolve = resolve
+    confirmDialogOpen.value = true
   })
 }
+
+function onConfirmDialogConfirm() {
+  confirmDialogResolve?.(true)
+  confirmDialogResolve = null
+}
+
+watch(confirmDialogOpen, (open) => {
+  // 对话框关闭时（取消），如果还没 resolve 则 resolve false
+  if (!open && confirmDialogResolve) {
+    confirmDialogResolve(false)
+    confirmDialogResolve = null
+  }
+})
 
 // 开单名称改变时重置订单数据
 async function handleBillingNameChange(name: string) {
@@ -292,16 +299,13 @@ async function handleBillingNameChange(name: string) {
       const company = result.data.find((c: any) => c.name === name)
       if (company && company.customers) {
         shipCustomers.value = company.customers
-      }
-      else {
+      } else {
         shipCustomers.value = []
       }
-    }
-    else {
+    } else {
       shipCustomers.value = []
     }
-  }
-  catch (error) {
+  } catch (error) {
     console.error('获取公司客户列表失败', error)
     shipCustomers.value = []
   }
@@ -320,8 +324,8 @@ async function searchOrders(search: string, limit: number, page: number) {
     const result = await getBillsByBillingName(form.value.billingName, search, page, limit)
     if (result.ok && result.data) {
       // 将加载的订单数据缓存起来（用于后续查找提单）
-      const newOrders = result.data.filter((order: any) =>
-        !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
+      const newOrders = result.data.filter(
+        (order: any) => !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
       )
       if (newOrders.length > 0) {
         availableOrdersData.value = [...availableOrdersData.value, ...newOrders]
@@ -334,8 +338,7 @@ async function searchOrders(search: string, limit: number, page: number) {
       return { ok: true, data, total: result.total }
     }
     return { ok: true, data: [], total: 0 }
-  }
-  catch (error) {
+  } catch (error) {
     console.error('搜索订单失败', error)
     return { ok: true, data: [], total: 0 }
   }
@@ -345,13 +348,15 @@ async function searchOrders(search: string, limit: number, page: number) {
 async function searchBills(search: string, limit: number, page: number) {
   let filtered = currentOrderBills.value
   if (search) {
-    filtered = filtered.filter((b: any) =>
-      b.bill_no.toLowerCase().includes(search.toLowerCase())
-      || (b.order_item_no && b.order_item_no.toString().includes(search)),
+    filtered = filtered.filter(
+      (b: any) =>
+        b.bill_no.toLowerCase().includes(search.toLowerCase()) ||
+        (b.order_item_no && b.order_item_no.toString().includes(search)),
     )
   }
   const start = (page - 1) * limit
   const data = filtered.slice(start, start + limit).map((b: any) => ({
+    value: b._id,
     name: b.bill_no,
     order_item_no: b.order_item_no,
     left_num: b.left_num,
@@ -383,31 +388,29 @@ function handleOrderChange(orderNo: string) {
     if (isBlock) {
       // 定尺：按块数计算
       const confirmedSendNum = confirmedBills.value
-        .filter(cb => cb._id === b._id)
+        .filter((cb) => cb._id === b._id)
         .reduce((sum, cb) => sum + cb.send_num, 0)
       const pendingSendNum = pendingBills.value
-        .filter(pb => pb._id === b._id)
+        .filter((pb) => pb._id === b._id)
         .reduce((sum, pb) => sum + pb.send_num, 0)
       return baseLeft - confirmedSendNum - pendingSendNum > 0
-    }
-    else {
+    } else {
       // 非定尺：按重量计算
       const confirmedSendWeight = confirmedBills.value
-        .filter(cb => cb._id === b._id)
+        .filter((cb) => cb._id === b._id)
         .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
       const pendingSendWeight = pendingBills.value
-        .filter(pb => pb._id === b._id)
+        .filter((pb) => pb._id === b._id)
         .reduce((sum, pb) => sum + (pb.send_weight || 0), 0)
       return baseLeft - confirmedSendWeight - pendingSendWeight > 0.001
     }
   })
 }
 
-// 选择提单后添加到待确认列表
-function handleBillSelect(billNo: string) {
-  if (!billNo)
-    return
-  const bill = currentOrderBills.value.find((b: any) => b.bill_no === billNo)
+// 选择提单后添加到待确认列表（接收 _id 作为唯一标识）
+function handleBillSelect(billId: string) {
+  if (!billId) return
+  const bill = currentOrderBills.value.find((b: any) => b._id === billId)
   if (bill) {
     addBillToPending(bill)
   }
@@ -416,7 +419,7 @@ function handleBillSelect(billNo: string) {
 // 添加提单到待确认列表
 function addBillToPending(bill: any) {
   // 检查该提单是否已在待确认列表中
-  if (pendingBills.value.some(b => b._id === bill._id)) {
+  if (pendingBills.value.some((b) => b._id === bill._id)) {
     toast.warning('该提单已在当前车辆的待确认列表中')
     return
   }
@@ -428,20 +431,19 @@ function addBillToPending(bill: any) {
   if (isBlock) {
     // 定尺：按块数计算剩余
     const confirmedSendNum = confirmedBills.value
-      .filter(cb => cb._id === bill._id)
+      .filter((cb) => cb._id === bill._id)
       .reduce((sum, cb) => sum + cb.send_num, 0)
     const pendingSendNum = pendingBills.value
-      .filter(pb => pb._id === bill._id)
+      .filter((pb) => pb._id === bill._id)
       .reduce((sum, pb) => sum + pb.send_num, 0)
     leftNum = baseLeft - confirmedSendNum - pendingSendNum
-  }
-  else {
+  } else {
     // 非定尺：按重量计算剩余
     const confirmedSendWeight = confirmedBills.value
-      .filter(cb => cb._id === bill._id)
+      .filter((cb) => cb._id === bill._id)
       .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
     const pendingSendWeight = pendingBills.value
-      .filter(pb => pb._id === bill._id)
+      .filter((pb) => pb._id === bill._id)
       .reduce((sum, pb) => sum + (pb.send_weight || 0), 0)
     leftNum = baseLeft - confirmedSendWeight - pendingSendWeight
   }
@@ -507,8 +509,7 @@ function updateSendNum(index: number, value: number) {
         bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
       }
     })
-  }
-  else {
+  } else {
     bill.send_num = clamped
     if (isBlock) {
       bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
@@ -536,8 +537,7 @@ function updateSendWeight(index: number, value: number) {
     nextTick(() => {
       bill.send_weight = clamped
     })
-  }
-  else {
+  } else {
     bill.send_weight = clamped
   }
 }
@@ -562,14 +562,26 @@ async function confirmWagon() {
     return
   }
 
+  // 过滤掉发运块数和发运重量都为0的记录
+  const validBills = pendingBills.value.filter((b) => {
+    return b.send_num > 0 || b.send_weight > 0
+  })
+
+  if (validBills.length === 0) {
+    toast.warning('请至少为一个提单输入发运数量')
+    return
+  }
+
   const innerNo = `${waybillNo.value}${String(innerWaybillNoOrder.value).padStart(3, '0')}`
 
-  pendingBills.value.forEach((bill) => {
-    bill.wagon_no = currentWagonNo.value
-    bill.inner_waybill_no = innerNo
-    bill.ship_from = currentOrigin.value
-    confirmedBills.value.push({ ...bill })
-  })
+  // 新配发的车插入到最前面
+  const newBills = validBills.map((bill) => ({
+    ...bill,
+    wagon_no: currentWagonNo.value,
+    inner_waybill_no: innerNo,
+    ship_from: currentOrigin.value,
+  }))
+  confirmedBills.value.unshift(...newBills)
 
   pendingBills.value = []
   innerWaybillNoOrder.value++
@@ -583,12 +595,13 @@ async function confirmWagon() {
 
 // 检查是否可以保存
 const canSave = computed(() => {
-  const hasBasicInfo = waybillNo.value
-    && form.value.vesselName
-    && form.value.billingName
-    && form.value.shipFrom
-    && form.value.shipTo
-    && pendingBills.value.length === 0
+  const hasBasicInfo =
+    waybillNo.value &&
+    form.value.vesselName &&
+    form.value.billingName &&
+    form.value.shipFrom &&
+    form.value.shipTo &&
+    pendingBills.value.length === 0
 
   // 如果是已存在的运单，允许保存空明细（删除运单）
   if (isExistingInvoice.value) {
@@ -604,8 +617,7 @@ async function saveInvoice(state: string) {
   if (!canSave.value) {
     if (pendingBills.value.length > 0) {
       toast.warning('有未确认的车辆配发，请先确认')
-    }
-    else {
+    } else {
       toast.warning('请完善运单信息')
     }
     return
@@ -630,11 +642,14 @@ async function saveInvoice(state: string) {
 
     const result = await buildShipInvoice(data)
     if (result.ok) {
-      localStorage.setItem('currOperateItem', JSON.stringify({
-        ship_name: form.value.billingName,
-        ship_from: form.value.shipFrom,
-        ship_to: form.value.shipTo,
-      }))
+      localStorage.setItem(
+        'currOperateItem',
+        JSON.stringify({
+          ship_name: form.value.billingName,
+          ship_from: form.value.shipFrom,
+          ship_to: form.value.shipTo,
+        }),
+      )
 
       isExistingInvoice.value = true // 标记为已保存的运单
       // 更新原始数据，使得保存后不再显示"未保存"
@@ -647,15 +662,12 @@ async function saveInvoice(state: string) {
         isExistingInvoice.value = false
         originalConfirmedBills.value = []
       }
-    }
-    else {
+    } else {
       toast.error(result.message || '保存失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '保存失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -666,22 +678,17 @@ function copyLastOperation() {
   if (lastOp) {
     try {
       const op = JSON.parse(lastOp)
-      if (op.ship_name)
-        form.value.billingName = op.ship_name
-      if (op.ship_from)
-        form.value.shipFrom = op.ship_from
-      if (op.ship_to)
-        form.value.shipTo = op.ship_to
+      if (op.ship_name) form.value.billingName = op.ship_name
+      if (op.ship_from) form.value.shipFrom = op.ship_from
+      if (op.ship_to) form.value.shipTo = op.ship_to
       toast.success('已复制上次操作')
       if (op.ship_name) {
         handleBillingNameChange(op.ship_name)
       }
-    }
-    catch {
+    } catch {
       toast.error('复制失败')
     }
-  }
-  else {
+  } else {
     toast.info('没有上次操作记录')
   }
 }
@@ -707,7 +714,7 @@ function isBlockBill(bill: InvoiceBill) {
 function getBaseLeft(billId: string) {
   // 优先使用已加载运单中预计算的还原剩余量
   const confirmedWithOriginal = confirmedBills.value.find(
-    cb => cb._id === billId && (cb as any)._originalLeft != null,
+    (cb) => cb._id === billId && (cb as any)._originalLeft != null,
   )
   if (confirmedWithOriginal) {
     return (confirmedWithOriginal as any)._originalLeft
@@ -725,7 +732,7 @@ function getMaxAvailable(bill: InvoiceBill, index: number) {
   if (isBlock) {
     // 定尺：按块数计算
     const confirmedSendNum = confirmedBills.value
-      .filter(cb => cb._id === bill._id)
+      .filter((cb) => cb._id === bill._id)
       .reduce((sum, cb) => sum + cb.send_num, 0)
 
     const otherPendingSendNum = pendingBills.value
@@ -733,11 +740,10 @@ function getMaxAvailable(bill: InvoiceBill, index: number) {
       .reduce((sum, pb) => sum + pb.send_num, 0)
 
     return baseLeft - confirmedSendNum - otherPendingSendNum
-  }
-  else {
+  } else {
     // 非定尺：按重量计算
     const confirmedSendWeight = confirmedBills.value
-      .filter(cb => cb._id === bill._id)
+      .filter((cb) => cb._id === bill._id)
       .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
 
     const otherPendingSendWeight = pendingBills.value
@@ -748,6 +754,92 @@ function getMaxAvailable(bill: InvoiceBill, index: number) {
   }
 }
 
+// 获取已确认提单的最大可用量（排除当前行自身）
+function getMaxAvailableForConfirmed(bill: InvoiceBill) {
+  const baseLeft = getBaseLeft(bill._id!)
+  const isBlock = isBlockBill(bill)
+
+  if (isBlock) {
+    const otherConfirmedSendNum = confirmedBills.value
+      .filter((cb) => cb._id === bill._id && cb !== bill)
+      .reduce((sum, cb) => sum + cb.send_num, 0)
+    const pendingSendNum = pendingBills.value
+      .filter((pb) => pb._id === bill._id)
+      .reduce((sum, pb) => sum + pb.send_num, 0)
+    return baseLeft - otherConfirmedSendNum - pendingSendNum
+  } else {
+    const otherConfirmedSendWeight = confirmedBills.value
+      .filter((cb) => cb._id === bill._id && cb !== bill)
+      .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
+    const pendingSendWeight = pendingBills.value
+      .filter((pb) => pb._id === bill._id)
+      .reduce((sum, pb) => sum + (pb.send_weight || 0), 0)
+    return baseLeft - otherConfirmedSendWeight - pendingSendWeight
+  }
+}
+
+// 更新已确认提单的发运数量
+function updateConfirmedSendNum(bill: InvoiceBill, value: number) {
+  const isBlock = isBlockBill(bill)
+  const maxNum = getMaxAvailableForConfirmed(bill)
+
+  let clamped = value
+  if (isBlock && clamped > maxNum) {
+    clamped = maxNum
+  }
+  if (clamped < 0) {
+    clamped = 0
+  }
+
+  if (value !== clamped) {
+    bill.send_num = value
+    nextTick(() => {
+      bill.send_num = clamped
+      if (isBlock) {
+        bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
+      }
+    })
+  } else {
+    bill.send_num = clamped
+    if (isBlock) {
+      bill.send_weight = Number((clamped * (bill.weight || 0)).toFixed(3))
+    }
+  }
+}
+
+// 更新已确认提单的发运重量（乱尺用）
+function updateConfirmedSendWeight(bill: InvoiceBill, value: number) {
+  const maxWeight = getMaxAvailableForConfirmed(bill)
+
+  let clamped = value
+  if (clamped > maxWeight) {
+    clamped = maxWeight
+  }
+  if (clamped < 0) {
+    clamped = 0
+  }
+
+  if (value !== clamped) {
+    bill.send_weight = value
+    nextTick(() => {
+      bill.send_weight = clamped
+    })
+  } else {
+    bill.send_weight = clamped
+  }
+}
+
+// 获取已确认提单的动态剩余量
+function getConfirmedBillLeftNum(bill: InvoiceBill) {
+  const maxAvailable = getMaxAvailableForConfirmed(bill)
+
+  if (isBlockBill(bill)) {
+    return maxAvailable - (bill.send_num || 0)
+  } else {
+    return Number((maxAvailable - (bill.send_weight || 0)).toFixed(3))
+  }
+}
+
 // 获取提单的动态剩余量（最大可用量 - 当前发运量）
 function getBillLeftNum(bill: InvoiceBill, index: number) {
   const maxAvailable = getMaxAvailable(bill, index)
@@ -755,8 +847,7 @@ function getBillLeftNum(bill: InvoiceBill, index: number) {
   if (isBlockBill(bill)) {
     // 定尺：剩余量 = 最大可用量 - 当前发运数
     return maxAvailable - (bill.send_num || 0)
-  }
-  else {
+  } else {
     // 非定尺：剩余量 = 最大可用量 - 当前发运重量
     return Number((maxAvailable - (bill.send_weight || 0)).toFixed(3))
   }
@@ -764,13 +855,21 @@ function getBillLeftNum(bill: InvoiceBill, index: number) {
 
 // 按车号分组显示已确认的提单
 const confirmedByWagon = computed(() => {
-  const groups: Record<string, InvoiceBill[]> = {}
+  // 按 wagon_no + inner_waybill_no 组合分组
+  // 这样同一辆车的多次配发会分开显示
+  const groups: Record<string, { bills: InvoiceBill[]; wagonNo: string; innerWaybillNo: string }> = {}
   confirmedBills.value.forEach((bill) => {
-    const key = bill.wagon_no || '未知'
+    const wagonNo = bill.wagon_no || '未知'
+    const innerWaybillNo = bill.inner_waybill_no || ''
+    const key = `${wagonNo}_${innerWaybillNo}`
     if (!groups[key]) {
-      groups[key] = []
+      groups[key] = {
+        bills: [],
+        wagonNo,
+        innerWaybillNo,
+      }
     }
-    groups[key].push(bill)
+    groups[key].bills.push(bill)
   })
   return groups
 })
@@ -782,19 +881,25 @@ function getWagonStats(bills: InvoiceBill[]) {
   return { totalNum, totalWeight }
 }
 
-// 删除某车的所有配发
-function deleteWagonBills(wagonNo: string) {
-  if (!window.confirm(`确定删除车号 "${wagonNo}" 的所有配发记录吗？`)) {
-    return
-  }
-  confirmedBills.value = confirmedBills.value.filter(b => b.wagon_no !== wagonNo)
+// 删除某车某次配发的所有记录
+async function deleteWagonBills(wagonNo: string, innerWaybillNo: string) {
+  const confirmed = await confirmDialog(`确定删除车号 "${wagonNo}" 的本次配发记录吗？`, '删除配发')
+  if (!confirmed) return
+
+  confirmedBills.value = confirmedBills.value.filter(
+    (b) => !(b.wagon_no === wagonNo && b.inner_waybill_no === innerWaybillNo),
+  )
   handleOrderChange(selectedOrderNo.value)
   toast.success(`已删除车号 "${wagonNo}" 的配发记录`)
 }
 
 // 删除某条已确认的配发记录
-function deleteConfirmedBill(wagonNo: string, billNo: string) {
-  const index = confirmedBills.value.findIndex(b => b.wagon_no === wagonNo && b.bill_no === billNo)
+async function deleteConfirmedBill(wagonNo: string, innerWaybillNo: string, billNo: string) {
+  const confirmed = await confirmDialog(`确定删除车号 "${wagonNo}" 的提单 "${billNo}" 吗？`, '删除配发记录')
+  if (!confirmed) return
+  const index = confirmedBills.value.findIndex(
+    (b) => b.wagon_no === wagonNo && b.inner_waybill_no === innerWaybillNo && b.bill_no === billNo,
+  )
   if (index > -1) {
     confirmedBills.value.splice(index, 1)
     handleOrderChange(selectedOrderNo.value)
@@ -829,15 +934,12 @@ async function loadInvoiceList() {
     if (result.ok) {
       invoiceList.value = result.data
       invoiceListTotal.value = result.total
-    }
-    else {
+    } else {
       toast.error('加载运单列表失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '加载运单列表失败')
-  }
-  finally {
+  } finally {
     invoiceListLoading.value = false
   }
 }
@@ -853,8 +955,7 @@ async function loadInvoiceDetail(invoice: any) {
   // 检查是否有未保存的改动
   if (hasUnsavedChanges.value) {
     const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并打开运单吗？')
-    if (!confirmed)
-      return
+    if (!confirmed) return
   }
 
   loading.value = true
@@ -870,7 +971,7 @@ async function loadInvoiceDetail(invoice: any) {
       form.value.shipCustomer = inv.ship_customer || ''
       form.value.shipFrom = inv.ship_from
       form.value.shipTo = inv.ship_to
-      form.value.shipDate = inv.ship_date || ''
+      form.value.shipDate = inv.ship_date ? inv.ship_date.substring(0, 10) : ''
 
       isExistingInvoice.value = true
 
@@ -881,14 +982,14 @@ async function loadInvoiceDetail(invoice: any) {
       confirmedBills.value = []
       for (const invBill of inv.bills) {
         const billInfo = invBill.bill_id
-        if (!billInfo)
-          continue
+        if (!billInfo) continue
 
         // 还原此运单扣减前的原始剩余量（invBill.num/weight 是该提单的总发运量）
         const currentLeft = billInfo.left_num || 0
-        const originalLeft = billInfo.block_num > 0
-          ? currentLeft + (invBill.num || 0)
-          : Number((currentLeft + (invBill.weight || 0)).toFixed(3))
+        const originalLeft =
+          billInfo.block_num > 0
+            ? currentLeft + (invBill.num || 0)
+            : Number((currentLeft + (invBill.weight || 0)).toFixed(3))
 
         // 处理每个车辆
         for (const vehicle of invBill.vehicles || []) {
@@ -900,7 +1001,7 @@ async function loadInvoiceDetail(invoice: any) {
             brand_no: '',
             thickness: billInfo.thickness,
             width: billInfo.width,
-            len: billInfo.length,
+            len: billInfo.len,
             weight: billInfo.weight,
             block_num: billInfo.block_num,
             total_weight: billInfo.total_weight,
@@ -920,30 +1021,25 @@ async function loadInvoiceDetail(invoice: any) {
 
       showInvoiceListDialog.value = false
       toast.success('运单加载成功')
-    }
-    else {
+    } else {
       toast.error(result.message || '加载运单失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '加载运单失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
 // 格式化日期
 function formatDate(date: any) {
-  if (!date)
-    return '-'
+  if (!date) return '-'
   return new Date(date).toLocaleDateString('zh-CN')
 }
 
 // 格式化重量（最多3位小数）
 function formatWeight(weight: number) {
-  if (weight == null)
-    return '-'
+  if (weight == null) return '-'
   return Number(weight).toFixed(3)
 }
 </script>
@@ -966,48 +1062,38 @@ function formatWeight(weight: number) {
         </UiButton>
         <!-- 状态提示 -->
         <div v-if="waybillNo" class="flex items-center gap-2 sm:gap-3 ml-2">
-          <div class="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm" :class="isExistingInvoice ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400' : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'">
+          <div
+            class="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm"
+            :class="
+              isExistingInvoice
+                ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400'
+                : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'
+            "
+          >
             <span class="font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
             <span class="text-xs bg-white dark:bg-gray-800 px-1.5 sm:px-2 py-0.5 rounded">{{ waybillNo }}</span>
-          </div>
-          <div v-if="hasUnsavedChanges" class="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
-            <span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-            <span class="hidden sm:inline">未保存</span>
           </div>
         </div>
       </div>
     </template>
 
     <div class="space-y-4">
-
       <!-- 紧凑式输入块 -->
       <div v-if="waybillNo" class="p-3 border rounded-lg bg-muted/50">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
           <!-- 船号 -->
-          <SearchableCombobox
-            v-model="form.vesselName"
-            :search-fn="searchShips"
-            placeholder="船号"
-          />
+          <SearchableCombobox v-model="form.vesselName" :search-fn="searchShips" placeholder="船号" />
 
           <!-- 始发地 -->
-          <SearchableCombobox
-            v-model="form.shipFrom"
-            :search-fn="searchWarehouses"
-            placeholder="始发地"
-          />
+          <SearchableCombobox v-model="form.shipFrom" :search-fn="searchWarehouses" placeholder="始发地" />
 
           <!-- 目的地 -->
-          <SearchableCombobox
-            v-model="form.shipTo"
-            :search-fn="searchDestinations"
-            placeholder="目的地"
-          />
+          <SearchableCombobox v-model="form.shipTo" :search-fn="searchDestinations" placeholder="目的地" />
 
           <!-- 开单名称 -->
           <SearchableCombobox
             :model-value="form.billingName"
-            :search-fn="searchCompanies"
+            :search-fn="searchBillingNames"
             placeholder="开单名称"
             @update:model-value="handleBillingNameChange"
           />
@@ -1028,18 +1114,10 @@ function formatWeight(weight: number) {
         <div v-if="form.billingName" class="mt-3 pt-3 border-t">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
             <!-- 车号 -->
-            <SearchableCombobox
-              v-model="currentWagonNo"
-              :search-fn="searchTrucks"
-              placeholder="车号(装卸车辆)"
-            />
+            <SearchableCombobox v-model="currentWagonNo" :search-fn="searchTrucks" placeholder="车号(装卸车辆)" />
 
             <!-- 始发地 -->
-            <SearchableCombobox
-              v-model="currentOrigin"
-              :search-fn="searchWarehouses"
-              placeholder="车辆始发地"
-            />
+            <SearchableCombobox v-model="currentOrigin" :search-fn="searchWarehouses" placeholder="车辆始发地" />
           </div>
 
           <!-- 订单号和提单号单独一行 -->
@@ -1067,9 +1145,7 @@ function formatWeight(weight: number) {
       <!-- 当前车辆待确认提单 -->
       <div v-if="pendingBills.length > 0">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-          <h4 class="text-sm font-medium">
-            当前车辆待确认 ({{ currentWagonNo || '未选择车号' }})
-          </h4>
+          <h4 class="text-sm font-medium">当前车辆待确认 ({{ currentWagonNo || '未选择车号' }})</h4>
           <div class="text-xs sm:text-sm text-muted-foreground">
             <span>块数: {{ wagonTotalNumber }}</span>
             <span class="ml-3 sm:ml-4">重量: {{ wagonTotalWeight.toFixed(3) }}</span>
@@ -1096,7 +1172,12 @@ function formatWeight(weight: number) {
             <UiTableBody>
               <UiTableRow v-for="(bill, index) in pendingBills" :key="`${bill.bill_no}-${index}`">
                 <UiTableCell>
-                  <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive" @click="removePendingBill(index)">
+                  <UiButton
+                    variant="ghost"
+                    size="icon"
+                    class="h-6 w-6 text-destructive"
+                    @click="removePendingBill(index)"
+                  >
                     <Trash2 class="w-4 h-4" />
                   </UiButton>
                 </UiTableCell>
@@ -1147,7 +1228,12 @@ function formatWeight(weight: number) {
           >
             <!-- 卡片头部 -->
             <div class="p-3 flex items-start gap-3">
-              <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive shrink-0 mt-1" @click="removePendingBill(index)">
+              <UiButton
+                variant="ghost"
+                size="icon"
+                class="h-6 w-6 text-destructive shrink-0 mt-1"
+                @click="removePendingBill(index)"
+              >
                 <Trash2 class="w-4 h-4" />
               </UiButton>
               <div class="flex-1 min-w-0">
@@ -1242,24 +1328,41 @@ function formatWeight(weight: number) {
       <!-- 已确认的提单 -->
       <div v-if="confirmedBills.length > 0">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-          <h4 class="text-sm font-medium">
-            已确认配发
-          </h4>
+          <h4 class="text-sm font-medium">已确认配发</h4>
           <div class="text-xs sm:text-sm text-muted-foreground">
-            <span>总块数: <strong>{{ totalNumber }}</strong></span>
-            <span class="ml-3 sm:ml-4">总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
+            <span>
+              总块数: <strong>{{ totalNumber }}</strong>
+            </span>
+            <span class="ml-3 sm:ml-4">
+              总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨
+            </span>
           </div>
         </div>
 
-        <div v-for="(bills, wagonNo) in confirmedByWagon" :key="wagonNo" class="mb-3">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground mb-1 bg-muted px-2 py-1.5 sm:py-1 rounded">
+        <div v-for="(group, key) in confirmedByWagon" :key="key" class="mb-3">
+          <div
+            class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground mb-1 bg-muted px-2 py-1.5 sm:py-1 rounded"
+          >
             <div class="flex flex-wrap items-center gap-2 sm:gap-4">
-              <span>车号: <strong class="text-foreground">{{ wagonNo }}</strong></span>
-              <span>块数: <strong>{{ getWagonStats(bills).totalNum }}</strong></span>
-              <span>重量: <strong>{{ getWagonStats(bills).totalWeight.toFixed(3) }}</strong></span>
-              <span>起始地: <strong class="text-foreground">{{ bills[0]?.ship_from || '-' }}</strong></span>
+              <span>
+                车号: <strong class="text-foreground">{{ group.wagonNo }}</strong>
+              </span>
+              <span>
+                块数: <strong>{{ getWagonStats(group.bills).totalNum }}</strong>
+              </span>
+              <span>
+                重量: <strong>{{ getWagonStats(group.bills).totalWeight.toFixed(3) }}</strong>
+              </span>
+              <span>
+                起始地: <strong class="text-foreground">{{ group.bills[0]?.ship_from || '-' }}</strong>
+              </span>
             </div>
-            <UiButton variant="ghost" size="sm" class="h-6 px-2 text-destructive hover:text-destructive" @click="deleteWagonBills(wagonNo as string)">
+            <UiButton
+              variant="ghost"
+              size="sm"
+              class="h-6 px-2 text-destructive hover:text-destructive"
+              @click="deleteWagonBills(group.wagonNo, group.innerWaybillNo)"
+            >
               <Trash2 class="w-3 h-3 mr-1" />
               删除此车
             </UiButton>
@@ -1277,14 +1380,20 @@ function formatWeight(weight: number) {
                   <UiTableHead>宽度</UiTableHead>
                   <UiTableHead>长度</UiTableHead>
                   <UiTableHead>单重</UiTableHead>
+                  <UiTableHead>可用量</UiTableHead>
                   <UiTableHead>发运数</UiTableHead>
                   <UiTableHead>发运重量</UiTableHead>
                 </UiTableRow>
               </UiTableHeader>
               <UiTableBody>
-                <UiTableRow v-for="bill in bills" :key="`${bill.bill_no}-${bill.inner_waybill_no}`">
+                <UiTableRow v-for="bill in group.bills" :key="`${bill.bill_no}-${bill.inner_waybill_no}`">
                   <UiTableCell>
-                    <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive" @click="deleteConfirmedBill(wagonNo as string, bill.bill_no)">
+                    <UiButton
+                      variant="ghost"
+                      size="icon"
+                      class="h-6 w-6 text-destructive"
+                      @click="deleteConfirmedBill(group.wagonNo, group.innerWaybillNo, bill.bill_no)"
+                    >
                       <Trash2 class="w-4 h-4" />
                     </UiButton>
                   </UiTableCell>
@@ -1294,8 +1403,33 @@ function formatWeight(weight: number) {
                   <UiTableCell>{{ bill.width }}</UiTableCell>
                   <UiTableCell>{{ bill.len }}</UiTableCell>
                   <UiTableCell>{{ bill.weight?.toFixed(4) }}</UiTableCell>
-                  <UiTableCell>{{ bill.send_num }}</UiTableCell>
-                  <UiTableCell>{{ bill.send_weight?.toFixed(3) }}</UiTableCell>
+                  <UiTableCell>{{ getConfirmedBillLeftNum(bill) }}</UiTableCell>
+                  <UiTableCell>
+                    <UiInput
+                      :model-value="bill.send_num"
+                      type="number"
+                      class="w-20 h-8"
+                      min="0"
+                      :max="isBlockBill(bill) ? getMaxAvailableForConfirmed(bill) : undefined"
+                      step="any"
+                      @update:model-value="updateConfirmedSendNum(bill, Number($event))"
+                    />
+                  </UiTableCell>
+                  <UiTableCell>
+                    <template v-if="isBlockBill(bill)">
+                      {{ bill.send_weight?.toFixed(3) }}
+                    </template>
+                    <UiInput
+                      v-else
+                      :model-value="bill.send_weight"
+                      type="number"
+                      class="w-24 h-8"
+                      min="0"
+                      :max="getMaxAvailableForConfirmed(bill)"
+                      step="0.001"
+                      @update:model-value="updateConfirmedSendWeight(bill, Number($event))"
+                    />
+                  </UiTableCell>
                 </UiTableRow>
               </UiTableBody>
             </UiTable>
@@ -1304,13 +1438,18 @@ function formatWeight(weight: number) {
           <!-- 移动端卡片 -->
           <div class="lg:hidden space-y-2">
             <div
-              v-for="bill in bills"
+              v-for="bill in group.bills"
               :key="`${bill.bill_no}-${bill.inner_waybill_no}`"
               class="border rounded-lg overflow-hidden bg-card"
             >
               <!-- 卡片头部 -->
               <div class="p-3 flex items-start gap-3">
-                <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive shrink-0 mt-1" @click="deleteConfirmedBill(wagonNo as string, bill.bill_no)">
+                <UiButton
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-destructive shrink-0 mt-1"
+                  @click="deleteConfirmedBill(group.wagonNo, group.innerWaybillNo, bill.bill_no)"
+                >
                   <Trash2 class="w-4 h-4" />
                 </UiButton>
                 <div class="flex-1 min-w-0">
@@ -1318,9 +1457,12 @@ function formatWeight(weight: number) {
                     <span class="font-medium text-sm truncate">{{ bill.bill_no }}</span>
                     <button
                       class="text-primary hover:text-primary/80 p-1 shrink-0"
-                      @click="toggleConfirmedCardExpand(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)"
+                      @click="toggleConfirmedCardExpand(`${group.wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)"
                     >
-                      <ChevronDown v-if="!expandedConfirmedCards.has(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)" class="w-4 h-4" />
+                      <ChevronDown
+                        v-if="!expandedConfirmedCards.has(`${group.wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)"
+                        class="w-4 h-4"
+                      />
                       <ChevronUp v-else class="w-4 h-4" />
                     </button>
                   </div>
@@ -1328,13 +1470,17 @@ function formatWeight(weight: number) {
                     <div>订单: {{ getOrderDisplay(bill) }}</div>
                     <div class="flex items-center justify-between">
                       <span>发运: {{ bill.send_num }}块 / {{ bill.send_weight?.toFixed(3) }}吨</span>
+                      <span>可用量: {{ getConfirmedBillLeftNum(bill) }}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- 展开的详细信息 -->
-              <div v-if="expandedConfirmedCards.has(`${wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)" class="border-t bg-muted/30 p-3 text-sm">
+              <div
+                v-if="expandedConfirmedCards.has(`${group.wagonNo}-${bill.bill_no}-${bill.inner_waybill_no}`)"
+                class="border-t bg-muted/30 p-3 text-sm space-y-2"
+              >
                 <div class="grid grid-cols-2 gap-2">
                   <div>
                     <span class="text-muted-foreground">厚度:</span>
@@ -1353,31 +1499,95 @@ function formatWeight(weight: number) {
                     <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
                   </div>
                 </div>
+
+                <!-- 发运数编辑 -->
+                <div class="pt-2 border-t space-y-2">
+                  <div>
+                    <label class="text-xs text-muted-foreground block mb-1">发运数</label>
+                    <UiInput
+                      :model-value="bill.send_num"
+                      type="number"
+                      class="w-full"
+                      min="0"
+                      :max="isBlockBill(bill) ? getMaxAvailableForConfirmed(bill) : undefined"
+                      step="any"
+                      @update:model-value="updateConfirmedSendNum(bill, Number($event))"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
+                    <template v-if="isBlockBill(bill)">
+                      <div class="p-2 bg-muted rounded text-center">
+                        {{ bill.send_weight?.toFixed(3) }}
+                      </div>
+                    </template>
+                    <UiInput
+                      v-else
+                      :model-value="bill.send_weight"
+                      type="number"
+                      class="w-full"
+                      min="0"
+                      :max="getMaxAvailableForConfirmed(bill)"
+                      step="0.001"
+                      @update:model-value="updateConfirmedSendWeight(bill, Number($event))"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 保存按钮 -->
-        <div class="flex flex-col sm:flex-row justify-end gap-2">
-          <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
-            <Save class="w-4 h-4 mr-1" />
-            保存
-          </UiButton>
-          <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
-            <Send class="w-4 h-4 mr-1" />
-            <span class="hidden sm:inline">保存并确定配发</span>
-            <span class="sm:hidden">确定配发</span>
-          </UiButton>
+        <!-- 固定在内容区域底部的操作栏 -->
+        <div
+          class="sticky bottom-0 z-40 -mx-4 -mb-2 bg-background/95 backdrop-blur-sm border-t shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
+        >
+          <div class="flex items-center justify-between px-4 py-3">
+            <!-- 左侧：未保存状态 -->
+            <div class="flex items-center">
+              <Transition
+                enter-active-class="transition-all duration-300 ease-out"
+                enter-from-class="opacity-0 -translate-x-2"
+                enter-to-class="opacity-100 translate-x-0"
+                leave-active-class="transition-all duration-200 ease-in"
+                leave-from-class="opacity-100 translate-x-0"
+                leave-to-class="opacity-0 -translate-x-2"
+              >
+                <div
+                  v-if="hasUnsavedChanges"
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800"
+                >
+                  <span class="relative flex h-2.5 w-2.5">
+                    <span
+                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"
+                    />
+                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
+                  </span>
+                  <span class="text-sm font-medium text-orange-600 dark:text-orange-400">未保存</span>
+                </div>
+              </Transition>
+            </div>
+
+            <!-- 右侧：保存按钮 -->
+            <div class="flex gap-2">
+              <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
+                <Save class="w-4 h-4 mr-1" />
+                保存
+              </UiButton>
+              <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
+                <Send class="w-4 h-4 mr-1" />
+                <span class="hidden sm:inline">保存并确定配发</span>
+                <span class="sm:hidden">确定配发</span>
+              </UiButton>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- 空状态 -->
       <div v-if="!waybillNo" class="border rounded-lg p-12 text-center text-muted-foreground">
         <p>请点击"新建运单"开始创建船运配发货单</p>
-        <p class="text-xs mt-2">
-          船运需要为每批货物指定装卸的车辆
-        </p>
+        <p class="text-xs mt-2">船运需要为每批货物指定装卸的车辆</p>
       </div>
     </div>
 
@@ -1408,7 +1618,7 @@ function formatWeight(weight: number) {
                 v-model="showMyOnly"
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-              >
+              />
               <label for="my-only" class="text-sm cursor-pointer whitespace-nowrap">只看我配发的运单</label>
             </div>
           </div>
@@ -1428,9 +1638,7 @@ function formatWeight(weight: number) {
                     <UiTableHead>配发日期</UiTableHead>
                     <UiTableHead>总重量(吨)</UiTableHead>
                     <UiTableHead>状态</UiTableHead>
-                    <UiTableHead class="w-20">
-                      操作
-                    </UiTableHead>
+                    <UiTableHead class="w-20">操作</UiTableHead>
                   </UiTableRow>
                 </UiTableHeader>
                 <UiTableBody>
@@ -1438,6 +1646,7 @@ function formatWeight(weight: number) {
                     v-for="invoice in invoiceList"
                     :key="invoice._id"
                     class="group cursor-pointer hover:bg-muted/50"
+                    @click="loadInvoiceDetail(invoice)"
                   >
                     <UiTableCell>{{ invoice.waybill_no }}</UiTableCell>
                     <UiTableCell>{{ invoice.vehicle_vessel_name }}</UiTableCell>
@@ -1464,42 +1673,46 @@ function formatWeight(weight: number) {
             </div>
 
             <!-- 加载中 -->
-            <div v-if="invoiceListLoading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-              <div class="text-muted-foreground">
-                加载中...
-              </div>
+            <div
+              v-if="invoiceListLoading"
+              class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+            >
+              <div class="text-muted-foreground">加载中...</div>
             </div>
 
             <!-- 空状态 -->
-            <div v-if="!invoiceListLoading && invoiceList.length === 0" class="absolute inset-0 flex items-center justify-center">
-              <div class="text-muted-foreground">
-                没有找到运单
-              </div>
+            <div
+              v-if="!invoiceListLoading && invoiceList.length === 0"
+              class="absolute inset-0 flex items-center justify-center"
+            >
+              <div class="text-muted-foreground">没有找到运单</div>
             </div>
           </div>
 
           <!-- 分页 -->
-          <div v-if="invoiceListTotal > 0" class="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3">
+          <div
+            v-if="invoiceListTotal > 0"
+            class="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3"
+          >
             <div class="text-muted-foreground">
-              共 {{ invoiceListTotal }} 条，第 {{ invoiceListPage }} / {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
+              共 {{ invoiceListTotal }} 条，第 {{ invoiceListPage }} /
+              {{ Math.ceil(invoiceListTotal / invoiceListLimit) }} 页
             </div>
             <div class="flex items-center gap-2">
               <UiButton
                 size="sm"
                 variant="outline"
                 :disabled="invoiceListPage <= 1 || invoiceListLoading"
-                @click="invoiceListPage--; loadInvoiceList()"
+                @click="(invoiceListPage--, loadInvoiceList())"
               >
                 上一页
               </UiButton>
-              <span class="text-muted-foreground">
-                {{ invoiceListPage }}
-              </span>
+              <span class="text-muted-foreground"> {{ invoiceListPage }} </span>
               <UiButton
                 size="sm"
                 variant="outline"
                 :disabled="invoiceListPage * invoiceListLimit >= invoiceListTotal || invoiceListLoading"
-                @click="invoiceListPage++; loadInvoiceList()"
+                @click="(invoiceListPage++, loadInvoiceList())"
               >
                 下一页
               </UiButton>
@@ -1508,5 +1721,18 @@ function formatWeight(weight: number) {
         </div>
       </UiDialogContent>
     </UiDialog>
+
+    <!-- 通用确认对话框 -->
+    <ConfirmDialog
+      v-model:open="confirmDialogOpen"
+      cancel-button-text="取消"
+      confirm-button-text="确定"
+      @confirm="onConfirmDialogConfirm"
+    >
+      <template #title>{{ confirmDialogTitle }}</template>
+      <template #description>
+        <p>{{ confirmDialogMessage }}</p>
+      </template>
+    </ConfirmDialog>
   </BasicPage>
 </template>

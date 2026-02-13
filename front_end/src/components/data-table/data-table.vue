@@ -18,14 +18,22 @@ defineProps<DataTableProps<T> & {
 
 function getCommonPinningStyles(column: Column<T>): CSSProperties {
   const isPinned = column.getIsPinned()
+  const meta = column.columnDef.meta as Record<string, any> | undefined
   return {
     left: isPinned === 'left' ? `${column.getStart('left')}px` : undefined,
     right: isPinned === 'right' ? `${column.getAfter('right')}px` : undefined,
     position: isPinned ? 'sticky' : 'relative',
-    width: `${column.getSize()}px`,
+    width: meta?.width ?? (meta?.fixedWidth ? undefined : `${column.getSize()}px`),
+    maxWidth: meta?.maxWidth,
     zIndex: isPinned ? 1 : 0,
   }
 }
+
+function getColWidth(column: Column<T>): string | undefined {
+  const meta = column.columnDef.meta as Record<string, any> | undefined
+  return meta?.fixedWidth
+}
+
 </script>
 
 <template>
@@ -33,7 +41,14 @@ function getCommonPinningStyles(column: Column<T>): CSSProperties {
     <slot name="toolbar" />
 
     <div class="border rounded-md">
-      <Table>
+      <Table class="table-fixed">
+        <colgroup>
+          <col
+            v-for="column in table.getAllColumns()"
+            :key="column.id"
+            :style="getColWidth(column) ? { width: getColWidth(column) } : {}"
+          >
+        </colgroup>
         <TableHeader>
           <TableRow v-for="headerGroup in table.getHeaderGroups()" :key="headerGroup.id">
             <TableHead
@@ -57,6 +72,7 @@ function getCommonPinningStyles(column: Column<T>): CSSProperties {
                 v-for="cell in row.getVisibleCells()"
                 :key="cell.id"
                 :style="getCommonPinningStyles(cell.column)"
+                class="whitespace-normal break-words"
                 :class="{ 'bg-background': cell.column.getIsPinned() }"
               >
                 <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />

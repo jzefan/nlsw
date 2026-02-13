@@ -1,9 +1,9 @@
 // MongoDB configuration
 const mongoHost = process.env.MONGO_HOST || "localhost";
-const mongoPort = process.env.MONGO_PORT || "27028";
+const mongoPort = process.env.MONGO_PORT || "27027";
 const mongoDatabase = process.env.MONGO_DATABASE || "nldb";
-const mongoUser = process.env.MONGO_USER || "";
-const mongoPassword = process.env.MONGO_PASSWORD || "";
+const mongoUser = process.env.MONGO_USER || "nlsw2026";
+const mongoPassword = process.env.MONGO_PASSWORD || "HiNlsw2026.";
 const mongoAuthSource = process.env.MONGO_AUTH_SOURCE || "admin";
 
 // Build MongoDB connection string
@@ -21,7 +21,7 @@ function buildMongoUri() {
 
 module.exports = {
   db: buildMongoUri(),
-  port: process.env.PORT || 1081,
+  port: process.env.PORT || 1080,
   env: process.env.NODE_ENV || "development",
 
   // MongoDB config (exposed for reference)
@@ -33,12 +33,12 @@ module.exports = {
   },
 
   development: {
-    port: 1081,
+    port: 1080,
     host: "127.0.0.1",
     errorHandlerOptions: { dumpExceptions: true, showStack: true },
   },
   production: {
-    port: 1081,
+    port: 1080,
     host: "127.0.0.1",
     errorHandlerOptions: { dumpExceptions: false, showStack: false },
   },

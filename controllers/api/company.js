@@ -19,7 +19,7 @@ exports.getCompanies = async (req, res) => {
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ create_time: -1 })
-      .select('name customers') // Select name and customers
+      .select('name customers contact_name phone address')
       .lean();
 
     res.json({

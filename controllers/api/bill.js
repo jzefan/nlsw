@@ -83,6 +83,57 @@ exports.getBills = async (req, res) => {
   }
 };
 
+// 获取可配发提单的开单名称列表（status_flag 0=新建 或 1=部分配发，且 left_num > 0）
+exports.getBillingNames = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const search = req.query.search || '';
+
+    const matchStage = {
+      status_flag: { $in: [0, 1] },
+      left_num: { $gt: 0 }
+    };
+
+    if (!isPlatformUser(req)) {
+      matchStage.tenantId = req.tenantId;
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      { $group: { _id: '$billing_name' } },
+    ];
+
+    if (search) {
+      pipeline.push({ $match: { _id: { $regex: search, $options: 'i' } } });
+    }
+
+    pipeline.push({ $sort: { _id: 1 } });
+
+    // Count total
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await Bill.aggregate(countPipeline);
+    const total = countResult.length > 0 ? countResult[0].total : 0;
+
+    // Paginate
+    pipeline.push({ $skip: (page - 1) * limit });
+    pipeline.push({ $limit: limit });
+
+    const results = await Bill.aggregate(pipeline);
+
+    res.json({
+      ok: true,
+      data: results.map(r => ({ name: r._id })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('getBillingNames error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
 exports.getOrders = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;

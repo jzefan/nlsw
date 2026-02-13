@@ -28,6 +28,9 @@ import { Button as UiButton } from '@/components/ui/button'
 import { Calendar as UiCalendar } from '@/components/ui/calendar'
 import { Popover as UiPopover, PopoverContent as UiPopoverContent, PopoverTrigger as UiPopoverTrigger } from '@/components/ui/popover'
 
+// Popover open state
+const popoverOpen = ref(false)
+
 // Calendar placeholder (used for navigation)
 const calendarPlaceholder = ref<DateValue>(today(getLocalTimeZone()))
 
@@ -46,6 +49,7 @@ const dateValue = computed<DateValue | undefined>({
     const date = value.toDate(getLocalTimeZone())
     const formatted = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
     emit('update:modelValue', formatted)
+    popoverOpen.value = false
   },
 })
 
@@ -80,7 +84,7 @@ function handleCalendarClick(e: MouseEvent) {
 </script>
 
 <template>
-  <UiPopover>
+  <UiPopover v-model:open="popoverOpen">
     <UiPopoverTrigger as-child>
       <UiButton
         variant="outline"

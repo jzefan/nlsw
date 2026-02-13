@@ -80,14 +80,22 @@ async function handleDelete(item: any) {
 
 const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '仓库名称' },
-  { accessorKey: 'contact_name', header: '联系人' },
-  { accessorKey: 'phone', header: '电话' },
-  { accessorKey: 'address', header: '地址' },
+  {
+    id: 'contact',
+    header: '联系信息',
+    cell: ({ row }) => h('div', [
+      h('div', [
+        row.original.contact_name || '',
+        row.original.phone ? h('span', { class: 'text-xs text-muted-foreground ml-2' }, row.original.phone) : null,
+      ]),
+      row.original.address ? h('div', { class: 'text-xs text-muted-foreground' }, row.original.address) : null,
+    ]),
+  },
   {
     id: 'actions',
-    size: 180,
-    header: '操作',
-    cell: ({ row }) => h('div', { class: 'flex items-center gap-2' }, [
+    meta: { fixedWidth: '120px' },
+    header: () => h('div', { class: 'text-center' }, '操作'),
+    cell: ({ row }) => h('div', { class: 'flex items-center justify-end gap-2' }, [
       h(Button, {
         variant: 'outline',
         size: 'sm',

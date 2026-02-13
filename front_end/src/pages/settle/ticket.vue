@@ -78,22 +78,23 @@ async function loadData() {
     if (result.ok) {
       allSettles.value = result.settles
       updateDisplaySettles()
-    }
-    else {
+    } else {
       toast.error('获取数据失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '获取数据失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
 // 更新显示的结算列表
 function updateDisplaySettles() {
-  if (filterTicketDateStart.value && filterTicketDateEnd.value && new Date(filterTicketDateStart.value) > new Date(filterTicketDateEnd.value)) {
+  if (
+    filterTicketDateStart.value &&
+    filterTicketDateEnd.value &&
+    new Date(filterTicketDateStart.value) > new Date(filterTicketDateEnd.value)
+  ) {
     toast.error('开始日期不能晚于结束日期')
     return
   }
@@ -102,20 +103,19 @@ function updateDisplaySettles() {
 
   // 应用过滤条件
   if (filterBillingName.value) {
-    filtered = filtered.filter(s => s.billing_name === filterBillingName.value)
+    filtered = filtered.filter((s) => s.billing_name === filterBillingName.value)
   }
   if (filterSerialNumber.value) {
-    filtered = filtered.filter(s => s.serial_number === filterSerialNumber.value)
+    filtered = filtered.filter((s) => s.serial_number === filterSerialNumber.value)
   }
   if (filterShipTo.value) {
-    filtered = filtered.filter(s => s.ship_to === filterShipTo.value)
+    filtered = filtered.filter((s) => s.ship_to === filterShipTo.value)
   }
 
-  // 开票日期过滤
-  if (filterTicketDateStart.value && filterTicketDateEnd.value) {
+  // 开票日期过滤（仅在已开票模式下生效，未开票记录没有 ticket_date）
+  if (displayMode.value === 'ticket' && filterTicketDateStart.value && filterTicketDateEnd.value) {
     filtered = filtered.filter((s) => {
-      if (!s.ticket_date)
-        return false
+      if (!s.ticket_date) return false
       const ticketDate = new Date(s.ticket_date)
       const startDate = new Date(filterTicketDateStart.value)
       const endDate = new Date(filterTicketDateEnd.value)
@@ -167,28 +167,26 @@ const allSelected = computed(() => {
 function toggleAll() {
   if (allSelected.value) {
     selectedSettles.value = []
-  }
-  else {
+  } else {
     selectedSettles.value = [...displaySettles.value]
   }
 }
 
 // 切换单行选择
 function toggleSettle(settle: SettleRecord) {
-  const index = selectedSettles.value.findIndex(s => s._id === settle._id)
+  const index = selectedSettles.value.findIndex((s) => s._id === settle._id)
   if (index >= 0) {
     const newSelected = [...selectedSettles.value]
     newSelected.splice(index, 1)
     selectedSettles.value = newSelected
-  }
-  else {
+  } else {
     selectedSettles.value = [...selectedSettles.value, settle]
   }
 }
 
 // 判断是否选中
 function isSelected(settle: SettleRecord) {
-  return selectedSettles.value.some(s => s._id === settle._id)
+  return selectedSettles.value.some((s) => s._id === settle._id)
 }
 
 // 切换结算类型
@@ -214,12 +212,9 @@ const filterOptions = computed(() => {
   const shipTos = new Set<string>()
 
   allSettles.value.forEach((settle) => {
-    if (settle.billing_name)
-      billingNames.add(settle.billing_name)
-    if (settle.serial_number)
-      serialNumbers.add(settle.serial_number)
-    if (settle.ship_to)
-      shipTos.add(settle.ship_to)
+    if (settle.billing_name) billingNames.add(settle.billing_name)
+    if (settle.serial_number) serialNumbers.add(settle.serial_number)
+    if (settle.ship_to) shipTos.add(settle.ship_to)
   })
 
   return {
@@ -270,8 +265,7 @@ function handleTicket() {
   if (settle.ticket_no === 'NOTNEEDED') {
     ticketNo.value = ''
     needTicket.value = false
-  }
-  else {
+  } else {
     ticketNo.value = settle.ticket_no || ''
     needTicket.value = true
   }
@@ -289,8 +283,7 @@ async function confirmTicket() {
       return
     }
     settle.ticket_no = ticketNo.value.trim()
-  }
-  else {
+  } else {
     settle.ticket_no = 'NOTNEEDED'
   }
 
@@ -310,15 +303,12 @@ async function confirmTicket() {
       toast.success('开票成功')
       showTicketDialog.value = false
       loadData()
-    }
-    else {
+    } else {
       toast.error(result.message || '开票失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '开票失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -330,20 +320,19 @@ async function handleCancelTicket() {
     return
   }
 
-  const ticketedSettles = selectedSettles.value.filter(s => s.status === '已开票')
+  const ticketedSettles = selectedSettles.value.filter((s) => s.status === '已开票')
   if (ticketedSettles.length === 0) {
     toast.warning('选中的记录中没有已开票的记录')
     return
   }
 
   const confirmed = window.confirm('确定要取消所选记录的开票状态吗？')
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
     const result = await updateTicket(
-      ticketedSettles.map(settle => ({
+      ticketedSettles.map((settle) => ({
         _id: settle._id,
         ticket_no: '',
         ticket_date: new Date(),
@@ -355,15 +344,12 @@ async function handleCancelTicket() {
     if (result.ok) {
       toast.success('取消开票成功')
       loadData()
-    }
-    else {
+    } else {
       toast.error(result.message || '取消开票失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '取消开票失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -376,35 +362,31 @@ async function handleDelete() {
   }
 
   // 检查状态
-  const invalidSettle = selectedSettles.value.find(s => s.status !== '已结算')
+  const invalidSettle = selectedSettles.value.find((s) => s.status !== '已结算')
   if (invalidSettle) {
     toast.error(`选中的记录中存在状态为"${invalidSettle.status}"的记录，不能删除`)
     return
   }
 
   const confirmed = window.confirm('确定要删除选中的结算记录吗？此操作不可恢复！')
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
     const result = await deleteSettle({
-      settle_ids: selectedSettles.value.map(s => s._id),
+      settle_ids: selectedSettles.value.map((s) => s._id),
       settle_type: settleType.value,
     })
 
     if (result.ok) {
       toast.success('删除成功')
       loadData()
-    }
-    else {
+    } else {
       toast.error(result.message || '删除失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '删除失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -482,51 +464,48 @@ async function handleShowDetail() {
       currentSettle.value = result.settle
 
       // 合并提单信息和结算信息
-      detailBills.value = result.settle_bills.map((settleBill: any) => {
-        const bill = result.bills.find((b: any) => String(b._id) === String(settleBill.bill_id))
-        if (!bill)
-          return null
+      detailBills.value = result.settle_bills
+        .map((settleBill: any) => {
+          const bill = result.bills.find((b: any) => String(b._id) === String(settleBill.bill_id))
+          if (!bill) return null
 
-        // 查找对应的运单信息获取车船号和目的地
-        let vessel = ''
-        let shipTo = ''
-        let price = 0
+          // 查找对应的运单信息获取车船号和目的地
+          let vessel = ''
+          let shipTo = ''
+          let price = 0
 
-        if (bill.invoices && bill.invoices.length > 0) {
-          for (const inv of bill.invoices) {
-            if (inv.inv_no === settleBill.inv_no) {
-              if (settle.settle_type === '客户结算') {
-                vessel = inv.veh_ves_name
-                price = inv.price || 0
+          if (bill.invoices && bill.invoices.length > 0) {
+            for (const inv of bill.invoices) {
+              if (inv.inv_no === settleBill.inv_no) {
+                if (settle.settle_type === '客户结算') {
+                  vessel = inv.veh_ves_name
+                  price = inv.price || 0
+                } else if (settle.settle_type === '代收代付结算') {
+                  price = bill.collection_price || 0
+                }
+                shipTo = inv.ship_to
+                break
               }
-              else if (settle.settle_type === '代收代付结算') {
-                price = bill.collection_price || 0
-              }
-              shipTo = inv.ship_to
-              break
             }
           }
-        }
 
-        return {
-          ...bill,
-          settle_num: settleBill.num,
-          settle_weight: settleBill.weight,
-          vessel,
-          ship_to: shipTo,
-          price,
-          amount: price * settleBill.weight,
-        }
-      }).filter(Boolean)
-    }
-    else {
+          return {
+            ...bill,
+            settle_num: settleBill.num,
+            settle_weight: settleBill.weight,
+            vessel,
+            ship_to: shipTo,
+            price,
+            amount: price * settleBill.weight,
+          }
+        })
+        .filter(Boolean)
+    } else {
       toast.error(result.message || '获取明细失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '获取明细失败')
-  }
-  finally {
+  } finally {
     detailLoading.value = false
   }
 }
@@ -551,7 +530,12 @@ async function handleShowDetail() {
         <template #actions>
           <!-- 开票操作按钮（仅在未开票tab显示） -->
           <template v-if="displayMode === 'settle'">
-            <UiButton variant="outline" size="sm" :disabled="selectedSettles.length !== 1 || loading" @click="handleTicket">
+            <UiButton
+              variant="outline"
+              size="sm"
+              :disabled="selectedSettles.length !== 1 || loading"
+              @click="handleTicket"
+            >
               <FileCheck class="w-4 h-4 mr-1" />
               开票
             </UiButton>
@@ -559,7 +543,12 @@ async function handleShowDetail() {
 
           <!-- 已开票tab的操作按钮 -->
           <template v-else>
-            <UiButton variant="outline" size="sm" :disabled="selectedSettles.length === 0 || loading" @click="handleCancelTicket">
+            <UiButton
+              variant="outline"
+              size="sm"
+              :disabled="selectedSettles.length === 0 || loading"
+              @click="handleCancelTicket"
+            >
               <FileX class="w-4 h-4 mr-1" />
               取消开票
             </UiButton>
@@ -590,11 +579,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="开单名称" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="name in filterOptions.billingNames"
-                  :key="name"
-                  :value="name"
-                >
+                <SelectItem v-for="name in filterOptions.billingNames" :key="name" :value="name">
                   {{ name }}
                 </SelectItem>
               </SelectContent>
@@ -605,11 +590,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="结算号" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="number in filterOptions.serialNumbers"
-                  :key="number"
-                  :value="number"
-                >
+                <SelectItem v-for="number in filterOptions.serialNumbers" :key="number" :value="number">
                   {{ number }}
                 </SelectItem>
               </SelectContent>
@@ -620,11 +601,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="目的地" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="dest in filterOptions.shipTos"
-                  :key="dest"
-                  :value="dest"
-                >
+                <SelectItem v-for="dest in filterOptions.shipTos" :key="dest" :value="dest">
                   {{ dest }}
                 </SelectItem>
               </SelectContent>
@@ -648,18 +625,24 @@ async function handleShowDetail() {
               @update:model-value="updateDisplaySettles"
             />
 
-            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter">
-              重置
-            </UiButton>
+            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter"> 重置 </UiButton>
           </div>
         </div>
 
         <!-- 汇总统计信息 -->
         <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
-          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
-          <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
-          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
-          <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
+          <span class="text-muted-foreground"
+            >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span
+          >
+          <span class="text-muted-foreground"
+            >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+          >
         </div>
 
         <!-- 数据表格 -->
@@ -669,55 +652,26 @@ async function handleShowDetail() {
               <thead class="bg-muted/80">
                 <tr class="border-b">
                   <th class="px-2 py-2 text-left w-8">
-                    <input
-                      type="checkbox"
-                      class="h-4 w-4 cursor-pointer"
-                      :checked="allSelected"
-                      @change="toggleAll"
-                    >
+                    <input type="checkbox" class="h-4 w-4 cursor-pointer" :checked="allSelected" @change="toggleAll" />
                   </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 120px">
-                    结算号
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 150px">
-                    开单名称
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    目的地
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 60px">
-                    块数
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 80px">
-                    重量
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 80px">
-                    金额
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    结算日期
-                  </th>
-                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">
-                    开票号
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    开票日期
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 80px">
-                    状态
-                  </th>
+                  <th class="px-2 py-2 text-left" style="min-width: 120px">结算号</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 150px">开单名称</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">目的地</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 60px">块数</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
+                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">
-                    加载中...
-                  </td>
+                  <td colspan="11" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">
-                    没有数据
-                  </td>
+                  <td colspan="11" class="p-8 text-center text-muted-foreground">没有数据</td>
                 </tr>
                 <tr
                   v-for="settle in displaySettles"
@@ -735,7 +689,7 @@ async function handleShowDetail() {
                       class="h-4 w-4 cursor-pointer"
                       :checked="isSelected(settle)"
                       @change="toggleSettle(settle)"
-                    >
+                    />
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.serial_number }}
@@ -759,7 +713,7 @@ async function handleShowDetail() {
                     {{ new Date(settle.settle_date).toLocaleDateString() }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ settle.ticket_no || '-' }}
+                    {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.ticket_date ? new Date(settle.ticket_date).toLocaleDateString() : '-' }}
@@ -793,11 +747,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="开单名称" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="name in filterOptions.billingNames"
-                  :key="name"
-                  :value="name"
-                >
+                <SelectItem v-for="name in filterOptions.billingNames" :key="name" :value="name">
                   {{ name }}
                 </SelectItem>
               </SelectContent>
@@ -808,11 +758,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="结算号" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="number in filterOptions.serialNumbers"
-                  :key="number"
-                  :value="number"
-                >
+                <SelectItem v-for="number in filterOptions.serialNumbers" :key="number" :value="number">
                   {{ number }}
                 </SelectItem>
               </SelectContent>
@@ -823,11 +769,7 @@ async function handleShowDetail() {
                 <SelectValue placeholder="目的地" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem
-                  v-for="dest in filterOptions.shipTos"
-                  :key="dest"
-                  :value="dest"
-                >
+                <SelectItem v-for="dest in filterOptions.shipTos" :key="dest" :value="dest">
                   {{ dest }}
                 </SelectItem>
               </SelectContent>
@@ -851,18 +793,24 @@ async function handleShowDetail() {
               @update:model-value="updateDisplaySettles"
             />
 
-            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter">
-              重置
-            </UiButton>
+            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter"> 重置 </UiButton>
           </div>
         </div>
 
         <!-- 汇总统计信息 -->
         <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
-          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
-          <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
-          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
-          <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
+          <span class="text-muted-foreground"
+            >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span
+          >
+          <span class="text-muted-foreground"
+            >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+          >
         </div>
 
         <!-- 数据表格 -->
@@ -872,55 +820,26 @@ async function handleShowDetail() {
               <thead class="bg-muted/80">
                 <tr class="border-b">
                   <th class="px-2 py-2 text-left w-8">
-                    <input
-                      type="checkbox"
-                      class="h-4 w-4 cursor-pointer"
-                      :checked="allSelected"
-                      @change="toggleAll"
-                    >
+                    <input type="checkbox" class="h-4 w-4 cursor-pointer" :checked="allSelected" @change="toggleAll" />
                   </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 120px">
-                    结算号
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 150px">
-                    开单名称
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    目的地
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 60px">
-                    块数
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 80px">
-                    重量
-                  </th>
-                  <th class="px-2 py-2 text-right" style="min-width: 80px">
-                    金额
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    结算日期
-                  </th>
-                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">
-                    开票号
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">
-                    开票日期
-                  </th>
-                  <th class="px-2 py-2 text-left" style="min-width: 80px">
-                    状态
-                  </th>
+                  <th class="px-2 py-2 text-left" style="min-width: 120px">结算号</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 150px">开单名称</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">目的地</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 60px">块数</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
+                  <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
+                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">
-                    加载中...
-                  </td>
+                  <td colspan="11" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">
-                    没有数据
-                  </td>
+                  <td colspan="11" class="p-8 text-center text-muted-foreground">没有数据</td>
                 </tr>
                 <tr
                   v-for="settle in displaySettles"
@@ -938,7 +857,7 @@ async function handleShowDetail() {
                       class="h-4 w-4 cursor-pointer"
                       :checked="isSelected(settle)"
                       @change="toggleSettle(settle)"
-                    >
+                    />
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.serial_number }}
@@ -962,7 +881,7 @@ async function handleShowDetail() {
                     {{ new Date(settle.settle_date).toLocaleDateString() }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ settle.ticket_no || '-' }}
+                    {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.ticket_date ? new Date(settle.ticket_date).toLocaleDateString() : '-' }}
@@ -998,41 +917,23 @@ async function handleShowDetail() {
             <label class="text-sm font-medium">是否开票</label>
             <div class="flex items-center gap-4">
               <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  v-model="needTicket"
-                  type="radio"
-                  :value="true"
-                  class="h-4 w-4"
-                >
+                <input v-model="needTicket" type="radio" :value="true" class="h-4 w-4" />
                 <span class="text-sm">需要开票</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  v-model="needTicket"
-                  type="radio"
-                  :value="false"
-                  class="h-4 w-4"
-                >
+                <input v-model="needTicket" type="radio" :value="false" class="h-4 w-4" />
                 <span class="text-sm">不开票</span>
               </label>
             </div>
           </div>
           <div class="space-y-2">
             <label class="text-sm font-medium">开票号码</label>
-            <UiInput
-              v-model="ticketNo"
-              placeholder="请输入开票号码"
-              :disabled="!needTicket"
-            />
+            <UiInput v-model="ticketNo" placeholder="请输入开票号码" :disabled="!needTicket" />
           </div>
         </div>
         <UiDialogFooter>
-          <UiButton variant="outline" @click="showTicketDialog = false">
-            取消
-          </UiButton>
-          <UiButton @click="confirmTicket">
-            确定
-          </UiButton>
+          <UiButton variant="outline" @click="showTicketDialog = false"> 取消 </UiButton>
+          <UiButton @click="confirmTicket"> 确定 </UiButton>
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>
@@ -1053,53 +954,25 @@ async function handleShowDetail() {
           <table v-else class="w-full text-sm border-collapse">
             <thead class="bg-muted/80 sticky top-0">
               <tr class="border-b">
-                <th class="px-2 py-2 text-left">
-                  订单号
-                </th>
-                <th class="px-2 py-2 text-left">
-                  提单号
-                </th>
-                <th class="px-2 py-2 text-left">
-                  规格
-                </th>
-                <th class="px-2 py-2 text-left">
-                  开单名称
-                </th>
-                <th class="px-2 py-2 text-left">
-                  车船
-                </th>
-                <th class="px-2 py-2 text-left">
-                  目的地
-                </th>
-                <th class="px-2 py-2 text-right">
-                  单价
-                </th>
-                <th class="px-2 py-2 text-right">
-                  发运块数
-                </th>
-                <th class="px-2 py-2 text-right">
-                  发运重量
-                </th>
-                <th class="px-2 py-2 text-right">
-                  金额
-                </th>
+                <th class="px-2 py-2 text-left">订单号</th>
+                <th class="px-2 py-2 text-left">提单号</th>
+                <th class="px-2 py-2 text-left">规格</th>
+                <th class="px-2 py-2 text-left">开单名称</th>
+                <th class="px-2 py-2 text-left">车船</th>
+                <th class="px-2 py-2 text-left">目的地</th>
+                <th class="px-2 py-2 text-right">单价</th>
+                <th class="px-2 py-2 text-right">发运块数</th>
+                <th class="px-2 py-2 text-right">发运重量</th>
+                <th class="px-2 py-2 text-right">金额</th>
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="(bill, index) in detailBills"
-                :key="index"
-                class="border-b hover:bg-muted/50"
-              >
-                <td class="px-2 py-2">
-                  {{ bill.order_no }}-{{ String(bill.order_item_no || 0).padStart(3, '0') }}
-                </td>
+              <tr v-for="(bill, index) in detailBills" :key="index" class="border-b hover:bg-muted/50">
+                <td class="px-2 py-2">{{ bill.order_no }}-{{ String(bill.order_item_no || 0).padStart(3, '0') }}</td>
                 <td class="px-2 py-2">
                   {{ bill.bill_no }}
                 </td>
-                <td class="px-2 py-2">
-                  {{ bill.thickness }}*{{ bill.width }}*{{ bill.len }}
-                </td>
+                <td class="px-2 py-2">{{ bill.thickness }}*{{ bill.width }}*{{ bill.len }}</td>
                 <td class="px-2 py-2">
                   {{ bill.billing_name }}
                 </td>
@@ -1130,18 +1003,12 @@ async function handleShowDetail() {
             <Download class="w-4 h-4 mr-1" />
             导出
           </UiButton>
-          <UiButton @click="showDetailDialog = false">
-            关闭
-          </UiButton>
+          <UiButton @click="showDetailDialog = false"> 关闭 </UiButton>
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>
 
     <!-- 导出对话框 -->
-    <ExportDialog
-      v-model:open="showExportDialog"
-      :default-file-name="exportFileName"
-      @confirm="confirmExport"
-    />
+    <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
   </BasicPage>
 </template>

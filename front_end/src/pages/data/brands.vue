@@ -82,9 +82,9 @@ const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '牌号' },
   {
     id: 'actions',
-    size: 180,
-    header: '操作',
-    cell: ({ row }) => h('div', { class: 'flex items-center gap-2' }, [
+    meta: { fixedWidth: '120px' },
+    header: () => h('div', { class: 'text-center' }, '操作'),
+    cell: ({ row }) => h('div', { class: 'flex items-center justify-end gap-2' }, [
       h(Button, {
         variant: 'outline',
         size: 'sm',

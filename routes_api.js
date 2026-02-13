@@ -81,6 +81,7 @@ module.exports = function (app) {
 
   // Bill API (tenant-scoped)
   app.get('/bills', requireTenant, billApiController.getBills);
+  app.get('/bills/billing-names', requireTenant, billApiController.getBillingNames);
   app.get('/bills/orders', requireTenant, billApiController.getOrders);
   app.post('/bills', requireTenant, billApiController.createBills);
   app.post('/bills/delete', requireTenant, billApiController.deleteBills);

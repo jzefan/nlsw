@@ -6,6 +6,7 @@ import { Pencil, Trash2 } from 'lucide-vue-next'
 import { h, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useModal } from '@/composables/use-modal'
@@ -77,13 +78,32 @@ const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '车船号' },
   { accessorKey: 'veh_type', header: '类型' },
   { accessorKey: 'veh_category', header: '分类' },
-  { accessorKey: 'contact_name', header: '联系人' },
-  { accessorKey: 'phone', header: '电话' },
+  {
+    accessorKey: 'boss',
+    header: '承运单位',
+    size: 240,
+    cell: ({ row }) => {
+      const boss = row.original.boss as string
+      if (!boss) return ''
+      const tags = boss.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      return h('div', { class: 'flex flex-wrap gap-1 max-w-[240px]' },
+        tags.map(tag => h(Badge, { variant: 'outline', class: 'bg-muted' }, () => tag)),
+      )
+    },
+  },
+  {
+    id: 'contact',
+    header: '联系人',
+    cell: ({ row }) => h('div', [
+      h('div', row.original.contact_name || ''),
+      h('div', { class: 'text-xs text-muted-foreground' }, row.original.phone || ''),
+    ]),
+  },
   {
     id: 'actions',
-    size: 180,
-    header: '操作',
-    cell: ({ row }) => h('div', { class: 'flex items-center gap-2' }, [
+    meta: { fixedWidth: '120px' },
+    header: () => h('div', { class: 'text-center' }, '操作'),
+    cell: ({ row }) => h('div', { class: 'flex items-center justify-end gap-2' }, [
       h(Button, {
         variant: 'outline',
         size: 'sm',
@@ -122,7 +142,7 @@ const columns: ColumnDef<any>[] = [
 
     <template #dialog>
       <component :is="Modal.Root" v-model:open="dialogOpen">
-        <component :is="Modal.Content">
+        <component :is="Modal.Content" class="max-h-[90vh] overflow-y-auto w-[95vw] sm:w-[50vw] sm:max-w-[50vw]">
           <VehicleDialog
             v-if="dialogOpen"
             :item="editingItem"

@@ -153,6 +153,51 @@ function getOrderDisplay(bill: any) {
   return bill.order_no
 }
 
+// 判断是否为船运（有 vehicles 数据）
+const isShipInvoice = computed(() => {
+  if (!invoiceDetail.value?.bills) return false
+  return invoiceDetail.value.bills.some((b: any) => b.vehicles && b.vehicles.length > 0)
+})
+
+// 按车号分组的明细（船运用）
+const detailByWagon = computed(() => {
+  if (!invoiceDetail.value?.bills) return {}
+  const groups: Record<string, any[]> = {}
+
+  for (const invBill of invoiceDetail.value.bills) {
+    const billInfo = invBill.bill_id
+    if (!billInfo) continue
+
+    for (const vehicle of invBill.vehicles || []) {
+      const wagonNo = vehicle.veh_name || '未知'
+      if (!groups[wagonNo]) {
+        groups[wagonNo] = []
+      }
+      groups[wagonNo].push({
+        bill_no: billInfo.bill_no,
+        order_no: billInfo.order_no,
+        order_item_no: billInfo.order_item_no,
+        thickness: billInfo.thickness,
+        width: billInfo.width,
+        len: billInfo.len || billInfo.length,
+        weight: billInfo.weight,
+        send_num: vehicle.send_num || 0,
+        send_weight: vehicle.send_weight || 0,
+        ship_from: vehicle.veh_ship_from,
+      })
+    }
+  }
+
+  return groups
+})
+
+// 获取某车的配发统计
+function getDetailWagonStats(bills: any[]) {
+  const totalNum = bills.reduce((sum: number, b: any) => sum + (b.send_num || 0), 0)
+  const totalWeight = bills.reduce((sum: number, b: any) => sum + (b.send_weight || 0), 0)
+  return { totalNum, totalWeight }
+}
+
 // 计算总重量和总块数
 const totalStats = computed(() => {
   if (!invoiceDetail.value?.bills)
@@ -340,8 +385,59 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 提单明细 -->
-            <div class="border rounded">
+            <!-- 提单明细 - 船运按车号分组 -->
+            <template v-if="isShipInvoice">
+              <div class="space-y-3">
+                <div class="text-sm font-medium">
+                  提单明细（按车号分组）
+                </div>
+                <div v-for="(bills, wagonNo) in detailByWagon" :key="wagonNo">
+                  <div class="flex items-center justify-between text-xs text-muted-foreground mb-1 bg-muted px-2 py-1 rounded">
+                    <div class="flex items-center gap-4">
+                      <span>车号: <strong class="text-foreground">{{ wagonNo }}</strong></span>
+                      <span>块数: <strong>{{ getDetailWagonStats(bills).totalNum }}</strong></span>
+                      <span>重量: <strong>{{ getDetailWagonStats(bills).totalWeight.toFixed(3) }}</strong></span>
+                      <span>起始地: <strong class="text-foreground">{{ bills[0]?.ship_from || '-' }}</strong></span>
+                    </div>
+                  </div>
+                  <div class="border rounded overflow-auto">
+                    <UiTable>
+                      <UiTableHeader>
+                        <UiTableRow>
+                          <UiTableHead>提单号</UiTableHead>
+                          <UiTableHead>订单号</UiTableHead>
+                          <UiTableHead>厚度</UiTableHead>
+                          <UiTableHead>宽度</UiTableHead>
+                          <UiTableHead>长度</UiTableHead>
+                          <UiTableHead>单重</UiTableHead>
+                          <UiTableHead>发运数</UiTableHead>
+                          <UiTableHead>发运重量</UiTableHead>
+                        </UiTableRow>
+                      </UiTableHeader>
+                      <UiTableBody>
+                        <UiTableRow v-for="(bill, index) in bills" :key="index">
+                          <UiTableCell>{{ bill.bill_no || '-' }}</UiTableCell>
+                          <UiTableCell>{{ getOrderDisplay(bill) }}</UiTableCell>
+                          <UiTableCell>{{ bill.thickness || '-' }}</UiTableCell>
+                          <UiTableCell>{{ bill.width || '-' }}</UiTableCell>
+                          <UiTableCell>{{ bill.len || '-' }}</UiTableCell>
+                          <UiTableCell>{{ bill.weight?.toFixed(4) || '-' }}</UiTableCell>
+                          <UiTableCell>{{ bill.send_num }}</UiTableCell>
+                          <UiTableCell>{{ formatWeight(bill.send_weight) }}</UiTableCell>
+                        </UiTableRow>
+                      </UiTableBody>
+                    </UiTable>
+                  </div>
+                </div>
+                <div class="p-2 bg-muted/50 rounded text-sm flex justify-end gap-4">
+                  <span>总块数: <strong>{{ totalStats.totalNum }}</strong></span>
+                  <span>总重量: <strong>{{ formatWeight(totalStats.totalWeight) }}</strong> 吨</span>
+                </div>
+              </div>
+            </template>
+
+            <!-- 提单明细 - 非船运扁平展示 -->
+            <div v-else class="border rounded">
               <div class="p-2 bg-muted/50 text-sm font-medium">
                 提单明细（共 {{ invoiceDetail.bills?.length || 0 }} 条）
               </div>
