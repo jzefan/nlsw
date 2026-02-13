@@ -70,4 +70,40 @@ async function migrateAllUsers(UserModel) {
   }
 }
 
-module.exports = { migrateBinaryToArray, needsMigration, migrateAllUsers };
+/**
+ * 将新的命名数组权限转为旧的二进制字符串（用于旧模板兼容）
+ * @param {string[]} privilege - 新权限数组，如 ['admin'] 或 ['operator', 'account']
+ * @returns {string} 旧权限字符串，如 '11111111' 或 '10100000'
+ */
+function migrateArrayToBinary(privilege) {
+  if (!Array.isArray(privilege)) return '00000000';
+
+  // 管理员返回全权限
+  if (privilege.includes('admin')) return '11111111';
+
+  // 构建二进制字符串（8位）
+  const bits = ['0', '0', '0', '0', '0', '0', '0', '0'];
+
+  // 根据权限名称设置对应位
+  const PERMISSION_TO_BIT = {
+    'operator': 0,      // 业务员
+    'statistics': 1,    // 统计
+    'account': 2,       // 会计
+    // 3: reserved
+    'custRevenue': 4,   // 客户营业额
+    'vesselRevenue': 5, // 车船营业额
+    'selfVehicle': 6,   // 自有车
+    'seePrice': 7,      // 查看价格
+  };
+
+  for (const perm of privilege) {
+    const bit = PERMISSION_TO_BIT[perm];
+    if (bit !== undefined) {
+      bits[bit] = '1';
+    }
+  }
+
+  return bits.join('');
+}
+
+module.exports = { migrateBinaryToArray, migrateArrayToBinary, needsMigration, migrateAllUsers };

@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { Image, Loader2, X as XIcon } from 'lucide-vue-next'
+import { Image, Loader2, Trash2, X as XIcon } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import * as settleApi from '@/services/api/settle.api'
 
@@ -27,6 +37,16 @@ const fullImageFilename = ref('')
 
 // 缓存已加载的图片数据
 const imageCache = ref<Record<string, string>>({})
+
+// 删除相关状态
+const showDeleteDialog = ref(false)
+const deleting = ref(false)
+const pendingDeleteImage = ref<ReceiptImage | null>(null)
+
+// 组件事件
+const emit = defineEmits<{
+  confirm: []
+}>()
 
 async function open(wno: string) {
   if (!wno) {
@@ -119,6 +139,47 @@ function handleClose(open: boolean) {
   }
 }
 
+// 删除图片
+function handleDeleteClick(event: MouseEvent, image: ReceiptImage) {
+  event.stopPropagation() // 阻止触发查看大图
+  pendingDeleteImage.value = image
+  showDeleteDialog.value = true
+}
+
+async function confirmDelete() {
+  if (!pendingDeleteImage.value) return
+
+  const imageToDelete = pendingDeleteImage.value
+  deleting.value = true
+
+  try {
+    await settleApi.deleteReceiptImage(imageToDelete.id)
+    toast.success('删除成功')
+
+    // 从列表中移除
+    images.value = images.value.filter(img => img.id !== imageToDelete.id)
+
+    // 从缓存中移除
+    delete imageCache.value[imageToDelete.id]
+
+    // 如果全部删除完了，关闭对话框并通知父组件
+    if (images.value.length === 0) {
+      visible.value = false
+      emit('confirm')
+    } else {
+      // 否则只通知父组件刷新
+      emit('confirm')
+    }
+  } catch (error: any) {
+    console.error('删除回执图片失败:', error)
+    toast.error(error.message || '删除失败')
+  } finally {
+    deleting.value = false
+    showDeleteDialog.value = false
+    pendingDeleteImage.value = null
+  }
+}
+
 defineExpose({ open })
 </script>
 
@@ -143,9 +204,19 @@ defineExpose({ open })
           <div
             v-for="image in images"
             :key="image.id"
-            class="relative border rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer bg-muted/30"
+            class="relative border rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer bg-muted/30 group"
             @click="handleImageClick(image)"
           >
+            <!-- 删除按钮 -->
+            <Button
+              variant="destructive"
+              size="icon"
+              class="absolute top-2 right-2 z-20 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+              @click="handleDeleteClick($event, image)"
+            >
+              <Trash2 class="h-4 w-4" />
+            </Button>
+
             <!-- 图片预览 -->
             <div class="aspect-square bg-muted/50 flex items-center justify-center relative overflow-hidden">
               <!-- 实际图片或占位符 -->
@@ -225,4 +296,44 @@ defineExpose({ open })
       </div>
     </DialogContent>
   </Dialog>
+
+  <!-- 删除确认对话框 -->
+  <AlertDialog v-model:open="showDeleteDialog">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>确认删除</AlertDialogTitle>
+        <AlertDialogDescription class="space-y-3">
+          <p class="font-medium">确定要删除这张回执图片吗？</p>
+          <div v-if="pendingDeleteImage" class="bg-muted/50 rounded-lg p-3 space-y-2 text-sm">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <span class="text-muted-foreground">文件名：</span>
+                <span class="font-medium">{{ pendingDeleteImage.original_filename }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">大小：</span>
+                <span class="font-medium">{{ formatFileSize(pendingDeleteImage.file_size) }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">上传人：</span>
+                <span class="font-medium">{{ pendingDeleteImage.uploader }}</span>
+              </div>
+              <div>
+                <span class="text-muted-foreground">上传时间：</span>
+                <span class="font-medium">{{ formatDateTime(pendingDeleteImage.upload_time) }}</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-destructive text-sm">此操作无法撤销，图片将被永久删除。</p>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel :disabled="deleting">取消</AlertDialogCancel>
+        <AlertDialogAction :disabled="deleting" @click="confirmDelete">
+          <Loader2 v-if="deleting" class="h-4 w-4 mr-2 animate-spin" />
+          {{ deleting ? '删除中...' : '确定删除' }}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>

@@ -9,7 +9,7 @@ var express = require('express');
 var cookieParser = require('cookie-parser');
 var compress = require('compression');
 var session = require('express-session');
-var bodyParser = require('body-parser');
+// var bodyParser = require('body-parser'); // Removed: Express 4.16+ has built-in body parsing
 var favicon = require('serve-favicon');
 var logger = require('morgan');
 var errorHandler = require('errorhandler');
@@ -17,7 +17,7 @@ var errorHandler = require('errorhandler');
 var methodOverride = require('method-override');
 var cors = require('cors');
 
-var MongoStore = require('connect-mongo');
+var { MongoStore } = require('connect-mongo'); // Updated for connect-mongo 6.x
 var flash = require('express-flash');
 var path = require('path');
 var mongoose = require('mongoose');
@@ -84,7 +84,7 @@ var week = day * 7;
 
 app.set('env', secrets.env);
 app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
+app.set('view engine', 'pug'); // Changed from 'jade' - Pug is the official successor
 if (secrets.env === 'production') {
   app.enable('view cache');
 }
@@ -99,8 +99,8 @@ app.use('/', connectAssets({
 app.use(compress());
 app.use(favicon(__dirname + '/public/favicon.ico'));
 app.use(logger('dev'));
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '50mb' })); // Using Express built-in body parser
+app.use(express.urlencoded({ limit: '50mb', extended: true })); // Using Express built-in body parser
 app.use(methodOverride());
 app.use(cookieParser());
 app.use(session({
@@ -124,8 +124,18 @@ app.use(passport.session());
 const { tenantContext } = require('./middleware/tenantContext');
 app.use(tenantContext);
 
+const { migrateArrayToBinary } = require('./utils/privilege-migration');
 app.use(function (req, res, next) {
-  res.locals.user = req.user;
+  // 为旧 Pug 模板兼容：将权限数组转换为二进制字符串格式
+  if (req.user && Array.isArray(req.user.privilege)) {
+    const userForTemplate = {
+      ...req.user.toObject ? req.user.toObject() : req.user,
+      privilege: migrateArrayToBinary(req.user.privilege)
+    };
+    res.locals.user = userForTemplate;
+  } else {
+    res.locals.user = req.user;
+  }
   //res.locals._csrf = req.csrfToken();
   res.locals.secrets = secrets;
   res.locals.companyName = secrets.companyName;

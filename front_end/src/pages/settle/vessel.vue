@@ -2041,7 +2041,7 @@ function handleUploadReceiptConfirm() {
       <VesselDelayInfoDialog ref="delayInfoDialog" @confirm="handleDelayInfoConfirm" />
       <VesselDetailDialog ref="detailDialog" />
       <VesselPrintDialog ref="printDialog" @confirm="handlePrintConfirm" />
-      <VesselReceiptImageDialog ref="receiptImageDialog" />
+      <VesselReceiptImageDialog ref="receiptImageDialog" @confirm="handleUploadReceiptConfirm" />
       <VesselUploadReceiptDialog ref="uploadReceiptDialog" @confirm="handleUploadReceiptConfirm" />
 
       <!-- 不需要结算确认对话框 -->

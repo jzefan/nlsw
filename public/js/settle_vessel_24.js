@@ -1368,17 +1368,20 @@ $(function () {
 
     if (isExist(invoice.inner_settle) && !isEmpty(invoice.inner_settle)) {
       invoice.inner_settle.forEach(function (innset) {
-        vehObj[innset.inner_waybill_no].state = innset.state;
-        vehObj[innset.inner_waybill_no].date = innset.date;
-        vehObj[innset.inner_waybill_no].unship_date = innset.unship_date;
-        vehObj[innset.inner_waybill_no].delay_day = innset.delay_day;
-        //vehObj[innset.inner_waybill_no].advance_charge_mode = innset.advance_charge_mode;
-        //vehObj[innset.inner_waybill_no].advance_charge = innset.advance_charge;
-        vehObj[innset.inner_waybill_no].charge_cash = innset.charge_cash;
-        vehObj[innset.inner_waybill_no].charge_oil = innset.charge_oil;
-        vehObj[innset.inner_waybill_no].receipt = innset.receipt;
-        vehObj[innset.inner_waybill_no].remark = innset.remark;
-        vehObj[innset.inner_waybill_no].pay_date = innset.pay_date;
+        // 防御性检查：确保 vehObj 中存在该 inner_waybill_no 对应的车辆
+        if (vehObj[innset.inner_waybill_no]) {
+          vehObj[innset.inner_waybill_no].state = innset.state;
+          vehObj[innset.inner_waybill_no].date = innset.date;
+          vehObj[innset.inner_waybill_no].unship_date = innset.unship_date;
+          vehObj[innset.inner_waybill_no].delay_day = innset.delay_day;
+          //vehObj[innset.inner_waybill_no].advance_charge_mode = innset.advance_charge_mode;
+          //vehObj[innset.inner_waybill_no].advance_charge = innset.advance_charge;
+          vehObj[innset.inner_waybill_no].charge_cash = innset.charge_cash;
+          vehObj[innset.inner_waybill_no].charge_oil = innset.charge_oil;
+          vehObj[innset.inner_waybill_no].receipt = innset.receipt;
+          vehObj[innset.inner_waybill_no].remark = innset.remark;
+          vehObj[innset.inner_waybill_no].pay_date = innset.pay_date;
+        }
       })
     }
 

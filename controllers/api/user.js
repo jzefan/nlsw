@@ -3,6 +3,7 @@ const { getPublicKey } = require('../../utils/crypto');
 const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
 const { getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
+const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 
 // 是否有用户管理权限：平台用户、公司主账号、或 admin 权限
 function canManageUsers(req) {
@@ -38,13 +39,18 @@ exports.getMe = async (req, res) => {
     }
 
     // 返回当前用户信息
+    // 如果 privilege 不是数组格式，进行迁移转换（兼容旧数据）
+    const privilege = Array.isArray(req.user.privilege)
+      ? req.user.privilege
+      : migrateBinaryToArray(req.user.privilege);
+
     const user = {
       userid: req.user.userid,
       name: req.user.profile?.name || '',
       email: req.user.email || '',
       title: req.user.title || '',
       phone: req.user.profile?.phone || '',
-      privilege: Array.isArray(req.user.privilege) ? req.user.privilege : [],
+      privilege,
       role: req.user.role || 'member',
     };
 
@@ -101,7 +107,7 @@ exports.getUserMgr = async (req, res) => {
       name: u.profile?.name || '',
       title: u.title || '',
       phone: u.profile?.phone || '',
-      privilege: Array.isArray(u.privilege) ? u.privilege : [],
+      privilege: Array.isArray(u.privilege) ? u.privilege : migrateBinaryToArray(u.privilege),
       role: u.role || 'member',
     }));
 

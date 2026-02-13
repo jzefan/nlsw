@@ -9,13 +9,14 @@ const fs = require('fs');
 // 创建存储配置
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    // 按年/月/日创建目录
+    // 按租户/年/月/日创建目录（多租户隔离）
+    const tenantId = req.tenantId || 'default';
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
 
-    const uploadDir = path.join(__dirname, '../uploads/receipts', `${year}/${month}/${day}`);
+    const uploadDir = path.join(__dirname, '../uploads/receipts', `${tenantId}/${year}/${month}/${day}`);
 
     // 确保目录存在
     if (!fs.existsSync(uploadDir)) {

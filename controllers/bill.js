@@ -1125,16 +1125,22 @@ async function getSettleVesselData(selfOwned) {
     const isExist = data.vehList.find((item) => item === veh.name);
     if (isExist) {
       // data.vehList.push(veh.name);
-      if (veh.boss.includes(',') || veh.boss.includes('，')) {
-        const list = veh.boss.split(/,|，/);
-        list.forEach(function (b) {
-          pushArr(data.contactNameList, b.trim());
-        })
+      // 检查 boss 字段是否存在且不为空
+      if (veh.boss && typeof veh.boss === 'string') {
+        if (veh.boss.includes(',') || veh.boss.includes('，')) {
+          const list = veh.boss.split(/,|，/);
+          list.forEach(function (b) {
+            pushArr(data.contactNameList, b.trim());
+          })
 
-        data.vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
+          data.vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
+        } else {
+          pushArr(data.contactNameList, veh.boss);
+          data.vehPersonMap[veh.name] = veh.boss;
+        }
       } else {
-        pushArr(data.contactNameList, veh.boss);
-        data.vehPersonMap[veh.name] = veh.boss;
+        // 如果 boss 字段为空，设置为默认值
+        data.vehPersonMap[veh.name] = '-';
       }
     }
   })
