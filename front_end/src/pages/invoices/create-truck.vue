@@ -371,7 +371,7 @@ function addBillToList(bill: any) {
 // 删除选中的提单
 function removeBill(index: number) {
   const removed = selectedBills.value.splice(index, 1)[0]
-  if (removed) {
+  if (removed && removed._id) {
     const bill = findBillById(removed._id)
     if (bill && bill.order_no === selectedOrderNo.value) {
       currentOrderBills.value.push(bill)

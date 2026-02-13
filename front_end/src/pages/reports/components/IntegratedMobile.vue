@@ -382,7 +382,7 @@ const activeFilterCount = computed(() => {
             </div>
             <div>
               <span class="text-muted-foreground">重量：</span>
-              <span class="font-medium text-blue-600">{{ (showNotSent ? (bill.block_num > 0 ? bill.left_num * bill.weight : bill.left_num) : bill.send_weight)?.toFixed(3) }}</span>
+              <span class="font-medium text-blue-600">{{ (showNotSent ? ((bill.block_num ?? 0) > 0 ? bill.left_num * bill.weight : bill.left_num) : bill.send_weight)?.toFixed(3) }}</span>
             </div>
           </div>
         </div>

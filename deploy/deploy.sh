@@ -55,22 +55,8 @@ else
     STANDALONE_COMPANY=${STANDALONE_COMPANY:-"江苏联润"}
 fi
 
-# MongoDB 认证配置（首次部署或后端部署时需要）
+# 应用配置（首次部署时需要）
 if [ "$FIRST_DEPLOY" = "y" ]; then
-    echo ""
-    echo -e "${YELLOW}MongoDB 认证配置:${NC}"
-    read -p "MongoDB 用户名 [nlsw_user]: " MONGO_USER
-    MONGO_USER=${MONGO_USER:-"nlsw_user"}
-    read -s -p "MongoDB 密码: " MONGO_PASSWORD
-    echo ""
-    if [ -z "$MONGO_PASSWORD" ]; then
-        # 生成随机密码
-        MONGO_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
-        echo -e "${YELLOW}已生成随机密码: $MONGO_PASSWORD${NC}"
-    fi
-    read -p "MongoDB 数据库名 [nldb]: " MONGO_DATABASE
-    MONGO_DATABASE=${MONGO_DATABASE:-"nldb"}
-
     echo ""
     echo -e "${YELLOW}应用配置:${NC}"
     read -p "公司名称 [江苏联润]: " COMPANY_NAME
@@ -80,6 +66,44 @@ if [ "$FIRST_DEPLOY" = "y" ]; then
 
     # 生成 Session Secret
     SESSION_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+
+    # 本地 MongoDB 认证配置（用于导出数据）
+    echo ""
+    echo -e "${YELLOW}本地 MongoDB 认证配置（用于导出数据）:${NC}"
+    read -p "本地 MongoDB 需要认证? (y/n) [y]: " LOCAL_MONGO_AUTH
+    LOCAL_MONGO_AUTH=${LOCAL_MONGO_AUTH:-"y"}
+
+    if [ "$LOCAL_MONGO_AUTH" = "y" ]; then
+        read -p "本地 MongoDB 端口 [27027]: " LOCAL_MONGO_PORT
+        LOCAL_MONGO_PORT=${LOCAL_MONGO_PORT:-"27027"}
+        read -p "本地 MongoDB 用户名: " LOCAL_MONGO_USER
+        read -s -p "本地 MongoDB 密码: " LOCAL_MONGO_PASSWORD
+        echo ""
+        read -p "本地 MongoDB 认证数据库 [admin]: " LOCAL_MONGO_AUTH_DB
+        LOCAL_MONGO_AUTH_DB=${LOCAL_MONGO_AUTH_DB:-"admin"}
+    else
+        read -p "本地 MongoDB 端口 [27027]: " LOCAL_MONGO_PORT
+        LOCAL_MONGO_PORT=${LOCAL_MONGO_PORT:-"27027"}
+    fi
+
+    # 服务器 MongoDB 认证配置（用于恢复数据）
+    echo ""
+    echo -e "${YELLOW}服务器 MongoDB 认证配置（用于恢复数据）:${NC}"
+    read -p "服务器 MongoDB 需要认证? (y/n) [y]: " SERVER_MONGO_AUTH
+    SERVER_MONGO_AUTH=${SERVER_MONGO_AUTH:-"y"}
+
+    if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+        read -p "服务器 MongoDB 端口 [27017]: " SERVER_MONGO_PORT
+        SERVER_MONGO_PORT=${SERVER_MONGO_PORT:-"27017"}
+        read -p "服务器 MongoDB 用户名: " SERVER_MONGO_USER
+        read -s -p "服务器 MongoDB 密码: " SERVER_MONGO_PASSWORD
+        echo ""
+        read -p "服务器 MongoDB 认证数据库 [admin]: " SERVER_MONGO_AUTH_DB
+        SERVER_MONGO_AUTH_DB=${SERVER_MONGO_AUTH_DB:-"admin"}
+    else
+        read -p "服务器 MongoDB 端口 [27017]: " SERVER_MONGO_PORT
+        SERVER_MONGO_PORT=${SERVER_MONGO_PORT:-"27017"}
+    fi
 fi
 
 # 部署类型选择
@@ -127,15 +151,6 @@ if [ "$FIRST_DEPLOY" != "y" ]; then
 
     if [ "$UPDATE_ENV" = "y" ]; then
         echo ""
-        echo -e "${YELLOW}MongoDB 认证配置:${NC}"
-        read -p "MongoDB 用户名 [nlsw_user]: " MONGO_USER
-        MONGO_USER=${MONGO_USER:-"nlsw_user"}
-        read -s -p "MongoDB 密码: " MONGO_PASSWORD
-        echo ""
-        read -p "MongoDB 数据库名 [nldb]: " MONGO_DATABASE
-        MONGO_DATABASE=${MONGO_DATABASE:-"nldb"}
-
-        echo ""
         echo -e "${YELLOW}应用配置:${NC}"
         read -p "公司名称 [江苏联润]: " COMPANY_NAME
         COMPANY_NAME=${COMPANY_NAME:-"江苏联润"}
@@ -170,13 +185,24 @@ if [ -n "$DEPLOY_MODE" ]; then
 fi
 if [ "$FIRST_DEPLOY" = "y" ] || [ "$UPDATE_ENV" = "y" ]; then
     echo "--------------------------------------"
-    echo "MongoDB 用户: $MONGO_USER"
-    echo "MongoDB 数据库: $MONGO_DATABASE"
     echo "公司名称: $COMPANY_NAME"
     if [ -n "$SYSTEM_NAME" ]; then
         echo "系统名称: $SYSTEM_NAME"
     fi
     echo "更新 .env: 是"
+fi
+if [ "$FIRST_DEPLOY" = "y" ]; then
+    echo "--------------------------------------"
+    if [ "$LOCAL_MONGO_AUTH" = "y" ]; then
+        echo "本地 MongoDB: localhost:$LOCAL_MONGO_PORT (需认证)"
+    else
+        echo "本地 MongoDB: localhost:$LOCAL_MONGO_PORT (无认证)"
+    fi
+    if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+        echo "服务器 MongoDB: localhost:$SERVER_MONGO_PORT (需认证)"
+    else
+        echo "服务器 MongoDB: localhost:$SERVER_MONGO_PORT (无认证)"
+    fi
 fi
 echo "======================================"
 echo ""
@@ -262,7 +288,7 @@ mkdir -p /tmp/nlsw-deploy
 
 # 复制后端文件（如果需要）
 if [ "$DEPLOY_BACKEND" = "y" ]; then
-    cp -r app.js config controllers models routes.js routes_api.js package.json package-lock.json public views /tmp/nlsw-deploy/
+    cp -r app.js config controllers middleware models routes.js routes_api.js package.json package-lock.json public views /tmp/nlsw-deploy/
     # 复制 keys 目录（如果存在）
     if [ -d "keys" ]; then
         cp -r keys /tmp/nlsw-deploy/
@@ -303,95 +329,123 @@ STEP=$((STEP + 1))
 if [ "$FIRST_DEPLOY" = "y" ]; then
     echo "首次部署，正在安装服务器依赖..."
 
-    # 打包本地 MongoDB 数据目录
-    echo "打包本地 MongoDB 数据..."
-    if [ -d "$PROJECT_ROOT/data/db" ]; then
-        cd "$PROJECT_ROOT"
-        tar -czf /tmp/nlsw-mongo-data.tar.gz data/db
-        echo "上传 MongoDB 数据到服务器..."
-        eval "$SCP_CMD /tmp/nlsw-mongo-data.tar.gz ${SERVER_USER}@${SERVER_IP}:/tmp/"
-        rm -f /tmp/nlsw-mongo-data.tar.gz
+    # 导出本地 MongoDB 数据库
+    echo "导出本地 MongoDB 数据库 nldb_saas..."
+    if command -v mongodump &> /dev/null; then
+        # 构建 mongodump 命令
+        MONGODUMP_CMD="mongodump --db=nldb_saas --out=/tmp/nlsw-mongo-dump"
+
+        if [ "$LOCAL_MONGO_AUTH" = "y" ]; then
+            MONGODUMP_CMD="$MONGODUMP_CMD --port=$LOCAL_MONGO_PORT --username=$LOCAL_MONGO_USER --password=$LOCAL_MONGO_PASSWORD --authenticationDatabase=$LOCAL_MONGO_AUTH_DB"
+        else
+            MONGODUMP_CMD="$MONGODUMP_CMD --port=$LOCAL_MONGO_PORT"
+        fi
+
+        # 执行导出
+        if eval "$MONGODUMP_CMD --quiet"; then
+            echo "打包数据库导出..."
+            cd /tmp
+            tar -czf nlsw-mongo-dump.tar.gz nlsw-mongo-dump
+            echo "上传数据库到服务器..."
+            eval "$SCP_CMD /tmp/nlsw-mongo-dump.tar.gz ${SERVER_USER}@${SERVER_IP}:/tmp/"
+            rm -rf /tmp/nlsw-mongo-dump /tmp/nlsw-mongo-dump.tar.gz
+            echo "数据库导出完成!"
+        else
+            echo -e "${YELLOW}警告: 数据库导出失败，跳过数据迁移${NC}"
+            echo "请检查 MongoDB 是否运行以及认证信息是否正确"
+        fi
     else
-        echo -e "${YELLOW}警告: 本地 data/db 目录不存在，跳过数据迁移${NC}"
+        echo -e "${YELLOW}警告: mongodump 命令不存在，跳过数据迁移${NC}"
+        echo "请安装 MongoDB Database Tools: https://www.mongodb.com/try/download/database-tools"
     fi
 
     eval "$SSH_CMD" << ENDSSH
 set -e
 export PATH="\$HOME/sw/node-v22.22/bin:\$PATH"
 
-echo "安装 PM2 和 serve..."
-npm install -g pm2 serve
+echo "检查并安装 PM2 和 serve..."
+INSTALL_PACKAGES=""
+if ! command -v pm2 &> /dev/null; then
+    INSTALL_PACKAGES="\$INSTALL_PACKAGES pm2"
+fi
+if ! command -v serve &> /dev/null; then
+    INSTALL_PACKAGES="\$INSTALL_PACKAGES serve"
+fi
+if [ -n "\$INSTALL_PACKAGES" ]; then
+    echo "安装:\$INSTALL_PACKAGES"
+    npm install -g\$INSTALL_PACKAGES
+else
+    echo "PM2 和 serve 已安装，跳过"
+fi
 
 echo "配置 PM2 开机启动..."
 pm2 startup systemd -u $SERVER_USER --hp /home/$SERVER_USER || true
-
-# 停止可能运行的 MongoDB
-echo "停止已有 MongoDB 进程..."
-pkill -f "mongod.*27027" 2>/dev/null || true
-sleep 2
 
 # 创建目录
 echo "创建目录..."
 mkdir -p $DEPLOY_PATH/data
 mkdir -p $DEPLOY_PATH/log
 
-# 解压 MongoDB 数据（如果存在）
-if [ -f "/tmp/nlsw-mongo-data.tar.gz" ]; then
-    echo "解压 MongoDB 数据..."
-    cd $DEPLOY_PATH
-    tar -xzf /tmp/nlsw-mongo-data.tar.gz
-    rm -f /tmp/nlsw-mongo-data.tar.gz
-    echo "MongoDB 数据迁移完成!"
+# 恢复 MongoDB 数据库（如果存在导出文件）
+if [ -f "/tmp/nlsw-mongo-dump.tar.gz" ]; then
+    echo "解压数据库导出文件..."
+    cd /tmp
+    tar -xzf nlsw-mongo-dump.tar.gz
+
+    # 构建 MongoDB 连接参数
+    MONGO_CONN_OPTS="--port=$SERVER_MONGO_PORT"
+    if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+        MONGO_CONN_OPTS="\$MONGO_CONN_OPTS --username=$SERVER_MONGO_USER --password=$SERVER_MONGO_PASSWORD --authenticationDatabase=$SERVER_MONGO_AUTH_DB"
+    fi
+
+    # 检查 MongoDB 是否运行
+    if ! pgrep -f "mongod" > /dev/null && ! systemctl is-active --quiet mongod; then
+        echo -e "\033[1;33m警告: MongoDB 未运行\033[0m"
+        echo "请先启动 MongoDB，然后手动运行数据恢复:"
+        echo "  cd /tmp"
+        if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+            echo "  mongorestore --db=nldb_saas --drop --port=$SERVER_MONGO_PORT --username=$SERVER_MONGO_USER --password=*** --authenticationDatabase=$SERVER_MONGO_AUTH_DB nlsw-mongo-dump/nldb_saas"
+        else
+            echo "  mongorestore --db=nldb_saas --drop --port=$SERVER_MONGO_PORT nlsw-mongo-dump/nldb_saas"
+        fi
+    else
+        # 检查现有数据库（如果需要认证）
+        echo "检查现有数据库 nldb_saas..."
+        if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+            DB_CHECK_CMD="mongosh --port=$SERVER_MONGO_PORT --username=$SERVER_MONGO_USER --password=$SERVER_MONGO_PASSWORD --authenticationDatabase=$SERVER_MONGO_AUTH_DB --quiet --eval \"db.getMongo().getDBNames().includes('nldb_saas')\" 2>/dev/null"
+        else
+            DB_CHECK_CMD="mongosh --port=$SERVER_MONGO_PORT --quiet --eval \"db.getMongo().getDBNames().includes('nldb_saas')\" 2>/dev/null"
+        fi
+        DB_EXISTS=\$(eval "\$DB_CHECK_CMD" || echo "false")
+
+        if [ "\$DB_EXISTS" = "true" ]; then
+            echo "备份现有数据库..."
+            BACKUP_FILE="/tmp/nldb_saas_backup_\$(date +%Y%m%d_%H%M%S).gz"
+            if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+                mongodump --db=nldb_saas --archive=\$BACKUP_FILE --gzip --port=$SERVER_MONGO_PORT --username=$SERVER_MONGO_USER --password=$SERVER_MONGO_PASSWORD --authenticationDatabase=$SERVER_MONGO_AUTH_DB
+            else
+                mongodump --db=nldb_saas --archive=\$BACKUP_FILE --gzip --port=$SERVER_MONGO_PORT
+            fi
+            echo "✓ 备份已保存到: \$BACKUP_FILE"
+        fi
+
+        # 恢复数据库
+        echo "恢复数据库 nldb_saas..."
+        if [ "$SERVER_MONGO_AUTH" = "y" ]; then
+            mongorestore --db=nldb_saas --drop --port=$SERVER_MONGO_PORT --username=$SERVER_MONGO_USER --password=$SERVER_MONGO_PASSWORD --authenticationDatabase=$SERVER_MONGO_AUTH_DB nlsw-mongo-dump/nldb_saas
+        else
+            mongorestore --db=nldb_saas --drop --port=$SERVER_MONGO_PORT nlsw-mongo-dump/nldb_saas
+        fi
+
+        if [ \$? -eq 0 ]; then
+            echo "✓ 数据库恢复完成!"
+            rm -rf /tmp/nlsw-mongo-dump /tmp/nlsw-mongo-dump.tar.gz
+        else
+            echo "✗ 数据库恢复失败，请检查认证信息是否正确"
+        fi
+    fi
 else
-    echo "创建空的 MongoDB 数据目录..."
-    mkdir -p $DEPLOY_PATH/data/db
-fi
-
-# 创建 MongoDB 启动脚本（支持认证）
-echo "创建 MongoDB 启动脚本..."
-cat > $DEPLOY_PATH/startdb.sh << 'DBEOF'
-#!/bin/bash
-SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-mongod --dbpath=\$SCRIPT_DIR/data/db --port=27027 --logpath=\$SCRIPT_DIR/log/mongod.log --auth --fork
-DBEOF
-chmod +x $DEPLOY_PATH/startdb.sh
-
-# 创建 MongoDB 停止脚本
-cat > $DEPLOY_PATH/stopdb.sh << 'DBEOF'
-#!/bin/bash
-SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-mongod --shutdown --dbpath=\$SCRIPT_DIR/data/db 2>/dev/null || pkill -f "mongod.*27027" || true
-DBEOF
-chmod +x $DEPLOY_PATH/stopdb.sh
-
-# 首次启动 MongoDB（无认证模式，用于创建用户）
-echo "启动 MongoDB（初始化模式）..."
-mongod --dbpath=$DEPLOY_PATH/data/db --port=27027 --logpath=$DEPLOY_PATH/log/mongod.log --fork
-sleep 3
-
-# 创建 MongoDB 用户
-echo "创建 MongoDB 用户..."
-mongosh --port 27027 << MONGOEOF
-use $MONGO_DATABASE
-db.createUser({
-  user: "$MONGO_USER",
-  pwd: "$MONGO_PASSWORD",
-  roles: [{ role: "readWrite", db: "$MONGO_DATABASE" }]
-})
-MONGOEOF
-
-# 停止并重启（认证模式）
-echo "重启 MongoDB（认证模式）..."
-mongod --shutdown --dbpath=$DEPLOY_PATH/data/db 2>/dev/null || pkill -f "mongod.*27027" || true
-sleep 2
-$DEPLOY_PATH/startdb.sh
-sleep 3
-
-# 验证 MongoDB 运行状态
-if pgrep -f "mongod.*27027" > /dev/null; then
-    echo "✓ MongoDB 已成功启动在端口 27027（认证模式）"
-else
-    echo "✗ MongoDB 启动失败，请检查日志: $DEPLOY_PATH/log/mongod.log"
+    echo "未找到数据库导出文件，跳过数据恢复"
 fi
 
 # 创建后端 .env 文件
@@ -405,21 +459,25 @@ NODE_ENV=production
 DEPLOY_MODE=$DEPLOY_MODE
 STANDALONE_COMPANY=$STANDALONE_COMPANY
 
-# MongoDB Configuration
-MONGO_HOST=localhost
-MONGO_PORT=27027
-MONGO_DATABASE=$MONGO_DATABASE
-MONGO_USER=$MONGO_USER
-MONGO_PASSWORD=$MONGO_PASSWORD
-MONGO_AUTH_SOURCE=$MONGO_DATABASE
-
 # Session
 SESSION_SECRET=$SESSION_SECRET
 
 # Company
 COMPANY_NAME=$COMPANY_NAME
+
+# MongoDB Configuration
+# 请使用 deploy/setup-database.sh 脚本配置数据库认证
+# MONGO_HOST=localhost
+# MONGO_PORT=27027
+# MONGO_DATABASE=nldb
+# MONGO_USER=nlsw_user
+# MONGO_PASSWORD=your_password
+# MONGO_AUTH_SOURCE=nldb
 ENVEOF
 chmod 600 $DEPLOY_PATH/.env
+echo ""
+echo -e "\033[1;33m提示: MongoDB 配置未设置${NC}"
+echo "首次部署后，请运行 deploy/setup-database.sh 脚本配置数据库"
 
 echo "依赖安装完成!"
 ENDSSH
@@ -448,8 +506,8 @@ if [ "\$FIRST_DEPLOY" = "y" ]; then
     echo "解压新版本..."
     mkdir -p \$DEPLOY_PATH
     cd /tmp
-    tar -xzf nlsw-deploy.tar.gz
-    mv nlsw-deploy/* \$DEPLOY_PATH/
+    tar -xzf nlsw-deploy.tar.gz 2>&1 | grep -v "Ignoring unknown extended header keyword" || true
+    cp -rf nlsw-deploy/* \$DEPLOY_PATH/
     rm -rf nlsw-deploy nlsw-deploy.tar.gz
 elif [ "\$BACKUP" = "y" ]; then
     # 需要备份
@@ -463,8 +521,8 @@ elif [ "\$BACKUP" = "y" ]; then
     echo "解压新版本..."
     mkdir -p \$DEPLOY_PATH
     cd /tmp
-    tar -xzf nlsw-deploy.tar.gz
-    mv nlsw-deploy/* \$DEPLOY_PATH/
+    tar -xzf nlsw-deploy.tar.gz 2>&1 | grep -v "Ignoring unknown extended header keyword" || true
+    cp -rf nlsw-deploy/* \$DEPLOY_PATH/
     rm -rf nlsw-deploy nlsw-deploy.tar.gz
     # 从备份中恢复 .env 文件
     if [ -n "\$BACKUP_DIR" ] && [ -f "\$BACKUP_DIR/.env" ]; then
@@ -480,26 +538,26 @@ else
     # 增量部署，不备份，直接覆盖
     echo "增量部署（不备份）..."
     cd /tmp
-    tar -xzf nlsw-deploy.tar.gz
+    tar -xzf nlsw-deploy.tar.gz 2>&1 | grep -v "Ignoring unknown extended header keyword" || true
 
     if [ "\$DEPLOY_BACKEND" = "y" ]; then
         echo "更新后端文件..."
-        cp -r nlsw-deploy/app.js \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/config \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/controllers \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/models \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/routes.js \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/routes_api.js \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/package.json \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/package-lock.json \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/public \$DEPLOY_PATH/ 2>/dev/null || true
-        cp -r nlsw-deploy/views \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/app.js \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/config \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/controllers \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/models \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/routes.js \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/routes_api.js \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/package.json \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/package-lock.json \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/public \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/views \$DEPLOY_PATH/ 2>/dev/null || true
         # 更新 keys 和 utils 目录（如果存在）
         if [ -d "nlsw-deploy/keys" ]; then
-            cp -r nlsw-deploy/keys \$DEPLOY_PATH/ 2>/dev/null || true
+            cp -rf nlsw-deploy/keys \$DEPLOY_PATH/ 2>/dev/null || true
         fi
         if [ -d "nlsw-deploy/utils" ]; then
-            cp -r nlsw-deploy/utils \$DEPLOY_PATH/ 2>/dev/null || true
+            cp -rf nlsw-deploy/utils \$DEPLOY_PATH/ 2>/dev/null || true
         fi
     fi
 
@@ -507,11 +565,11 @@ else
         echo "更新前端文件..."
         mkdir -p \$DEPLOY_PATH/front_end
         rm -rf \$DEPLOY_PATH/front_end/dist
-        cp -r nlsw-deploy/front_end/dist \$DEPLOY_PATH/front_end/
+        cp -rf nlsw-deploy/front_end/dist \$DEPLOY_PATH/front_end/
     fi
 
     # 更新部署配置
-    cp -r nlsw-deploy/deploy \$DEPLOY_PATH/ 2>/dev/null || true
+    cp -rf nlsw-deploy/deploy \$DEPLOY_PATH/ 2>/dev/null || true
 
     rm -rf nlsw-deploy nlsw-deploy.tar.gz
 fi
@@ -543,22 +601,25 @@ NODE_ENV=production
 DEPLOY_MODE=$DEPLOY_MODE
 STANDALONE_COMPANY=$STANDALONE_COMPANY
 
-# MongoDB Configuration
-MONGO_HOST=localhost
-MONGO_PORT=27027
-MONGO_DATABASE=$MONGO_DATABASE
-MONGO_USER=$MONGO_USER
-MONGO_PASSWORD=$MONGO_PASSWORD
-MONGO_AUTH_SOURCE=$MONGO_DATABASE
-
 # Session
 SESSION_SECRET=$SESSION_SECRET
 
 # Company
 COMPANY_NAME=$COMPANY_NAME
+
+# MongoDB Configuration
+# 请使用 deploy/setup-database.sh 脚本配置数据库认证
+# MONGO_HOST=localhost
+# MONGO_PORT=27027
+# MONGO_DATABASE=nldb
+# MONGO_USER=nlsw_user
+# MONGO_PASSWORD=your_password
+# MONGO_AUTH_SOURCE=nldb
 ENVEOF
     chmod 600 \$DEPLOY_PATH/.env
     echo "✓ .env 配置文件已创建"
+    echo -e "\033[1;33m提示: MongoDB 配置未设置${NC}"
+    echo "请运行 deploy/setup-database.sh 脚本配置数据库"
 elif [ "\$FIRST_DEPLOY" != "y" ] && [ ! -f "\$DEPLOY_PATH/.env" ]; then
     echo ""
     echo -e "\033[1;33m警告: 服务器上不存在 .env 配置文件!\033[0m"
@@ -574,7 +635,10 @@ cp \$DEPLOY_PATH/deploy/ecosystem.config.js \$DEPLOY_PATH/ 2>/dev/null || true
 
 # 确保 MongoDB 运行中
 echo "检查 MongoDB..."
-if ! pgrep -f "mongod.*27027" > /dev/null; then
+# 检查是否由 systemctl 管理
+if systemctl list-units --type=service --all 2>/dev/null | grep -q mongod; then
+    echo "MongoDB 由 systemctl 管理，跳过手动启动"
+elif ! pgrep -f "mongod.*27027" > /dev/null; then
     echo "启动 MongoDB..."
     \$DEPLOY_PATH/startdb.sh 2>/dev/null || true
     sleep 3

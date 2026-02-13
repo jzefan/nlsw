@@ -1,7 +1,10 @@
 
 *.log
 node_modules/
-/data/
+/data/db/
+/data/backup/
+/data/db.old/
+/data/mongod.pid
 log/
 *.bak
 
