@@ -1,22 +1,13 @@
 <script setup lang="ts">
+import { Edit, FileDown, Plus, Trash2 } from 'lucide-vue-next'
 // @ts-nocheck
 import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { Edit, FileDown, Plus, Trash2 } from 'lucide-vue-next'
 
-import { BasicPage } from '@/components/global-layout'
+import type { DrayageForklift } from '@/services/api/financial.api'
+
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { BasicPage } from '@/components/global-layout'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,9 +18,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { useExport } from '@/composables/use-export'
+import { deleteDrayageForklift, getDrayageForklifts } from '@/services/api/financial.api'
 
 import DrayageForkliftDialog from './components/drayage-forklift-dialog.vue'
-import { deleteDrayageForklift, getDrayageForklifts, type DrayageForklift } from '@/services/api/financial.api'
 
 const data = ref<DrayageForklift[]>([])
 const loading = ref(false)
@@ -190,9 +192,15 @@ onMounted(() => {
                   @update:checked="toggleSelectAll"
                 />
               </TableHead>
-              <TableHead class="whitespace-nowrap">月份</TableHead>
-              <TableHead class="text-right whitespace-nowrap">短驳应收款</TableHead>
-              <TableHead class="text-right whitespace-nowrap">叉车应收款</TableHead>
+              <TableHead class="whitespace-nowrap">
+                月份
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                短驳应收款
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                叉车应收款
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -207,8 +215,8 @@ onMounted(() => {
               </TableCell>
             </TableRow>
             <TableRow
-              v-else
               v-for="row in data"
+              v-else
               :key="row.month"
               class="cursor-pointer"
               :class="{ 'bg-muted/50': isSelected(row) }"

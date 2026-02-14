@@ -7,13 +7,13 @@ import type { InvoiceBill } from '@/services/api/invoice.api'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
+import { usePermissions } from '@/composables/use-permissions'
 import {
   buildTruckInvoice,
   getBillsByBillingName,
   getInvoiceDetail,
   getInvoiceList,
   getMaxWaybillNo,
-
   searchDestinations,
   searchVehicles,
   searchWarehouses,
@@ -22,12 +22,15 @@ import { searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
+const { isAdmin } = usePermissions()
 
 // 状态
 const loading = ref(false)
 const waybillNo = ref('')
 const isExistingInvoice = ref(false) // 标记是否为已保存的运单
 const originalSelectedBills = ref<any[]>([]) // 保存原始的选择提单，用于检测是否有改动
+// 已选提单列表
+const selectedBills = ref<InvoiceBill[]>([])
 
 // 打开运单对话框相关
 const showInvoiceListDialog = ref(false)
@@ -39,10 +42,7 @@ const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
 
-// 判断是否是管理员
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+// isAdmin from usePermissions()
 
 // 检查是否有未保存的改动
 const hasUnsavedChanges = computed(() => {
@@ -52,7 +52,7 @@ const hasUnsavedChanges = computed(() => {
 
   // 对于新建运单，如果有选择的提单且有发运数或发运重量，说明有改动
   if (!isExistingInvoice.value) {
-    return selectedBills.value.some(b => (b.send_num > 0 || b.send_weight > 0))
+    return selectedBills.value.some(b => b.send_num > 0 || b.send_weight > 0)
   }
 
   // 对于已存在的运单，比较选择的提单是否有变化
@@ -93,9 +93,6 @@ const selectedOrderNo = ref('')
 // 当前订单的可用提单
 const currentOrderBills = ref<any[]>([])
 
-// 已选提单列表
-const selectedBills = ref<InvoiceBill[]>([])
-
 // 当前公司的客户列表
 const shipCustomers = ref<string[]>([])
 
@@ -128,9 +125,7 @@ async function searchTrucks(search: string, limit: number, page: number) {
 async function searchShipCustomers(search: string, limit: number, page: number) {
   let filtered = shipCustomers.value
   if (search) {
-    filtered = filtered.filter((c: string) =>
-      c.toLowerCase().includes(search.toLowerCase()),
-    )
+    filtered = filtered.filter((c: string) => c.toLowerCase().includes(search.toLowerCase()))
   }
   const start = (page - 1) * limit
   const data = filtered.slice(start, start + limit).map((c: string) => ({
@@ -144,8 +139,9 @@ async function createNewInvoice() {
   // 检查是否有未保存的改动
   if (hasUnsavedChanges.value) {
     const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并新建运单吗？')
-    if (!confirmed)
+    if (!confirmed) {
       return
+    }
   }
 
   loading.value = true
@@ -283,8 +279,8 @@ async function searchOrders(search: string, limit: number, page: number) {
     const result = await getBillsByBillingName(form.value.shipName, search, page, limit)
     if (result.ok && result.data) {
       // 将加载的订单数据缓存起来（用于后续查找提单）
-      const newOrders = result.data.filter((order: any) =>
-        !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
+      const newOrders = result.data.filter(
+        (order: any) => !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
       )
       if (newOrders.length > 0) {
         availableOrdersData.value = [...availableOrdersData.value, ...newOrders]
@@ -308,9 +304,10 @@ async function searchOrders(search: string, limit: number, page: number) {
 async function searchBills(search: string, limit: number, page: number) {
   let filtered = currentOrderBills.value
   if (search) {
-    filtered = filtered.filter((b: any) =>
-      b.bill_no.toLowerCase().includes(search.toLowerCase())
-      || (b.order_item_no && b.order_item_no.toString().includes(search)),
+    filtered = filtered.filter(
+      (b: any) =>
+        b.bill_no.toLowerCase().includes(search.toLowerCase())
+        || (b.order_item_no && b.order_item_no.toString().includes(search)),
     )
   }
   const start = (page - 1) * limit
@@ -402,20 +399,34 @@ function updateSendNum(index: number, value: number) {
 
   // 定尺时：发运数受剩余量限制
   // 非定尺时：发运数不受限制，只有发运重量受限制
+  let clamped = value
   if (originalBill?.block_num > 0) {
     // 定尺：发运数范围 [0, 剩余量]
-    if (value > leftNum) {
-      value = leftNum
+    if (clamped > leftNum) {
+      clamped = leftNum
     }
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_num = value
+  // 当 clamp 后的值与当前值相同时（如已经是30，输入300 clamp 后还是30），
+  // Vue 检测不到变化不会更新 DOM，需要先置空再通过 nextTick 强制刷新
+  if (bill.send_num === clamped && value !== clamped) {
+    bill.send_num = NaN
+    nextTick(() => {
+      bill.send_num = clamped
+      if (originalBill?.block_num > 0) {
+        bill.send_weight = Number((clamped * (originalBill.weight || 0)).toFixed(3))
+      }
+    })
+    return
+  }
+
+  bill.send_num = clamped
   // 定尺时自动计算发运重量
   if (originalBill?.block_num > 0) {
-    bill.send_weight = Number((value * (originalBill.weight || 0)).toFixed(3))
+    bill.send_weight = Number((clamped * (originalBill.weight || 0)).toFixed(3))
   }
 }
 
@@ -426,23 +437,30 @@ function updateSendWeight(index: number, value: number) {
   const leftNum = originalBill?.left_num || originalBill?.left || 0
 
   // 发运重量范围 [0, 剩余量]，超过剩余量则设为剩余量
-  if (value > leftNum) {
-    value = leftNum
+  let clamped = value
+  if (clamped > leftNum) {
+    clamped = leftNum
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_weight = value
+  // 同 updateSendNum，当值被 clamp 但结果相同时强制刷新 DOM
+  if (bill.send_weight === clamped && value !== clamped) {
+    bill.send_weight = NaN
+    nextTick(() => {
+      bill.send_weight = clamped
+    })
+    return
+  }
+
+  bill.send_weight = clamped
 }
 
 // 检查是否可以保存
 const canSave = computed(() => {
-  const hasBasicInfo = waybillNo.value
-    && form.value.vehicleName
-    && form.value.shipName
-    && form.value.shipFrom
-    && form.value.shipTo
+  const hasBasicInfo
+    = waybillNo.value && form.value.vehicleName && form.value.shipName && form.value.shipFrom && form.value.shipTo
 
   // 如果是已存在的运单，允许保存空明细（删除运单）
   if (isExistingInvoice.value) {
@@ -450,9 +468,11 @@ const canSave = computed(() => {
   }
 
   // 新建运单必须有明细
-  return hasBasicInfo
+  return (
+    hasBasicInfo
     && selectedBills.value.length > 0
     && selectedBills.value.some(b => b.send_num > 0 || b.send_weight > 0)
+  )
 })
 
 // 保存运单
@@ -489,11 +509,14 @@ async function saveInvoice(state: string) {
 
     const result = await buildTruckInvoice(data)
     if (result.ok) {
-      localStorage.setItem('currOperateItem', JSON.stringify({
-        ship_name: form.value.shipName,
-        ship_from: form.value.shipFrom,
-        ship_to: form.value.shipTo,
-      }))
+      localStorage.setItem(
+        'currOperateItem',
+        JSON.stringify({
+          ship_name: form.value.shipName,
+          ship_from: form.value.shipFrom,
+          ship_to: form.value.shipTo,
+        }),
+      )
 
       isExistingInvoice.value = true // 标记为已保存的运单
       // 更新原始数据，使得保存后不再显示"未保存"
@@ -561,6 +584,7 @@ async function loadInvoiceList() {
       keyword: invoiceSearchKeyword.value,
       page: invoiceListPage.value,
       limit: invoiceListLimit.value,
+      vehType: '车',
     }
 
     // 只有在勾选时才传递myOnly参数
@@ -627,6 +651,15 @@ async function loadInvoiceDetail(invoice: any) {
         if (!billInfo)
           continue
 
+        const sendNum = invBill.num || 0
+        const sendWeight = invBill.weight || 0
+
+        // 修正剩余量：DB中left_num已扣除本运单的配发量，需要加回来
+        // 定尺：left_num按块数，加回send_num
+        // 乱尺：left_num按重量，加回send_weight
+        const addBack = billInfo.block_num > 0 ? sendNum : sendWeight
+        const correctedLeftNum = (billInfo.left_num || 0) + addBack
+
         const bill = {
           _id: billInfo._id,
           bill_no: billInfo.bill_no,
@@ -639,11 +672,46 @@ async function loadInvoiceDetail(invoice: any) {
           weight: billInfo.weight,
           block_num: billInfo.block_num,
           total_weight: billInfo.total_weight,
-          left_num: billInfo.left_num,
-          send_num: invBill.num || 0,
-          send_weight: invBill.weight || 0,
+          left_num: correctedLeftNum,
+          send_num: sendNum,
+          send_weight: sendWeight,
         }
         selectedBills.value.push(bill)
+
+        // 同步更新availableOrdersData中的left_num，使findBillById能获取到正确的剩余量
+        let foundInAvailable = false
+        for (const order of availableOrdersData.value) {
+          const existingBill = order.bills?.find((b: any) => b._id === billInfo._id)
+          if (existingBill) {
+            existingBill.left_num = correctedLeftNum
+            foundInAvailable = true
+            break
+          }
+        }
+        // 如果提单不在可用列表中（剩余量为0被过滤掉了），需要添加进去
+        if (!foundInAvailable) {
+          const orderNo = billInfo.order_no
+          let orderGroup = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
+          if (!orderGroup) {
+            orderGroup = { order_no: orderNo, bills: [] }
+            availableOrdersData.value.push(orderGroup)
+          }
+          orderGroup.bills.push({
+            _id: billInfo._id,
+            bill_no: billInfo.bill_no,
+            order_item_no: billInfo.order_item_no || '',
+            block_num: billInfo.block_num,
+            weight: billInfo.weight,
+            thickness: billInfo.thickness,
+            width: billInfo.width,
+            len: billInfo.length,
+            ship_warehouse: billInfo.ship_warehouse,
+            contract_no: billInfo.contract_no,
+            brand_no: billInfo.brand_no,
+            total_weight: billInfo.total_weight,
+            left_num: correctedLeftNum,
+          })
+        }
       }
 
       // 保存原始数据用于检测改动
@@ -729,7 +797,14 @@ function getBillLeftNum(bill: InvoiceBill) {
         </UiButton>
         <!-- 状态提示 -->
         <div v-if="waybillNo" class="flex items-center gap-1.5 sm:gap-3 ml-1 sm:ml-2">
-          <div class="flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full text-xs sm:text-sm font-medium" :class="isExistingInvoice ? 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400' : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'">
+          <div
+            class="flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full text-xs sm:text-sm font-medium"
+            :class="
+              isExistingInvoice
+                ? 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
+                : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
+            "
+          >
             <span class="hidden sm:inline">{{ isExistingInvoice ? '修改' : '新建' }}</span>
             <span class="font-mono text-xs">{{ waybillNo }}</span>
           </div>
@@ -742,30 +817,17 @@ function getBillLeftNum(bill: InvoiceBill) {
     </template>
 
     <div class="space-y-4">
-
       <!-- 紧凑式输入块 -->
       <div v-if="waybillNo" class="p-2.5 sm:p-3 border rounded-xl bg-muted/30 shadow-sm">
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
           <!-- 车号 -->
-          <SearchableCombobox
-            v-model="form.vehicleName"
-            :search-fn="searchTrucks"
-            placeholder="车号"
-          />
+          <SearchableCombobox v-model="form.vehicleName" :search-fn="searchTrucks" placeholder="车号" />
 
           <!-- 始发地 -->
-          <SearchableCombobox
-            v-model="form.shipFrom"
-            :search-fn="searchWarehouses"
-            placeholder="始发地"
-          />
+          <SearchableCombobox v-model="form.shipFrom" :search-fn="searchWarehouses" placeholder="始发地" />
 
           <!-- 目的地 -->
-          <SearchableCombobox
-            v-model="form.shipTo"
-            :search-fn="searchDestinations"
-            placeholder="目的地"
-          />
+          <SearchableCombobox v-model="form.shipTo" :search-fn="searchDestinations" placeholder="目的地" />
 
           <!-- 开单名称 -->
           <SearchableCombobox
@@ -817,16 +879,36 @@ function getBillLeftNum(bill: InvoiceBill) {
           <UiTableHeader>
             <UiTableRow>
               <UiTableHead class="w-10 min-w-[40px]" />
-              <UiTableHead class="min-w-[100px]">提单号</UiTableHead>
-              <UiTableHead class="min-w-[120px]">订单号</UiTableHead>
-              <UiTableHead class="min-w-[80px]">仓库</UiTableHead>
-              <UiTableHead class="min-w-[60px]">厚度</UiTableHead>
-              <UiTableHead class="min-w-[60px]">宽度</UiTableHead>
-              <UiTableHead class="min-w-[60px]">长度</UiTableHead>
-              <UiTableHead class="min-w-[80px]">单重</UiTableHead>
-              <UiTableHead class="min-w-[80px]">剩余量</UiTableHead>
-              <UiTableHead class="min-w-[100px]">发运数</UiTableHead>
-              <UiTableHead class="min-w-[120px]">发运重量</UiTableHead>
+              <UiTableHead class="min-w-[100px]">
+                提单号
+              </UiTableHead>
+              <UiTableHead class="min-w-[120px]">
+                订单号
+              </UiTableHead>
+              <UiTableHead class="min-w-[80px]">
+                仓库
+              </UiTableHead>
+              <UiTableHead class="min-w-[60px]">
+                厚度
+              </UiTableHead>
+              <UiTableHead class="min-w-[60px]">
+                宽度
+              </UiTableHead>
+              <UiTableHead class="min-w-[60px]">
+                长度
+              </UiTableHead>
+              <UiTableHead class="min-w-[80px]">
+                单重
+              </UiTableHead>
+              <UiTableHead class="min-w-[80px]">
+                剩余量
+              </UiTableHead>
+              <UiTableHead class="min-w-[100px]">
+                发运数
+              </UiTableHead>
+              <UiTableHead class="min-w-[120px]">
+                发运重量
+              </UiTableHead>
             </UiTableRow>
           </UiTableHeader>
           <UiTableBody>
@@ -888,11 +970,23 @@ function getBillLeftNum(bill: InvoiceBill) {
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="font-semibold text-sm truncate">{{ bill.bill_no }}</span>
-                <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" :class="isBlockBill(bill) ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400'">
+                <span
+                  class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  :class="
+                    isBlockBill(bill)
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
+                      : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400'
+                  "
+                >
                   {{ isBlockBill(bill) ? '定尺' : '乱尺' }}
                 </span>
               </div>
-              <UiButton variant="ghost" size="icon" class="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" @click="removeBill(index)">
+              <UiButton
+                variant="ghost"
+                size="icon"
+                class="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                @click="removeBill(index)"
+              >
                 <Trash2 class="w-3.5 h-3.5" />
               </UiButton>
             </div>
@@ -925,7 +1019,9 @@ function getBillLeftNum(bill: InvoiceBill) {
               <div class="flex-1">
                 <label class="text-[10px] text-muted-foreground mb-0.5 block">发运重量</label>
                 <template v-if="isBlockBill(bill)">
-                  <div class="h-9 flex items-center justify-center bg-muted/60 rounded-md text-sm font-medium tabular-nums">
+                  <div
+                    class="h-9 flex items-center justify-center bg-muted/60 rounded-md text-sm font-medium tabular-nums"
+                  >
                     {{ bill.send_weight?.toFixed(3) }}
                   </div>
                 </template>
@@ -948,20 +1044,36 @@ function getBillLeftNum(bill: InvoiceBill) {
           <div v-if="expandedCards.has(index)" class="border-t bg-muted/20 px-3 py-2 text-xs">
             <div class="grid grid-cols-4 gap-2">
               <div class="text-center">
-                <div class="text-muted-foreground">厚度</div>
-                <div class="font-medium">{{ bill.thickness }}</div>
+                <div class="text-muted-foreground">
+                  厚度
+                </div>
+                <div class="font-medium">
+                  {{ bill.thickness }}
+                </div>
               </div>
               <div class="text-center">
-                <div class="text-muted-foreground">宽度</div>
-                <div class="font-medium">{{ bill.width }}</div>
+                <div class="text-muted-foreground">
+                  宽度
+                </div>
+                <div class="font-medium">
+                  {{ bill.width }}
+                </div>
               </div>
               <div class="text-center">
-                <div class="text-muted-foreground">长度</div>
-                <div class="font-medium">{{ bill.len }}</div>
+                <div class="text-muted-foreground">
+                  长度
+                </div>
+                <div class="font-medium">
+                  {{ bill.len }}
+                </div>
               </div>
               <div class="text-center">
-                <div class="text-muted-foreground">单重</div>
-                <div class="font-medium">{{ bill.weight?.toFixed(4) }}</div>
+                <div class="text-muted-foreground">
+                  单重
+                </div>
+                <div class="font-medium">
+                  {{ bill.weight?.toFixed(4) }}
+                </div>
               </div>
             </div>
           </div>
@@ -989,11 +1101,22 @@ function getBillLeftNum(bill: InvoiceBill) {
             <span class="tabular-nums"><strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span>
           </div>
           <div class="flex gap-2">
-            <UiButton size="sm" variant="outline" :disabled="!canSave || loading" class="sm:h-9 sm:px-4 sm:py-2" @click="saveInvoice('新建')">
+            <UiButton
+              size="sm"
+              variant="outline"
+              :disabled="!canSave || loading"
+              class="sm:h-9 sm:px-4 sm:py-2"
+              @click="saveInvoice('新建')"
+            >
               <Save class="w-4 h-4 mr-1" />
               保存
             </UiButton>
-            <UiButton size="sm" :disabled="!canSave || !form.shipDate || loading" class="sm:h-9 sm:px-4 sm:py-2" @click="saveInvoice('已配发')">
+            <UiButton
+              size="sm"
+              :disabled="!canSave || !form.shipDate || loading"
+              class="sm:h-9 sm:px-4 sm:py-2"
+              @click="saveInvoice('已配发')"
+            >
               <Send class="w-4 h-4 mr-1" />
               配发
             </UiButton>
@@ -1010,8 +1133,12 @@ function getBillLeftNum(bill: InvoiceBill) {
             <Plus class="w-6 h-6 text-muted-foreground/60" />
           </div>
           <div>
-            <p class="font-medium text-foreground/70">暂无运单</p>
-            <p class="text-sm mt-1">点击上方「新建运单」开始配发</p>
+            <p class="font-medium text-foreground/70">
+              暂无运单
+            </p>
+            <p class="text-sm mt-1">
+              点击上方「新建运单」开始配发
+            </p>
           </div>
         </div>
       </div>
@@ -1019,7 +1146,9 @@ function getBillLeftNum(bill: InvoiceBill) {
 
     <!-- 运单列表对话框 -->
     <UiDialog v-model:open="showInvoiceListDialog">
-      <UiDialogContent class="w-[100vw] h-[100dvh] sm:w-[95vw] sm:h-auto md:min-w-[800px] md:max-w-[90vw] sm:max-h-[80vh] overflow-hidden flex flex-col rounded-none sm:rounded-lg">
+      <UiDialogContent
+        class="w-[100vw] h-[100dvh] sm:w-[95vw] sm:h-auto md:min-w-[800px] md:max-w-[90vw] sm:max-h-[80vh] overflow-hidden flex flex-col rounded-none sm:rounded-lg"
+      >
         <UiDialogHeader>
           <UiDialogTitle>修改运单</UiDialogTitle>
         </UiDialogHeader>
@@ -1100,14 +1229,20 @@ function getBillLeftNum(bill: InvoiceBill) {
             </div>
 
             <!-- 加载中 -->
-            <div v-if="invoiceListLoading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div
+              v-if="invoiceListLoading"
+              class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+            >
               <div class="text-muted-foreground">
                 加载中...
               </div>
             </div>
 
             <!-- 空状态 -->
-            <div v-if="!invoiceListLoading && invoiceList.length === 0" class="absolute inset-0 flex items-center justify-center">
+            <div
+              v-if="!invoiceListLoading && invoiceList.length === 0"
+              class="absolute inset-0 flex items-center justify-center"
+            >
               <div class="text-muted-foreground">
                 没有找到运单
               </div>
@@ -1126,7 +1261,14 @@ function getBillLeftNum(bill: InvoiceBill) {
                 <!-- 第一行：运单号 + 状态 -->
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="font-semibold text-sm font-mono">{{ invoice.waybill_no }}</span>
-                  <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" :class="invoice.state === '已配发' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'">
+                  <span
+                    class="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                    :class="
+                      invoice.state === '已配发'
+                        ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
+                        : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
+                    "
+                  >
                     {{ invoice.state }}
                   </span>
                 </div>
@@ -1148,14 +1290,20 @@ function getBillLeftNum(bill: InvoiceBill) {
             </div>
 
             <!-- 加载中 -->
-            <div v-if="invoiceListLoading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div
+              v-if="invoiceListLoading"
+              class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+            >
               <div class="text-muted-foreground">
                 加载中...
               </div>
             </div>
 
             <!-- 空状态 -->
-            <div v-if="!invoiceListLoading && invoiceList.length === 0" class="absolute inset-0 flex items-center justify-center">
+            <div
+              v-if="!invoiceListLoading && invoiceList.length === 0"
+              class="absolute inset-0 flex items-center justify-center"
+            >
               <div class="text-muted-foreground">
                 没有找到运单
               </div>
@@ -1163,7 +1311,10 @@ function getBillLeftNum(bill: InvoiceBill) {
           </div>
 
           <!-- 分页 -->
-          <div v-if="invoiceListTotal > 0" class="flex items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3 shrink-0">
+          <div
+            v-if="invoiceListTotal > 0"
+            class="flex items-center justify-between gap-2 text-xs sm:text-sm border-t pt-3 shrink-0"
+          >
             <div class="text-muted-foreground tabular-nums">
               {{ invoiceListPage }}/{{ Math.ceil(invoiceListTotal / invoiceListLimit) }}
               <span class="hidden sm:inline">页，共 {{ invoiceListTotal }} 条</span>

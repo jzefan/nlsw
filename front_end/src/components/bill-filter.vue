@@ -109,19 +109,19 @@ function handleSearch() {
           </UiSelectItem>
         </UiSelectContent>
       </UiSelect>
-      <DatePicker 
-        :model-value="filters.startDate" 
-        placeholder="开始日期" 
+      <DatePicker
+        :model-value="filters.startDate"
+        placeholder="开始日期"
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
-        @update:model-value="updateField('startDate', $event)" 
+        @update:model-value="updateField('startDate', $event)"
       />
-      <DatePicker 
-        :model-value="filters.endDate" 
-        placeholder="结束日期" 
+      <DatePicker
+        :model-value="filters.endDate"
+        placeholder="结束日期"
         :disabled-date="disableEndDate"
         disabled-hint="结束日期不能早于开始日期"
-        @update:model-value="updateField('endDate', $event)" 
+        @update:model-value="updateField('endDate', $event)"
       />
     </div>
     <div class="mt-2 flex items-center gap-4">

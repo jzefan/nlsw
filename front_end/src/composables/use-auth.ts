@@ -80,7 +80,7 @@ export function useAuth() {
         return true
       }
     }
-    catch (e) {
+    catch {
       authStore.clearUser()
     }
     return false

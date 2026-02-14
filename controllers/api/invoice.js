@@ -2,6 +2,7 @@ const Invoice = require('../../models/Invoice');
 const Bill = require('../../models/Bill');
 const OrderPlan = require('../../models/OrderPlan');
 const utils = require('../../controllers/utils');
+const { isAdmin } = require('../../shared/permissions');
 
 const EPSILON = 0.0001;
 
@@ -136,14 +137,14 @@ exports.getInvoiceList = async (req, res) => {
     } = req.query;
     const user = req.user || { userid: 'admin', privilege: 'admin' };
     const userId = user.userid;
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111' || userId === 'admin';
+    const isAdminUser = isAdmin(user.privilege) || userId === 'admin';
 
     // 构建查询条件
     const query = {};
 
     // 如果不是管理员，强制只显示自己的运单
     // 如果是管理员，只有当myOnly参数存在且为true时才过滤
-    if (!isAdmin) {
+    if (!isAdminUser) {
       query.shipper = userId;
     } else if (myOnly === 'true' || myOnly === true) {
       query.shipper = userId;
@@ -181,6 +182,26 @@ exports.getInvoiceList = async (req, res) => {
     if (state) {
       query.state = state;
     }
+    // 按车船类型过滤（兼容旧数据：船运的bills.vehicles非空，车运的为空）
+    if (req.query.vehType) {
+      let vehTypeCondition;
+      if (req.query.vehType === '船') {
+        vehTypeCondition = { $or: [
+          { veh_type: '船' },
+          { veh_type: { $exists: false }, 'bills.vehicles.0': { $exists: true } }
+        ]};
+      } else if (req.query.vehType === '车') {
+        vehTypeCondition = { $or: [
+          { veh_type: '车' },
+          { veh_type: { $exists: false }, 'bills.vehicles.0': { $exists: false } }
+        ]};
+      }
+      if (vehTypeCondition) {
+        query.$and = query.$and || [];
+        query.$and.push(vehTypeCondition);
+      }
+    }
+
     if (startDate || endDate) {
       query.ship_date = {};
       if (startDate) {
@@ -200,8 +221,8 @@ exports.getInvoiceList = async (req, res) => {
 
     // 查询运单列表
     const invoices = await Invoice.find(query)
-      .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state createdAt shipper')
-      .sort({ ship_date: -1, createdAt: -1 })
+      .select('waybill_no vehicle_vessel_name ship_name ship_from ship_to ship_date total_weight state create_date shipper veh_type')
+      .sort({ _id: -1 })
       .limit(parseInt(limit))
       .skip(skip)
       .lean()
@@ -481,6 +502,8 @@ exports.buildShipInvoice = async (req, res) => {
     // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
+      invoiceData.create_date = new Date();
+      invoiceData.veh_type = '船';
       const invoice = new Invoice(invoiceData);
       buildInnerSettleData(invoice);
 
@@ -1058,6 +1081,8 @@ exports.buildTruckInvoice = async (req, res) => {
     // 9. 根据是否已存在运单，执行新建或更新
     if (!dbInv) {
       // 新建运单
+      invoiceData.create_date = new Date();
+      invoiceData.veh_type = '车';
       const invoice = new Invoice(invoiceData);
 
       let totalWeight = 0;

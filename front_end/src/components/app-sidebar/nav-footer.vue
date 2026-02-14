@@ -8,6 +8,7 @@ import {
 
 import { useSidebar } from '@/components/ui/sidebar'
 import { useAuth } from '@/composables/use-auth'
+import { usePermissions } from '@/composables/use-permissions'
 
 import type { User } from './types'
 
@@ -15,6 +16,7 @@ defineProps<{ user: User }>()
 
 const { logout, user: authUser } = useAuth()
 const { isMobile, open } = useSidebar()
+const { isAdmin } = usePermissions()
 
 // 获取用户显示名称
 const displayName = computed(() => authUser.value?.name || authUser.value?.userid || '用户')
@@ -24,8 +26,7 @@ const avatarFallback = computed(() => {
   const name = authUser.value?.name || authUser.value?.userid || 'U'
   return name.substring(0, 2).toUpperCase()
 })
-// 是否是管理员
-const isAdmin = computed(() => authUser.value?.privilege === '11111111')
+// isAdmin from usePermissions()
 </script>
 
 <template>

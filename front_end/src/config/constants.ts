@@ -12,7 +12,7 @@ export const APP_CONFIG = {
 
   // 系统名称
   systemName: import.meta.env.VITE_SYSTEM_NAME || '军铁物流系统',
-  
+
   // API 基础 URL
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:1080',
 } as const

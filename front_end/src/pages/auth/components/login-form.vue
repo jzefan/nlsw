@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useAuth } from '@/composables/use-auth'
+
 import AuthTitle from './auth-title.vue'
 
 const { login, loading, error } = useAuth()
@@ -32,7 +33,9 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
 
       <div class="grid gap-2">
-        <UiLabel for="userid"> 用户名 </UiLabel>
+        <UiLabel for="userid">
+          用户名
+        </UiLabel>
         <UiInput
           id="userid"
           v-model="userid"

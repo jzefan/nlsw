@@ -1,9 +1,9 @@
 <script setup lang="ts" generic="T extends Record<string, any>">
 import { ShoppingCart, Trash2, X } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { toast } from 'vue-sonner'
 
-interface BasketItem {
+interface _BasketItem {
   _id: string
   [key: string]: any
 }
@@ -33,10 +33,18 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>()
 
+// 定义插槽内容的类型
+defineSlots<{
+  'item'?: (props: { item: T }) => any
+  'item-title'?: (props: { item: T }) => any
+  'item-subtitle'?: (props: { item: T }) => any
+  'item-details'?: (props: { item: T }) => any
+}>()
+
 // 本地打开状态
 const isOpen = computed({
   get: () => props.open,
-  set: (value) => emit('update:open', value),
+  set: value => emit('update:open', value),
 })
 
 // 默认统计（如果未提供）
@@ -78,14 +86,6 @@ function handleSettle() {
   }
   emit('settle', props.items)
 }
-
-// 定义插槽内容的类型
-defineSlots<{
-  item?: (props: { item: T }) => any
-  'item-title'?: (props: { item: T }) => any
-  'item-subtitle'?: (props: { item: T }) => any
-  'item-details'?: (props: { item: T }) => any
-}>()
 </script>
 
 <template>
@@ -134,7 +134,9 @@ defineSlots<{
           >
             <ShoppingCart class="w-12 h-12 mb-2 opacity-30" />
             <p>结算篮为空</p>
-            <p class="text-sm">请选择提单后点击"加入结算篮"</p>
+            <p class="text-sm">
+              请选择提单后点击"加入结算篮"
+            </p>
           </div>
           <div
             v-for="item in items"

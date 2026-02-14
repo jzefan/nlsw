@@ -3,37 +3,21 @@ import { Download, Filter, ShoppingCart, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
-import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import { BasicPage } from '@/components/global-layout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  getSettleBills,
-  markNotRequireSettle,
-  settleBills,
-} from '@/services/api/settle.api'
-import {
-  deleteSettle,
-  getSettleList,
-} from '@/services/api/ticket.api'
+import { useExport } from '@/composables/use-export'
+import { getSettleBills, markNotRequireSettle, settleBills } from '@/services/api/settle.api'
+import { deleteSettle, getSettleList } from '@/services/api/ticket.api'
 
 import type { SettleRecord } from './ticket-types'
-import type {
-  PriceInputData,
-  SettleBill,
-  SettleFilterParams,
-  SettleMode,
-  SettleObject,
-} from './types'
+import type { PriceInputData, SettleBill, SettleFilterParams, SettleMode, SettleObject } from './types'
 
 import BatchPriceInputDialog from './components/BatchPriceInputDialog.vue'
 import PriceInputDialog from './components/PriceInputDialog.vue'
 import SettleFilter from './components/SettleFilter.vue'
 import SettleTable from './components/SettleTable.vue'
-import {
-  COLLECTION_SETTLE_FLAG,
-  CUSTOMER_SETTLE_FLAG,
-} from './types'
+import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
@@ -84,30 +68,34 @@ onMounted(() => {
 })
 
 // 监听 tab 切换，实时获取数据
-watch(viewTab, (newTab) => {
-  console.log('viewTab changed to:', newTab)
-  if (newTab === 'settled') {
-    console.log('Loading settled records...')
-    loadSettledRecords()
-  }
-  else if (newTab === 'unsettled') {
-    console.log('Reloading unsettled bills...')
-    // 重新加载未结算数据
-    if (filterParams.value.fDate1 && filterParams.value.fDate2) {
-      loadData(filterParams.value.fDate1, filterParams.value.fDate2)
+watch(
+  viewTab,
+  (newTab) => {
+    console.warn('viewTab changed to:', newTab)
+    if (newTab === 'settled') {
+      console.warn('Loading settled records...')
+      loadSettledRecords()
     }
-  }
-}, { immediate: true })
+    else if (newTab === 'unsettled') {
+      console.warn('Reloading unsettled bills...')
+      // 重新加载未结算数据
+      if (filterParams.value.fDate1 && filterParams.value.fDate2) {
+        loadData(filterParams.value.fDate1, filterParams.value.fDate2)
+      }
+    }
+  },
+  { immediate: true },
+)
 
 // 监听结算模式切换，重新加载当前 tab 的数据
 watch(settleMode, () => {
-  console.log('settleMode changed to:', settleMode.value)
+  console.warn('settleMode changed to:', settleMode.value)
   if (viewTab.value === 'settled') {
-    console.log('Reloading settled records due to mode change...')
+    console.warn('Reloading settled records due to mode change...')
     loadSettledRecords()
   }
   else {
-    console.log('Reloading unsettled bills due to mode change...')
+    console.warn('Reloading unsettled bills due to mode change...')
     applyFrontendFilter()
   }
 })
@@ -141,10 +129,12 @@ const filterOptions = computed(() => {
   })
 
   // 将运单号转换为对象数组，包含运单号和创建人
-  const invNos = Array.from(invNosMap.entries()).map(([invNo, shipper]) => ({
-    inv_no: invNo,
-    shipper,
-  })).sort((a, b) => a.inv_no.localeCompare(b.inv_no))
+  const invNos = Array.from(invNosMap.entries())
+    .map(([invNo, shipper]) => ({
+      inv_no: invNo,
+      shipper,
+    }))
+    .sort((a, b) => a.inv_no.localeCompare(b.inv_no))
 
   return {
     billingNames: Array.from(billingNames).sort(),
@@ -285,7 +275,7 @@ function switchMode(mode: SettleMode) {
 }
 
 // 切换视图标签
-function switchViewTab(tab: 'unsettled' | 'settled') {
+function _switchViewTab(tab: 'unsettled' | 'settled') {
   if (viewTab.value !== tab) {
     viewTab.value = tab
     selectedBills.value = []
@@ -447,7 +437,7 @@ function openPriceDialog() {
 }
 
 // 保存价格
-async function savePrices(data: PriceInputData[]) {
+async function _savePrices(_data: PriceInputData[]) {
   // 逻辑在对话框组件中处理
 }
 
@@ -572,7 +562,11 @@ async function handleMarkNotRequireSettle() {
       else {
         bill.inv_settle_flag &= ~COLLECTION_SETTLE_FLAG
         bill.collection_price = -1
-        return { bid: bill._id, inv_no: bill.inv_no, settle_flag: bill.inv_settle_flag }
+        return {
+          bid: bill._id,
+          inv_no: bill.inv_no,
+          settle_flag: bill.inv_settle_flag,
+        }
       }
     })
 
@@ -614,9 +608,7 @@ function addToBasket() {
   }
 
   // 检查是否有已在结算篮中的提单
-  const newBills = selectedBills.value.filter(
-    bill => !basketBills.value.some(b => isSameBill(b, bill)),
-  )
+  const newBills = selectedBills.value.filter(bill => !basketBills.value.some(b => isSameBill(b, bill)))
 
   if (newBills.length === 0) {
     toast.info('选中的提单已在结算篮中')
@@ -680,15 +672,17 @@ function clearBasket() {
 
 // 判断两个提单是否相同（使用更精确的条件）
 function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
-  return bill1._id === bill2._id
+  return (
+    bill1._id === bill2._id
     && bill1.inv_no === bill2.inv_no
     && bill1.veh_ves_name === bill2.veh_ves_name
     && bill1.send_num === bill2.send_num
     && bill1.send_weight === bill2.send_weight
+  )
 }
 
 // 检查提单是否在结算篮中
-function isInBasket(bill: SettleBill): boolean {
+function _isInBasket(bill: SettleBill): boolean {
   return basketBills.value.some(b => isSameBill(b, bill))
 }
 
@@ -925,7 +919,7 @@ function getSettleStatus(bill: SettleBill): string {
 
 // 加载已结算记录
 async function loadSettledRecords() {
-  console.log('loadSettledRecords called, settleMode:', settleMode.value)
+  console.warn('loadSettledRecords called, settleMode:', settleMode.value)
   loading.value = true
   try {
     const result = await getSettleList({
@@ -933,10 +927,10 @@ async function loadSettledRecords() {
       display_mode: 'settle',
       selfOwned: '0',
     })
-    console.log('getSettleList result:', result)
+    console.warn('getSettleList result:', result)
     if (result.ok) {
       settledRecords.value = result.settles
-      console.log('settledRecords:', result.settles.length)
+      console.warn('settledRecords:', result.settles.length)
     }
     else {
       toast.error('获取已结算记录失败')
@@ -1027,10 +1021,7 @@ function getOrderDisplay(bill: SettleBill) {
 </script>
 
 <template>
-  <BasicPage
-    title="结算管理"
-    description="客户结算和南钢结算（代收代付）管理"
-  >
+  <BasicPage title="结算管理" description="客户结算和南钢结算（代收代付）管理">
     <Tabs v-model="viewTab" class="w-full">
       <!-- Tabs 和操作按钮在同一行 -->
       <div class="flex items-center justify-between mb-4">
@@ -1040,7 +1031,8 @@ function getOrderDisplay(bill: SettleBill) {
           <div class="inline-flex rounded-md shadow-sm" role="group">
             <button
               type="button"
-              class="px-4 py-2 text-sm font-medium border rounded-l-lg" :class="[
+              class="px-4 py-2 text-sm font-medium border rounded-l-lg"
+              :class="[
                 settleMode === 'CUSTOMER'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-background hover:bg-muted border-input',
@@ -1051,7 +1043,8 @@ function getOrderDisplay(bill: SettleBill) {
             </button>
             <button
               type="button"
-              class="px-4 py-2 text-sm font-medium border-l-0 rounded-r-lg" :class="[
+              class="px-4 py-2 text-sm font-medium border-l-0 rounded-r-lg"
+              :class="[
                 settleMode === 'COLLECTION'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-background hover:bg-muted border-input',
@@ -1065,12 +1058,7 @@ function getOrderDisplay(bill: SettleBill) {
           <!-- 未结算操作按钮 -->
           <template v-if="viewTab === 'unsettled'">
             <!-- 价格输入（智能） -->
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="selectedBills.length === 0"
-              @click="openPriceDialog"
-            >
+            <UiButton variant="outline" size="sm" :disabled="selectedBills.length === 0" @click="openPriceDialog">
               <span class="mr-1 font-semibold">¥</span>
               价格输入
               <span v-if="selectedBills.length > 0" class="ml-1 text-xs opacity-70">
@@ -1083,24 +1071,13 @@ function getOrderDisplay(bill: SettleBill) {
               <Filter class="w-4 h-4 mr-1" />
               过滤
             </UiButton>
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="displayBills.length === 0"
-              @click="handleExport"
-            >
+            <UiButton variant="outline" size="sm" :disabled="displayBills.length === 0" @click="handleExport">
               <Download class="w-4 h-4 mr-1" />
               导出
             </UiButton>
 
             <!-- 结算篮按钮 -->
-            <UiButton
-              ref="basketButtonRef"
-              variant="default"
-              size="sm"
-              class="relative"
-              @click="showBasket = true"
-            >
+            <UiButton ref="basketButtonRef" variant="default" size="sm" class="relative" @click="showBasket = true">
               <ShoppingCart class="w-4 h-4 mr-1" />
               结算篮
               <span
@@ -1174,7 +1151,9 @@ function getOrderDisplay(bill: SettleBill) {
         <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
           <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
-          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
+          <span class="text-muted-foreground">重量:
+            <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong>
+            吨</span>
           <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
           <span v-if="selectedBills.length > 0" class="text-primary font-medium">
             已选: {{ selectedStatistics.totalNum }}块 / {{ selectedStatistics.totalWeight.toFixed(3) }}吨
@@ -1198,9 +1177,7 @@ function getOrderDisplay(bill: SettleBill) {
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
               >
-              <label for="show-non-settle-main" class="text-sm cursor-pointer whitespace-nowrap">
-                不需要结算
-              </label>
+              <label for="show-non-settle-main" class="text-sm cursor-pointer whitespace-nowrap"> 不需要结算 </label>
             </div>
             <UiButton variant="outline" size="sm" @click="handleResetFilter">
               重置
@@ -1222,15 +1199,13 @@ function getOrderDisplay(bill: SettleBill) {
         <!-- 分页 -->
         <div v-if="displayBills.length > pageSize" class="flex items-center justify-between mt-4 px-2">
           <div class="text-sm text-muted-foreground">
-            显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displayBills.length) }} 条，共 {{ displayBills.length }} 条
+            显示 {{ (currentPage - 1) * pageSize + 1 }}-{{
+              Math.min(currentPage * pageSize, displayBills.length)
+            }}
+            条，共 {{ displayBills.length }} 条
           </div>
           <div class="flex items-center gap-2">
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="currentPage === 1"
-              @click="previousPage"
-            >
+            <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage">
               上一页
             </UiButton>
             <div class="flex items-center gap-1">
@@ -1245,12 +1220,7 @@ function getOrderDisplay(bill: SettleBill) {
               >
               <span class="text-sm">/ {{ totalPages }} 页</span>
             </div>
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="currentPage === totalPages"
-              @click="nextPage"
-            >
+            <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
               下一页
             </UiButton>
           </div>
@@ -1402,11 +1372,7 @@ function getOrderDisplay(bill: SettleBill) {
     <!-- 结算篮滑出面板 -->
     <Teleport to="body">
       <Transition name="basket-fade">
-        <div
-          v-if="showBasket"
-          class="fixed inset-0 bg-black/50 z-50"
-          @click="showBasket = false"
-        />
+        <div v-if="showBasket" class="fixed inset-0 bg-black/50 z-50" @click="showBasket = false" />
       </Transition>
       <Transition name="basket-slide">
         <div
@@ -1420,10 +1386,7 @@ function getOrderDisplay(bill: SettleBill) {
               <span class="font-semibold text-lg">结算篮</span>
               <span class="text-muted-foreground text-sm">({{ basketBills.length }} 条)</span>
             </div>
-            <button
-              class="p-1 hover:bg-muted rounded-md transition-colors"
-              @click="showBasket = false"
-            >
+            <button class="p-1 hover:bg-muted rounded-md transition-colors" @click="showBasket = false">
               <X class="w-5 h-5" />
             </button>
           </div>
@@ -1432,7 +1395,9 @@ function getOrderDisplay(bill: SettleBill) {
           <div class="px-4 py-2 border-b bg-muted/20 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-muted-foreground">块数: <strong class="text-foreground">{{ basketStatistics.totalNum }}</strong></span>
-              <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong> 吨</span>
+              <span class="text-muted-foreground">重量:
+                <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong>
+                吨</span>
               <span class="text-muted-foreground">金额: <strong class="text-primary">¥{{ basketStatistics.totalAmount.toFixed(2) }}</strong></span>
             </div>
           </div>
@@ -1445,7 +1410,9 @@ function getOrderDisplay(bill: SettleBill) {
             >
               <ShoppingCart class="w-12 h-12 mb-2 opacity-30" />
               <p>结算篮为空</p>
-              <p class="text-sm">请选择提单后点击"加入结算篮"</p>
+              <p class="text-sm">
+                请选择提单后点击"加入结算篮"
+              </p>
             </div>
             <div
               v-for="bill in basketBills"
@@ -1465,7 +1432,9 @@ function getOrderDisplay(bill: SettleBill) {
                   <span>{{ bill.send_num }}块</span>
                   <span>{{ bill.send_weight.toFixed(3) }}吨</span>
                   <span class="text-primary">
-                    ¥{{ ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2) }}
+                    ¥{{
+                      ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2)
+                    }}
                   </span>
                 </div>
               </div>
@@ -1527,11 +1496,7 @@ function getOrderDisplay(bill: SettleBill) {
     </Teleport>
 
     <!-- 导出对话框 -->
-    <ExportDialog
-      v-model:open="showExportDialog"
-      :default-file-name="exportFileName"
-      @confirm="confirmExport"
-    />
+    <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
   </BasicPage>
 </template>
 

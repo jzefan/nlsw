@@ -1,8 +1,5 @@
 <script lang="ts" setup>
-import { toast } from 'vue-sonner'
-
 import { BasicPage } from '@/components/global-layout'
-import { Button } from '@/components/ui/button'
 
 import OverviewContent from './components/overview-content.vue'
 </script>

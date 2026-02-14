@@ -35,8 +35,8 @@ export async function getVesselFixedCosts(params?: VesselFixedCostQueryParams) {
 }
 
 export async function getVesselFixedCost(name: string, month: string) {
-  const response = await axiosInstance.get<{ ok: boolean, data: VesselFixedCost }>('/vessel_fixed_costs/detail', { 
-    params: { name, month } 
+  const response = await axiosInstance.get<{ ok: boolean, data: VesselFixedCost }>('/vessel_fixed_costs/detail', {
+    params: { name, month },
   })
   return response.data
 }

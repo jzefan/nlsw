@@ -1,4 +1,4 @@
-import { BadgeHelp, BellDot, Boxes, Bug, Component, CreditCard, LayoutDashboard, ListTodo, Palette, PictureInPicture2, Podcast, Settings, SquareUserRound, User, Users, Wrench } from 'lucide-vue-next'
+import { BadgeHelp, Boxes, Bug, Component, CreditCard, LayoutDashboard, ListTodo, Podcast, Settings, SquareUserRound, Users, Wrench } from 'lucide-vue-next'
 
 import type { NavGroup } from '@/components/app-sidebar/types'
 

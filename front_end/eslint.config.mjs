@@ -14,6 +14,7 @@ export default antfu({
   ignores: [
     '**/build/**',
     '**/components/ui/**',
+    '**/*.md',
   ],
   settings: {
     'import/core-modules': ['vue-router/auto-routes'],
@@ -28,6 +29,7 @@ export default antfu({
     }],
     'yaml/indent': ['error', 2],
     'jsonc/indent': ['error', 2],
+    'no-alert': 'off',
     'vue/block-lang': ['warn', {
       script: { lang: ['ts', 'tsx'] },
     }],

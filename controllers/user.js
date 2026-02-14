@@ -1,10 +1,16 @@
 var _ = require('underscore');
-// var async = require('async'); // Removed as we use async/await
 var crypto = require('crypto');
-// var nodemailer = require('nodemailer'); // Removed - not used
 var passport = require('passport');
+var { body, validationResult } = require('express-validator');
 var User = require('../models/User');
 var secrets = require('../config/secrets');
+
+async function validate(req, validations) {
+  for (const v of validations) {
+    await v.run(req);
+  }
+  return validationResult(req);
+}
 
 /**
  * GET /login
@@ -33,22 +39,15 @@ exports.getLogin = function (req, res) {
  * @param password
  */
 
-exports.postLogin = function (req, res, next) {
+exports.postLogin = async function (req, res, next) {
+  var errors = await validate(req, [
+    body('userid').notEmpty().withMessage('用户名不能为空'),
+    body('password').notEmpty().withMessage('密码不能为空'),
+  ]);
 
-  req.assert('userid', '用户名不能为空').notEmpty();
-
-  req.assert('password', '密码不能为空').notEmpty();
-
-
-
-  var errors = req.validationErrors();
-
-  if (errors) {
-
-    req.flash('errors', errors);
-
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/login');
-
   }
 
 
@@ -313,15 +312,17 @@ async function udpateUserNo(user) {
  * Log out.
  */
 
-exports.logout = function (req, res) {
-  req.logout();
-  
-  const isApi = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') > -1);
-  if (isApi) {
-    res.json({ ok: true });
-  } else {
-    res.redirect('/login');
-  }
+exports.logout = function (req, res, next) {
+  req.logout(function (err) {
+    if (err) return next(err);
+
+    const isApi = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') > -1);
+    if (isApi) {
+      res.json({ ok: true });
+    } else {
+      res.redirect('/login');
+    }
+  });
 };
 
 /**
@@ -344,14 +345,15 @@ exports.getSignup = function (req, res) {
  */
 
 exports.postSignup = async function (req, res, next) {
-  req.assert('userid', '用户名不能为空').notEmpty();
-  req.assert('password', '密码长度至少2位长').len(2);
-  req.assert('confirmPassword', '两次输入的密码不一样').equals(req.body.password);
-  req.assert('employee_title', '职务不能为空').notEmpty();
+  var errors = await validate(req, [
+    body('userid').notEmpty().withMessage('用户名不能为空'),
+    body('password').isLength({ min: 2 }).withMessage('密码长度至少2位长'),
+    body('confirmPassword').equals(req.body.password).withMessage('两次输入的密码不一样'),
+    body('employee_title').notEmpty().withMessage('职务不能为空'),
+  ]);
 
-  var errors = req.validationErrors();
-  if (errors) {
-    req.flash('errors', errors);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/signup');
   }
 
@@ -450,13 +452,13 @@ exports.postUpdateProfile = async function (req, res, next) {
  */
 
 exports.postUpdatePassword = async function (req, res, next) {
-  req.assert('password', '密码长度至少2位长').len(2);
-  req.assert('confirmPassword', '两次输入的密码不一致').equals(req.body.password);
+  var errors = await validate(req, [
+    body('password').isLength({ min: 2 }).withMessage('密码长度至少2位长'),
+    body('confirmPassword').equals(req.body.password).withMessage('两次输入的密码不一致'),
+  ]);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/account');
   }
 
@@ -499,8 +501,10 @@ exports.postResetPassword = async function (req, res, next) {
 exports.postDeleteAccount = async function (req, res, next) {
   try {
     await User.deleteOne({ _id: req.user.id });
-    req.logout();
-    res.redirect('/');
+    req.logout(function (err) {
+      if (err) return next(err);
+      res.redirect('/');
+    });
   } catch (err) {
     return next(err);
   }
@@ -569,13 +573,13 @@ exports.getReset = async function (req, res) {
  */
 
 exports.postReset = async function (req, res, next) {
-  req.assert('password', 'Password must be at least 4 characters long.').len(4);
-  req.assert('confirm', 'Passwords must match.').equals(req.body.password);
+  var errors = await validate(req, [
+    body('password').isLength({ min: 4 }).withMessage('Password must be at least 4 characters long.'),
+    body('confirm').equals(req.body.password).withMessage('Passwords must match.'),
+  ]);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('back');
   }
 
@@ -636,12 +640,12 @@ exports.getForgot = function (req, res) {
  */
 
 exports.postForgot = async function (req, res, next) {
-  req.assert('email', 'Please enter a valid email address.').isEmail();
+  var errors = await validate(req, [
+    body('email').isEmail().withMessage('Please enter a valid email address.'),
+  ]);
 
-  var errors = req.validationErrors();
-
-  if (errors) {
-    req.flash('errors', errors);
+  if (!errors.isEmpty()) {
+    req.flash('errors', errors.array());
     return res.redirect('/forgot');
   }
 

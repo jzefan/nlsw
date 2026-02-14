@@ -91,11 +91,14 @@ async function handleSave() {
     if (result.ok) {
       // 更新本地数据
       if (props.settleMode === 'CUSTOMER') {
+        // eslint-disable-next-line vue/no-mutating-props
         props.bill.price = finalPrice
       }
       else {
+        // eslint-disable-next-line vue/no-mutating-props
         props.bill.collection_price = finalPrice
       }
+      // eslint-disable-next-line vue/no-mutating-props
       props.bill.incoming_price_remark = remark.value
 
       toast.success('价格保存成功')

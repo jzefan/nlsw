@@ -8,12 +8,12 @@ interface UploadedFile {
   size: number
 }
 
-const props = defineProps<{
+const _props = defineProps<{
   accept?: string
 }>()
 
 const emit = defineEmits<{
-  (e: 'files-change', files: File[]): void
+  (e: 'filesChange', files: File[]): void
 }>()
 
 const isDragging = ref(false)
@@ -87,7 +87,7 @@ function clearAll() {
 }
 
 function emitChange() {
-  emit('files-change', files.value.map(f => f.file))
+  emit('filesChange', files.value.map(f => f.file))
 }
 
 function triggerUpload() {

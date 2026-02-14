@@ -43,4 +43,3 @@ export default env || {
   VITE_SERVER_API_PREFIX: '',
   VITE_SERVER_API_TIMEOUT: 5000,
 }
-

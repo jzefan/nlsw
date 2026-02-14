@@ -27,7 +27,7 @@ watch(priceMode, (newMode, oldMode) => {
     return
 
   const currentValue = Number.parseFloat(priceValue.value)
-  if (isNaN(currentValue) || currentValue <= 0)
+  if (Number.isNaN(currentValue) || currentValue <= 0)
     return
 
   const weight = forVessel.value ? invoiceData.value?.total_weight || 1 : vehInfo.value?.weight || 1
@@ -75,7 +75,7 @@ function open(inv: any, isVessel: boolean, inner?: string) {
 async function handleConfirm() {
   const price = Number.parseFloat(priceValue.value)
 
-  if (isNaN(price)) {
+  if (Number.isNaN(price)) {
     toast.warning('请输入有效的价格')
     return
   }
@@ -194,7 +194,7 @@ function formatNumber(num: number | string | undefined): string {
   if (num === null || num === undefined || num === '')
     return '0.000'
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
+  return Number.isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 defineExpose({ open })

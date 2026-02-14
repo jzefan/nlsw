@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X as XIcon, Upload as UploadIcon } from 'lucide-vue-next'
+import { Upload as UploadIcon, X as XIcon } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -194,10 +194,9 @@ defineExpose({ open })
         <!-- 上传区域 -->
         <div
           v-if="selectedFiles.length < MAX_FILES"
-          class="w-full min-h-[150px] border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors"
+          class="w-full min-h-[150px] border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors border-muted-foreground/25"
           :class="[
             uploading ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary hover:bg-muted/50',
-            'border-muted-foreground/25',
           ]"
           @click="handleUploadClick"
           @dragover.prevent

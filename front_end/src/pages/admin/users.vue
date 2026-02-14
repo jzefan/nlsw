@@ -2,13 +2,20 @@
 import { KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
+import type { User, UserFormData } from '@/services/api/user.api'
+
 import { BasicPage } from '@/components/global-layout'
 import { useAuth } from '@/composables/use-auth'
-import type { User, UserFormData } from '@/services/api/user.api'
+import { usePermissions } from '@/composables/use-permissions'
+import {
+  generatePrivilege as _generatePrivilege,
+  parsePrivilege as _parsePrivilege,
+  getPrivilegeDisplay,
+  isAdmin as isAdminPrivilege,
+} from '@/lib/permissions'
 import {
   addUser,
   deleteUser,
-  getPrivilegeDisplay,
   getUsers,
   resetPassword,
   titleOptions,
@@ -17,16 +24,20 @@ import {
 
 // 权限检查
 const router = useRouter()
-const { user: authUser } = useAuth()
-const isAdmin = computed(() => authUser.value?.privilege === '11111111')
+const { user: _authUser } = useAuth()
+const { isAdmin } = usePermissions()
 
 // 非管理员用户重定向
-watch(isAdmin, (val) => {
-  if (val === false) {
-    toast.error('无权限访问此页面')
-    router.push('/dashboard')
-  }
-}, { immediate: true })
+watch(
+  isAdmin,
+  (val) => {
+    if (val === false) {
+      toast.error('无权限访问此页面')
+      router.push('/dashboard')
+    }
+  },
+  { immediate: true },
+)
 
 // 状态
 const loading = ref(false)
@@ -34,7 +45,9 @@ const users = ref<User[]>([])
 const selectedUsers = ref<User[]>([])
 
 // 单选的用户（用于编辑和重置密码）
-const selectedUser = computed(() => selectedUsers.value.length === 1 ? selectedUsers.value[0] : null)
+const selectedUser = computed(() =>
+  selectedUsers.value.length === 1 ? selectedUsers.value[0] : null,
+)
 
 // 对话框状态
 const showEditDialog = ref(false)
@@ -48,7 +61,7 @@ const editForm = ref<UserFormData>({
 })
 
 // 权限选项
-const permissionOptions = [
+const _permissionOptions = [
   { id: 'admin', label: '管理员', index: -1 },
   { id: 'operator', label: '业务', index: 0 },
   { id: 'statistics', label: '统计', index: 1 },
@@ -109,7 +122,8 @@ function isSelected(user: User) {
 
 // 全选复选框状态
 const allSelected = computed({
-  get: () => selectedUsers.value.length === users.value.length && users.value.length > 0,
+  get: () =>
+    selectedUsers.value.length === users.value.length && users.value.length > 0,
   set: (value: boolean) => {
     if (value) {
       selectedUsers.value = [...users.value]
@@ -190,39 +204,13 @@ function resetPermissions() {
 // 解析权限字符串
 function parsePrivilege(privilege: string) {
   resetPermissions()
-  if (privilege === '11111111') {
-    permissions.value.admin = true
-    return
-  }
-
-  if (privilege) {
-    permissions.value.operator = privilege[0] === '1'
-    permissions.value.statistics = privilege[1] === '1'
-    permissions.value.account = privilege[2] === '1'
-    permissions.value.custRevenue = privilege[4] === '1'
-    permissions.value.vesselRevenue = privilege[5] === '1'
-    permissions.value.selfVehicle = privilege[6] === '1'
-    permissions.value.seePrice = privilege[7] === '1'
-  }
+  const parsed = _parsePrivilege(privilege)
+  permissions.value = { ...parsed }
 }
 
 // 生成权限字符串
 function generatePrivilege(): string {
-  if (permissions.value.admin) {
-    return '11111111'
-  }
-
-  let p = ''
-  p += permissions.value.operator ? '1' : '0'
-  p += permissions.value.statistics ? '1' : '0'
-  p += permissions.value.account ? '1' : '0'
-  p += (permissions.value.custRevenue && permissions.value.vesselRevenue) ? '1' : '0'
-  p += permissions.value.custRevenue ? '1' : '0'
-  p += permissions.value.vesselRevenue ? '1' : '0'
-  p += permissions.value.selfVehicle ? '1' : '0'
-  p += permissions.value.seePrice ? '1' : '0'
-
-  return p
+  return _generatePrivilege(permissions.value)
 }
 
 // 管理员权限切换
@@ -243,7 +231,10 @@ function onAdminChange(checked: boolean) {
 }
 
 // 切换非管理员权限（自动取消管理员勾选）
-function onPermissionChange(key: keyof typeof permissions.value, checked: boolean) {
+function onPermissionChange(
+  key: keyof typeof permissions.value,
+  checked: boolean,
+) {
   if (checked) {
     permissions.value.admin = false
   }
@@ -251,7 +242,9 @@ function onPermissionChange(key: keyof typeof permissions.value, checked: boolea
 }
 
 // 职务变更
-function onTitleChange(value: string | number | bigint | boolean | Record<string, any> | null) {
+function onTitleChange(
+  value: string | number | bigint | boolean | Record<string, any> | null,
+) {
   if (!value || typeof value !== 'string')
     return
   if (value === 'ceo' || value === 'mgr') {
@@ -289,13 +282,14 @@ function checkUsernameDuplicate() {
 const canSubmit = computed(() => {
   const hasUsername = !!editForm.value.userid.trim()
   const hasTitle = !!editForm.value.title
-  const hasPermission = permissions.value.admin
-    || permissions.value.operator
-    || permissions.value.statistics
-    || permissions.value.account
-    || permissions.value.custRevenue
-    || permissions.value.vesselRevenue
-    || permissions.value.selfVehicle
+  const hasPermission
+    = permissions.value.admin
+      || permissions.value.operator
+      || permissions.value.statistics
+      || permissions.value.account
+      || permissions.value.custRevenue
+      || permissions.value.vesselRevenue
+      || permissions.value.selfVehicle
 
   return hasUsername && hasTitle && hasPermission && !usernameDuplicate.value
 })
@@ -326,13 +320,17 @@ async function handleSave() {
     }
 
     if (result.ok) {
-      toast.success(dialogMode.value === 'add' ? '用户添加成功' : '用户修改成功')
+      toast.success(
+        dialogMode.value === 'add' ? '用户添加成功' : '用户修改成功',
+      )
       showEditDialog.value = false
       selectedUsers.value = []
       loadData()
     }
     else {
-      toast.error('操作失败', { description: result.message || result.response })
+      toast.error('操作失败', {
+        description: result.message || result.response,
+      })
     }
   }
   catch (e: any) {
@@ -349,11 +347,15 @@ async function handleDeleteOne(user: User) {
     const result = await deleteUser(user.userid)
     if (result.ok) {
       toast.success('用户删除成功')
-      selectedUsers.value = selectedUsers.value.filter(u => u.userid !== user.userid)
+      selectedUsers.value = selectedUsers.value.filter(
+        u => u.userid !== user.userid,
+      )
       loadData()
     }
     else {
-      toast.error('删除失败', { description: result.message || result.response })
+      toast.error('删除失败', {
+        description: result.message || result.response,
+      })
     }
   }
   catch (e: any) {
@@ -408,13 +410,20 @@ async function handleResetPassword() {
     return
   }
 
-  if (!confirm(`确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`))
+  if (
+    !confirm(
+      `确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`,
+    )
+  ) {
     return
+  }
 
   try {
     const result = await resetPassword({ userid: selectedUser.value.userid })
     if (result.ok) {
-      toast.success(`成功重置用户 ${selectedUser.value.name || selectedUser.value.userid} 的密码`)
+      toast.success(
+        `成功重置用户 ${selectedUser.value.name || selectedUser.value.userid} 的密码`,
+      )
       selectedUsers.value = []
     }
     else {
@@ -479,7 +488,10 @@ onMounted(() => {
           <span class="hidden sm:inline">重置密码</span>
         </UiButton>
       </div>
-      <div v-if="selectedUsers.length > 0" class="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+      <div
+        v-if="selectedUsers.length > 0"
+        class="text-xs sm:text-sm text-muted-foreground whitespace-nowrap"
+      >
         已选 {{ selectedUsers.length }}
       </div>
     </div>
@@ -493,8 +505,12 @@ onMounted(() => {
               <input
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                :checked="selectedUsers.length === users.length && users.length > 0"
-                @change="allSelected = ($event.target as HTMLInputElement).checked"
+                :checked="
+                  selectedUsers.length === users.length && users.length > 0
+                "
+                @change="
+                  allSelected = ($event.target as HTMLInputElement).checked
+                "
               >
             </th>
             <th class="p-3 text-left">
@@ -530,7 +546,12 @@ onMounted(() => {
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
                 :checked="isSelected(user)"
-                @change="handleUserCheck(user, ($event.target as HTMLInputElement).checked)"
+                @change="
+                  handleUserCheck(
+                    user,
+                    ($event.target as HTMLInputElement).checked,
+                  )
+                "
               >
             </td>
             <td class="p-3">
@@ -543,7 +564,10 @@ onMounted(() => {
               {{ user.title }}
             </td>
             <td class="p-3">
-              <UiBadge v-if="user.privilege === '11111111'" variant="destructive">
+              <UiBadge
+                v-if="isAdminPrivilege(user.privilege)"
+                variant="destructive"
+              >
                 管理
               </UiBadge>
               <span v-else>{{ getPrivilegeDisplay(user.privilege) }}</span>
@@ -597,20 +621,31 @@ onMounted(() => {
             class="h-4 w-4 mt-0.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer shrink-0"
             :checked="isSelected(user)"
             @click.stop
-            @change="handleUserCheck(user, ($event.target as HTMLInputElement).checked)"
+            @change="
+              handleUserCheck(user, ($event.target as HTMLInputElement).checked)
+            "
           >
           <div class="flex-1 min-w-0">
             <!-- 第一行：用户名 + 权限标签 -->
             <div class="flex items-center justify-between mb-1">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="font-semibold text-sm">{{ user.userid }}</span>
-                <span v-if="user.name" class="text-xs text-muted-foreground truncate">{{ user.name }}</span>
+                <span
+                  v-if="user.name"
+                  class="text-xs text-muted-foreground truncate"
+                >{{ user.name }}</span>
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
-                <UiBadge v-if="user.privilege === '11111111'" variant="destructive" class="text-[10px] px-1.5 py-0">
+                <UiBadge
+                  v-if="isAdminPrivilege(user.privilege)"
+                  variant="destructive"
+                  class="text-[10px] px-1.5 py-0"
+                >
                   管理
                 </UiBadge>
-                <span v-else class="text-[10px] text-muted-foreground">{{ getPrivilegeDisplay(user.privilege) }}</span>
+                <span v-else class="text-[10px] text-muted-foreground">{{
+                  getPrivilegeDisplay(user.privilege)
+                }}</span>
               </div>
             </div>
             <!-- 第二行：职务 + 电话 -->
@@ -641,16 +676,25 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="users.length === 0 && !loading" class="p-8 text-center text-muted-foreground border border-dashed rounded-xl">
+      <div
+        v-if="users.length === 0 && !loading"
+        class="p-8 text-center text-muted-foreground border border-dashed rounded-xl"
+      >
         暂无数据
       </div>
     </div>
 
     <!-- 新建/编辑对话框 -->
     <UiDialog v-model:open="showEditDialog">
-      <UiDialogContent class="w-[100vw] h-[100dvh] sm:w-auto sm:h-auto sm:min-w-[600px] sm:max-w-[600px] sm:max-h-[90vh] overflow-hidden flex flex-col rounded-none sm:rounded-lg">
+      <UiDialogContent
+        class="w-[100vw] h-[100dvh] sm:w-auto sm:h-auto sm:min-w-[600px] sm:max-w-[600px] sm:max-h-[90vh] overflow-hidden flex flex-col rounded-none sm:rounded-lg"
+      >
         <UiDialogHeader>
-          <UiDialogTitle>{{ dialogMode === 'add' ? '新建用户' : '修改用户' }}</UiDialogTitle>
+          <UiDialogTitle>
+            {{
+              dialogMode === "add" ? "新建用户" : "修改用户"
+            }}
+          </UiDialogTitle>
           <UiDialogDescription v-if="dialogMode === 'add'">
             <span class="text-destructive">初始密码是"123456"</span>
           </UiDialogDescription>
@@ -658,196 +702,245 @@ onMounted(() => {
 
         <div class="flex-1 overflow-auto py-4">
           <div class="grid gap-4">
-          <!-- 用户名 + 真实名字 -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- 用户名 + 真实名字 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="grid gap-2">
+                <label class="text-sm font-medium">用户名 <span class="text-destructive">*</span></label>
+                <UiInput
+                  v-model="editForm.userid"
+                  placeholder="请输入用户名"
+                  :disabled="dialogMode === 'edit'"
+                  @input="checkUsernameDuplicate"
+                />
+                <p v-if="usernameDuplicate" class="text-xs text-destructive">
+                  此用户名已注册!
+                </p>
+              </div>
+              <div class="grid gap-2">
+                <label class="text-sm font-medium">真实名字</label>
+                <UiInput v-model="editForm.name" placeholder="请输入真实名字" />
+              </div>
+            </div>
+
+            <!-- 职务 + 电话 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="grid gap-2">
+                <label class="text-sm font-medium">职务 <span class="text-destructive">*</span></label>
+                <UiSelect
+                  v-model="editForm.title"
+                  @update:model-value="onTitleChange"
+                >
+                  <UiSelectTrigger class="w-full">
+                    <UiSelectValue placeholder="请选择职务" />
+                  </UiSelectTrigger>
+                  <UiSelectContent>
+                    <UiSelectItem
+                      v-for="opt in titleOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </UiSelectItem>
+                  </UiSelectContent>
+                </UiSelect>
+              </div>
+              <div class="grid gap-2">
+                <label class="text-sm font-medium">联系电话</label>
+                <UiInput
+                  v-model="editForm.phone"
+                  placeholder="请输入联系电话"
+                  inputmode="tel"
+                />
+              </div>
+            </div>
+
+            <!-- 权限选择 -->
             <div class="grid gap-2">
-              <label class="text-sm font-medium">用户名 <span class="text-destructive">*</span></label>
-              <UiInput
-                v-model="editForm.userid"
-                placeholder="请输入用户名"
-                :disabled="dialogMode === 'edit'"
-                @input="checkUsernameDuplicate"
-              />
-              <p v-if="usernameDuplicate" class="text-xs text-destructive">
-                此用户名已注册!
-              </p>
+              <label class="text-sm font-medium">选择权限 <span class="text-destructive">*</span></label>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <!-- 管理员 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg cursor-pointer transition-all"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.admin,
+                    'hover:border-primary/50': !permissions.admin,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.admin"
+                    @change="
+                      onAdminChange(($event.target as HTMLInputElement).checked)
+                    "
+                  >
+                  <span class="text-sm">管理员</span>
+                </label>
+
+                <!-- 业务 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.operator,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.operator"
+                    @change="
+                      onPermissionChange(
+                        'operator',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">业务</span>
+                </label>
+
+                <!-- 会计 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.account,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.account"
+                    @change="
+                      onPermissionChange(
+                        'account',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">会计</span>
+                </label>
+
+                <!-- 统计 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.statistics,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.statistics"
+                    @change="
+                      onPermissionChange(
+                        'statistics',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">统计</span>
+                </label>
+
+                <!-- 客户营业额 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.custRevenue,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.custRevenue"
+                    @change="
+                      onPermissionChange(
+                        'custRevenue',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">客户营业额</span>
+                </label>
+
+                <!-- 车船营业额 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.vesselRevenue,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.vesselRevenue"
+                    @change="
+                      onPermissionChange(
+                        'vesselRevenue',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">车船营业额</span>
+                </label>
+
+                <!-- 自有车管理 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.selfVehicle,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.selfVehicle"
+                    @change="
+                      onPermissionChange(
+                        'selfVehicle',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">自有车管理</span>
+                </label>
+
+                <!-- 查看价格 -->
+                <label
+                  class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all hover:border-primary/50 cursor-pointer"
+                  :class="{
+                    'bg-primary/10 border-primary': permissions.seePrice,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    :checked="permissions.seePrice"
+                    @change="
+                      onPermissionChange(
+                        'seePrice',
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  >
+                  <span class="text-sm">查看价格</span>
+                </label>
+              </div>
             </div>
-            <div class="grid gap-2">
-              <label class="text-sm font-medium">真实名字</label>
-              <UiInput v-model="editForm.name" placeholder="请输入真实名字" />
-            </div>
-          </div>
-
-          <!-- 职务 + 电话 -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="grid gap-2">
-              <label class="text-sm font-medium">职务 <span class="text-destructive">*</span></label>
-              <UiSelect v-model="editForm.title" @update:model-value="onTitleChange">
-                <UiSelectTrigger class="w-full">
-                  <UiSelectValue placeholder="请选择职务" />
-                </UiSelectTrigger>
-                <UiSelectContent>
-                  <UiSelectItem v-for="opt in titleOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </UiSelectItem>
-                </UiSelectContent>
-              </UiSelect>
-            </div>
-            <div class="grid gap-2">
-              <label class="text-sm font-medium">联系电话</label>
-              <UiInput v-model="editForm.phone" placeholder="请输入联系电话" inputmode="tel" />
-            </div>
-          </div>
-
-          <!-- 权限选择 -->
-          <div class="grid gap-2">
-            <label class="text-sm font-medium">选择权限 <span class="text-destructive">*</span></label>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <!-- 管理员 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg cursor-pointer transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.admin,
-                  'hover:border-primary/50': !permissions.admin,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.admin"
-                  @change="onAdminChange(($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">管理员</span>
-              </label>
-
-              <!-- 业务 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.operator,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.operator"
-                  @change="onPermissionChange('operator', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">业务</span>
-              </label>
-
-              <!-- 会计 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.account,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.account"
-                  @change="onPermissionChange('account', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">会计</span>
-              </label>
-
-              <!-- 统计 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.statistics,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.statistics"
-                  @change="onPermissionChange('statistics', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">统计</span>
-              </label>
-
-              <!-- 客户营业额 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.custRevenue,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.custRevenue"
-                  @change="onPermissionChange('custRevenue', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">客户营业额</span>
-              </label>
-
-              <!-- 车船营业额 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.vesselRevenue,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.vesselRevenue"
-                  @change="onPermissionChange('vesselRevenue', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">车船营业额</span>
-              </label>
-
-              <!-- 自有车管理 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.selfVehicle,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.selfVehicle"
-                  @change="onPermissionChange('selfVehicle', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">自有车管理</span>
-              </label>
-
-              <!-- 查看价格 -->
-              <label
-                class="flex items-center gap-2 p-2.5 sm:p-2 border rounded-lg transition-all"
-                :class="{
-                  'bg-primary/10 border-primary': permissions.seePrice,
-                  'hover:border-primary/50 cursor-pointer': true,
-                }"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  :checked="permissions.seePrice"
-                  @change="onPermissionChange('seePrice', ($event.target as HTMLInputElement).checked)"
-                >
-                <span class="text-sm">查看价格</span>
-              </label>
-            </div>
-          </div>
           </div>
         </div>
 
         <UiDialogFooter class="shrink-0 gap-2 sm:gap-0">
-          <UiButton variant="outline" class="flex-1 sm:flex-none" @click="showEditDialog = false">
+          <UiButton
+            variant="outline"
+            class="flex-1 sm:flex-none"
+            @click="showEditDialog = false"
+          >
             取消
           </UiButton>
-          <UiButton :disabled="!canSubmit" class="flex-1 sm:flex-none" @click="handleSave">
+          <UiButton
+            :disabled="!canSubmit"
+            class="flex-1 sm:flex-none"
+            @click="handleSave"
+          >
             确定
           </UiButton>
         </UiDialogFooter>

@@ -50,11 +50,11 @@ watch(inputValue, (newVal) => {
 
 // Watch queryParams to refetch when they change
 watch(() => props.queryParams, (val) => {
-  console.log('AsyncCombobox: queryParams changed:', val)
+  console.warn('AsyncCombobox: queryParams changed:', val)
 }, { deep: true })
 
 async function fetchItems({ pageParam = 1 }) {
-  console.log('AsyncCombobox: fetchItems called for', props.apiEndpoint, 'params:', props.queryParams)
+  console.warn('AsyncCombobox: fetchItems called for', props.apiEndpoint, 'params:', props.queryParams)
   try {
     const res = await axios.get(props.apiEndpoint, {
       params: {
@@ -79,8 +79,8 @@ const {
   isFetchingNextPage,
   isLoading,
   isError,
-  error,
-  refetch,
+  error: _error,
+  refetch: _refetch,
 } = useInfiniteQuery({
   queryKey: computed(() => ['async-combobox', props.apiEndpoint, searchQuery.value, props.queryParams]),
   queryFn: fetchItems,

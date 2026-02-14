@@ -1,9 +1,13 @@
+// eslint-disable-next-line ts/ban-ts-comment
 // @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
-import type { DrayageForklift } from '@/services/api/financial.api'
+
 import { h } from 'vue'
-import { Checkbox } from '@/components/ui/checkbox'
+
+import type { DrayageForklift } from '@/services/api/financial.api'
+
 import DataTableColumnHeader from '@/components/data-table/column-header.vue'
+import { Checkbox } from '@/components/ui/checkbox'
 
 export const columns: ColumnDef<DrayageForklift>[] = [
   {
@@ -30,7 +34,7 @@ export const columns: ColumnDef<DrayageForklift>[] = [
     accessorKey: 'drayage',
     header: ({ column }) => h(DataTableColumnHeader, { column, title: '短驳应收款' }),
     cell: ({ row }) => {
-      const amount = parseFloat(row.getValue('drayage'))
+      const amount = Number.parseFloat(row.getValue('drayage'))
       return h('div', { class: 'text-right font-medium' }, amount.toFixed(2))
     },
   },
@@ -38,7 +42,7 @@ export const columns: ColumnDef<DrayageForklift>[] = [
     accessorKey: 'forklift',
     header: ({ column }) => h(DataTableColumnHeader, { column, title: '叉车应收款' }),
     cell: ({ row }) => {
-      const amount = parseFloat(row.getValue('forklift'))
+      const amount = Number.parseFloat(row.getValue('forklift'))
       return h('div', { class: 'text-right font-medium' }, amount.toFixed(2))
     },
   },

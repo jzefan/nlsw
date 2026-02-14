@@ -3,10 +3,12 @@ import { Search, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { usePermissions } from '@/composables/use-permissions'
 import { deleteInvoice, getInvoiceDetail, getInvoiceList } from '@/services/api/invoice.api'
 import { useAuthStore } from '@/stores/auth'
 
-const authStore = useAuthStore()
+const _authStore = useAuthStore()
+const { isAdmin } = usePermissions()
 
 // 状态
 const loading = ref(false)
@@ -21,10 +23,7 @@ const invoiceListLimit = ref(20)
 const selectedInvoice = ref<any | null>(null)
 const invoiceDetail = ref<any | null>(null)
 
-// 判断是否是管理员
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+// isAdmin from usePermissions()
 
 // 监听showMyOnly变化，自动刷新列表
 watch(showMyOnly, async () => {
@@ -78,8 +77,8 @@ async function selectInvoice(invoice: any) {
     const result = await getInvoiceDetail(invoice.waybill_no)
     if (result.ok && result.data) {
       invoiceDetail.value = result.data
-      console.log('Invoice detail:', result.data)
-      console.log('First bill:', result.data.bills?.[0])
+      console.warn('Invoice detail:', result.data)
+      console.warn('First bill:', result.data.bills?.[0])
     }
     else {
       toast.error(result.message || '加载运单详情失败')

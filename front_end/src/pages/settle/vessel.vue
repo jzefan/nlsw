@@ -4,9 +4,9 @@ import { ShoppingCart } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
-import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import { BasicPage } from '@/components/global-layout'
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Toggle } from '@/components/ui/toggle'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import SearchableCombobox from '@/components/searchable-combobox.vue'
+import { useExport } from '@/composables/use-export'
+import { usePermissions } from '@/composables/use-permissions'
 import * as settleApi from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -38,11 +39,12 @@ import VesselUploadReceiptDialog from './components/VesselUploadReceiptDialog.vu
 import { useSettleBasket } from './composables/useSettleBasket'
 
 const authStore = useAuthStore()
+const { can } = usePermissions()
 
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 权限
-const hasPrivilegePrice = computed(() => authStore.user?.privilege?.[7] === '1')
+const hasPrivilegePrice = computed(() => can('seePrice'))
 
 // 对话框引用
 const priceInputDialog = ref<InstanceType<typeof VesselPriceInputDialog>>()
@@ -52,6 +54,9 @@ const detailDialog = ref<InstanceType<typeof VesselDetailDialog>>()
 const printDialog = ref()
 const receiptImageDialog = ref()
 const uploadReceiptDialog = ref()
+
+// 表格数据 (declared early for useSettleBasket)
+const tableData = ref<any[]>([])
 
 // 结算篮功能
 const {
@@ -64,7 +69,7 @@ const {
   addToBasket,
   removeFromBasket,
   clearBasket,
-  refreshBasketItems,
+  refreshBasketItems: _refreshBasketItems,
 } = useSettleBasket({
   isSameItem: (item1: any, item2: any) => {
     return item1.waybill_no === item2.waybill_no
@@ -99,8 +104,6 @@ const showBillNameFilter = ref(false)
 const shipFilterSelected = ref<string[]>([])
 const billNameFilterOptions = ref<Array<{ value: string, label: string, checked: boolean }>>([])
 
-// 表格数据
-const tableData = ref<any[]>([])
 const dbRecords = ref<any[]>([])
 const selectAll = ref(false)
 
@@ -170,7 +173,7 @@ onMounted(() => {
 })
 
 // 搜索函数 - 车船号（服务器端动态搜索）
-async function searchVehicles(search: string, limit: number, page: number) {
+async function searchVehicles(search: string, limit: number, _page: number) {
   try {
     const response = await settleApi.searchVehicles(search, limit)
     return response
@@ -182,7 +185,7 @@ async function searchVehicles(search: string, limit: number, page: number) {
 }
 
 // 搜索函数 - 开单名称（服务器端动态搜索）
-async function searchBillingNames(search: string, limit: number, page: number) {
+async function searchBillingNames(search: string, limit: number, _page: number) {
   try {
     const response = await settleApi.searchBillingNames(search, limit)
     return response
@@ -194,7 +197,7 @@ async function searchBillingNames(search: string, limit: number, page: number) {
 }
 
 // 搜索函数 - 目的地（服务器端动态搜索）
-async function searchDestinations(search: string, limit: number, page: number) {
+async function searchDestinations(search: string, limit: number, _page: number) {
   try {
     const response = await settleApi.searchDestinations(search, limit)
     return response
@@ -578,7 +581,7 @@ function formatNumber(num: number | string): string {
   if (num === null || num === undefined || num === '')
     return '0'
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0' : n.toFixed(3)
+  return Number.isNaN(n) ? '0' : n.toFixed(3)
 }
 
 // 格式化日期
@@ -742,7 +745,7 @@ async function handleCarrierChange(row: any) {
     })
     toast.success('承运单位已更新')
   }
-  catch (error) {
+  catch {
     toast.error('设置承运单位失败')
   }
 }
@@ -876,7 +879,8 @@ function handleDelayInfo() {
   if (selected.length + selectedInner.length !== 1) {
     if (selected.length + selectedInner.length > 1) {
       toast.warning('只能选择一条记录查看滞留信息')
-    } else {
+    }
+    else {
       toast.warning('请选择一条记录')
     }
     return
@@ -911,11 +915,11 @@ function handleBatchCharge() {
 }
 
 // 批量回执
-async function handleBatchReceipt() {
+async function _handleBatchReceipt() {
   try {
     const confirmed = window.confirm('您确定要批量设置回执吗?')
     if (!confirmed)
-      throw 'cancel'
+      throw new Error('cancel')
 
     const allNo = tableData.value.filter(row => !row.isSubItem || row.parentExpanded).map(row => (row.isSubItem ? row.inner_waybill_no : row.waybill_no))
 
@@ -952,7 +956,7 @@ async function handleSettleCancel() {
   await performSettle(false, '未结算', '', '')
 }
 
-async function performSettle(settle: boolean, state: string, date: any, username: any) {
+async function performSettle(settle: boolean, _state: string, _date: any, _username: any) {
   const selected = selectedRecords.value
   const selectedInner = selectedInnerNo.value
 
@@ -1026,7 +1030,7 @@ async function performSettle(settle: boolean, state: string, date: any, username
     toast.success(settle ? '结算成功' : '结算取消成功')
     handleSearch()
   }
-  catch (error) {
+  catch {
     toast.error(settle ? '结算失败' : '结算取消失败')
   }
 }
@@ -1041,7 +1045,7 @@ async function handlePayCancel() {
   await performPay(false, '已结算', '')
 }
 
-async function performPay(pay: boolean, state: string, date: any) {
+async function performPay(pay: boolean, _state: string, _date: any) {
   const selected = selectedRecords.value
   const selectedInner = selectedInnerNo.value
 
@@ -1064,7 +1068,7 @@ async function performPay(pay: boolean, state: string, date: any) {
     toast.success(pay ? '付款成功' : '付款取消成功')
     handleSearch()
   }
-  catch (error) {
+  catch {
     toast.error(pay ? '付款失败' : '付款取消失败')
   }
 }
@@ -1110,7 +1114,7 @@ async function confirmNotNeedSettle() {
     toast.success(notNeeded ? '已设置为不需要结算' : '已取消不需要结算')
     handleSearch()
   }
-  catch (error) {
+  catch {
     toast.error('操作失败')
   }
   finally {
@@ -1129,7 +1133,7 @@ async function handleBatchNotNeed() {
   try {
     const confirmed = window.confirm('您确定要批量不结算操作')
     if (!confirmed)
-      throw 'cancel'
+      throw new Error('cancel')
 
     const wnoList = tableData.value.filter(row => !row.isSubItem || row.parentExpanded).map(row => (row.isSubItem ? row.inner_waybill_no : row.waybill_no))
 
@@ -1198,20 +1202,20 @@ function handleExport() {
   exportFromAOAWithPicker(
     data,
     `车船结算_${dayjs().format('YYYY-MM-DD')}`,
-    '车船结算'
+    '车船结算',
   )
 }
 
 // 对话框回调
-function handlePriceConfirm(data: any) {
+function handlePriceConfirm(_data: any) {
   handleSearch()
 }
 
-function handleBatchPriceConfirm(data: any) {
+function handleBatchPriceConfirm(_data: any) {
   handleSearch()
 }
 
-function handleDelayInfoConfirm(data: any) {
+function handleDelayInfoConfirm(_data: any) {
   handleSearch()
 }
 
@@ -1229,684 +1233,704 @@ function handleUploadReceiptConfirm() {
 <template>
   <BasicPage title="车船结算" description="车船运费结算管理">
     <div class="settle-vessel-page relative h-full flex flex-col">
-    <!-- 操作栏 -->
-    <div class="flex items-center justify-between gap-4 mb-4">
-      <div class="flex items-center gap-2">
-        <!-- 价格输入按钮组 -->
-        <template v-if="hasPrivilegePrice">
+      <!-- 操作栏 -->
+      <div class="flex items-center justify-between gap-4 mb-4">
+        <div class="flex items-center gap-2">
+          <!-- 价格输入按钮组 -->
+          <template v-if="hasPrivilegePrice">
+            <UiButton
+              variant="outline"
+              size="sm"
+              :disabled="selectedRecords.length + selectedInnerNo.length === 0"
+              @click="handlePriceInput"
+            >
+              <span class="mr-1 font-semibold">¥</span>
+              价格输入
+              <span v-if="selectedRecords.length + selectedInnerNo.length > 0" class="ml-1 text-xs opacity-70">
+                ({{ selectedRecords.length + selectedInnerNo.length }})
+              </span>
+            </UiButton>
+            <UiButton variant="outline" size="sm" @click="handleDelayInfo">
+              回执滞留
+            </UiButton>
+          </template>
+
+          <!-- 工具按钮组 -->
+          <UiButton variant="outline" size="sm" @click="showFilter = !showFilter">
+            过滤
+          </UiButton>
+          <UiButton variant="outline" size="sm" @click="handleExport">
+            导出
+          </UiButton>
+          <UiButton variant="outline" size="sm" :disabled="!canShowDetail" @click="handleShowDetail">
+            显示明细
+          </UiButton>
+
+          <!-- 结算篮按钮 -->
           <UiButton
-            variant="outline"
+            ref="basketButtonRef"
+            variant="default"
             size="sm"
-            :disabled="selectedRecords.length + selectedInnerNo.length === 0"
-            @click="handlePriceInput"
+            class="relative"
+            @click="showBasket = true"
           >
-            <span class="mr-1 font-semibold">¥</span>
-            价格输入
-            <span v-if="selectedRecords.length + selectedInnerNo.length > 0" class="ml-1 text-xs opacity-70">
-              ({{ selectedRecords.length + selectedInnerNo.length }})
+            <ShoppingCart class="w-4 h-4 mr-1" />
+            结算篮
+            <span
+              v-if="basketItems.length > 0"
+              class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse"
+            >
+              {{ basketItems.length > 99 ? '99+' : basketItems.length }}
             </span>
           </UiButton>
-          <UiButton variant="outline" size="sm" @click="handleDelayInfo">
-            回执滞留
+
+          <!-- 结算按钮组 -->
+          <UiButton v-if="showSettleBtn" variant="default" size="sm" @click="handleSettle">
+            结算
           </UiButton>
+          <UiButton v-if="showSettleCancelBtn" variant="outline" size="sm" @click="handleSettleCancel">
+            结算取消
+          </UiButton>
+
+          <UiButton v-if="showPrintBtn" variant="outline" size="sm" @click="handlePrintDetail">
+            车船清单打印
+          </UiButton>
+
+          <UiButton v-if="showPayBtn" variant="default" size="sm" @click="handlePay">
+            付款
+          </UiButton>
+          <UiButton v-if="showPayCancelBtn" variant="outline" size="sm" @click="handlePayCancel">
+            付款取消
+          </UiButton>
+        </div>
+
+        <!-- 状态组（移至右侧） -->
+        <div class="ml-auto flex gap-2">
+          <Select v-model="filterForm.settleState">
+            <SelectTrigger class="h-8 text-sm w-[120px]">
+              <SelectValue placeholder="结算状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="未结算">
+                未结算
+              </SelectItem>
+              <SelectItem value="已结算">
+                已结算
+              </SelectItem>
+              <SelectItem value="已付款">
+                已付款
+              </SelectItem>
+              <SelectItem value="不需要结算">
+                不需要结算
+              </SelectItem>
+              <SelectItem value="全部">
+                全部
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Select v-model="filterForm.receiptState">
+            <SelectTrigger class="h-8 text-sm w-[120px]">
+              <SelectValue placeholder="回执状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="2">
+                全部
+              </SelectItem>
+              <SelectItem :value="1">
+                已回执
+              </SelectItem>
+              <SelectItem :value="0">
+                未回执
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <!-- 统计信息行 -->
+      <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
+        <span class="text-muted-foreground">
+          记录数: <strong class="text-foreground">{{ pagedData.length }}</strong>
+        </span>
+        <span class="text-muted-foreground">
+          重量: <strong class="text-foreground">{{ formatNumber(totalWeight) }}</strong>
+        </span>
+        <span v-if="hasPrivilegePrice" class="text-muted-foreground">
+          合计金额: <strong class="text-foreground">¥{{ formatNumber(totalAmount) }}</strong>
+        </span>
+        <template v-if="selectedTotalWeight > 0">
+          <span class="text-primary font-medium">
+            已选: {{ formatNumber(selectedTotalWeight) }}吨
+            <template v-if="hasPrivilegePrice"> / ¥{{ formatNumber(selectedTotalAmount) }}</template>
+          </span>
         </template>
+        <span v-if="showUnpayBlock" class="text-orange-600 font-medium">
+          未付: ¥{{ formatNumber(totalAmount - prePayment) }}
+        </span>
 
-        <!-- 工具按钮组 -->
-        <UiButton variant="outline" size="sm" @click="showFilter = !showFilter">
-          过滤
-        </UiButton>
-        <UiButton variant="outline" size="sm" @click="handleExport">
-          导出
-        </UiButton>
-        <UiButton variant="outline" size="sm" :disabled="!canShowDetail" @click="handleShowDetail">
-          显示明细
-        </UiButton>
-
-        <!-- 结算篮按钮 -->
+        <!-- 加入结算篮按钮 -->
         <UiButton
-          ref="basketButtonRef"
+          v-if="selectedRecords.length > 0"
           variant="default"
           size="sm"
-          class="relative"
-          @click="showBasket = true"
+          class="bg-orange-500 hover:bg-orange-600 text-white ml-auto"
+          @click="handleAddToBasket"
         >
           <ShoppingCart class="w-4 h-4 mr-1" />
-          结算篮
-          <span
-            v-if="basketItems.length > 0"
-            class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse"
-          >
-            {{ basketItems.length > 99 ? '99+' : basketItems.length }}
-          </span>
-        </UiButton>
-
-        <!-- 结算按钮组 -->
-        <UiButton v-if="showSettleBtn" variant="default" size="sm" @click="handleSettle">
-          结算
-        </UiButton>
-        <UiButton v-if="showSettleCancelBtn" variant="outline" size="sm" @click="handleSettleCancel">
-          结算取消
-        </UiButton>
-
-        <UiButton v-if="showPrintBtn" variant="outline" size="sm" @click="handlePrintDetail">
-          车船清单打印
-        </UiButton>
-
-        <UiButton v-if="showPayBtn" variant="default" size="sm" @click="handlePay">
-          付款
-        </UiButton>
-        <UiButton v-if="showPayCancelBtn" variant="outline" size="sm" @click="handlePayCancel">
-          付款取消
+          加入结算篮 ({{ selectedRecords.length }})
         </UiButton>
       </div>
 
-      <!-- 状态组（移至右侧） -->
-      <div class="ml-auto flex gap-2">
-        <Select v-model="filterForm.settleState">
-          <SelectTrigger class="h-8 text-sm w-[120px]">
-            <SelectValue placeholder="结算状态" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="未结算">未结算</SelectItem>
-            <SelectItem value="已结算">已结算</SelectItem>
-            <SelectItem value="已付款">已付款</SelectItem>
-            <SelectItem value="不需要结算">不需要结算</SelectItem>
-            <SelectItem value="全部">全部</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select v-model="filterForm.receiptState">
-          <SelectTrigger class="h-8 text-sm w-[120px]">
-            <SelectValue placeholder="回执状态" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem :value="2">全部</SelectItem>
-            <SelectItem :value="1">已回执</SelectItem>
-            <SelectItem :value="0">未回执</SelectItem>
-          </SelectContent>
-        </Select>
+      <!-- 筛选区域 -->
+      <div v-show="showFilter" class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4">
+        <!-- 第一行：车船号 | 开单名称 | 目的地 -->
+        <div class="grid grid-cols-3 gap-2">
+          <SearchableCombobox
+            v-model="filterForm.vehicle"
+            :search-fn="searchVehicles"
+            placeholder="车船号"
+            class="h-8 text-sm w-full"
+          />
+          <SearchableCombobox
+            v-model="filterForm.billName"
+            :search-fn="searchBillingNames"
+            placeholder="开单名称"
+            class="h-8 text-sm w-full"
+          />
+          <SearchableCombobox
+            v-model="filterForm.destination"
+            :search-fn="searchDestinations"
+            placeholder="目的地"
+            class="h-8 text-sm w-full"
+          />
+        </div>
+
+        <!-- 第二行：[开始日期] | [结束日期] | [单价 吨位 查询] -->
+        <div class="grid grid-cols-3 gap-2">
+          <!-- 开始日期 -->
+          <DatePicker
+            v-model="filterForm.startDate"
+            placeholder="发货日期(开始)"
+            :disabled-date="disableStartDate"
+            disabled-hint="开始日期不能晚于结束日期"
+            class="h-8 w-full"
+          />
+
+          <!-- 结束日期 -->
+          <DatePicker
+            v-model="filterForm.endDate"
+            placeholder="发货日期(结束)"
+            :disabled-date="disableEndDate"
+            disabled-hint="结束日期不能早于开始日期"
+            class="h-8 w-full"
+          />
+
+          <!-- 查询组 -->
+          <div class="flex gap-2">
+            <Input v-model="filterForm.amount" placeholder="单价" class="h-8 text-sm flex-1" @input="filterForm.amount = filterForm.amount.replace(/[^0-9.]/g, '')" />
+            <Input v-model="filterForm.weight" placeholder="吨位" class="h-8 text-sm flex-1" @input="filterForm.weight = filterForm.weight.replace(/[^0-9.]/g, '')" />
+            <UiButton variant="default" size="sm" class="h-8 shrink-0" @click="handleSearch">
+              查询
+            </UiButton>
+          </div>
+        </div>
       </div>
 
-    </div>
+      <!-- 表格 -->
+      <div class="flex-1 min-h-0 border rounded-lg overflow-hidden">
+        <div class="h-full overflow-auto">
+          <Table class="text-sm min-w-[1024px] w-full">
+            <TableHeader class="bg-muted/80 sticky top-0 z-10">
+              <TableRow class="border-b">
+                <TableHead class="px-1.5 py-1.5 text-left w-20" nowrap>
+                  <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Toggle
+                          :pressed="allNotNeed"
+                          size="sm"
+                          class="ml-2 h-6 w-6 p-0"
+                          :class="allNotNeed ? 'text-gray-400' : 'text-red-500'"
+                          @click="handleBatchNotNeed"
+                        >
+                          ★
+                        </Toggle>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
+                  状态
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[140px]">
+                  运单号
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
+                  车船号
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
+                  承运单位
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left relative min-w-[180px]">
+                  开单名称/发货单位
+                  <span class="ml-2 cursor-pointer" :class="shipFilterSelected.length ? 'text-blue-500' : 'text-gray-400'" @click="toggleBillNameFilter">⧩</span>
 
-    <!-- 统计信息行 -->
-    <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
-      <span class="text-muted-foreground">
-        记录数: <strong class="text-foreground">{{ pagedData.length }}</strong>
-      </span>
-      <span class="text-muted-foreground">
-        重量: <strong class="text-foreground">{{ formatNumber(totalWeight) }}</strong>
-      </span>
-      <span v-if="hasPrivilegePrice" class="text-muted-foreground">
-        合计金额: <strong class="text-foreground">¥{{ formatNumber(totalAmount) }}</strong>
-      </span>
-      <template v-if="selectedTotalWeight > 0">
-        <span class="text-primary font-medium">
-          已选: {{ formatNumber(selectedTotalWeight) }}吨
-          <template v-if="hasPrivilegePrice"> / ¥{{ formatNumber(selectedTotalAmount) }}</template>
-        </span>
-      </template>
-      <span v-if="showUnpayBlock" class="text-orange-600 font-medium">
-        未付: ¥{{ formatNumber(totalAmount - prePayment) }}
-      </span>
+                  <!-- 发货单位筛选面板 -->
+                  <div v-show="showBillNameFilter" class="absolute z-50 bg-white border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[360px] mt-1 top-full left-0" @click.stop>
+                    <div class="max-h-60 overflow-auto space-y-1">
+                      <div v-for="item in billNameFilterOptions" :key="item.value" class="flex items-center gap-2 p-1 rounded hover:bg-muted cursor-pointer">
+                        <input v-model="item.checked" type="checkbox" class="h-4 w-4 cursor-pointer">
+                        <span class="text-sm">{{ item.label }}</span>
+                      </div>
+                    </div>
+                    <div class="flex justify-end gap-2 mt-3 pt-2 border-t">
+                      <UiButton variant="outline" size="sm" @click="clearBillNameFilter">
+                        清除
+                      </UiButton>
+                      <UiButton variant="default" size="sm" @click="applyBillNameFilter">
+                        确定
+                      </UiButton>
+                    </div>
+                  </div>
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
+                  起始地
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
+                  目的地
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
+                  总价格
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
+                  单价
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]">
+                  发运数
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
+                  发运量
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
+                  发货日期
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
+                  结算日期
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
+                  卸船日期
+                </TableHead>
+                <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]">
+                  滞留天数
+                </TableHead>
+                <TableHead class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky right-24 bg-muted border-l border-gray-200 z-10" nowrap>
+                  <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchCharge">
+                    预付
+                  </UiButton>
+                  <span v-else class="text-sm font-medium">预付</span>
+                </TableHead>
+                <TableHead class="px-0 py-1.5 text-center w-24 sticky right-0 w-24 min-w-24 bg-muted z-10" nowrap>
+                  <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
+                  <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
+                    <!-- <span :class="allReceiptOk ? 'text-green-600' : 'text-red-500'" class="mr-[2px] text-2xl">{{ allReceiptOk ? '☑' : '☐' }}</span> -->
+                    回执
+                  </UiButton>
+                  <span v-else class="text-sm font-medium">回执</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <!-- 空状态 -->
+              <TableRow v-if="pagedData.length === 0">
+                <TableCell colspan="18" class="p-8 text-center text-muted-foreground">
+                  暂无数据，请调整筛选条件后重新查询
+                </TableCell>
+              </TableRow>
 
-      <!-- 加入结算篮按钮 -->
-      <UiButton
-        v-if="selectedRecords.length > 0"
-        variant="default"
-        size="sm"
-        class="bg-orange-500 hover:bg-orange-600 text-white ml-auto"
-        @click="handleAddToBasket"
-      >
-        <ShoppingCart class="w-4 h-4 mr-1" />
-        加入结算篮 ({{ selectedRecords.length }})
-      </UiButton>
-    </div>
+              <!-- eslint-disable-next-line vue/no-unused-vars -->
+              <template v-for="(row, index) in pagedData" :key="row.waybill_no || row.inner_waybill_no">
+                <!-- 主行 -->
+                <TableRow
+                  v-if="!row.isSubItem"
+                  class="border-b transition-colors"
+                  :class="{
+                    'bg-orange-100 hover:bg-orange-200 cursor-pointer': row.isVessel && !row.selected && !isInBasket(row),
+                    'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
+                    'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
+                    'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
+                  }"
+                  @click="handleRowClick(row)"
+                >
+                  <TableCell class="px-1.5 py-1.5 flex items-center" nowrap>
+                    <input v-model="row.selected" type="checkbox" class="h-4 w-4" :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'" :disabled="isInBasket(row)" :checked="row.selected || isInBasket(row)" @click.stop="handleRowSelect(row)">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <Toggle
+                            :pressed="row.notNeedColor === 'darkgray'"
+                            size="sm"
+                            class="ml-2 h-6 w-6 p-0"
+                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
+                            @click.stop="handleNotNeedSettle(row)"
+                          >
+                            ★
+                          </Toggle>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span v-if="row.isVessel" class="ml-1 cursor-pointer text-xl text-gray-500 hover:text-gray-800" @click.stop="toggleExpand(row)">
+                      {{ row.expanded ? '▼' : '▶' }}
+                    </span>
+                  </TableCell>
+                  <!-- eslint-disable-next-line vue/no-v-text-v-html-on-component -->
+                  <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                  <TableCell class="px-1.5 py-1.5">
+                    <div class="flex items-center gap-1.5">
+                      <span>{{ row.waybill_no }}</span>
+                      <span
+                        v-if="isInBasket(row)"
+                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
+                      >
+                        <ShoppingCart class="w-2.5 h-2.5" />
+                        已在结算篮
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.vehicle_vessel_name }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    <Select v-if="row.carrierOptions && row.carrierOptions.length > 1" v-model="row.selectedCarrier" @update:model-value="handleCarrierChange(row)" @click.stop>
+                      <SelectTrigger class="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                          {{ opt }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span v-else>{{ row.carrierBoss }}</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.shipName }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.ship_from }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.ship_to }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice" v-html="row.priceText" />
+                    <span v-else class="blurred-price">***</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
+                    <span v-else class="blurred-price">***</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ row.send_num }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ formatNumber(row.total_weight) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.ship_date) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.settle_date) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.unship_date, true) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ row.delay_day }}
+                  </TableCell>
+                  <TableCell class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-10" :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'" nowrap>
+                    {{ row.chargeText }}
+                  </TableCell>
+                  <TableCell class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10" :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'" nowrap>
+                    <div class="flex items-center justify-center gap-1">
+                      <UiButton v-if="row.receipt === 1" variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleViewReceipt(row)">
+                        查看
+                      </UiButton>
+                      <UiButton variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleUploadReceipt(row)">
+                        上传
+                      </UiButton>
+                      <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
 
-    <!-- 筛选区域 -->
-    <div v-show="showFilter" class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4">
-      <!-- 第一行：车船号 | 开单名称 | 目的地 -->
-      <div class="grid grid-cols-3 gap-2">
-        <SearchableCombobox
-          v-model="filterForm.vehicle"
-          :search-fn="searchVehicles"
-          placeholder="车船号"
-          class="h-8 text-sm w-full"
-        />
-        <SearchableCombobox
-          v-model="filterForm.billName"
-          :search-fn="searchBillingNames"
-          placeholder="开单名称"
-          class="h-8 text-sm w-full"
-        />
-        <SearchableCombobox
-          v-model="filterForm.destination"
-          :search-fn="searchDestinations"
-          placeholder="目的地"
-          class="h-8 text-sm w-full"
-        />
+                <!-- 子行（车辆） -->
+                <TableRow
+                  v-if="row.isSubItem && row.parentExpanded"
+                  class="border-b transition-colors"
+                  :class="{
+                    'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
+                    'bg-blue-200 border-l-4 border-l-blue-500': row.selected,
+                    'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
+                  }"
+                  @click="handleSubRowClick(row)"
+                >
+                  <TableCell class="px-1.5 py-1.5 pl-6" nowrap>
+                    <input v-model="row.selected" type="checkbox" class="h-4 w-4" :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'" :disabled="isInBasket(row)" :checked="row.selected || isInBasket(row)" @click.stop="handleSubRowSelect(row)">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <Toggle
+                            :pressed="row.notNeedColor === 'darkgray'"
+                            size="sm"
+                            class="ml-2 h-6 w-6 p-0"
+                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
+                            @click.stop="handleNotNeedSettle(row)"
+                          >
+                            ★
+                          </Toggle>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </TableCell>
+                  <!-- eslint-disable-next-line vue/no-v-text-v-html-on-component -->
+                  <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                  <TableCell class="px-1.5 py-1.5">
+                    <div class="flex items-center gap-1.5">
+                      <span>{{ row.inner_waybill_no }}</span>
+                      <span
+                        v-if="isInBasket(row)"
+                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
+                      >
+                        <ShoppingCart class="w-2.5 h-2.5" />
+                        已在结算篮
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.veh_name }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    <Select v-if="row.carrierOptions && row.carrierOptions.length > 1" v-model="row.selectedCarrier" @update:model-value="handleCarrierChange(row)" @click.stop>
+                      <SelectTrigger class="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                          {{ opt }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span v-else>{{ row.carrierBoss }}</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.shipName }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.ship_from }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ row.ship_to }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice">{{ row.priceText }}</span>
+                    <span v-else class="blurred-price">***</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
+                    <span v-else class="blurred-price">***</span>
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ row.send_num }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ formatNumber(row.send_weight) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.ship_date) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.settle_date) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5">
+                    {{ formatDate(row.unship_date, true) }}
+                  </TableCell>
+                  <TableCell class="px-1.5 py-1.5 text-center">
+                    {{ row.delay_day }}
+                  </TableCell>
+                  <TableCell class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-10" :class="row.selected ? 'bg-blue-300' : 'bg-green-200'" nowrap>
+                    {{ row.chargeText }}
+                  </TableCell>
+                  <TableCell class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10" :class="row.selected ? 'bg-blue-300' : 'bg-green-200'" nowrap>
+                    <div class="flex items-center justify-center gap-1">
+                      <UiButton v-if="row.receipt === 1" variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleViewReceipt(row)">
+                        查看
+                      </UiButton>
+                      <UiButton variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleUploadReceipt(row)">
+                        上传
+                      </UiButton>
+                      <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              </template>
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
-      <!-- 第二行：[开始日期] | [结束日期] | [单价 吨位 查询] -->
-      <div class="grid grid-cols-3 gap-2">
-        <!-- 开始日期 -->
-        <DatePicker
-          v-model="filterForm.startDate"
-          placeholder="发货日期(开始)"
-          :disabled-date="disableStartDate"
-          disabled-hint="开始日期不能晚于结束日期"
-          class="h-8 w-full"
-        />
-
-        <!-- 结束日期 -->
-        <DatePicker
-          v-model="filterForm.endDate"
-          placeholder="发货日期(结束)"
-          :disabled-date="disableEndDate"
-          disabled-hint="结束日期不能早于开始日期"
-          class="h-8 w-full"
-        />
-
-        <!-- 查询组 -->
-        <div class="flex gap-2">
-          <Input v-model="filterForm.amount" placeholder="单价" class="h-8 text-sm flex-1" @input="filterForm.amount = filterForm.amount.replace(/[^0-9.]/g, '')" />
-          <Input v-model="filterForm.weight" placeholder="吨位" class="h-8 text-sm flex-1" @input="filterForm.weight = filterForm.weight.replace(/[^0-9.]/g, '')" />
-          <UiButton variant="default" size="sm" class="h-8 shrink-0" @click="handleSearch">
-            查询
+      <!-- 分页 -->
+      <div v-if="tableData.length > pageSize" class="flex items-center justify-between mt-4 px-2">
+        <div class="text-sm text-muted-foreground">
+          显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, tableData.length) }} 条，共 {{ tableData.length }} 条
+        </div>
+        <div class="flex items-center gap-2">
+          <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage">
+            上一页
+          </UiButton>
+          <div class="flex items-center gap-1">
+            <span class="text-sm">第</span>
+            <input
+              type="number"
+              :value="currentPage"
+              :min="1"
+              :max="totalPages"
+              class="w-16 px-2 py-1 text-sm text-center border rounded"
+              @change="goToPage(($event.target as HTMLInputElement).valueAsNumber)"
+            >
+            <span class="text-sm">/ {{ totalPages }} 页</span>
+          </div>
+          <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
+            下一页
           </UiButton>
         </div>
       </div>
-    </div>
 
-    <!-- 表格 -->
-    <div class="flex-1 min-h-0 border rounded-lg overflow-hidden">
-      <div class="h-full overflow-auto">
-        <Table class="text-sm min-w-[1024px] w-full">
-          <TableHeader class="bg-muted/80 sticky top-0 z-10">
-            <TableRow class="border-b">
-              <TableHead class="px-1.5 py-1.5 text-left w-20" nowrap>
-                <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Toggle
-                        :pressed="allNotNeed"
-                        @click="handleBatchNotNeed"
-                        size="sm"
-                        class="ml-2 h-6 w-6 p-0"
-                        :class="allNotNeed ? 'text-gray-400' : 'text-red-500'"
-                      >
-                        ★
-                      </Toggle>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
-                状态
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[140px]">
-                运单号
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
-                车船号
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
-                承运单位
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left relative min-w-[180px]">
-                开单名称/发货单位
-                <span class="ml-2 cursor-pointer" :class="shipFilterSelected.length ? 'text-blue-500' : 'text-gray-400'" @click="toggleBillNameFilter">⧩</span>
+      <!-- 对话框组件 -->
+      <VesselPriceInputDialog ref="priceInputDialog" @confirm="handlePriceConfirm" />
+      <VesselBatchPriceInputDialog ref="batchPriceInputDialog" @confirm="handleBatchPriceConfirm" />
+      <VesselDelayInfoDialog ref="delayInfoDialog" @confirm="handleDelayInfoConfirm" />
+      <VesselDetailDialog ref="detailDialog" />
+      <VesselPrintDialog ref="printDialog" @confirm="handlePrintConfirm" />
+      <VesselReceiptImageDialog ref="receiptImageDialog" />
+      <VesselUploadReceiptDialog ref="uploadReceiptDialog" @confirm="handleUploadReceiptConfirm" />
 
-                <!-- 发货单位筛选面板 -->
-                <div v-show="showBillNameFilter" class="absolute z-50 bg-white border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[360px] mt-1 top-full left-0" @click.stop>
-                  <div class="max-h-60 overflow-auto space-y-1">
-                    <div v-for="item in billNameFilterOptions" :key="item.value" class="flex items-center gap-2 p-1 rounded hover:bg-muted cursor-pointer">
-                      <input v-model="item.checked" type="checkbox" class="h-4 w-4 cursor-pointer">
-                      <span class="text-sm">{{ item.label }}</span>
-                    </div>
+      <!-- 不需要结算确认对话框 -->
+      <AlertDialog v-model:open="showNotNeedSettleDialog">
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认操作</AlertDialogTitle>
+            <AlertDialogDescription class="space-y-3">
+              <p class="font-medium">
+                {{ pendingNotNeedSettleRow?.notNeedColor === 'red' ? '确定要将此运单设置为"不需要结算"吗？' : '确定要取消"不需要结算"状态吗？' }}
+              </p>
+              <div v-if="pendingNotNeedSettleRow" class="bg-muted/50 rounded-lg p-3 space-y-2 text-sm">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <span class="text-muted-foreground">运单号：</span>
+                    <span class="font-medium">{{ pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.inner_waybill_no : pendingNotNeedSettleRow.waybill_no }}</span>
                   </div>
-                  <div class="flex justify-end gap-2 mt-3 pt-2 border-t">
-                    <UiButton variant="outline" size="sm" @click="clearBillNameFilter">
-                      清除
-                    </UiButton>
-                    <UiButton variant="default" size="sm" @click="applyBillNameFilter">
-                      确定
-                    </UiButton>
+                  <div>
+                    <span class="text-muted-foreground">车船号：</span>
+                    <span class="font-medium">{{ pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.veh_name : pendingNotNeedSettleRow.vehicle_vessel_name }}</span>
                   </div>
-                </div>
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
-                起始地
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]">
-                目的地
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
-                总价格
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
-                单价
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]">
-                发运数
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]">
-                发运量
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
-                发货日期
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
-                结算日期
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]">
-                卸船日期
-              </TableHead>
-              <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]">
-                滞留天数
-              </TableHead>
-              <TableHead class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky right-24 bg-muted border-l border-gray-200 z-10" nowrap>
-                <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchCharge">
-                  预付
-                </UiButton>
-                <span v-else class="text-sm font-medium">预付</span>
-              </TableHead>
-              <TableHead class="px-0 py-1.5 text-center w-24 sticky right-0 w-24 min-w-24 bg-muted z-10" nowrap>
-                <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
-                <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
-                  <!-- <span :class="allReceiptOk ? 'text-green-600' : 'text-red-500'" class="mr-[2px] text-2xl">{{ allReceiptOk ? '☑' : '☐' }}</span> -->
-                  回执
-                </UiButton>
-                <span v-else class="text-sm font-medium">回执</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <!-- 空状态 -->
-            <TableRow v-if="pagedData.length === 0">
-              <TableCell colspan="18" class="p-8 text-center text-muted-foreground">
-                暂无数据，请调整筛选条件后重新查询
-              </TableCell>
-            </TableRow>
-
-            <template v-for="(row, index) in pagedData" :key="row.waybill_no || row.inner_waybill_no">
-              <!-- 主行 -->
-              <TableRow
-                v-if="!row.isSubItem"
-                class="border-b transition-colors"
-                :class="{
-                  'bg-orange-100 hover:bg-orange-200 cursor-pointer': row.isVessel && !row.selected && !isInBasket(row),
-                  'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
-                  'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
-                  'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row)
-                }"
-                @click="handleRowClick(row)"
-              >
-                <TableCell class="px-1.5 py-1.5 flex items-center" nowrap>
-                  <input v-model="row.selected" type="checkbox" class="h-4 w-4" :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'" :disabled="isInBasket(row)" :checked="row.selected || isInBasket(row)" @click.stop="handleRowSelect(row)">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <Toggle
-                          :pressed="row.notNeedColor === 'darkgray'"
-                          @click.stop="handleNotNeedSettle(row)"
-                          size="sm"
-                          class="ml-2 h-6 w-6 p-0"
-                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
-                        >
-                          ★
-                        </Toggle>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <span v-if="row.isVessel" class="ml-1 cursor-pointer text-xl text-gray-500 hover:text-gray-800" @click.stop="toggleExpand(row)">
-                    {{ row.expanded ? '▼' : '▶' }}
-                  </span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                <TableCell class="px-1.5 py-1.5">
-                  <div class="flex items-center gap-1.5">
-                    <span>{{ row.waybill_no }}</span>
-                    <span
-                      v-if="isInBasket(row)"
-                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
-                    >
-                      <ShoppingCart class="w-2.5 h-2.5" />
-                      已在结算篮
-                    </span>
+                  <div>
+                    <span class="text-muted-foreground">开单名称：</span>
+                    <span class="font-medium">{{ pendingNotNeedSettleRow.shipName }}</span>
                   </div>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.vehicle_vessel_name }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  <Select v-if="row.carrierOptions && row.carrierOptions.length > 1" v-model="row.selectedCarrier" @update:model-value="handleCarrierChange(row)" @click.stop>
-                    <SelectTrigger class="h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
-                        {{ opt }}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span v-else>{{ row.carrierBoss }}</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.shipName }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.ship_from }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.ship_to }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice" v-html="row.priceText" />
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ row.send_num }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ formatNumber(row.total_weight) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.ship_date) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.settle_date) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.unship_date, true) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ row.delay_day }}
-                </TableCell>
-                <TableCell class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-10" :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'" nowrap>
-                  {{ row.chargeText }}
-                </TableCell>
-                <TableCell class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10" :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'" nowrap>
-                  <div class="flex items-center justify-center gap-1">
-                    <UiButton v-if="row.receipt === 1" variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleViewReceipt(row)">
-                      查看
-                    </UiButton>
-                    <UiButton variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleUploadReceipt(row)">
-                      上传
-                    </UiButton>
-                    <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                  <div>
+                    <span class="text-muted-foreground">发运块数：</span>
+                    <span class="font-medium">{{ pendingNotNeedSettleRow.send_num }}</span>
                   </div>
-                </TableCell>
-              </TableRow>
-
-              <!-- 子行（车辆） -->
-              <TableRow
-                v-if="row.isSubItem && row.parentExpanded"
-                class="border-b transition-colors"
-                :class="{
-                  'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
-                  'bg-blue-200 border-l-4 border-l-blue-500': row.selected,
-                  'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row)
-                }"
-                @click="handleSubRowClick(row)"
-              >
-                <TableCell class="px-1.5 py-1.5 pl-6" nowrap>
-                  <input v-model="row.selected" type="checkbox" class="h-4 w-4" :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'" :disabled="isInBasket(row)" :checked="row.selected || isInBasket(row)" @click.stop="handleSubRowSelect(row)">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <Toggle
-                          :pressed="row.notNeedColor === 'darkgray'"
-                          @click.stop="handleNotNeedSettle(row)"
-                          size="sm"
-                          class="ml-2 h-6 w-6 p-0"
-                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
-                        >
-                          ★
-                        </Toggle>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                <TableCell class="px-1.5 py-1.5">
-                  <div class="flex items-center gap-1.5">
-                    <span>{{ row.inner_waybill_no }}</span>
-                    <span
-                      v-if="isInBasket(row)"
-                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
-                    >
-                      <ShoppingCart class="w-2.5 h-2.5" />
-                      已在结算篮
-                    </span>
+                  <div>
+                    <span class="text-muted-foreground">发运重量：</span>
+                    <span class="font-medium">{{ formatNumber(pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.send_weight : pendingNotNeedSettleRow.total_weight) }} 吨</span>
                   </div>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.veh_name }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  <Select v-if="row.carrierOptions && row.carrierOptions.length > 1" v-model="row.selectedCarrier" @update:model-value="handleCarrierChange(row)" @click.stop>
-                    <SelectTrigger class="h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
-                        {{ opt }}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span v-else>{{ row.carrierBoss }}</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.shipName }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.ship_from }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ row.ship_to }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice">{{ row.priceText }}</span>
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ row.send_num }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ formatNumber(row.send_weight) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.ship_date) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.settle_date) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5">
-                  {{ formatDate(row.unship_date, true) }}
-                </TableCell>
-                <TableCell class="px-1.5 py-1.5 text-center">
-                  {{ row.delay_day }}
-                </TableCell>
-                <TableCell class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-10" :class="row.selected ? 'bg-blue-300' : 'bg-green-200'" nowrap>
-                  {{ row.chargeText }}
-                </TableCell>
-                <TableCell class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10" :class="row.selected ? 'bg-blue-300' : 'bg-green-200'" nowrap>
-                  <div class="flex items-center justify-center gap-1">
-                    <UiButton v-if="row.receipt === 1" variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleViewReceipt(row)">
-                      查看
-                    </UiButton>
-                    <UiButton variant="ghost" size="sm" class="h-6 text-xs px-2" @click.stop="handleUploadReceipt(row)">
-                      上传
-                    </UiButton>
-                    <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                  <div>
+                    <span class="text-muted-foreground">发货日期：</span>
+                    <span class="font-medium">{{ formatDate(pendingNotNeedSettleRow.ship_date) }}</span>
                   </div>
-                </TableCell>
-              </TableRow>
-            </template>
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-
-    <!-- 分页 -->
-    <div v-if="tableData.length > pageSize" class="flex items-center justify-between mt-4 px-2">
-      <div class="text-sm text-muted-foreground">
-        显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, tableData.length) }} 条，共 {{ tableData.length }} 条
-      </div>
-      <div class="flex items-center gap-2">
-        <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage">
-          上一页
-        </UiButton>
-        <div class="flex items-center gap-1">
-          <span class="text-sm">第</span>
-          <input
-            type="number"
-            :value="currentPage"
-            :min="1"
-            :max="totalPages"
-            class="w-16 px-2 py-1 text-sm text-center border rounded"
-            @change="goToPage(($event.target as HTMLInputElement).valueAsNumber)"
-          >
-          <span class="text-sm">/ {{ totalPages }} 页</span>
-        </div>
-        <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
-          下一页
-        </UiButton>
-      </div>
-    </div>
-
-    <!-- 对话框组件 -->
-    <VesselPriceInputDialog ref="priceInputDialog" @confirm="handlePriceConfirm" />
-    <VesselBatchPriceInputDialog ref="batchPriceInputDialog" @confirm="handleBatchPriceConfirm" />
-    <VesselDelayInfoDialog ref="delayInfoDialog" @confirm="handleDelayInfoConfirm" />
-    <VesselDetailDialog ref="detailDialog" />
-    <VesselPrintDialog ref="printDialog" @confirm="handlePrintConfirm" />
-    <VesselReceiptImageDialog ref="receiptImageDialog" />
-    <VesselUploadReceiptDialog ref="uploadReceiptDialog" @confirm="handleUploadReceiptConfirm" />
-
-    <!-- 不需要结算确认对话框 -->
-    <AlertDialog v-model:open="showNotNeedSettleDialog">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>确认操作</AlertDialogTitle>
-          <AlertDialogDescription class="space-y-3">
-            <p class="font-medium">
-              {{ pendingNotNeedSettleRow?.notNeedColor === 'red' ? '确定要将此运单设置为"不需要结算"吗？' : '确定要取消"不需要结算"状态吗？' }}
-            </p>
-            <div v-if="pendingNotNeedSettleRow" class="bg-muted/50 rounded-lg p-3 space-y-2 text-sm">
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <span class="text-muted-foreground">运单号：</span>
-                  <span class="font-medium">{{ pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.inner_waybill_no : pendingNotNeedSettleRow.waybill_no }}</span>
-                </div>
-                <div>
-                  <span class="text-muted-foreground">车船号：</span>
-                  <span class="font-medium">{{ pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.veh_name : pendingNotNeedSettleRow.vehicle_vessel_name }}</span>
-                </div>
-                <div>
-                  <span class="text-muted-foreground">开单名称：</span>
-                  <span class="font-medium">{{ pendingNotNeedSettleRow.shipName }}</span>
-                </div>
-                <div>
-                  <span class="text-muted-foreground">发运块数：</span>
-                  <span class="font-medium">{{ pendingNotNeedSettleRow.send_num }}</span>
-                </div>
-                <div>
-                  <span class="text-muted-foreground">发运重量：</span>
-                  <span class="font-medium">{{ formatNumber(pendingNotNeedSettleRow.isSubItem ? pendingNotNeedSettleRow.send_weight : pendingNotNeedSettleRow.total_weight) }} 吨</span>
-                </div>
-                <div>
-                  <span class="text-muted-foreground">发货日期：</span>
-                  <span class="font-medium">{{ formatDate(pendingNotNeedSettleRow.ship_date) }}</span>
                 </div>
               </div>
-            </div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
-          <AlertDialogAction @click="confirmNotNeedSettle">确定</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction @click="confirmNotNeedSettle">
+              确定
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-    <!-- 结算篮组件 -->
-    <SettleBasket
-      v-model:open="showBasket"
-      :items="basketItems"
-      :statistics="basketStatistics"
-      @settle="handleSettleFromBasket"
-      @remove="removeFromBasket"
-      @clear="clearBasket"
-    >
-      <template #item-title="{ item }">
-        <span class="font-medium truncate">{{ item.veh_name || item.vehicle_vessel_name }}</span>
-      </template>
-      <template #item-subtitle="{ item }">
-        <div class="text-sm text-muted-foreground truncate">
-          {{ item.shipName || item.ship_name }}{{ item.ship_customer ? `/${item.ship_customer}` : '' }}
-        </div>
-        <div class="text-xs text-muted-foreground mt-0.5">
-          {{ item.ship_from }} → {{ item.ship_to }}
-        </div>
-      </template>
-      <template #item-details="{ item }">
-        <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-          <span>{{ item.send_num }}块</span>
-          <span>{{ formatNumber(item.send_weight) }}吨</span>
-          <span v-if="hasPrivilegePrice" class="text-muted-foreground">
-            单价: ¥{{ formatNumber(item.vessel_price || 0) }}
-          </span>
-          <span v-if="hasPrivilegePrice" class="text-primary font-medium">
-            ¥{{ formatNumber((item.vessel_price || 0) * item.send_weight) }}
-          </span>
-        </div>
-      </template>
-    </SettleBasket>
-
-    <!-- 飞行动画元素 -->
-    <Teleport to="body">
-      <div
-        v-for="item in flyingItems"
-        :key="item.id"
-        class="flying-item"
-        :style="{
-          '--start-x': `${item.x}px`,
-          '--start-y': `${item.y}px`,
-          '--end-x': `${item.targetX}px`,
-          '--end-y': `${item.targetY}px`,
-        }"
+      <!-- 结算篮组件 -->
+      <SettleBasket
+        v-model:open="showBasket"
+        :items="basketItems"
+        :statistics="basketStatistics"
+        @settle="handleSettleFromBasket"
+        @remove="removeFromBasket"
+        @clear="clearBasket"
       >
-        <div class="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center shadow-lg">
-          <ShoppingCart class="w-4 h-4 text-white" />
-        </div>
-      </div>
-    </Teleport>
+        <template #item-title="{ item }">
+          <span class="font-medium truncate">{{ item.veh_name || item.vehicle_vessel_name }}</span>
+        </template>
+        <template #item-subtitle="{ item }">
+          <div class="text-sm text-muted-foreground truncate">
+            {{ item.shipName || item.ship_name }}{{ item.ship_customer ? `/${item.ship_customer}` : '' }}
+          </div>
+          <div class="text-xs text-muted-foreground mt-0.5">
+            {{ item.ship_from }} → {{ item.ship_to }}
+          </div>
+        </template>
+        <template #item-details="{ item }">
+          <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+            <span>{{ item.send_num }}块</span>
+            <span>{{ formatNumber(item.send_weight) }}吨</span>
+            <span v-if="hasPrivilegePrice" class="text-muted-foreground">
+              单价: ¥{{ formatNumber(item.vessel_price || 0) }}
+            </span>
+            <span v-if="hasPrivilegePrice" class="text-primary font-medium">
+              ¥{{ formatNumber((item.vessel_price || 0) * item.send_weight) }}
+            </span>
+          </div>
+        </template>
+      </SettleBasket>
 
-    <!-- 导出对话框 -->
-    <ExportDialog
-      v-model:open="showExportDialog"
-      :default-file-name="exportFileName"
-      @confirm="confirmExport"
-    />
+      <!-- 飞行动画元素 -->
+      <Teleport to="body">
+        <div
+          v-for="item in flyingItems"
+          :key="item.id"
+          class="flying-item"
+          :style="{
+            '--start-x': `${item.x}px`,
+            '--start-y': `${item.y}px`,
+            '--end-x': `${item.targetX}px`,
+            '--end-y': `${item.targetY}px`,
+          }"
+        >
+          <div class="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center shadow-lg">
+            <ShoppingCart class="w-4 h-4 text-white" />
+          </div>
+        </div>
+      </Teleport>
+
+      <!-- 导出对话框 -->
+      <ExportDialog
+        v-model:open="showExportDialog"
+        :default-file-name="exportFileName"
+        @confirm="confirmExport"
+      />
     </div>
   </BasicPage>
 </template>

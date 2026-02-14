@@ -3,6 +3,7 @@ const Bill = require('../../models/Bill');
 const Settle = require('../../models/Settle');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
+const { isAdmin: checkAdmin } = require('../../shared/permissions');
 
 // Helper function: Search DB Data
 async function searchDbData(res, query, inv_f_selected, bill_f_selected) {
@@ -361,7 +362,7 @@ exports.getCustomerChartData = async function (req, res) {
 exports.getDashboardStatistics = async function (req, res) {
   try {
     const user = req.user || { userid: 'admin', privilege: 'admin' }; 
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const isAdmin = checkAdmin(user.privilege);
 
     let startDate, endDate;
     // Check for YYYY-MM format from frontend input type="month"
@@ -590,7 +591,7 @@ exports.getDashboardStatistics = async function (req, res) {
 exports.getDashboardInvoiceDetails = async function (req, res) {
   try {
     const user = req.user || { userid: 'admin', privilege: 'admin' };
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const isAdmin = checkAdmin(user.privilege);
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
@@ -705,7 +706,7 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
 exports.getDashboardBillingNamesStats = async function (req, res) {
   try {
     const user = req.user || { userid: 'admin', privilege: 'admin' };
-    const isAdmin = user.privilege === 'admin' || user.privilege === '11111111';
+    const isAdmin = checkAdmin(user.privilege);
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {

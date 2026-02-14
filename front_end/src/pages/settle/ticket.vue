@@ -3,12 +3,12 @@ import { Download, FileCheck, FileX, Filter as FilterIcon, List } from 'lucide-v
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
-import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import { BasicPage } from '@/components/global-layout'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { useExport } from '@/composables/use-export'
 import { deleteSettle, getSettleDetail, getSettleList, updateTicket } from '@/services/api/ticket.api'
 
 import type { DisplayMode, SettleRecord, SettleType } from './ticket-types'
@@ -192,7 +192,7 @@ function isSelected(settle: SettleRecord) {
 }
 
 // 切换结算类型
-function switchSettleType(type: SettleType) {
+function _switchSettleType(type: SettleType) {
   if (settleType.value !== type) {
     settleType.value = type
     loadData()
@@ -200,7 +200,7 @@ function switchSettleType(type: SettleType) {
 }
 
 // 切换显示模式
-function switchDisplayMode(mode: DisplayMode) {
+function _switchDisplayMode(mode: DisplayMode) {
   if (displayMode.value !== mode) {
     displayMode.value = mode
     loadData()
@@ -369,7 +369,7 @@ async function handleCancelTicket() {
 }
 
 // 删除结算
-async function handleDelete() {
+async function _handleDelete() {
   if (selectedSettles.value.length === 0) {
     toast.warning('请先选择要删除的记录')
     return

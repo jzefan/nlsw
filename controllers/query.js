@@ -19,6 +19,7 @@ var utils = require('./utils');
 var bunyan = require('bunyan');
 const fastcsv = require('fast-csv');
 const fs = require('fs');
+const { hasAnyPermission } = require('../shared/permissions');
 
 var logger = bunyan.createLogger({
   name: 'XHT',
@@ -203,7 +204,7 @@ exports.getInvoiceReport = async function (req, res) {
  * All Vessel operation statistics
  */
 exports.getVesselStatistics = async function (req, res) {
-  if (req.user.privilege[3] === '1' || req.user.privilege[4] === '1' || req.user.privilege[5] === '1') {
+  if (hasAnyPermission(req.user.privilege, 'reserved', 'custRevenue', 'vesselRevenue')) {
     try {
       const dfData = await DFReceivables.find({}).lean().exec();
       res.render('statistics/vessel_revenue', {
@@ -953,7 +954,7 @@ function copyBill(bill, binv, veh) {
 
 
 exports.getStatistics = async function (req, res) {
-  if (req.user.privilege[3] === '1' || req.user.privilege[4] === '1' || req.user.privilege[5] === '1') {
+  if (hasAnyPermission(req.user.privilege, 'reserved', 'custRevenue', 'vesselRevenue')) {
     try {
       const names = await Company.distinct('name').exec();
       res.render('statistics/statistics', {
@@ -979,7 +980,7 @@ exports.getStatistics = async function (req, res) {
 };
 
 exports.getShippingChargeReport = async function (req, res) {
-  if (req.user.privilege[3] === '1' || req.user.privilege[4] === '1' || req.user.privilege[5] === '1') {
+  if (hasAnyPermission(req.user.privilege, 'reserved', 'custRevenue', 'vesselRevenue')) {
     try {
       const names = await Company.distinct('name').exec();
       const result = {

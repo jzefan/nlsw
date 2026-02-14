@@ -72,10 +72,10 @@ export async function getVesselRevenue(params: VesselRevenueParams) {
 }
 
 export async function getVesselDetail(params: VesselAllocationParams) {
-  const response = await axiosInstance.get<{ 
-    ok: boolean, 
-    summary_data?: Record<string, VesselSummaryItem>,
-    vessel_detail?: Record<string, VesselDetailItem[]>,
+  const response = await axiosInstance.get<{
+    ok: boolean
+    summary_data?: Record<string, VesselSummaryItem>
+    vessel_detail?: Record<string, VesselDetailItem[]>
     vehNameList?: string[]
   }>('/statistics/vessel/detail', {
     params,

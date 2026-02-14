@@ -159,7 +159,7 @@ async function handleConfirm() {
         return
 
       const price = Number.parseFloat(group.priceInput)
-      if (isNaN(price) || (price < 0 && price !== -1))
+      if (Number.isNaN(price) || (price < 0 && price !== -1))
         return
 
       let unitPrice = 0
@@ -195,7 +195,7 @@ async function handleConfirm() {
               return
 
             const price = Number.parseFloat(group.priceInput)
-            if (isNaN(price) || (price < 0 && price !== -1))
+            if (Number.isNaN(price) || (price < 0 && price !== -1))
               return
 
             let unitPrice = 0
@@ -266,7 +266,7 @@ function formatNumber(num: number | string | undefined): string {
   if (num === null || num === undefined || num === '')
     return '0.000'
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
+  return Number.isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 defineExpose({ open })

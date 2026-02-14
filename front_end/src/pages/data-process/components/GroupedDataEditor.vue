@@ -115,7 +115,7 @@ function deleteRow(groupIndex: number, rowIndex: number) {
   emit('update:modelValue', newGroups)
 }
 
-function updateContractNo(groupIndex: number, newContractNo: string | number) {
+function _updateContractNo(groupIndex: number, newContractNo: string | number) {
   const contractNoStr = String(newContractNo)
   const newGroups = [...props.modelValue]
   // Update contract number for the group and all its rows
@@ -130,7 +130,6 @@ function updateContractNo(groupIndex: number, newContractNo: string | number) {
   }
   emit('update:modelValue', newGroups)
 }
-
 </script>
 
 <template>
@@ -156,283 +155,331 @@ function updateContractNo(groupIndex: number, newContractNo: string | number) {
     <!-- Groups using Accordion -->
     <div class="flex-1 overflow-auto">
       <UiAccordion v-if="accordionValue === 'all-expanded'" type="multiple" :default-value="modelValue.map((g, i) => `item-${i}`)">
-      <UiAccordionItem v-for="(group, groupIndex) in modelValue" :key="group.contractNo" :value="`item-${groupIndex}`">
-        <UiAccordionTrigger class="hover:no-underline px-4">
-          <div class="flex-1 flex items-center gap-4 text-left">
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-muted-foreground">合同号:</span>
-              <span class="font-medium">{{ group.contractNo }}</span>
+        <UiAccordionItem v-for="(group, groupIndex) in modelValue" :key="group.contractNo" :value="`item-${groupIndex}`">
+          <UiAccordionTrigger class="hover:no-underline px-4">
+            <div class="flex-1 flex items-center gap-4 text-left">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-muted-foreground">合同号:</span>
+                <span class="font-medium">{{ group.contractNo }}</span>
+              </div>
+              <span class="text-sm text-muted-foreground">|</span>
+              <span class="text-sm text-muted-foreground">
+                {{ group.rows.length }} 条 /
+                {{ group.subtotalQuantity }} 件 /
+                {{ group.subtotalWeight.toFixed(3) }} 吨
+              </span>
             </div>
-            <span class="text-sm text-muted-foreground">|</span>
-            <span class="text-sm text-muted-foreground">
-              {{ group.rows.length }} 条 /
-              {{ group.subtotalQuantity }} 件 /
-              {{ group.subtotalWeight.toFixed(3) }} 吨
-            </span>
-          </div>
-        </UiAccordionTrigger>
-        <UiAccordionContent>
-          <div class="px-4 pb-4">
-            <div class="border rounded-lg overflow-auto">
-              <table class="w-full text-sm">
-                <thead class="bg-muted/50">
-                  <tr>
-                    <th class="px-1 py-2 w-8" />
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">提单号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">订单号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-16">项次号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-32">牌号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">规格</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-24">单重</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-20">发运数</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-24">发运重量</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-24">仓库</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(row, rowIndex) in group.rows"
-                    :key="`${row.orderNo}-${row.orderItemNo}`"
-                    class="border-t hover:bg-muted/30"
-                  >
-                    <td class="px-1 py-1 text-center">
-                      <UiButton
-                        variant="ghost"
-                        size="icon"
-                        class="h-6 w-6 text-red-500"
-                        @click="deleteRow(groupIndex, rowIndex)"
-                      >
-                        <Trash2 class="w-3 h-3" />
-                      </UiButton>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'billNo', row.billNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'billNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.billNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderNo', row.orderNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'orderNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.orderNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderItemNo', row.orderItemNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'orderItemNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.orderItemNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'brandNo', row.brandNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'brandNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.brandNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'spec', row.spec)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'spec')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.spec }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'unitWeight', row.unitWeight)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'unitWeight')">
-                        <UiInput v-model="editingValue" type="number" step="0.0001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ formatNumber(row.unitWeight, 4) }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'quantity', row.quantity)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'quantity')">
-                        <UiInput v-model="editingValue" type="number" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.quantity }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'totalWeight', row.totalWeight)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'totalWeight')">
-                        <UiInput v-model="editingValue" type="number" step="0.001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ formatNumber(row.totalWeight) }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'warehouse', row.warehouse)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'warehouse')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.warehouse }}
-                      </template>
-                    </td>
-                  </tr>
-                </tbody>
-                <tfoot class="bg-muted/50">
-                  <tr>
-                    <td colspan="7" class="px-1 py-2 font-medium">小计</td>
-                    <td class="px-1 py-2 text-right font-medium">{{ group.subtotalQuantity }}</td>
-                    <td class="px-1 py-2 text-right font-medium">{{ group.subtotalWeight.toFixed(3) }}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+          </UiAccordionTrigger>
+          <UiAccordionContent>
+            <div class="px-4 pb-4">
+              <div class="border rounded-lg overflow-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-muted/50">
+                    <tr>
+                      <th class="px-1 py-2 w-8" />
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        提单号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        订单号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-16">
+                        项次号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-32">
+                        牌号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        规格
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-24">
+                        单重
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-20">
+                        发运数
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-24">
+                        发运重量
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-24">
+                        仓库
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(row, rowIndex) in group.rows"
+                      :key="`${row.orderNo}-${row.orderItemNo}`"
+                      class="border-t hover:bg-muted/30"
+                    >
+                      <td class="px-1 py-1 text-center">
+                        <UiButton
+                          variant="ghost"
+                          size="icon"
+                          class="h-6 w-6 text-red-500"
+                          @click="deleteRow(groupIndex, rowIndex)"
+                        >
+                          <Trash2 class="w-3 h-3" />
+                        </UiButton>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'billNo', row.billNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'billNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.billNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderNo', row.orderNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'orderNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.orderNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderItemNo', row.orderItemNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'orderItemNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.orderItemNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'brandNo', row.brandNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'brandNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.brandNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'spec', row.spec)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'spec')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.spec }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'unitWeight', row.unitWeight)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'unitWeight')">
+                          <UiInput v-model="editingValue" type="number" step="0.0001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ formatNumber(row.unitWeight, 4) }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'quantity', row.quantity)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'quantity')">
+                          <UiInput v-model="editingValue" type="number" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.quantity }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'totalWeight', row.totalWeight)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'totalWeight')">
+                          <UiInput v-model="editingValue" type="number" step="0.001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ formatNumber(row.totalWeight) }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'warehouse', row.warehouse)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'warehouse')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.warehouse }}
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tfoot class="bg-muted/50">
+                    <tr>
+                      <td colspan="7" class="px-1 py-2 font-medium">
+                        小计
+                      </td>
+                      <td class="px-1 py-2 text-right font-medium">
+                        {{ group.subtotalQuantity }}
+                      </td>
+                      <td class="px-1 py-2 text-right font-medium">
+                        {{ group.subtotalWeight.toFixed(3) }}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
-          </div>
-        </UiAccordionContent>
-      </UiAccordionItem>
-    </UiAccordion>
+          </UiAccordionContent>
+        </UiAccordionItem>
+      </UiAccordion>
 
-    <!-- Single select Accordion (default) -->
-    <UiAccordion v-else type="single" collapsible v-model="accordionValue">
-      <UiAccordionItem v-for="(group, groupIndex) in modelValue" :key="group.contractNo" :value="`item-${groupIndex}`">
-        <UiAccordionTrigger class="hover:no-underline px-4">
-          <div class="flex-1 flex items-center gap-4 text-left">
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-muted-foreground">合同号:</span>
-              <span class="font-medium">{{ group.contractNo }}</span>
+      <!-- Single select Accordion (default) -->
+      <UiAccordion v-else v-model="accordionValue" type="single" collapsible>
+        <UiAccordionItem v-for="(group, groupIndex) in modelValue" :key="group.contractNo" :value="`item-${groupIndex}`">
+          <UiAccordionTrigger class="hover:no-underline px-4">
+            <div class="flex-1 flex items-center gap-4 text-left">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-muted-foreground">合同号:</span>
+                <span class="font-medium">{{ group.contractNo }}</span>
+              </div>
+              <span class="text-sm text-muted-foreground">|</span>
+              <span class="text-sm text-muted-foreground">
+                {{ group.rows.length }} 条 /
+                {{ group.subtotalQuantity }} 件 /
+                {{ group.subtotalWeight.toFixed(3) }} 吨
+              </span>
             </div>
-            <span class="text-sm text-muted-foreground">|</span>
-            <span class="text-sm text-muted-foreground">
-              {{ group.rows.length }} 条 /
-              {{ group.subtotalQuantity }} 件 /
-              {{ group.subtotalWeight.toFixed(3) }} 吨
-            </span>
-          </div>
-        </UiAccordionTrigger>
-        <UiAccordionContent>
-          <div class="px-4 pb-4">
-            <div class="border rounded-lg overflow-auto">
-              <table class="w-full text-sm">
-                <thead class="bg-muted/50">
-                  <tr>
-                    <th class="px-1 py-2 w-8" />
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">提单号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">订单号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-16">项次号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-32">牌号</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-28">规格</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-24">单重</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-20">发运数</th>
-                    <th class="px-1 py-2 text-right whitespace-nowrap w-24">发运重量</th>
-                    <th class="px-1 py-2 text-left whitespace-nowrap w-24">仓库</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(row, rowIndex) in group.rows"
-                    :key="`${row.orderNo}-${row.orderItemNo}`"
-                    class="border-t hover:bg-muted/30"
-                  >
-                    <td class="px-1 py-1 text-center">
-                      <UiButton
-                        variant="ghost"
-                        size="icon"
-                        class="h-6 w-6 text-red-500"
-                        @click="deleteRow(groupIndex, rowIndex)"
-                      >
-                        <Trash2 class="w-3 h-3" />
-                      </UiButton>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'billNo', row.billNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'billNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.billNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderNo', row.orderNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'orderNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.orderNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderItemNo', row.orderItemNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'orderItemNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.orderItemNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'brandNo', row.brandNo)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'brandNo')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.brandNo }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'spec', row.spec)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'spec')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.spec }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'unitWeight', row.unitWeight)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'unitWeight')">
-                        <UiInput v-model="editingValue" type="number" step="0.0001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ formatNumber(row.unitWeight, 4) }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'quantity', row.quantity)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'quantity')">
-                        <UiInput v-model="editingValue" type="number" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.quantity }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'totalWeight', row.totalWeight)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'totalWeight')">
-                        <UiInput v-model="editingValue" type="number" step="0.001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ formatNumber(row.totalWeight) }}
-                      </template>
-                    </td>
-                    <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'warehouse', row.warehouse)">
-                      <template v-if="isEditing(groupIndex, rowIndex, 'warehouse')">
-                        <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
-                      </template>
-                      <template v-else>
-                        {{ row.warehouse }}
-                      </template>
-                    </td>
-                  </tr>
-                </tbody>
-                <tfoot class="bg-muted/50">
-                  <tr>
-                    <td colspan="7" class="px-1 py-2 font-medium">小计</td>
-                    <td class="px-1 py-2 text-right font-medium">{{ group.subtotalQuantity }}</td>
-                    <td class="px-1 py-2 text-right font-medium">{{ group.subtotalWeight.toFixed(3) }}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+          </UiAccordionTrigger>
+          <UiAccordionContent>
+            <div class="px-4 pb-4">
+              <div class="border rounded-lg overflow-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-muted/50">
+                    <tr>
+                      <th class="px-1 py-2 w-8" />
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        提单号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        订单号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-16">
+                        项次号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-32">
+                        牌号
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-28">
+                        规格
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-24">
+                        单重
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-20">
+                        发运数
+                      </th>
+                      <th class="px-1 py-2 text-right whitespace-nowrap w-24">
+                        发运重量
+                      </th>
+                      <th class="px-1 py-2 text-left whitespace-nowrap w-24">
+                        仓库
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(row, rowIndex) in group.rows"
+                      :key="`${row.orderNo}-${row.orderItemNo}`"
+                      class="border-t hover:bg-muted/30"
+                    >
+                      <td class="px-1 py-1 text-center">
+                        <UiButton
+                          variant="ghost"
+                          size="icon"
+                          class="h-6 w-6 text-red-500"
+                          @click="deleteRow(groupIndex, rowIndex)"
+                        >
+                          <Trash2 class="w-3 h-3" />
+                        </UiButton>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'billNo', row.billNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'billNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.billNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderNo', row.orderNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'orderNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.orderNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'orderItemNo', row.orderItemNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'orderItemNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.orderItemNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'brandNo', row.brandNo)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'brandNo')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.brandNo }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'spec', row.spec)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'spec')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.spec }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'unitWeight', row.unitWeight)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'unitWeight')">
+                          <UiInput v-model="editingValue" type="number" step="0.0001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ formatNumber(row.unitWeight, 4) }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'quantity', row.quantity)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'quantity')">
+                          <UiInput v-model="editingValue" type="number" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.quantity }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 text-right cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'totalWeight', row.totalWeight)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'totalWeight')">
+                          <UiInput v-model="editingValue" type="number" step="0.001" class="h-7 w-full text-right" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ formatNumber(row.totalWeight) }}
+                        </template>
+                      </td>
+                      <td class="px-1 py-1 cursor-pointer hover:bg-muted/50" @click="startEdit(groupIndex, rowIndex, 'warehouse', row.warehouse)">
+                        <template v-if="isEditing(groupIndex, rowIndex, 'warehouse')">
+                          <UiInput v-model="editingValue" class="h-7 w-full" autofocus @blur="saveEdit" @keydown="handleKeydown" />
+                        </template>
+                        <template v-else>
+                          {{ row.warehouse }}
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tfoot class="bg-muted/50">
+                    <tr>
+                      <td colspan="7" class="px-1 py-2 font-medium">
+                        小计
+                      </td>
+                      <td class="px-1 py-2 text-right font-medium">
+                        {{ group.subtotalQuantity }}
+                      </td>
+                      <td class="px-1 py-2 text-right font-medium">
+                        {{ group.subtotalWeight.toFixed(3) }}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
-          </div>
-        </UiAccordionContent>
-      </UiAccordionItem>
-    </UiAccordion>
+          </UiAccordionContent>
+        </UiAccordionItem>
+      </UiAccordion>
     </div>
   </div>
 </template>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { Calendar, ChevronDown, ChevronUp, Download, Ship, Truck } from 'lucide-vue-next'
 import { ref } from 'vue'
-import { ChevronDown, ChevronUp, Calendar, Download, Ship, Truck } from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
+
 import type { VesselRevenueData } from '@/services/api/vessel-statistics.api'
 
-const props = defineProps<{
+import { Button } from '@/components/ui/button'
+
+const _props = defineProps<{
   loading: boolean
   statisticsData: VesselRevenueData[]
   summaryTotals: {
@@ -53,7 +55,8 @@ const viewMode = ref<'vessel' | 'vehicle'>('vessel')
 function toggleExpand(month: string) {
   if (expandedItems.value.has(month)) {
     expandedItems.value.delete(month)
-  } else {
+  }
+  else {
     expandedItems.value.add(month)
   }
 }
@@ -76,8 +79,12 @@ function formatPrice(val: number) {
     <!-- 顶部固定栏 -->
     <div class="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm">
       <div class="px-4 py-3">
-        <h1 class="text-lg font-bold text-center">车船营业额统计</h1>
-        <p v-if="dateRange" class="text-xs text-center text-muted-foreground mt-1">{{ dateRange }}</p>
+        <h1 class="text-lg font-bold text-center">
+          车船营业额统计
+        </h1>
+        <p v-if="dateRange" class="text-xs text-center text-muted-foreground mt-1">
+          {{ dateRange }}
+        </p>
       </div>
 
       <!-- 视图切换 -->
@@ -85,8 +92,8 @@ function formatPrice(val: number) {
         <Button
           size="sm"
           :variant="viewMode === 'vessel' ? 'default' : 'outline'"
-          @click="viewMode = 'vessel'"
           class="flex-1"
+          @click="viewMode = 'vessel'"
         >
           <Ship class="w-4 h-4 mr-1" />
           船运
@@ -94,8 +101,8 @@ function formatPrice(val: number) {
         <Button
           size="sm"
           :variant="viewMode === 'vehicle' ? 'default' : 'outline'"
-          @click="viewMode = 'vehicle'"
           class="flex-1"
+          @click="viewMode = 'vehicle'"
         >
           <Truck class="w-4 h-4 mr-1" />
           车运
@@ -104,7 +111,7 @@ function formatPrice(val: number) {
 
       <!-- 操作按钮 -->
       <div class="flex items-center justify-between px-4 py-2 border-t bg-gray-50 dark:bg-slate-800">
-        <Button size="sm" @click="emit('openDateDialog')" class="flex-1 mr-2">
+        <Button size="sm" class="flex-1 mr-2" @click="emit('openDateDialog')">
           <Calendar class="w-4 h-4 mr-1" />
           选择日期
         </Button>
@@ -115,17 +122,27 @@ function formatPrice(val: number) {
 
       <!-- 明细按钮 -->
       <div class="flex items-center gap-2 px-4 py-2 border-t bg-white dark:bg-slate-900">
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'summary')" class="flex-1 text-xs">自有统计</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'detail')" class="flex-1 text-xs">自有清单</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'summary')" class="flex-1 text-xs">外挂统计</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'detail')" class="flex-1 text-xs">外挂清单</Button>
+        <Button size="sm" variant="ghost" class="flex-1 text-xs" @click="emit('openDrillDown', '自有', 'summary')">
+          自有统计
+        </Button>
+        <Button size="sm" variant="ghost" class="flex-1 text-xs" @click="emit('openDrillDown', '自有', 'detail')">
+          自有清单
+        </Button>
+        <Button size="sm" variant="ghost" class="flex-1 text-xs" @click="emit('openDrillDown', '外挂', 'summary')">
+          外挂统计
+        </Button>
+        <Button size="sm" variant="ghost" class="flex-1 text-xs" @click="emit('openDrillDown', '外挂', 'detail')">
+          外挂清单
+        </Button>
       </div>
     </div>
 
     <!-- 加载状态 -->
     <div v-if="loading" class="flex flex-col items-center justify-center p-12">
-      <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500"></div>
-      <p class="text-sm text-muted-foreground mt-4">加载中...</p>
+      <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
+      <p class="text-sm text-muted-foreground mt-4">
+        加载中...
+      </p>
     </div>
 
     <!-- 空状态 -->
@@ -133,7 +150,9 @@ function formatPrice(val: number) {
       <div class="h-16 w-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
         <component :is="viewMode === 'vessel' ? Ship : Truck" class="h-8 w-8 text-gray-400" />
       </div>
-      <p class="text-muted-foreground">请选择日期范围查询数据</p>
+      <p class="text-muted-foreground">
+        请选择日期范围查询数据
+      </p>
     </div>
 
     <!-- 数据列表 -->
@@ -148,22 +167,36 @@ function formatPrice(val: number) {
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <div class="text-2xl font-bold">{{ formatVal(summaryTotals.vsTotal) }}</div>
-              <div class="text-xs opacity-75">总吨位</div>
+              <div class="text-2xl font-bold">
+                {{ formatVal(summaryTotals.vsTotal) }}
+              </div>
+              <div class="text-xs opacity-75">
+                总吨位
+              </div>
             </div>
             <div>
-              <div class="text-2xl font-bold">{{ formatPrice(summaryTotals.vsRevenue) }}</div>
-              <div class="text-xs opacity-75">总金额</div>
+              <div class="text-2xl font-bold">
+                {{ formatPrice(summaryTotals.vsRevenue) }}
+              </div>
+              <div class="text-xs opacity-75">
+                总金额
+              </div>
             </div>
             <div>
               <div class="text-xl font-bold" :class="summaryTotals.vsNetProfit >= 0 ? 'text-green-200' : 'text-red-200'">
                 {{ formatPrice(summaryTotals.vsNetProfit) }}
               </div>
-              <div class="text-xs opacity-75">净利润</div>
+              <div class="text-xs opacity-75">
+                净利润
+              </div>
             </div>
             <div>
-              <div class="text-xl font-bold text-red-200">{{ formatPrice(summaryTotals.vsFixedCost) }}</div>
-              <div class="text-xs opacity-75">固定成本</div>
+              <div class="text-xl font-bold text-red-200">
+                {{ formatPrice(summaryTotals.vsFixedCost) }}
+              </div>
+              <div class="text-xs opacity-75">
+                固定成本
+              </div>
             </div>
           </div>
         </div>
@@ -176,33 +209,55 @@ function formatPrice(val: number) {
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <div class="text-2xl font-bold">{{ formatVal(summaryTotals.vhTotal) }}</div>
-              <div class="text-xs opacity-75">总吨位</div>
+              <div class="text-2xl font-bold">
+                {{ formatVal(summaryTotals.vhTotal) }}
+              </div>
+              <div class="text-xs opacity-75">
+                总吨位
+              </div>
             </div>
             <div>
-              <div class="text-2xl font-bold">{{ formatPrice(summaryTotals.vhRevenue) }}</div>
-              <div class="text-xs opacity-75">总金额</div>
+              <div class="text-2xl font-bold">
+                {{ formatPrice(summaryTotals.vhRevenue) }}
+              </div>
+              <div class="text-xs opacity-75">
+                总金额
+              </div>
             </div>
             <div>
               <div class="text-xl font-bold" :class="summaryTotals.vhNetProfit >= 0 ? 'text-green-200' : 'text-red-200'">
                 {{ formatPrice(summaryTotals.vhNetProfit) }}
               </div>
-              <div class="text-xs opacity-75">净利润</div>
+              <div class="text-xs opacity-75">
+                净利润
+              </div>
             </div>
             <div>
-              <div class="text-xl font-bold text-red-200">{{ formatPrice(summaryTotals.vhFixedCost) }}</div>
-              <div class="text-xs opacity-75">固定成本</div>
+              <div class="text-xl font-bold text-red-200">
+                {{ formatPrice(summaryTotals.vhFixedCost) }}
+              </div>
+              <div class="text-xs opacity-75">
+                固定成本
+              </div>
             </div>
           </div>
           <!-- 额外收入 -->
           <div class="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-white/20">
             <div>
-              <div class="text-lg font-medium">{{ formatPrice(summaryTotals.drayage) }}</div>
-              <div class="text-xs opacity-75">短驳应收</div>
+              <div class="text-lg font-medium">
+                {{ formatPrice(summaryTotals.drayage) }}
+              </div>
+              <div class="text-xs opacity-75">
+                短驳应收
+              </div>
             </div>
             <div>
-              <div class="text-lg font-medium">{{ formatPrice(summaryTotals.forklift) }}</div>
-              <div class="text-xs opacity-75">叉车应收</div>
+              <div class="text-lg font-medium">
+                {{ formatPrice(summaryTotals.forklift) }}
+              </div>
+              <div class="text-xs opacity-75">
+                叉车应收
+              </div>
             </div>
           </div>
         </div>
@@ -220,7 +275,9 @@ function formatPrice(val: number) {
               <component :is="viewMode === 'vessel' ? Ship : Truck" class="h-5 w-5" :class="viewMode === 'vessel' ? 'text-indigo-600' : 'text-amber-600'" />
             </div>
             <div>
-              <div class="font-medium">{{ item.month }}</div>
+              <div class="font-medium">
+                {{ item.month }}
+              </div>
               <div class="text-sm text-muted-foreground">
                 {{ viewMode === 'vessel' ? formatVal(item.vsTotal) : formatVal(item.vhTotal) }} 吨
               </div>
@@ -231,7 +288,9 @@ function formatPrice(val: number) {
               <div class="font-bold" :class="viewMode === 'vessel' ? 'text-indigo-600' : 'text-amber-600'">
                 {{ viewMode === 'vessel' ? formatPrice(item.vsRevenue) : formatPrice(item.vhRevenue) }}
               </div>
-              <div class="text-xs text-muted-foreground">营业额</div>
+              <div class="text-xs text-muted-foreground">
+                营业额
+              </div>
             </div>
             <component :is="isExpanded(item.month) ? ChevronUp : ChevronDown" class="h-5 w-5 text-muted-foreground" />
           </div>
@@ -241,46 +300,82 @@ function formatPrice(val: number) {
         <div v-if="isExpanded(item.month) && viewMode === 'vessel'" class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3">
           <!-- 自有车船 -->
           <div>
-            <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">自有船</div>
+            <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">
+              自有船
+            </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">吨位</div>
-                <div class="font-medium">{{ formatVal(item.vsOwnWeight) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  吨位
+                </div>
+                <div class="font-medium">
+                  {{ formatVal(item.vsOwnWeight) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应收</div>
-                <div class="font-medium text-blue-600">{{ formatPrice(item.vsOwnIncome) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应收
+                </div>
+                <div class="font-medium text-blue-600">
+                  {{ formatPrice(item.vsOwnIncome) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应付</div>
-                <div class="font-medium text-red-600">{{ formatPrice(item.vsOwnDeposit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应付
+                </div>
+                <div class="font-medium text-red-600">
+                  {{ formatPrice(item.vsOwnDeposit) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">利润</div>
-                <div class="font-bold">{{ formatPrice(item.vsOwnProfit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  利润
+                </div>
+                <div class="font-bold">
+                  {{ formatPrice(item.vsOwnProfit) }}
+                </div>
               </div>
             </div>
           </div>
 
           <!-- 外挂车船 -->
           <div>
-            <div class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">外挂船</div>
+            <div class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">
+              外挂船
+            </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">吨位</div>
-                <div class="font-medium">{{ formatVal(item.vsNonOwnWeight) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  吨位
+                </div>
+                <div class="font-medium">
+                  {{ formatVal(item.vsNonOwnWeight) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应收</div>
-                <div class="font-medium text-blue-600">{{ formatPrice(item.vsNonOwnIncome) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应收
+                </div>
+                <div class="font-medium text-blue-600">
+                  {{ formatPrice(item.vsNonOwnIncome) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应付</div>
-                <div class="font-medium text-red-600">{{ formatPrice(item.vsNonOwnDeposit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应付
+                </div>
+                <div class="font-medium text-red-600">
+                  {{ formatPrice(item.vsNonOwnDeposit) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">利润</div>
-                <div class="font-bold">{{ formatPrice(item.vsProfit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  利润
+                </div>
+                <div class="font-bold">
+                  {{ formatPrice(item.vsProfit) }}
+                </div>
               </div>
             </div>
           </div>
@@ -304,46 +399,82 @@ function formatPrice(val: number) {
         <div v-if="isExpanded(item.month) && viewMode === 'vehicle'" class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3">
           <!-- 自有车辆 -->
           <div>
-            <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">自有车</div>
+            <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">
+              自有车
+            </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">吨位</div>
-                <div class="font-medium">{{ formatVal(item.vhOwnWeight) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  吨位
+                </div>
+                <div class="font-medium">
+                  {{ formatVal(item.vhOwnWeight) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应收</div>
-                <div class="font-medium text-blue-600">{{ formatPrice(item.vhOwnIncome) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应收
+                </div>
+                <div class="font-medium text-blue-600">
+                  {{ formatPrice(item.vhOwnIncome) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应付</div>
-                <div class="font-medium text-red-600">{{ formatPrice(item.vhOwnDeposit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应付
+                </div>
+                <div class="font-medium text-red-600">
+                  {{ formatPrice(item.vhOwnDeposit) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">利润</div>
-                <div class="font-bold">{{ formatPrice(item.vhOwnProfit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  利润
+                </div>
+                <div class="font-bold">
+                  {{ formatPrice(item.vhOwnProfit) }}
+                </div>
               </div>
             </div>
           </div>
 
           <!-- 外挂车辆 -->
           <div>
-            <div class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">外挂车</div>
+            <div class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">
+              外挂车
+            </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">吨位</div>
-                <div class="font-medium">{{ formatVal(item.vhNonOwnWeight) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  吨位
+                </div>
+                <div class="font-medium">
+                  {{ formatVal(item.vhNonOwnWeight) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应收</div>
-                <div class="font-medium text-blue-600">{{ formatPrice(item.vhNonOwnIncome) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应收
+                </div>
+                <div class="font-medium text-blue-600">
+                  {{ formatPrice(item.vhNonOwnIncome) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">应付</div>
-                <div class="font-medium text-red-600">{{ formatPrice(item.vhNonOwnDeposit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  应付
+                </div>
+                <div class="font-medium text-red-600">
+                  {{ formatPrice(item.vhNonOwnDeposit) }}
+                </div>
               </div>
               <div class="bg-white dark:bg-slate-800 rounded-lg p-2">
-                <div class="text-xs text-muted-foreground">利润</div>
-                <div class="font-bold">{{ formatPrice(item.vhProfit) }}</div>
+                <div class="text-xs text-muted-foreground">
+                  利润
+                </div>
+                <div class="font-bold">
+                  {{ formatPrice(item.vhProfit) }}
+                </div>
               </div>
             </div>
           </div>
@@ -351,12 +482,20 @@ function formatPrice(val: number) {
           <!-- 额外收入 -->
           <div class="grid grid-cols-2 gap-2 text-sm">
             <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2">
-              <div class="text-xs text-muted-foreground">短驳应收</div>
-              <div class="font-medium text-blue-600">{{ formatPrice(item.drayage) }}</div>
+              <div class="text-xs text-muted-foreground">
+                短驳应收
+              </div>
+              <div class="font-medium text-blue-600">
+                {{ formatPrice(item.drayage) }}
+              </div>
             </div>
             <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2">
-              <div class="text-xs text-muted-foreground">叉车应收</div>
-              <div class="font-medium text-blue-600">{{ formatPrice(item.forklift) }}</div>
+              <div class="text-xs text-muted-foreground">
+                叉车应收
+              </div>
+              <div class="font-medium text-blue-600">
+                {{ formatPrice(item.forklift) }}
+              </div>
             </div>
           </div>
 

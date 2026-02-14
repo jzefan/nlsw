@@ -45,7 +45,7 @@ export interface RealPriceResponse {
  * 获取回款列表
  */
 export async function getMoneyList(params: GetMoneyListParams) {
-  const response = await axiosInstance.get<GetMoneyListResponse>('/api/money/list', { params })
+  const response = await axiosInstance.get<GetMoneyListResponse>('/money/list', { params })
   return response.data
 }
 
@@ -53,7 +53,7 @@ export async function getMoneyList(params: GetMoneyListParams) {
  * 更新回款状态（回款或回款取消）
  */
 export async function updateMoney(data: UpdateMoneyData[]) {
-  const response = await axiosInstance.post<UpdateMoneyResponse>('/api/money/update', data)
+  const response = await axiosInstance.post<UpdateMoneyResponse>('/money/update', data)
   return response.data
 }
 
@@ -61,6 +61,6 @@ export async function updateMoney(data: UpdateMoneyData[]) {
  * 更新实收价格
  */
 export async function updateRealPrice(data: RealPriceData) {
-  const response = await axiosInstance.post<RealPriceResponse>('/api/money/real-price', data)
+  const response = await axiosInstance.post<RealPriceResponse>('/money/real-price', data)
   return response.data
 }

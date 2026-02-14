@@ -11,7 +11,7 @@ export interface SettleModeOption {
   label: string
 }
 
-const props = defineProps<{
+const _props = defineProps<{
   modelValue: string
   settleMode: string
   tabOptions: TabOption[]

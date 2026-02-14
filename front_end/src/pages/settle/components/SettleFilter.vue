@@ -226,20 +226,20 @@ watch(() => props.showNonSettle, () => {
         placeholder="运单号"
       />
 
-      <DatePicker 
-        v-model="startDate" 
-        placeholder="发货起始日期" 
+      <DatePicker
+        v-model="startDate"
+        placeholder="发货起始日期"
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
-        class="w-full" 
+        class="w-full"
       />
 
-      <DatePicker 
-        v-model="endDate" 
-        placeholder="发货结束日期" 
+      <DatePicker
+        v-model="endDate"
+        placeholder="发货结束日期"
         :disabled-date="disableEndDate"
         disabled-hint="结束日期不能早于开始日期"
-        class="w-full" 
+        class="w-full"
       />
     </div>
   </div>

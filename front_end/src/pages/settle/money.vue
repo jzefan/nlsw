@@ -3,12 +3,12 @@ import { Banknote, Download, Filter as FilterIcon, List, Undo2 } from 'lucide-vu
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
-import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import { BasicPage } from '@/components/global-layout'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useExport } from '@/composables/use-export'
 import { getMoneyList, updateMoney, updateRealPrice } from '@/services/api/money.api'
 import { getSettleDetail } from '@/services/api/ticket.api'
 
@@ -230,7 +230,7 @@ function isSelected(settle: SettleRecord) {
 }
 
 // 切换显示模式
-function switchDisplayMode(mode: DisplayMode) {
+function _switchDisplayMode(mode: DisplayMode) {
   if (displayMode.value !== mode) {
     displayMode.value = mode
     loadData()
@@ -346,7 +346,7 @@ async function confirmRealPrice() {
   const settle = selectedSettles.value[0]
   const price = Number.parseFloat(realPrice.value)
 
-  if (isNaN(price) || price <= 0) {
+  if (Number.isNaN(price) || price <= 0) {
     toast.error('请输入有效的价格')
     return
   }

@@ -85,6 +85,7 @@ export async function getInvoiceList(params?: {
   limit?: number
   page?: number
   myOnly?: boolean
+  vehType?: '车' | '船'
 }) {
   const response = await axiosInstance.get<{
     ok: boolean

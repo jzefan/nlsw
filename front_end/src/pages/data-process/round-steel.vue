@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, CheckCircle, Download, FileSpreadsheet, Layers, RefreshCcw } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Download, FileSpreadsheet, Layers, RefreshCcw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 

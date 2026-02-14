@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Truck } from 'lucide-vue-next'
+
 import { SYSTEM_NAME } from '@/config/constants'
 </script>
 

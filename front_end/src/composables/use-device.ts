@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 
 const MOBILE_BREAKPOINT = 768
 
@@ -22,6 +22,6 @@ export function useDevice() {
 
   return {
     isMobile,
-    screenWidth
+    screenWidth,
   }
 }

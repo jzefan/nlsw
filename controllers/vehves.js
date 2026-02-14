@@ -5,9 +5,10 @@
 var Vehicle = require('../models/Vehicle');
 var VehVesCost = require('../models/VesselCost');
 var utils = require('./utils');
+const { hasPermission } = require('../shared/permissions');
 
 exports.getVehVesMgt = async function (req, res) {
-  if (req.user.privilege[2] !== '1') {
+  if (!hasPermission(req.user.privilege, 'account')) {
     res.status(404);
     res.render('404');
   }

@@ -45,6 +45,15 @@ const totalImagesCount = computed(() => existingImages.value.length + uploadedFi
 // 有图片时自动勾选且禁用，无图片时允许用户手动勾选
 const isReceiptDisabled = computed(() => totalImagesCount.value > 0)
 
+const formData = ref({
+  chargeCash: '0',
+  chargeOil: '0',
+  unshipDate: '',
+  delayDay: '0',
+  receiptChecked: false,
+  remark: '',
+})
+
 // 监听图片数量变化，自动更新回执勾选状态
 watch(totalImagesCount, (newCount) => {
   if (newCount > 0) {
@@ -55,15 +64,6 @@ watch(totalImagesCount, (newCount) => {
     // 无图片时自动取消勾选
     formData.value.receiptChecked = false
   }
-})
-
-const formData = ref({
-  chargeCash: '0',
-  chargeOil: '0',
-  unshipDate: '',
-  delayDay: '0',
-  receiptChecked: false,
-  remark: '',
 })
 
 const dialogTitle = computed(() => {
@@ -210,7 +210,7 @@ function handleDelayDayInput(event: Event) {
   const target = event.target as HTMLInputElement
   const value = target.value
   const day = Number.parseInt(value)
-  if (isNaN(day) || day <= 0 || !invoiceData.value || !invoiceData.value.ship_date) {
+  if (Number.isNaN(day) || day <= 0 || !invoiceData.value || !invoiceData.value.ship_date) {
     return
   }
 
@@ -376,7 +376,7 @@ async function handleConfirm() {
 // 上传回执图片（支持多图）
 async function uploadReceiptImages(wno: string, files: File[]) {
   const formData = new FormData()
-  files.forEach(file => {
+  files.forEach((file) => {
     formData.append('images', file)
   })
   formData.append('inv_no', wno)
@@ -501,7 +501,7 @@ defineExpose({ open, openBatch })
             :class="[
               isReceiptDisabled
                 ? 'border-muted bg-muted/30 cursor-not-allowed'
-                : 'border-transparent hover:bg-muted/50 hover:border-muted-foreground/20 cursor-pointer'
+                : 'border-transparent hover:bg-muted/50 hover:border-muted-foreground/20 cursor-pointer',
             ]"
           >
             <input
@@ -591,7 +591,7 @@ defineExpose({ open, openBatch })
               <!-- 新上传的图片 -->
               <div
                 v-for="(preview, index) in previewImages"
-                :key="'new-' + index"
+                :key="`new-${index}`"
                 class="relative aspect-square border rounded-lg overflow-hidden group"
               >
                 <img

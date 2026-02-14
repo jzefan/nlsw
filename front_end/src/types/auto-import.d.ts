@@ -76,6 +76,7 @@ declare global {
   const useLink: typeof import('vue-router')['useLink']
   const useModal: typeof import('../composables/use-modal').useModal
   const useModel: typeof import('vue').useModel
+  const usePermissions: typeof import('../composables/use-permissions').usePermissions
   const useRoute: typeof import('vue-router').useRoute
   const useRouter: typeof import('vue-router').useRouter
   const useSidebar: typeof import('../composables/use-sidebar').useSidebar

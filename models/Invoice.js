@@ -81,8 +81,11 @@ var invoiceSchema = new Schema({
   selfOwned: { type: Number, default: 0}, // 0 非自有， 1 自有
   // boss: String, // 承运单位
 
+  veh_type: String, // '车' 或 '船'
+
   remark: String,
-  pay_date: Date   // 付款日期
+  pay_date: Date,   // 付款日期
+  create_date: Date  // 创建日期
 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

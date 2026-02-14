@@ -1,9 +1,13 @@
+// eslint-disable-next-line ts/ban-ts-comment
 // @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
-import type { VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+
 import { h } from 'vue'
-import { Checkbox } from '@/components/ui/checkbox'
+
+import type { VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+
 import DataTableColumnHeader from '@/components/data-table/column-header.vue'
+import { Checkbox } from '@/components/ui/checkbox'
 
 const commonColumns: ColumnDef<VesselFixedCost>[] = [
   {

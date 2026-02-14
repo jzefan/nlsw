@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// eslint-disable-next-line ts/ban-ts-comment
 // @ts-nocheck
 import { Check, ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -8,6 +9,7 @@ import type { InvoiceBill } from '@/services/api/invoice.api'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
+import { usePermissions } from '@/composables/use-permissions'
 import {
   buildShipInvoice,
   getBillsByBillingName,
@@ -23,6 +25,7 @@ import { searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
+const { isAdmin } = usePermissions()
 
 // 状态
 const loading = ref(false)
@@ -30,6 +33,10 @@ const waybillNo = ref('')
 const innerWaybillNoOrder = ref(0)
 const isExistingInvoice = ref(false) // 标记是否为已保存的运单
 const originalConfirmedBills = ref<InvoiceBill[]>([]) // 保存原始的已确认提单，用于检测是否有改动
+// 当前车辆的待确认提单
+const pendingBills = ref<InvoiceBill[]>([])
+// 已确认的提单列表
+const confirmedBills = ref<InvoiceBill[]>([])
 
 // 打开运单对话框相关
 const showInvoiceListDialog = ref(false)
@@ -41,10 +48,7 @@ const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
 
-// 判断是否是管理员
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
+// isAdmin from usePermissions()
 
 // 检查是否有未保存的改动
 const hasUnsavedChanges = computed(() => {
@@ -106,11 +110,6 @@ const currentOrderBills = ref<any[]>([])
 // 当前公司的客户列表
 const shipCustomers = ref<string[]>([])
 
-// 当前车辆的待确认提单
-const pendingBills = ref<InvoiceBill[]>([])
-// 已确认的提单列表
-const confirmedBills = ref<InvoiceBill[]>([])
-
 // 移动端展开的卡片
 const expandedPendingCards = ref<Set<number>>(new Set())
 const expandedConfirmedCards = ref<Set<string>>(new Set())
@@ -126,7 +125,7 @@ function togglePendingCardExpand(index: number) {
   }
 }
 
-function toggleConfirmedCardExpand(key: string) {
+function _toggleConfirmedCardExpand(key: string) {
   if (expandedConfirmedCards.value.has(key)) {
     expandedConfirmedCards.value.delete(key)
   }
@@ -503,20 +502,33 @@ function updateSendNum(index: number, value: number) {
 
   // 定尺时：发运数受剩余量限制
   // 非定尺时：发运数不受限制，只有发运重量受限制
+  let clamped = value
   if (originalBill?.block_num > 0) {
     // 定尺：发运数范围 [0, 最大可用量]
-    if (value > maxNum) {
-      value = maxNum
+    if (clamped > maxNum) {
+      clamped = maxNum
     }
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_num = value
+  // 当 clamp 后的值与当前值相同时，Vue 不会更新 DOM，需要强制刷新
+  if (bill.send_num === clamped && value !== clamped) {
+    bill.send_num = NaN
+    nextTick(() => {
+      bill.send_num = clamped
+      if (originalBill?.block_num > 0) {
+        bill.send_weight = Number((clamped * (originalBill.weight || 0)).toFixed(3))
+      }
+    })
+    return
+  }
+
+  bill.send_num = clamped
   // 定尺时自动计算发运重量
   if (originalBill?.block_num > 0) {
-    bill.send_weight = Number((value * (originalBill.weight || 0)).toFixed(3))
+    bill.send_weight = Number((clamped * (originalBill.weight || 0)).toFixed(3))
   }
 }
 
@@ -528,14 +540,24 @@ function updateSendWeight(index: number, value: number) {
   const maxWeight = getMaxAvailable(bill, index)
 
   // 发运重量范围 [0, 最大可用量]，超过则设为最大可用量
-  if (value > maxWeight) {
-    value = maxWeight
+  let clamped = value
+  if (clamped > maxWeight) {
+    clamped = maxWeight
   }
-  if (value < 0) {
-    value = 0
+  if (clamped < 0) {
+    clamped = 0
   }
 
-  bill.send_weight = value
+  // 当 clamp 后的值与当前值相同时，Vue 不会更新 DOM，需要强制刷新
+  if (bill.send_weight === clamped && value !== clamped) {
+    bill.send_weight = NaN
+    nextTick(() => {
+      bill.send_weight = clamped
+    })
+    return
+  }
+
+  bill.send_weight = clamped
 }
 
 // 确认当前车辆的配发
@@ -799,6 +821,7 @@ async function loadInvoiceList() {
       keyword: invoiceSearchKeyword.value,
       page: invoiceListPage.value,
       limit: invoiceListLimit.value,
+      vehType: '船',
     }
 
     // 只有在勾选时才传递myOnly参数
@@ -859,6 +882,64 @@ async function loadInvoiceDetail(invoice: any) {
       await handleBillingNameChange(inv.ship_name)
 
       // 处理已配发的提单
+      // 先统计每个提单在本运单中的总配发量，用于修正剩余量
+      const billAllocations: Record<string, { sendNum: number, sendWeight: number, billInfo: any }> = {}
+      for (const invBill of inv.bills) {
+        const billInfo = invBill.bill_id
+        if (!billInfo)
+          continue
+        const key = billInfo._id
+        if (!billAllocations[key]) {
+          billAllocations[key] = { sendNum: 0, sendWeight: 0, billInfo }
+        }
+        for (const vehicle of invBill.vehicles || []) {
+          billAllocations[key].sendNum += vehicle.send_num || 0
+          billAllocations[key].sendWeight += vehicle.send_weight || 0
+        }
+      }
+
+      // 修正availableOrdersData中的left_num：加回本运单的配发量
+      for (const [billId, alloc] of Object.entries(billAllocations)) {
+        const { billInfo } = alloc
+        // 定尺按块数加回，乱尺按重量加回
+        const addBack = billInfo.block_num > 0 ? alloc.sendNum : alloc.sendWeight
+        const correctedLeftNum = (billInfo.left_num || 0) + addBack
+
+        let foundInAvailable = false
+        for (const order of availableOrdersData.value) {
+          const existingBill = order.bills?.find((b: any) => b._id === billId)
+          if (existingBill) {
+            existingBill.left_num = correctedLeftNum
+            foundInAvailable = true
+            break
+          }
+        }
+        // 如果提单不在可用列表中（剩余量为0被过滤掉了），需要添加进去
+        if (!foundInAvailable) {
+          const orderNo = billInfo.order_no
+          let orderGroup = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
+          if (!orderGroup) {
+            orderGroup = { order_no: orderNo, bills: [] }
+            availableOrdersData.value.push(orderGroup)
+          }
+          orderGroup.bills.push({
+            _id: billInfo._id,
+            bill_no: billInfo.bill_no,
+            order_item_no: billInfo.order_item_no || '',
+            block_num: billInfo.block_num,
+            weight: billInfo.weight,
+            thickness: billInfo.thickness,
+            width: billInfo.width,
+            len: billInfo.length,
+            ship_warehouse: billInfo.ship_warehouse,
+            contract_no: billInfo.contract_no,
+            brand_no: billInfo.brand_no,
+            total_weight: billInfo.total_weight,
+            left_num: correctedLeftNum,
+          })
+        }
+      }
+
       confirmedBills.value = []
       for (const invBill of inv.bills) {
         const billInfo = invBill.bill_id
@@ -953,7 +1034,6 @@ function formatWeight(weight: number) {
     </template>
 
     <div class="space-y-4">
-
       <!-- 紧凑式输入块 -->
       <div v-if="waybillNo" class="p-2.5 sm:p-3 border rounded-xl bg-muted/30 shadow-sm">
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
@@ -1183,20 +1263,36 @@ function formatWeight(weight: number) {
             <div v-if="expandedPendingCards.has(index)" class="border-t bg-muted/20 px-3 py-2 text-xs">
               <div class="grid grid-cols-4 gap-2">
                 <div class="text-center">
-                  <div class="text-muted-foreground">厚度</div>
-                  <div class="font-medium">{{ bill.thickness }}</div>
+                  <div class="text-muted-foreground">
+                    厚度
+                  </div>
+                  <div class="font-medium">
+                    {{ bill.thickness }}
+                  </div>
                 </div>
                 <div class="text-center">
-                  <div class="text-muted-foreground">宽度</div>
-                  <div class="font-medium">{{ bill.width }}</div>
+                  <div class="text-muted-foreground">
+                    宽度
+                  </div>
+                  <div class="font-medium">
+                    {{ bill.width }}
+                  </div>
                 </div>
                 <div class="text-center">
-                  <div class="text-muted-foreground">长度</div>
-                  <div class="font-medium">{{ bill.len }}</div>
+                  <div class="text-muted-foreground">
+                    长度
+                  </div>
+                  <div class="font-medium">
+                    {{ bill.len }}
+                  </div>
                 </div>
                 <div class="text-center">
-                  <div class="text-muted-foreground">单重</div>
-                  <div class="font-medium">{{ bill.weight?.toFixed(4) }}</div>
+                  <div class="text-muted-foreground">
+                    单重
+                  </div>
+                  <div class="font-medium">
+                    {{ bill.weight?.toFixed(4) }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1346,9 +1442,15 @@ function formatWeight(weight: number) {
             <Plus class="w-6 h-6 text-muted-foreground/60" />
           </div>
           <div>
-            <p class="font-medium text-foreground/70">暂无运单</p>
-            <p class="text-sm mt-1">点击上方「新建运单」开始船运配发</p>
-            <p class="text-xs mt-1 text-muted-foreground/60">船运需要为每批货物指定装卸车辆</p>
+            <p class="font-medium text-foreground/70">
+              暂无运单
+            </p>
+            <p class="text-sm mt-1">
+              点击上方「新建运单」开始船运配发
+            </p>
+            <p class="text-xs mt-1 text-muted-foreground/60">
+              船运需要为每批货物指定装卸车辆
+            </p>
           </div>
         </div>
       </div>

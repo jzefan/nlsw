@@ -272,7 +272,7 @@ export async function searchVehicles(search: string, limit: number) {
     ok: boolean
     data: Array<{ name: string }>
   }>('/vehicles/search', {
-    params: { search, limit },  // 不传 type，搜索所有车船
+    params: { search, limit }, // 不传 type，搜索所有车船
   })
   return response.data
 }

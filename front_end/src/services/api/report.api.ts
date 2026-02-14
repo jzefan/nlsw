@@ -115,5 +115,3 @@ export async function getWaybillDetail(wno: string) {
   })
   return response.data
 }
-
-

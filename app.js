@@ -22,7 +22,6 @@ var flash = require('express-flash');
 var path = require('path');
 var mongoose = require('mongoose');
 var passport = require('passport');
-var expressValidator = require('express-validator');
 var connectAssets = require('connect-assets');
 var routes = require('./routes');
 var routesApi = require('./routes_api');
@@ -80,7 +79,6 @@ app.use(favicon(__dirname + '/public/favicon.ico'));
 app.use(logger('dev'));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
-app.use(expressValidator());
 app.use(methodOverride());
 app.use(cookieParser());
 app.use(session({

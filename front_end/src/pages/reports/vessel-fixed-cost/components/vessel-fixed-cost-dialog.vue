@@ -1,10 +1,15 @@
 <script setup lang="ts">
-// @ts-nocheck
-import { ref, watch, computed } from 'vue'
-import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import * as z from 'zod'
+import { useForm } from 'vee-validate'
+// @ts-nocheck
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import * as z from 'zod'
+
+import type { VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+
+import AsyncCombobox from '@/components/common/AsyncCombobox.vue'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -13,8 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   FormControl,
   FormField,
@@ -22,16 +25,9 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { upsertVesselFixedCost, getVesselFixedCost, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+import { Input } from '@/components/ui/input'
 import { getVehicles } from '@/services/api/data-dict.api'
-import AsyncCombobox from '@/components/common/AsyncCombobox.vue'
+import { getVesselFixedCost, upsertVesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
 
 const props = defineProps<{
   open: boolean
@@ -94,11 +90,12 @@ const calculatedTotal = computed(() => {
   let sum = 0
   if (props.isVehicle) {
     sum += (v.fittings || 0) + (v.repair || 0) + (v.annual_survey || 0) + (v.salary || 0) + (v.oil || 0) + (v.toll || 0) + (v.fine || 0)
-  } else {
+  }
+  else {
     sum += (v.ic || 0) + (v.hc || 0) + (v.pcc || 0) + (v.aux || 0)
   }
   sum += (v.other || 0)
-  return parseFloat(sum.toFixed(2))
+  return Number.parseFloat(sum.toFixed(2))
 })
 
 // Sync calculated total to form
@@ -111,18 +108,30 @@ watch(() => props.open, (newVal) => {
     if (props.editData) {
       isEdit.value = true
       setValues({
-        ...props.editData
+        ...props.editData,
       })
-    } else {
+    }
+    else {
       isEdit.value = false
       resetForm()
       const now = new Date()
       const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-      setValues({ 
-        month: monthStr, 
+      setValues({
+        month: monthStr,
         name: props.isVehicle ? '' : 'chuan',
-        fittings: 0, repair: 0, annual_survey: 0, salary: 0, oil: 0, toll: 0, fine: 0,
-        ic: 0, hc: 0, pcc: 0, aux: 0, other: 0, total: 0
+        fittings: 0,
+        repair: 0,
+        annual_survey: 0,
+        salary: 0,
+        oil: 0,
+        toll: 0,
+        fine: 0,
+        ic: 0,
+        hc: 0,
+        pcc: 0,
+        aux: 0,
+        other: 0,
+        total: 0,
       })
     }
   }
@@ -139,12 +148,14 @@ async function searchVehicles(keyword: string) {
 
 // Check if exists
 async function checkExists(name: string, month: string) {
-  if (isEdit.value && name === props.editData?.name && month === props.editData?.month) return false
-  
+  if (isEdit.value && name === props.editData?.name && month === props.editData?.month)
+    return false
+
   try {
     const res = await getVesselFixedCost(name, month)
     return res.ok && !!res.data
-  } catch (error) {
+  }
+  catch {
     return false
   }
 }
@@ -162,19 +173,21 @@ const onSubmit = handleSubmit(async (values) => {
     const payload = {
       ...values,
       vv_type: props.isVehicle ? 'che' : 'chuan',
-      total: calculatedTotal.value
+      total: calculatedTotal.value,
     }
 
-    // @ts-ignore
+    // @ts-expect-error payload type mismatch with API
     const res = await upsertVesselFixedCost(payload)
     if (res.ok) {
       toast.success(isEdit.value ? '更新成功' : '添加成功')
       emit('update:open', false)
       emit('success')
-    } else {
+    }
+    else {
       toast.error('操作失败')
     }
-  } catch (error: any) {
+  }
+  catch (error: any) {
     toast.error('操作失败', { description: error.message })
   }
 })
@@ -189,8 +202,8 @@ const onSubmit = handleSubmit(async (values) => {
           请输入月份及对应的费用明细。
         </DialogDescription>
       </DialogHeader>
-      
-      <form @submit="onSubmit" class="space-y-4 py-4">
+
+      <form class="space-y-4 py-4" @submit="onSubmit">
         <div class="grid grid-cols-2 gap-4">
           <FormField v-slot="{ componentField }" name="month">
             <FormItem>
@@ -202,16 +215,17 @@ const onSubmit = handleSubmit(async (values) => {
             </FormItem>
           </FormField>
 
+          <!-- eslint-disable-next-line vue/no-unused-vars -->
           <FormField v-if="isVehicle" v-slot="{ componentField }" name="name">
             <FormItem>
               <FormLabel>车船名</FormLabel>
               <FormControl>
                 <AsyncCombobox
                   :model-value="values.name"
-                  @update:model-value="setValues({ name: $event })"
                   :search-fn="searchVehicles"
                   placeholder="选择车船"
                   :disabled="isEdit"
+                  @update:model-value="setValues({ name: $event })"
                 />
               </FormControl>
               <FormMessage />
@@ -314,7 +328,9 @@ const onSubmit = handleSubmit(async (values) => {
           <Button type="button" variant="secondary" @click="$emit('update:open', false)">
             取消
           </Button>
-          <Button type="submit">确定</Button>
+          <Button type="submit">
+            确定
+          </Button>
         </DialogFooter>
       </form>
     </DialogContent>

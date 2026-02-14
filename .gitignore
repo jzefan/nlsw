@@ -1,15 +1,9 @@
 
 *.log
 node_modules/
-data/
+/data/
 log/
 *.bak
-
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
 dist/
 build/
@@ -23,4 +17,7 @@ uploads/
 # RSA keys - NEVER commit
 keys/
 *.pem
+
+.env
+.env.local
 

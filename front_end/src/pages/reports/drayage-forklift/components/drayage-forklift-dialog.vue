@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import * as z from 'zod'
+import { useForm } from 'vee-validate'
+import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import * as z from 'zod'
+
+import type { DrayageForklift } from '@/services/api/financial.api'
+
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -12,8 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   FormControl,
   FormField,
@@ -21,7 +23,8 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { upsertDrayageForklift, getDrayageForkliftByMonth, type DrayageForklift } from '@/services/api/financial.api'
+import { Input } from '@/components/ui/input'
+import { getDrayageForkliftByMonth, upsertDrayageForklift } from '@/services/api/financial.api'
 
 const props = defineProps<{
   open: boolean
@@ -59,7 +62,8 @@ watch(() => props.open, (newVal) => {
         drayage: props.editData.drayage,
         forklift: props.editData.forklift,
       })
-    } else {
+    }
+    else {
       isEdit.value = false
       resetForm()
       // Default to current month
@@ -72,12 +76,14 @@ watch(() => props.open, (newVal) => {
 
 // Check if month exists when adding
 async function checkMonthExists(month: string) {
-  if (isEdit.value && month === props.editData?.month) return false
-  
+  if (isEdit.value && month === props.editData?.month)
+    return false
+
   try {
     const res = await getDrayageForkliftByMonth(month)
     return res.ok && !!res.data
-  } catch (error) {
+  }
+  catch {
     return false
   }
 }
@@ -97,10 +103,12 @@ const onSubmit = handleSubmit(async (values) => {
       toast.success(isEdit.value ? '更新成功' : '添加成功')
       emit('update:open', false)
       emit('success')
-    } else {
+    }
+    else {
       toast.error('操作失败')
     }
-  } catch (error: any) {
+  }
+  catch (error: any) {
     toast.error('操作失败', { description: error.message })
   }
 })
@@ -115,8 +123,8 @@ const onSubmit = handleSubmit(async (values) => {
           请输入月份及对应的应收款金额。
         </DialogDescription>
       </DialogHeader>
-      
-      <form @submit="onSubmit" class="space-y-4 py-4">
+
+      <form class="space-y-4 py-4" @submit="onSubmit">
         <FormField v-slot="{ componentField }" name="month">
           <FormItem>
             <FormLabel>月份</FormLabel>
@@ -151,7 +159,9 @@ const onSubmit = handleSubmit(async (values) => {
           <Button type="button" variant="secondary" @click="$emit('update:open', false)">
             取消
           </Button>
-          <Button type="submit">确定</Button>
+          <Button type="submit">
+            确定
+          </Button>
         </DialogFooter>
       </form>
     </DialogContent>

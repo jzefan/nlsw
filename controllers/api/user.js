@@ -1,5 +1,6 @@
 const User = require('../../models/User');
 const { getPublicKey } = require('../../utils/crypto');
+const { isAdmin } = require('../../shared/permissions');
 
 // 获取 RSA 公钥 (用于密码加密传输)
 exports.getPublicKey = (req, res) => {
@@ -64,7 +65,7 @@ exports.getUsers = async (req, res) => {
 // 获取用户管理列表 (需要管理员权限)
 exports.getUserMgr = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!req.user || !isAdmin(req.user.privilege)) {
       return res.status(403).json({ ok: false, message: '无权限访问' });
     }
 
@@ -87,7 +88,7 @@ exports.getUserMgr = async (req, res) => {
 // 用户管理操作 (添加/修改/删除)
 exports.postUserMgr = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!req.user || !isAdmin(req.user.privilege)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
 
@@ -151,7 +152,7 @@ exports.postUserMgr = async (req, res) => {
 // 重置密码
 exports.resetPassword = async (req, res) => {
   try {
-    if (!req.user || req.user.privilege !== '11111111') {
+    if (!req.user || !isAdmin(req.user.privilege)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
 

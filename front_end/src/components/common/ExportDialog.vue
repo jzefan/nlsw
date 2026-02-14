@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Download, FileSpreadsheet, FolderOpen } from 'lucide-vue-next'
-import { ref, watch } from 'vue'
+import { Download, FileSpreadsheet } from 'lucide-vue-next'
+import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import * as XLSX from 'xlsx'
 
@@ -33,7 +33,7 @@ export interface ExportOptions {
   data: any[]
 }
 
-const props = defineProps<{
+const _props = defineProps<{
   open: boolean
 }>()
 

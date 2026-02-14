@@ -1,15 +1,13 @@
 <script lang="ts" setup>
-import { ref, onMounted, watch, computed } from 'vue'
-import { toast } from 'vue-sonner'
-import { Calendar, Download } from 'lucide-vue-next'
 import ExcelJS from 'exceljs'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Calendar, Download } from 'lucide-vue-next'
+import { onMounted, ref, watch } from 'vue'
+import { toast } from 'vue-sonner'
+
+import type { BillingNameStats, DashboardStats, InvoiceDetail, VehicleData } from '@/services/api/statistics.api'
+
+import ExportDialog from '@/components/export-dialog.vue'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +17,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -26,13 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { getDashboardStatistics, getDashboardInvoiceDetails, getDashboardBillingNamesStats, type DashboardStats, type VehicleData, type InvoiceDetail, type BillingNameStats } from '@/services/api/statistics.api'
-import ExportDialog from '@/components/export-dialog.vue'
+import { getDashboardBillingNamesStats, getDashboardInvoiceDetails, getDashboardStatistics } from '@/services/api/statistics.api'
 
+import AllVehiclesTable from './all-vehicles-table.vue'
 import OverviewChart from './overview-chart.vue'
 import TopList from './top-list.vue'
-import AllVehiclesTable from './all-vehicles-table.vue'
 
 const now = new Date()
 const currentYear = now.getFullYear()
@@ -60,7 +63,7 @@ const stats = ref<DashboardStats>({
   outsourcedVehicleCount: 0,
   outsourcedVehicleTonnage: 0,
   truckTonnage: 0,
-  vesselTonnage: 0
+  vesselTonnage: 0,
 })
 
 async function loadData() {
@@ -74,13 +77,16 @@ async function loadData() {
     const res = await getDashboardStatistics(startDate.value, endDate.value)
     if (res.ok) {
       stats.value = res.data
-    } else {
+    }
+    else {
       toast.error('获取统计数据失败')
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     toast.error('获取统计数据出错')
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -121,29 +127,29 @@ const exportType = ref<'vehicle' | 'billingName' | 'invoice'>('vehicle')
 
 // 车辆下钻函数
 function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
-  console.log('drillDownVehicle called with type:', type)
-  console.log('stats.allVehicles:', stats.value.allVehicles)
+  console.warn('drillDownVehicle called with type:', type)
+  console.warn('stats.allVehicles:', stats.value.allVehicles)
 
   const titles = {
     own: '自有车辆明细',
     outsourced: '外挂车辆明细',
     truck: '车运明细',
-    vessel: '船运明细'
+    vessel: '船运明细',
   }
 
   const filters = {
     own: (v: VehicleData) => v.veh_category === '自有',
     outsourced: (v: VehicleData) => v.veh_category === '外挂',
     truck: (v: VehicleData) => v.veh_type === '车',
-    vessel: (v: VehicleData) => v.veh_type === '船'
+    vessel: (v: VehicleData) => v.veh_type === '船',
   }
 
   vehicleDrillDownTitle.value = titles[type]
   vehicleDrillDownData.value = stats.value.allVehicles.filter(filters[type])
-  console.log('Filtered data:', vehicleDrillDownData.value)
+  console.warn('Filtered data:', vehicleDrillDownData.value)
   exportType.value = 'vehicle'
   showVehicleDrillDownDialog.value = true
-  console.log('Dialog should open now')
+  console.warn('Dialog should open now')
 }
 
 // 运单明细下钻函数
@@ -156,13 +162,16 @@ async function drillDownInvoices() {
     const res = await getDashboardInvoiceDetails(startDate.value, endDate.value)
     if (res.ok) {
       invoiceData.value = res.data
-    } else {
+    }
+    else {
       toast.error('获取运单明细失败')
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     toast.error('获取运单明细出错')
-  } finally {
+  }
+  finally {
     invoiceLoading.value = false
   }
 }
@@ -177,13 +186,16 @@ async function drillDownBillingNames() {
     const res = await getDashboardBillingNamesStats(startDate.value, endDate.value)
     if (res.ok) {
       billingNameData.value = res.data
-    } else {
+    }
+    else {
       toast.error('获取开单名称统计失败')
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     toast.error('获取开单名称统计出错')
-  } finally {
+  }
+  finally {
     billingNameLoading.value = false
   }
 }
@@ -192,16 +204,18 @@ async function drillDownBillingNames() {
 function openExport() {
   if (exportType.value === 'vehicle') {
     const typeMap: Record<string, string> = {
-      '自有车辆明细': '自有车辆',
-      '外挂车辆明细': '外挂车辆',
-      '车运明细': '车运',
-      '船运明细': '船运'
+      自有车辆明细: '自有车辆',
+      外挂车辆明细: '外挂车辆',
+      车运明细: '车运',
+      船运明细: '船运',
     }
     const baseName = typeMap[vehicleDrillDownTitle.value] || '车辆'
     exportFileName.value = `${baseName}_${new Date().toISOString().slice(0, 10)}`
-  } else if (exportType.value === 'invoice') {
+  }
+  else if (exportType.value === 'invoice') {
     exportFileName.value = `运单明细_${new Date().toISOString().slice(0, 10)}`
-  } else if (exportType.value === 'billingName') {
+  }
+  else if (exportType.value === 'billingName') {
     exportFileName.value = `开单名称统计_${new Date().toISOString().slice(0, 10)}`
   }
   showExportDialog.value = true
@@ -218,7 +232,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         { header: '车船号', key: 'name', width: 20 },
         { header: '配发吨数', key: 'value', width: 15 },
         { header: '车辆类型', key: 'veh_type', width: 12 },
-        { header: '所有权', key: 'veh_category', width: 12 }
+        { header: '所有权', key: 'veh_category', width: 12 },
       ]
 
       const headerRow = sheet.getRow(1)
@@ -226,25 +240,26 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFE5E7EB' }
+        fgColor: { argb: 'FFE5E7EB' },
       }
 
-      vehicleDrillDownData.value.forEach(item => {
+      vehicleDrillDownData.value.forEach((item) => {
         sheet.addRow({
           name: item.name,
           value: item.value,
           veh_type: item.veh_type || '-',
-          veh_category: item.veh_category || '-'
+          veh_category: item.veh_category || '-',
         })
       })
-    } else if (exportType.value === 'invoice') {
+    }
+    else if (exportType.value === 'invoice') {
       // 运单明细导出
       sheet.columns = [
         { header: '运单号', key: 'waybill_no', width: 18 },
         { header: '车船', key: 'vehicle', width: 15 },
         { header: '开单名称', key: 'billingName', width: 20 },
         { header: '配发时间', key: 'shipDate', width: 15 },
-        { header: '配发吨数', key: 'tonnage', width: 12 }
+        { header: '配发吨数', key: 'tonnage', width: 12 },
       ]
 
       const headerRow = sheet.getRow(1)
@@ -252,19 +267,20 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFE5E7EB' }
+        fgColor: { argb: 'FFE5E7EB' },
       }
 
-      invoiceData.value.forEach(item => {
+      invoiceData.value.forEach((item) => {
         sheet.addRow({
           waybill_no: item.waybill_no,
           vehicle: item.vehicle,
           billingName: item.billingName,
           shipDate: new Date(item.shipDate).toLocaleDateString('zh-CN'),
-          tonnage: item.tonnage
+          tonnage: item.tonnage,
         })
       })
-    } else if (exportType.value === 'billingName') {
+    }
+    else if (exportType.value === 'billingName') {
       // 开单名称导出
       sheet.columns = [
         { header: '开单名称', key: 'name', width: 25 },
@@ -273,7 +289,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         { header: '开票吨数', key: 'invoicedWeight', width: 12 },
         { header: '开票金额', key: 'invoicedAmount', width: 15 },
         { header: '回款吨数', key: 'paidWeight', width: 12 },
-        { header: '回款金额', key: 'paidAmount', width: 15 }
+        { header: '回款金额', key: 'paidAmount', width: 15 },
       ]
 
       const headerRow = sheet.getRow(1)
@@ -281,10 +297,10 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFE5E7EB' }
+        fgColor: { argb: 'FFE5E7EB' },
       }
 
-      billingNameData.value.forEach(item => {
+      billingNameData.value.forEach((item) => {
         sheet.addRow({
           name: item.name,
           settledWeight: item.settledWeight,
@@ -292,7 +308,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           invoicedWeight: item.invoicedWeight,
           invoicedAmount: item.invoicedAmount,
           paidWeight: item.paidWeight,
-          paidAmount: item.paidAmount
+          paidAmount: item.paidAmount,
         })
       })
     }
@@ -304,7 +320,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           top: { style: 'thin' },
           left: { style: 'thin' },
           bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          right: { style: 'thin' },
         }
       })
     })
@@ -312,7 +328,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
     // 生成文件
     const buffer = await workbook.xlsx.writeBuffer()
     const blob = new Blob([buffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })
 
     if (directoryHandle) {
@@ -321,7 +337,8 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       await writable.write(blob)
       await writable.close()
       toast.success('导出成功')
-    } else {
+    }
+    else {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -330,7 +347,8 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       URL.revokeObjectURL(url)
       toast.success('导出成功')
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error('导出失败:', error)
     toast.error('导出失败')
   }
@@ -342,8 +360,12 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
     <!-- Header with Year Selector -->
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-xl font-bold tracking-tight">数据概览</h2>
-        <p class="text-muted-foreground text-sm mt-1">实时监控配发、开票及回款数据</p>
+        <h2 class="text-xl font-bold tracking-tight">
+          数据概览
+        </h2>
+        <p class="text-muted-foreground text-sm mt-1">
+          实时监控配发、开票及回款数据
+        </p>
       </div>
       <div class="flex items-center space-x-2">
         <Select v-model="selectedYear">
@@ -369,7 +391,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           </UiCardTitle>
           <div class="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-blue-600">
-              <path d="M12 12v10M7 3l5 7 5-7M7 10h10M7 14h10"/>
+              <path d="M12 12v10M7 3l5 7 5-7M7 10h10M7 14h10" />
             </svg>
           </div>
         </UiCardHeader>
@@ -466,9 +488,9 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       <!-- Monthly Trend -->
       <div class="col-span-1 lg:col-span-4 h-[500px]">
         <OverviewChart
+          v-model:start-date="startDate"
+          v-model:end-date="endDate"
           :data="stats.monthlyTrend"
-          v-model:startDate="startDate"
-          v-model:endDate="endDate"
         />
       </div>
 
@@ -502,15 +524,21 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>车船号</TableHead>
-                <TableHead class="text-right">配发吨数</TableHead>
+                <TableHead class="text-right">
+                  配发吨数
+                </TableHead>
                 <TableHead>车辆类型</TableHead>
                 <TableHead>所有权</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="item in vehicleDrillDownData" :key="item.name">
-                <TableCell class="font-medium">{{ item.name }}</TableCell>
-                <TableCell class="text-right">{{ item.value.toLocaleString() }}</TableCell>
+                <TableCell class="font-medium">
+                  {{ item.name }}
+                </TableCell>
+                <TableCell class="text-right">
+                  {{ item.value.toLocaleString() }}
+                </TableCell>
                 <TableCell>{{ item.veh_type || '-' }}</TableCell>
                 <TableCell>{{ item.veh_category || '-' }}</TableCell>
               </TableRow>
@@ -523,7 +551,9 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
             <Download class="w-4 h-4 mr-2" />
             导出
           </Button>
-          <Button @click="showVehicleDrillDownDialog = false">关闭</Button>
+          <Button @click="showVehicleDrillDownDialog = false">
+            关闭
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -539,7 +569,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </DialogHeader>
 
         <div v-if="invoiceLoading" class="flex-1 flex items-center justify-center">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
 
         <div v-else class="flex-1 overflow-auto border rounded-md">
@@ -550,27 +580,35 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
                 <TableHead>车船</TableHead>
                 <TableHead>开单名称</TableHead>
                 <TableHead>配发时间</TableHead>
-                <TableHead class="text-right">配发吨数</TableHead>
+                <TableHead class="text-right">
+                  配发吨数
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="item in invoiceData" :key="item.waybill_no">
-                <TableCell class="font-medium">{{ item.waybill_no }}</TableCell>
+                <TableCell class="font-medium">
+                  {{ item.waybill_no }}
+                </TableCell>
                 <TableCell>{{ item.vehicle }}</TableCell>
                 <TableCell>{{ item.billingName }}</TableCell>
                 <TableCell>{{ new Date(item.shipDate).toLocaleDateString('zh-CN') }}</TableCell>
-                <TableCell class="text-right">{{ item.tonnage.toLocaleString() }}</TableCell>
+                <TableCell class="text-right">
+                  {{ item.tonnage.toLocaleString() }}
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="openExport" :disabled="invoiceLoading">
+          <Button variant="outline" :disabled="invoiceLoading" @click="openExport">
             <Download class="w-4 h-4 mr-2" />
             导出
           </Button>
-          <Button @click="showInvoiceDialog = false">关闭</Button>
+          <Button @click="showInvoiceDialog = false">
+            关闭
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -586,7 +624,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </DialogHeader>
 
         <div v-if="billingNameLoading" class="flex-1 flex items-center justify-center">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
 
         <div v-else class="flex-1 overflow-auto border rounded-md">
@@ -594,34 +632,62 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>开单名称</TableHead>
-                <TableHead class="text-right">结算吨数</TableHead>
-                <TableHead class="text-right">结算金额</TableHead>
-                <TableHead class="text-right">开票吨数</TableHead>
-                <TableHead class="text-right">开票金额</TableHead>
-                <TableHead class="text-right">回款吨数</TableHead>
-                <TableHead class="text-right">回款金额</TableHead>
+                <TableHead class="text-right">
+                  结算吨数
+                </TableHead>
+                <TableHead class="text-right">
+                  结算金额
+                </TableHead>
+                <TableHead class="text-right">
+                  开票吨数
+                </TableHead>
+                <TableHead class="text-right">
+                  开票金额
+                </TableHead>
+                <TableHead class="text-right">
+                  回款吨数
+                </TableHead>
+                <TableHead class="text-right">
+                  回款金额
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="item in billingNameData" :key="item.name">
-                <TableCell class="font-medium">{{ item.name }}</TableCell>
-                <TableCell class="text-right">{{ item.settledWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.settledAmount.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">{{ item.invoicedWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.invoicedAmount.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">{{ item.paidWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.paidAmount.toLocaleString() }}</TableCell>
+                <TableCell class="font-medium">
+                  {{ item.name }}
+                </TableCell>
+                <TableCell class="text-right">
+                  {{ item.settledWeight.toLocaleString() }}
+                </TableCell>
+                <TableCell class="text-right">
+                  ¥{{ item.settledAmount.toLocaleString() }}
+                </TableCell>
+                <TableCell class="text-right">
+                  {{ item.invoicedWeight.toLocaleString() }}
+                </TableCell>
+                <TableCell class="text-right">
+                  ¥{{ item.invoicedAmount.toLocaleString() }}
+                </TableCell>
+                <TableCell class="text-right">
+                  {{ item.paidWeight.toLocaleString() }}
+                </TableCell>
+                <TableCell class="text-right">
+                  ¥{{ item.paidAmount.toLocaleString() }}
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="openExport" :disabled="billingNameLoading">
+          <Button variant="outline" :disabled="billingNameLoading" @click="openExport">
             <Download class="w-4 h-4 mr-2" />
             导出
           </Button>
-          <Button @click="showBillingNameDialog = false">关闭</Button>
+          <Button @click="showBillingNameDialog = false">
+            关闭
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

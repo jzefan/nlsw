@@ -195,7 +195,7 @@ function formatNumber(num: number | string | undefined): string {
   if (num === null || num === undefined || num === '')
     return '0.000'
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
+  return Number.isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 function formatDate(date: any): string {

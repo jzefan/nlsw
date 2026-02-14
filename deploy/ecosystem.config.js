@@ -14,7 +14,6 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 1080,
-        MONGODB: 'mongodb://localhost:27027/test',
       },
       error_file: '/home/ubuntu/nlsw2/logs/backend-error.log',
       out_file: '/home/ubuntu/nlsw2/logs/backend-out.log',

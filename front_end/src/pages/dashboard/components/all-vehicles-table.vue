@@ -1,5 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -8,21 +24,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 interface VehicleData {
   name: string
@@ -81,8 +82,8 @@ function prevPage() {
       <CardTitle class="flex items-center gap-2">
         <div class="h-8 w-8 rounded-full bg-cyan-100 dark:bg-cyan-900/30 flex items-center justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-cyan-600">
-            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.5 2.8C1.4 11.3 1 12.1 1 13v3c0 .6.4 1 1 1h2"/>
-            <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.5 2.8C1.4 11.3 1 12.1 1 13v3c0 .6.4 1 1 1h2" />
+            <circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" />
           </svg>
         </div>
         所有车船配发吨数
@@ -93,9 +94,15 @@ function prevPage() {
             <SelectValue placeholder="全部" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部</SelectItem>
-            <SelectItem value="车">车</SelectItem>
-            <SelectItem value="船">船</SelectItem>
+            <SelectItem value="all">
+              全部
+            </SelectItem>
+            <SelectItem value="车">
+              车
+            </SelectItem>
+            <SelectItem value="船">
+              船
+            </SelectItem>
           </SelectContent>
         </Select>
         <div class="flex items-center space-x-2 bg-white dark:bg-slate-900 rounded-lg p-1 shadow-sm">
@@ -128,9 +135,15 @@ function prevPage() {
         <Table>
           <TableHeader class="sticky top-0 bg-gradient-to-r from-cyan-50 to-white dark:from-cyan-950/20 dark:to-background z-10">
             <TableRow class="border-b-2 border-cyan-200 dark:border-cyan-800">
-              <TableHead class="font-semibold">车船名称</TableHead>
-              <TableHead class="text-right font-semibold">配发吨数</TableHead>
-              <TableHead class="font-semibold">类型</TableHead>
+              <TableHead class="font-semibold">
+                车船名称
+              </TableHead>
+              <TableHead class="text-right font-semibold">
+                配发吨数
+              </TableHead>
+              <TableHead class="font-semibold">
+                类型
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -139,14 +152,18 @@ function prevPage() {
               :key="index"
               class="hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 transition-colors"
             >
-              <TableCell class="font-medium">{{ item.name }}</TableCell>
-              <TableCell class="text-right tabular-nums">{{ item.value.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 }) }} 吨</TableCell>
+              <TableCell class="font-medium">
+                {{ item.name }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ item.value.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 }) }} 吨
+              </TableCell>
               <TableCell>
                 <span
                   class="px-2 py-0.5 rounded-full text-xs font-medium"
-                  :class="item.veh_type === '车' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                          item.veh_type === '船' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
-                          'bg-gray-100 text-gray-600'"
+                  :class="item.veh_type === '车' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    : item.veh_type === '船' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                      : 'bg-gray-100 text-gray-600'"
                 >
                   {{ item.veh_type || '-' }}
                 </span>

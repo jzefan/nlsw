@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.nuxt
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+.env
+.env.*
+.DS_Store
+*.log
+logs/
+coverage/
+.idea/
+.vscode/

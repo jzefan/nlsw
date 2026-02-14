@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// eslint-disable-next-line ts/ban-ts-comment
 // @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 
@@ -6,22 +7,24 @@ import { Download, FileSpreadsheet, RefreshCcw, Search, X } from 'lucide-vue-nex
 import { storeToRefs } from 'pinia'
 import { computed, h, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import type { IntegratedQueryBill } from '@/services/api/report.api'
 
-import { useDevice } from '@/composables/use-device'
-import IntegratedMobile from './components/IntegratedMobile.vue'
-import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import type { IntegratedQueryBill } from '@/services/api/report.api'
 
 import DataTable from '@/components/data-table/data-table.vue'
 import { generateVueTable } from '@/components/data-table/use-generate-vue-table'
+import ExportDialog from '@/components/export-dialog.vue'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Badge } from '@/components/ui/badge'
 import { DatePicker } from '@/components/ui/date-picker'
+import { useDevice } from '@/composables/use-device'
+import { useExport } from '@/composables/use-export'
+import { isAdmin as checkAdmin } from '@/lib/permissions'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
 import { getIntegratedQuery } from '@/services/api/report.api'
 import { useAuthStore } from '@/stores/auth'
+
+import IntegratedMobile from './components/IntegratedMobile.vue'
 
 const authStore = useAuthStore()
 const { user } = storeToRefs(authStore)
@@ -143,7 +146,7 @@ async function handleQuery(resetPage = true) {
 }
 
 // Data Processing Helpers
-function getStrByStatus(status: string, defaultVal: string) {
+function _getStrByStatus(status: string, defaultVal: string) {
   return status || defaultVal
 }
 
@@ -258,7 +261,7 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
   ]
 
   // Privilege Check for Price Columns
-  if (user.value?.privilege === '11111111') {
+  if (checkAdmin(user.value?.privilege)) {
     cols.push(
       { header: '客户单价', accessorKey: 'price' },
       { header: '南钢单价', accessorKey: 'collection_price' },
@@ -378,7 +381,7 @@ async function handleExport() {
         row.push('')
         row.push(0)
         row.push(w)
-        if (user.value?.privilege === '11111111') {
+        if (checkAdmin(user.value?.privilege)) {
           row.push(getStrValue(bill.price))
           row.push(getStrValue(bill.collection_price))
           row.push(getStrValue(bill.veh_ves_price))
@@ -397,7 +400,7 @@ async function handleExport() {
         row.push(bill.ship_to)
         row.push(bill.send_num)
         row.push(bill.send_weight)
-        if (user.value?.privilege === '11111111') {
+        if (checkAdmin(user.value?.privilege)) {
           row.push(getStrValue(bill.price))
           row.push(getStrValue(bill.collection_price))
           row.push(getStrValue(bill.veh_ves_price))
@@ -604,7 +607,7 @@ function updateShowDestForVessel(val: boolean) {
 }
 
 // 权限检查
-const hasPrivilege = computed(() => user.value?.privilege === '11111111')
+const hasPrivilege = computed(() => checkAdmin(user.value?.privilege))
 
 // Watchers for "Show Not Sent"
 watch(showNotSent, (val) => {

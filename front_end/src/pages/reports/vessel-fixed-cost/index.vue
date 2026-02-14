@@ -1,25 +1,14 @@
 <script setup lang="ts">
+import { Edit, FileDown, Plus, Search, Trash2 } from 'lucide-vue-next'
 // @ts-nocheck
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Edit, FileDown, Plus, Search, Trash2 } from 'lucide-vue-next'
 
-import { BasicPage } from '@/components/global-layout'
+import type { VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
+
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { BasicPage } from '@/components/global-layout'
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,11 +19,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import SearchableCombobox from '@/components/searchable-combobox.vue'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useExport } from '@/composables/use-export'
+import { getVehicles } from '@/services/api/data-dict.api'
+import { deleteVesselFixedCost, getVesselFixedCosts } from '@/services/api/vessel-fixed-cost.api'
 
 import VesselFixedCostDialog from './components/vessel-fixed-cost-dialog.vue'
-import { deleteVesselFixedCost, getVesselFixedCosts, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
-import { getVehicles } from '@/services/api/data-dict.api'
 
 const data = ref<VesselFixedCost[]>([])
 const loading = ref(false)
@@ -283,17 +285,39 @@ onMounted(() => {
                   @update:checked="toggleSelectAll"
                 />
               </TableHead>
-              <TableHead class="whitespace-nowrap">月份</TableHead>
-              <TableHead class="whitespace-nowrap">车号</TableHead>
-              <TableHead class="text-right whitespace-nowrap">配件</TableHead>
-              <TableHead class="text-right whitespace-nowrap">修理费</TableHead>
-              <TableHead class="text-right whitespace-nowrap">年检二维费用</TableHead>
-              <TableHead class="text-right whitespace-nowrap">驾驶员工资</TableHead>
-              <TableHead class="text-right whitespace-nowrap">油费</TableHead>
-              <TableHead class="text-right whitespace-nowrap">过路费</TableHead>
-              <TableHead class="text-right whitespace-nowrap">罚款</TableHead>
-              <TableHead class="text-right whitespace-nowrap">其它</TableHead>
-              <TableHead class="text-right whitespace-nowrap">合计</TableHead>
+              <TableHead class="whitespace-nowrap">
+                月份
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                车号
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                配件
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                修理费
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                年检二维费用
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                驾驶员工资
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                油费
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                过路费
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                罚款
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                其它
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                合计
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -308,8 +332,8 @@ onMounted(() => {
               </TableCell>
             </TableRow>
             <TableRow
-              v-else
               v-for="row in data"
+              v-else
               :key="`${row.name}-${row.month}`"
               class="cursor-pointer"
               :class="{ 'bg-muted/50': isSelected(row) }"
@@ -321,17 +345,37 @@ onMounted(() => {
                   @update:checked="toggleSelect(row)"
                 />
               </TableCell>
-              <TableCell class="font-medium">{{ row.month }}</TableCell>
+              <TableCell class="font-medium">
+                {{ row.month }}
+              </TableCell>
               <TableCell>{{ row.name }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.fittings) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.repair) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.annual_survey) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.salary) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.oil) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.toll) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.fine) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
-              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.fittings) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.repair) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.annual_survey) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.salary) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.oil) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.toll) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.fine) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.other) }}
+              </TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">
+                {{ formatNumber(row.total) }}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -346,13 +390,27 @@ onMounted(() => {
                   @update:checked="toggleSelectAll"
                 />
               </TableHead>
-              <TableHead class="whitespace-nowrap">月份</TableHead>
-              <TableHead class="text-right whitespace-nowrap">保险费用</TableHead>
-              <TableHead class="text-right whitespace-nowrap">吊装费用</TableHead>
-              <TableHead class="text-right whitespace-nowrap">港口建设费</TableHead>
-              <TableHead class="text-right whitespace-nowrap">辅料</TableHead>
-              <TableHead class="text-right whitespace-nowrap">其它</TableHead>
-              <TableHead class="text-right whitespace-nowrap">合计</TableHead>
+              <TableHead class="whitespace-nowrap">
+                月份
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                保险费用
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                吊装费用
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                港口建设费
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                辅料
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                其它
+              </TableHead>
+              <TableHead class="text-right whitespace-nowrap">
+                合计
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -367,8 +425,8 @@ onMounted(() => {
               </TableCell>
             </TableRow>
             <TableRow
-              v-else
               v-for="row in data"
+              v-else
               :key="`${row.name}-${row.month}`"
               class="cursor-pointer"
               :class="{ 'bg-muted/50': isSelected(row) }"
@@ -380,13 +438,27 @@ onMounted(() => {
                   @update:checked="toggleSelect(row)"
                 />
               </TableCell>
-              <TableCell class="font-medium">{{ row.month }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.ic) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.hc) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.pcc) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.aux) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
-              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+              <TableCell class="font-medium">
+                {{ row.month }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.ic) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.hc) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.pcc) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.aux) }}
+              </TableCell>
+              <TableCell class="text-right font-mono">
+                {{ formatNumber(row.other) }}
+              </TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">
+                {{ formatNumber(row.total) }}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>

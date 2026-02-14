@@ -1,14 +1,31 @@
 <script setup lang="ts">
+import ExcelJS from 'exceljs'
 // @ts-nocheck
 import { Download, Printer, Search } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import ExcelJS from 'exceljs'
+
+import type { Invoice } from '@/services/api/invoice.api'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/ui/date-picker'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import {
   Table,
@@ -18,37 +35,23 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { DatePicker } from '@/components/ui/date-picker'
+import { usePermissions } from '@/composables/use-permissions'
+import { COMPANY_FULL_NAME } from '@/config/constants'
+import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
 import {
   getInvoiceDetail,
   getInvoiceList,
   getInvoices,
-  type Invoice,
-} from '@/services/api/invoice.api'
-import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
-import { useAuthStore } from '@/stores/auth'
-import { COMPANY_FULL_NAME } from '@/config/constants'
 
-const authStore = useAuthStore()
+} from '@/services/api/invoice.api'
+import { useAuthStore } from '@/stores/auth'
+
+const _authStore = useAuthStore()
+const { isAdmin: _isAdmin } = usePermissions()
 
 // State
 const loading = ref(false)
-const searchKeyword = ref('')
+const _searchKeyword = ref('')
 const selectedWaybillNo = ref('')
 const myWaybills = ref(false)
 const invoiceDetail = ref<any>(null)
@@ -67,9 +70,6 @@ const advForm = ref({
 })
 
 // Computed
-const isAdmin = computed(() => {
-  return authStore.user?.privilege === 'admin' || authStore.user?.privilege === '11111111'
-})
 
 // Search function for the combobox
 async function searchInvoices(keyword: string, limit: number, page: number) {
@@ -122,7 +122,8 @@ async function searchVehicles(keyword: string, limit: number, page: number) {
       }
     }
     return { ok: false, data: [], total: 0 }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     return { ok: false, data: [], total: 0 }
   }
@@ -147,7 +148,8 @@ async function searchShipNames(keyword: string, limit: number, page: number) {
       }
     }
     return { ok: false, data: [], total: 0 }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
     return { ok: false, data: [], total: 0 }
   }
@@ -193,7 +195,7 @@ async function handleAdvancedSearch() {
 
     // Fix: The API might return 'data' instead of 'invoices'
     const invoices = (result as any).data || result.invoices || []
-    
+
     if (result.ok) {
       advResults.value = invoices
       if (invoices.length === 0) {
@@ -296,6 +298,29 @@ function getOrderDisplay(bill: any) {
   }
   return bill.order_no
 }
+
+const calculateTotals = computed(() => {
+  if (!invoiceDetail.value?.bills)
+    return { totalNum: 0, totalWeight: 0 }
+
+  let totalNum = 0
+  let totalWeight = 0
+
+  invoiceDetail.value.bills.forEach((bill: any) => {
+    if (bill.vehicles?.length > 0) {
+      bill.vehicles.forEach((veh: any) => {
+        totalNum += veh.send_num || 0
+        totalWeight += veh.send_weight || 0
+      })
+    }
+    else {
+      totalNum += bill.num || 0
+      totalWeight += bill.weight || 0
+    }
+  })
+
+  return { totalNum, totalWeight }
+})
 
 // Print
 function handlePrint() {
@@ -459,23 +484,23 @@ async function handleExport() {
     top: { style: 'thin' },
     left: { style: 'thin' },
     bottom: { style: 'thin' },
-    right: { style: 'thin' }
+    right: { style: 'thin' },
   }
 
   const headerFill: ExcelJS.Fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FFE5E7EB' }
+    fgColor: { argb: 'FFE5E7EB' },
   }
 
   const labelFill: ExcelJS.Fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FFF3F4F6' }
+    fgColor: { argb: 'FFF3F4F6' },
   }
 
   // 用于记录每列的最大宽度
-  const columnWidths: number[] = Array(12).fill(0)
+  const columnWidths: number[] = Array.from({ length: 12 }).fill(0)
 
   // 计算文本宽度（中文字符算2个宽度，英文算1个）
   function getTextWidth(text: any): number {
@@ -650,7 +675,7 @@ async function handleExport() {
   rowNum++
 
   // 表格数据
-  const tableStartRow = rowNum
+  const _tableStartRow = rowNum
   inv.bills.forEach((bill: any) => {
     const billInfo = bill.bill_id || {}
 
@@ -683,7 +708,7 @@ async function handleExport() {
           formatNumber(veh.send_weight),
           billInfo.ship_warehouse || '',
           billInfo.contract_no || '',
-          veh.veh_name || ''
+          veh.veh_name || '',
         ])
       })
     }
@@ -700,7 +725,7 @@ async function handleExport() {
         formatNumber(bill.weight),
         billInfo.ship_warehouse || '',
         billInfo.contract_no || '',
-        '-'
+        '-',
       ])
     }
   })
@@ -729,7 +754,7 @@ async function handleExport() {
 
   // 应用列宽（设置最小宽度10，最大宽度50）
   sheet.columns = columnWidths.map(width => ({
-    width: Math.max(10, Math.min(width + 2, 50))
+    width: Math.max(10, Math.min(width + 2, 50)),
   }))
 
   // 导出文件
@@ -749,30 +774,6 @@ async function handleExport() {
     toast.error('导出失败', { description: error.message })
   }
 }
-
-// Calculate totals from bills
-const calculateTotals = computed(() => {
-  if (!invoiceDetail.value?.bills)
-    return { totalNum: 0, totalWeight: 0 }
-
-  let totalNum = 0
-  let totalWeight = 0
-
-  invoiceDetail.value.bills.forEach((bill: any) => {
-    if (bill.vehicles?.length > 0) {
-      bill.vehicles.forEach((veh: any) => {
-        totalNum += veh.send_num || 0
-        totalWeight += veh.send_weight || 0
-      })
-    }
-    else {
-      totalNum += bill.num || 0
-      totalWeight += bill.weight || 0
-    }
-  })
-
-  return { totalNum, totalWeight }
-})
 </script>
 
 <template>
@@ -794,10 +795,10 @@ const calculateTotals = computed(() => {
         <div class="flex items-center gap-2">
           <input
             id="my-waybills"
-            type="checkbox"
             v-model="myWaybills"
+            type="checkbox"
             class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-          />
+          >
           <Label for="my-waybills" class="cursor-pointer">本用户的运单</Label>
         </div>
       </div>
@@ -1038,20 +1039,28 @@ const calculateTotals = computed(() => {
                 <SelectValue placeholder="状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="已配发">已配发</SelectItem>
-                <SelectItem value="已结算">已结算</SelectItem>
-                <SelectItem value="已开票">已开票</SelectItem>
-                <SelectItem value="已回款">已回款</SelectItem>
+                <SelectItem value="已配发">
+                  已配发
+                </SelectItem>
+                <SelectItem value="已结算">
+                  已结算
+                </SelectItem>
+                <SelectItem value="已开票">
+                  已开票
+                </SelectItem>
+                <SelectItem value="已回款">
+                  已回款
+                </SelectItem>
               </SelectContent>
             </Select>
             <DatePicker v-model="advForm.startDate" placeholder="开始日期" :disabled-date="disableStartDate" disabled-hint="开始日期不能晚于结束日期" class="h-9 w-full" />
             <DatePicker v-model="advForm.endDate" placeholder="结束日期" :disabled-date="disableEndDate" disabled-hint="结束日期不能早于开始日期" class="h-9 w-full" />
-            
+
             <div class="col-span-2 flex justify-end gap-2">
-              <Button variant="outline" size="sm" @click="resetAdvForm" class="h-9">
+              <Button variant="outline" size="sm" class="h-9" @click="resetAdvForm">
                 重置
               </Button>
-              <Button :disabled="advLoading" size="sm" @click="handleAdvancedSearch" class="h-9">
+              <Button :disabled="advLoading" size="sm" class="h-9" @click="handleAdvancedSearch">
                 <Search class="w-4 h-4 mr-2" />
                 查询
               </Button>
@@ -1070,17 +1079,29 @@ const calculateTotals = computed(() => {
                   <TableHead>开单名称</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>发货日期</TableHead>
-                  <TableHead class="w-20 text-center">操作</TableHead>
+                  <TableHead class="w-20 text-center">
+                    操作
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <template v-if="advResults.length > 0">
                   <TableRow v-for="inv in advResults" :key="inv._id" class="hover:bg-muted/50">
-                    <TableCell class="py-2">{{ inv.waybill_no }}</TableCell>
-                    <TableCell class="py-2">{{ inv.vehicle_vessel_name }}</TableCell>
-                    <TableCell class="py-2">{{ inv.ship_name }}</TableCell>
-                    <TableCell class="py-2">{{ inv.state }}</TableCell>
-                    <TableCell class="py-2">{{ formatDate(inv.ship_date) }}</TableCell>
+                    <TableCell class="py-2">
+                      {{ inv.waybill_no }}
+                    </TableCell>
+                    <TableCell class="py-2">
+                      {{ inv.vehicle_vessel_name }}
+                    </TableCell>
+                    <TableCell class="py-2">
+                      {{ inv.ship_name }}
+                    </TableCell>
+                    <TableCell class="py-2">
+                      {{ inv.state }}
+                    </TableCell>
+                    <TableCell class="py-2">
+                      {{ formatDate(inv.ship_date) }}
+                    </TableCell>
                     <TableCell class="py-2 text-center">
                       <Button size="sm" variant="outline" class="h-7 px-2" @click="selectAdvResult(inv)">
                         选择
@@ -1101,6 +1122,5 @@ const calculateTotals = computed(() => {
         </div>
       </DialogContent>
     </Dialog>
-
   </BasicPage>
 </template>

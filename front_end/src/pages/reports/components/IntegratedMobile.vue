@@ -1,16 +1,16 @@
 <script setup lang="ts">
+import { ChevronDown, ChevronUp, Download, FileSpreadsheet, Filter, RefreshCcw, Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
-import { ChevronDown, ChevronUp, Download, Filter, FileSpreadsheet, RefreshCcw, Search, X } from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+
+import type { IntegratedQueryBill } from '@/services/api/report.api'
+
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Badge } from '@/components/ui/badge'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { DatePicker } from '@/components/ui/date-picker'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -18,11 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
-import { DatePicker } from '@/components/ui/date-picker'
-import SearchableCombobox from '@/components/searchable-combobox.vue'
-import type { IntegratedQueryBill } from '@/services/api/report.api'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 
 const props = defineProps<{
   loading: boolean
@@ -58,11 +60,11 @@ const emit = defineEmits<{
   'update:filter': [filter: typeof props.filter]
   'update:showNotSent': [value: boolean]
   'update:showDestForVessel': [value: boolean]
-  query: [resetPage: boolean]
-  reset: []
-  export: []
-  exportAccount: []
-  pageChange: [page: number]
+  'query': [resetPage: boolean]
+  'reset': []
+  'export': []
+  'exportAccount': []
+  'pageChange': [page: number]
 }>()
 
 // 本地筛选状态
@@ -79,7 +81,8 @@ const expandedItems = ref<Set<number>>(new Set())
 function toggleExpand(index: number) {
   if (expandedItems.value.has(index)) {
     expandedItems.value.delete(index)
-  } else {
+  }
+  else {
     expandedItems.value.add(index)
   }
 }
@@ -118,13 +121,15 @@ function resetFilter() {
 
 // 格式化日期
 function formatDate(dateStr: string) {
-  if (!dateStr) return '-'
+  if (!dateStr)
+    return '-'
   return new Date(dateStr).toLocaleDateString('zh-CN')
 }
 
 // 获取订单号
 function getOrder(orderNo: string, itemNo: string) {
-  if (itemNo) return `${orderNo}-${itemNo}`
+  if (itemNo)
+    return `${orderNo}-${itemNo}`
   return orderNo
 }
 
@@ -148,18 +153,26 @@ function getStatusStyle(status: string) {
 
 // 获取结算状态
 function getSettleStatus(bill: IntegratedQueryBill) {
-  if (props.showNotSent) return ''
+  if (props.showNotSent)
+    return ''
   if (bill.inv_settle_flag === 0) {
-    if (bill.collection_price < 0 && bill.price < 0) return '客户、代收都不需结算'
-    if (bill.collection_price < 0) return '客户未结算，代收不需结算'
+    if (bill.collection_price < 0 && bill.price < 0)
+      return '客户、代收都不需结算'
+    if (bill.collection_price < 0)
+      return '客户未结算，代收不需结算'
     return '客户、代收都未结算'
-  } else if (bill.inv_settle_flag === 1) {
-    if (bill.collection_price < 0) return '客户已结算，代收不需结算'
+  }
+  else if (bill.inv_settle_flag === 1) {
+    if (bill.collection_price < 0)
+      return '客户已结算，代收不需结算'
     return '客户已结算，代收未结算'
-  } else if (bill.inv_settle_flag === 2) {
-    if (bill.price < 0) return '客户不需结算，代收已结算'
+  }
+  else if (bill.inv_settle_flag === 2) {
+    if (bill.price < 0)
+      return '客户不需结算，代收已结算'
     return '代收已结算，客户未结算'
-  } else if (bill.inv_settle_flag === 3) {
+  }
+  else if (bill.inv_settle_flag === 3) {
     return '客户、代收都已结算'
   }
   return ''
@@ -168,17 +181,28 @@ function getSettleStatus(bill: IntegratedQueryBill) {
 // 活跃筛选数量
 const activeFilterCount = computed(() => {
   let count = 0
-  if (props.filter.billingName) count++
-  if (props.filter.vehicle) count++
-  if (props.filter.vehicleMode) count++
-  if (props.filter.destination) count++
-  if (props.filter.customer) count++
-  if (props.filter.orderNo) count++
-  if (props.filter.billNo) count++
-  if (props.filter.startDate) count++
-  if (props.filter.endDate) count++
-  if (props.showNotSent) count++
-  if (props.showDestForVessel) count++
+  if (props.filter.billingName)
+    count++
+  if (props.filter.vehicle)
+    count++
+  if (props.filter.vehicleMode)
+    count++
+  if (props.filter.destination)
+    count++
+  if (props.filter.customer)
+    count++
+  if (props.filter.orderNo)
+    count++
+  if (props.filter.billNo)
+    count++
+  if (props.filter.startDate)
+    count++
+  if (props.filter.endDate)
+    count++
+  if (props.showNotSent)
+    count++
+  if (props.showDestForVessel)
+    count++
   return count
 })
 </script>
@@ -188,7 +212,9 @@ const activeFilterCount = computed(() => {
     <!-- 顶部固定栏 -->
     <div class="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm">
       <div class="px-4 py-3">
-        <h1 class="text-lg font-bold text-center">综合查询</h1>
+        <h1 class="text-lg font-bold text-center">
+          综合查询
+        </h1>
       </div>
 
       <!-- 操作按钮 -->
@@ -198,7 +224,9 @@ const activeFilterCount = computed(() => {
             <Button size="sm" variant="outline" class="flex-1">
               <Filter class="w-4 h-4 mr-1" />
               筛选
-              <Badge v-if="activeFilterCount > 0" class="ml-1 h-5 w-5 p-0 justify-center">{{ activeFilterCount }}</Badge>
+              <Badge v-if="activeFilterCount > 0" class="ml-1 h-5 w-5 p-0 justify-center">
+                {{ activeFilterCount }}
+              </Badge>
             </Button>
           </SheetTrigger>
           <SheetContent side="bottom" class="h-[85vh] overflow-y-auto">
@@ -225,7 +253,9 @@ const activeFilterCount = computed(() => {
                     <SelectValue placeholder="选择发货单位" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem v-for="c in customers" :key="c" :value="c">{{ c }}</SelectItem>
+                    <SelectItem v-for="c in customers" :key="c" :value="c">
+                      {{ c }}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -261,7 +291,9 @@ const activeFilterCount = computed(() => {
                     <SelectValue placeholder="选择运输方式" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem v-for="m in vehicleModes" :key="m" :value="m">{{ m }}</SelectItem>
+                    <SelectItem v-for="m in vehicleModes" :key="m" :value="m">
+                      {{ m }}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -307,7 +339,7 @@ const activeFilterCount = computed(() => {
                   <RefreshCcw class="w-4 h-4 mr-1" />
                   重置
                 </Button>
-                <Button class="flex-1" @click="applyFilter" :disabled="loading">
+                <Button class="flex-1" :disabled="loading" @click="applyFilter">
                   <Search class="w-4 h-4 mr-1" />
                   查询
                 </Button>
@@ -334,8 +366,10 @@ const activeFilterCount = computed(() => {
 
     <!-- 加载状态 -->
     <div v-if="loading" class="flex flex-col items-center justify-center p-12">
-      <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500"></div>
-      <p class="text-sm text-muted-foreground mt-4">加载中...</p>
+      <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
+      <p class="text-sm text-muted-foreground mt-4">
+        加载中...
+      </p>
     </div>
 
     <!-- 空状态 -->
@@ -343,7 +377,9 @@ const activeFilterCount = computed(() => {
       <div class="h-16 w-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
         <Search class="h-8 w-8 text-gray-400" />
       </div>
-      <p class="text-muted-foreground">请设置筛选条件后查询</p>
+      <p class="text-muted-foreground">
+        请设置筛选条件后查询
+      </p>
     </div>
 
     <!-- 数据列表 -->
@@ -361,7 +397,9 @@ const activeFilterCount = computed(() => {
           <div class="flex items-start justify-between mb-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1">
-                <Badge :class="getStatusStyle(bill.status)" class="text-xs">{{ bill.status }}</Badge>
+                <Badge :class="getStatusStyle(bill.status)" class="text-xs">
+                  {{ bill.status }}
+                </Badge>
                 <span class="text-xs text-muted-foreground">{{ bill.bill_no }}</span>
               </div>
               <div class="font-medium text-sm truncate">
@@ -382,7 +420,7 @@ const activeFilterCount = computed(() => {
             </div>
             <div>
               <span class="text-muted-foreground">重量：</span>
-              <span class="font-medium text-blue-600">{{ (showNotSent ? (bill.block_num > 0 ? bill.left_num * bill.weight : bill.left_num) : bill.send_weight)?.toFixed(3) }}</span>
+              <span class="font-medium text-blue-600">{{ (showNotSent ? ((bill.block_num ?? 0) > 0 ? (bill.left_num ?? 0) * (bill.weight ?? 0) : (bill.left_num ?? 0)) : bill.send_weight)?.toFixed(3) }}</span>
             </div>
           </div>
         </div>
@@ -466,7 +504,7 @@ const activeFilterCount = computed(() => {
 
       <!-- 加载更多 -->
       <div v-if="bills.length < total" class="py-4 text-center">
-        <Button variant="outline" size="sm" @click="emit('pageChange', page + 1)" :disabled="loading">
+        <Button variant="outline" size="sm" :disabled="loading" @click="emit('pageChange', page + 1)">
           加载更多 ({{ bills.length }}/{{ total }})
         </Button>
       </div>

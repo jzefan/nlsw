@@ -1,15 +1,21 @@
 <script setup lang="ts">
-// @ts-nocheck
-import { computed, reactive, ref } from 'vue'
-import { toast } from 'vue-sonner'
 import { Download, List, RefreshCcw, Search } from 'lucide-vue-next'
+// @ts-nocheck
+import { reactive, ref } from 'vue'
+import { toast } from 'vue-sonner'
 
-import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
-import { useExport } from '@/composables/use-export'
+import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
+import { DatePicker } from '@/components/ui/date-picker'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -18,17 +24,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { DatePicker } from '@/components/ui/date-picker'
+import { useAxios } from '@/composables/use-axios'
+import { useExport } from '@/composables/use-export'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
 import { getInvoiceReport, getWaybillDetail } from '@/services/api/report.api'
-import { useAxios } from '@/composables/use-axios'
 
 const { axiosInstance } = useAxios()
 
@@ -74,9 +73,9 @@ async function searchUsers(search: string, limit: number, page: number) {
       desc: u.profile?.name || '',
     }))
     // Basic local filtering for demo as the endpoint returns all
-    const filtered = users.filter((u: any) => 
-      u.name.toLowerCase().includes(search.toLowerCase()) || 
-      u.desc.toLowerCase().includes(search.toLowerCase())
+    const filtered = users.filter((u: any) =>
+      u.name.toLowerCase().includes(search.toLowerCase())
+      || u.desc.toLowerCase().includes(search.toLowerCase()),
     )
     return { ok: true, data: filtered.slice((page - 1) * limit, page * limit), total: filtered.length }
   }
@@ -111,17 +110,22 @@ async function handleQuery() {
         toast.warning(`查询到的记录数为：${res.num}，请缩小查询条件！`)
         invoices.value = []
         pricesMap.value = {}
-      } else {
+      }
+      else {
         invoices.value = res.invs || []
         pricesMap.value = res.prices || {}
-        if (invoices.value.length === 0) toast.info('未找到符合条件的运单')
+        if (invoices.value.length === 0)
+          toast.info('未找到符合条件的运单')
       }
-    } else {
+    }
+    else {
       toast.error(res.message || '查询失败')
     }
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('查询出错', { description: e.message })
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -149,9 +153,11 @@ async function showDetail() {
     const res = await getWaybillDetail(selectedWaybillNo.value)
     detailBills.value = res.bills || []
     detailInvoice.value = res.invoices?.[0] || null
-  } catch (e: any) {
+  }
+  catch (e: any) {
     toast.error('获取明细出错', { description: e.message })
-  } finally {
+  }
+  finally {
     detailLoading.value = false
   }
 }
@@ -162,12 +168,14 @@ function getInvRecord(bill: any) {
 
 // Helpers
 function formatDate(dateStr: string) {
-  if (!dateStr) return ''
+  if (!dateStr)
+    return ''
   return new Date(dateStr).toLocaleDateString('zh-CN')
 }
 
 function formatNum(num: any) {
-  if (num === undefined || num === null) return ''
+  if (num === undefined || num === null)
+    return ''
   return Number(num).toFixed(3)
 }
 
@@ -181,12 +189,15 @@ function selectRow(wno: string) {
 }
 
 function handleExport() {
-  if (invoices.value.length === 0) return
+  if (invoices.value.length === 0)
+    return
 
-  const data = invoices.value.map(inv => {
+  const data = invoices.value.map((inv) => {
     const p = pricesMap.value[inv.waybill_no] || {}
     let billNum = 0
-    inv.bills.forEach((b: any) => { billNum += b.num || 0 })
+    inv.bills.forEach((b: any) => {
+      billNum += b.num || 0
+    })
 
     return {
       state: inv.vessel_settle_state,
@@ -200,7 +211,7 @@ function handleExport() {
       net_income: p.net_income,
       ship_date: formatDate(inv.ship_date),
       shipper: inv.shipper,
-      waybill_no: inv.waybill_no
+      waybill_no: inv.waybill_no,
     }
   })
 
@@ -274,7 +285,7 @@ function disableEndDate(date: Date) {
           placeholder="发货人"
           class="w-full h-9"
         />
-        
+
         <DatePicker
           v-model="filter.startDate"
           placeholder="发货日期(开始)"
@@ -291,19 +302,19 @@ function disableEndDate(date: Date) {
         />
 
         <div class="lg:col-span-2 flex justify-end gap-2">
-          <Button variant="outline" size="sm" @click="handleReset" class="h-9">
+          <Button variant="outline" size="sm" class="h-9" @click="handleReset">
             <RefreshCcw class="w-4 h-4 mr-2" />
             重置
           </Button>
-          <Button variant="outline" size="sm" :disabled="!selectedWaybillNo" @click="showDetail" class="h-9">
+          <Button variant="outline" size="sm" :disabled="!selectedWaybillNo" class="h-9" @click="showDetail">
             <List class="w-4 h-4 mr-2" />
             显示明细
           </Button>
-          <Button variant="outline" size="sm" @click="handleExport" class="h-9">
+          <Button variant="outline" size="sm" class="h-9" @click="handleExport">
             <Download class="w-4 h-4 mr-2" />
             导出
           </Button>
-          <Button :disabled="loading" size="sm" @click="handleQuery" class="h-9 min-w-[100px]">
+          <Button :disabled="loading" size="sm" class="h-9 min-w-[100px]" @click="handleQuery">
             <Search class="w-4 h-4 mr-2" />
             查询确定
           </Button>
@@ -313,8 +324,10 @@ function disableEndDate(date: Date) {
 
     <!-- Loading State -->
     <div v-if="loading" class="flex flex-col items-center justify-center p-24 border rounded-lg bg-muted/5">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-4"></div>
-        <p class="text-lg font-medium text-muted-foreground animate-pulse">正在查询数据，请稍等...</p>
+      <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-4" />
+      <p class="text-lg font-medium text-muted-foreground animate-pulse">
+        正在查询数据，请稍等...
+      </p>
     </div>
 
     <!-- Table -->
@@ -322,35 +335,69 @@ function disableEndDate(date: Date) {
       <Table class="border-collapse">
         <TableHeader class="bg-muted/50">
           <TableRow>
-            <TableHead class="text-center border">状态</TableHead>
-            <TableHead class="text-center border">开单名称</TableHead>
-            <TableHead class="text-center border">车船号</TableHead>
-            <TableHead class="text-center border">目的地</TableHead>
-            <TableHead class="text-center border">发运块数</TableHead>
-            <TableHead class="text-center border">发运重量</TableHead>
-            <TableHead class="text-center border">客户单价</TableHead>
-            <TableHead class="text-center border">应付单价</TableHead>
-            <TableHead class="text-center border">含税毛利</TableHead>
-            <TableHead class="text-center border text-nowrap">发货日期</TableHead>
-            <TableHead class="text-center border">发货人</TableHead>
-            <TableHead class="text-center border">运单号</TableHead>
+            <TableHead class="text-center border">
+              状态
+            </TableHead>
+            <TableHead class="text-center border">
+              开单名称
+            </TableHead>
+            <TableHead class="text-center border">
+              车船号
+            </TableHead>
+            <TableHead class="text-center border">
+              目的地
+            </TableHead>
+            <TableHead class="text-center border">
+              发运块数
+            </TableHead>
+            <TableHead class="text-center border">
+              发运重量
+            </TableHead>
+            <TableHead class="text-center border">
+              客户单价
+            </TableHead>
+            <TableHead class="text-center border">
+              应付单价
+            </TableHead>
+            <TableHead class="text-center border">
+              含税毛利
+            </TableHead>
+            <TableHead class="text-center border text-nowrap">
+              发货日期
+            </TableHead>
+            <TableHead class="text-center border">
+              发货人
+            </TableHead>
+            <TableHead class="text-center border">
+              运单号
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow 
-            v-for="inv in invoices" 
-            :key="inv.waybill_no" 
-            :class="['hover:bg-muted/50 cursor-pointer transition-colors', selectedWaybillNo === inv.waybill_no && 'bg-primary/10']"
+          <TableRow
+            v-for="inv in invoices"
+            :key="inv.waybill_no"
+            class="hover:bg-muted/50 cursor-pointer transition-colors" :class="[selectedWaybillNo === inv.waybill_no && 'bg-primary/10']"
             @click="selectRow(inv.waybill_no)"
           >
-            <TableCell class="text-center border text-nowrap">{{ inv.vessel_settle_state }}</TableCell>
-            <TableCell class="border">{{ inv.ship_customer ? `${inv.ship_name}/${inv.ship_customer}` : inv.ship_name }}</TableCell>
-            <TableCell class="text-center border">{{ inv.vehicle_vessel_name }}</TableCell>
-            <TableCell class="text-center border">{{ inv.ship_to }}</TableCell>
+            <TableCell class="text-center border text-nowrap">
+              {{ inv.vessel_settle_state }}
+            </TableCell>
+            <TableCell class="border">
+              {{ inv.ship_customer ? `${inv.ship_name}/${inv.ship_customer}` : inv.ship_name }}
+            </TableCell>
+            <TableCell class="text-center border">
+              {{ inv.vehicle_vessel_name }}
+            </TableCell>
+            <TableCell class="text-center border">
+              {{ inv.ship_to }}
+            </TableCell>
             <TableCell class="text-right border">
               {{ inv.bills.reduce((sum: number, b: any) => sum + (b.num || 0), 0) }}
             </TableCell>
-            <TableCell class="text-right border">{{ formatNum(inv.total_weight) }}</TableCell>
+            <TableCell class="text-right border">
+              {{ formatNum(inv.total_weight) }}
+            </TableCell>
             <TableCell class="text-right border text-blue-600">
               <span class="text-xs mr-0.5">¥</span>{{ formatNum(pricesMap[inv.waybill_no]?.cust_price) }}
             </TableCell>
@@ -360,9 +407,15 @@ function disableEndDate(date: Date) {
             <TableCell class="text-right border font-bold" :class="pricesMap[inv.waybill_no]?.net_income >= 0 ? 'text-red-600' : 'text-green-600'">
               <span class="text-xs mr-0.5">¥</span>{{ formatNum(pricesMap[inv.waybill_no]?.net_income) }}
             </TableCell>
-            <TableCell class="text-center border text-nowrap">{{ formatDate(inv.ship_date) }}</TableCell>
-            <TableCell class="text-center border">{{ inv.shipper }}</TableCell>
-            <TableCell class="text-center border"><code>{{ inv.waybill_no }}</code></TableCell>
+            <TableCell class="text-center border text-nowrap">
+              {{ formatDate(inv.ship_date) }}
+            </TableCell>
+            <TableCell class="text-center border">
+              {{ inv.shipper }}
+            </TableCell>
+            <TableCell class="text-center border">
+              <code>{{ inv.waybill_no }}</code>
+            </TableCell>
           </TableRow>
         </TableBody>
       </Table>
@@ -379,44 +432,98 @@ function disableEndDate(date: Date) {
         <DialogHeader>
           <DialogTitle>运单明细: {{ selectedWaybillNo }}</DialogTitle>
         </DialogHeader>
-        
+
         <div class="flex-1 overflow-auto border rounded-md">
           <Table class="relative">
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
-                <TableHead class="border">提单号</TableHead>
-                <TableHead class="border">订单号-项次号</TableHead>
-                <TableHead class="border text-nowrap">发货仓库</TableHead>
-                <TableHead class="border text-right">厚度</TableHead>
-                <TableHead class="border text-right">宽度</TableHead>
-                <TableHead class="border text-right">长度</TableHead>
-                <TableHead class="border text-right">单重</TableHead>
-                <TableHead class="border text-right">总块数</TableHead>
-                <TableHead class="border text-right">总重量</TableHead>
-                <TableHead class="border text-right">发运块数</TableHead>
-                <TableHead class="border text-right">发运重量</TableHead>
-                <TableHead class="border text-right">客户价格</TableHead>
-                <TableHead class="border text-right">代收付价格</TableHead>
-                <TableHead class="border">车号明细</TableHead>
+                <TableHead class="border">
+                  提单号
+                </TableHead>
+                <TableHead class="border">
+                  订单号-项次号
+                </TableHead>
+                <TableHead class="border text-nowrap">
+                  发货仓库
+                </TableHead>
+                <TableHead class="border text-right">
+                  厚度
+                </TableHead>
+                <TableHead class="border text-right">
+                  宽度
+                </TableHead>
+                <TableHead class="border text-right">
+                  长度
+                </TableHead>
+                <TableHead class="border text-right">
+                  单重
+                </TableHead>
+                <TableHead class="border text-right">
+                  总块数
+                </TableHead>
+                <TableHead class="border text-right">
+                  总重量
+                </TableHead>
+                <TableHead class="border text-right">
+                  发运块数
+                </TableHead>
+                <TableHead class="border text-right">
+                  发运重量
+                </TableHead>
+                <TableHead class="border text-right">
+                  客户价格
+                </TableHead>
+                <TableHead class="border text-right">
+                  代收付价格
+                </TableHead>
+                <TableHead class="border">
+                  车号明细
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="bill in detailBills" :key="bill._id">
-                <TableCell class="border">{{ bill.bill_no }}</TableCell>
-                <TableCell class="border">{{ getOrderDisplay(bill) }}</TableCell>
-                <TableCell class="border">{{ bill.ship_warehouse }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(bill.thickness) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(bill.width) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(bill.len) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(bill.weight) }}</TableCell>
-                <TableCell class="text-right border">{{ bill.block_num }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(bill.total_weight) }}</TableCell>
-                
+                <TableCell class="border">
+                  {{ bill.bill_no }}
+                </TableCell>
+                <TableCell class="border">
+                  {{ getOrderDisplay(bill) }}
+                </TableCell>
+                <TableCell class="border">
+                  {{ bill.ship_warehouse }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ formatNum(bill.thickness) }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ formatNum(bill.width) }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ formatNum(bill.len) }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ formatNum(bill.weight) }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ bill.block_num }}
+                </TableCell>
+                <TableCell class="text-right border">
+                  {{ formatNum(bill.total_weight) }}
+                </TableCell>
+
                 <!-- Shipped info from the specific invoice -->
-                <TableCell class="text-right border font-bold">{{ getInvRecord(bill)?.num || 0 }}</TableCell>
-                <TableCell class="text-right border font-bold">{{ formatNum(getInvRecord(bill)?.weight || (getInvRecord(bill)?.num * bill.weight)) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(bill.customer_price) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(bill.collection_price) }}</TableCell>
+                <TableCell class="text-right border font-bold">
+                  {{ getInvRecord(bill)?.num || 0 }}
+                </TableCell>
+                <TableCell class="text-right border font-bold">
+                  {{ formatNum(getInvRecord(bill)?.weight || (getInvRecord(bill)?.num * bill.weight)) }}
+                </TableCell>
+                <TableCell class="text-right border text-blue-600">
+                  <span class="text-xs mr-0.5">¥</span>{{ formatNum(bill.customer_price) }}
+                </TableCell>
+                <TableCell class="text-right border text-blue-600">
+                  <span class="text-xs mr-0.5">¥</span>{{ formatNum(bill.collection_price) }}
+                </TableCell>
                 <TableCell class="border text-xs">
                   <div v-for="veh in getInvRecord(bill)?.vehicles" :key="veh.inner_waybill_no">
                     {{ veh.veh_name }}: {{ veh.send_weight }}吨 / ¥{{ veh.veh_price }}
@@ -426,9 +533,11 @@ function disableEndDate(date: Date) {
             </TableBody>
           </Table>
         </div>
-        
+
         <DialogFooter>
-          <Button @click="showDetailDialog = false">关闭</Button>
+          <Button @click="showDetailDialog = false">
+            关闭
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -443,7 +552,9 @@ function disableEndDate(date: Date) {
 </template>
 
 <style scoped>
-.border { border-color: #e5e7eb; }
+.border {
+  border-color: #e5e7eb;
+}
 </style>
 
 <route lang="yaml">

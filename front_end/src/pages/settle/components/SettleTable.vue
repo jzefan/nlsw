@@ -16,7 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:selected', bills: SettleBill[]): void
-  (e: 'switch-mode', mode: SettleMode): void
+  (e: 'switchMode', mode: SettleMode): void
 }>()
 
 // 可选的提单（排除已在结算篮中的）
@@ -191,7 +191,7 @@ const emptyMessage = computed(() => {
 // 切换到另一个结算模式
 function switchToOtherMode() {
   if (emptyMessage.value.hasOtherMode && emptyMessage.value.mode) {
-    emit('switch-mode', emptyMessage.value.mode)
+    emit('switchMode', emptyMessage.value.mode)
   }
 }
 </script>

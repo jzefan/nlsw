@@ -1,15 +1,25 @@
 <script setup lang="ts">
+import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
+import ExcelJS from 'exceljs'
+import {
+  Check,
+  ChevronsUpDown,
+  Download,
+  Filter,
+  Search,
+} from 'lucide-vue-next'
 // @ts-nocheck
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import ExcelJS from 'exceljs'
-import { Check, ChevronsUpDown, Download, Filter, Search, X } from 'lucide-vue-next'
-import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
-import { GroupedBar } from '@unovis/ts'
 
-import { useDevice } from '@/composables/use-device'
-import CustomerRevenueMobile from './components/CustomerRevenueMobile.vue'
 import type { ChartConfig } from '@/components/ui/chart'
+import type {
+  ChartDataPoint,
+  CustomerDetailData,
+  StatisticsData,
+} from '@/services/api/statistics.api'
+
+import { Button } from '@/components/ui/button'
 import {
   ChartContainer,
   ChartCrosshair,
@@ -18,16 +28,7 @@ import {
   ChartTooltipContent,
   componentToString,
 } from '@/components/ui/chart'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { DatePicker } from '@/components/ui/date-picker'
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import {
   Popover,
   PopoverContent,
@@ -48,16 +50,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { DatePicker } from '@/components/ui/date-picker'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { useDevice } from '@/composables/use-device'
 import { getCompanies } from '@/services/api/data-dict.api'
 import {
-  getStatisticsData,
-  getCustomerDetail,
   getCustomerChartData,
-  type StatisticsData,
-  type CustomerDetailData,
-  type ChartDataPoint
+  getCustomerDetail,
+  getStatisticsData,
 } from '@/services/api/statistics.api'
+
+import CustomerRevenueMobile from './components/CustomerRevenueMobile.vue'
 
 // 设备检测
 const { isMobile } = useDevice()
@@ -79,7 +88,7 @@ const showChart = ref(false)
 const showZeroAsEmpty = ref(false)
 const statisticsData = ref<StatisticsData[]>([])
 const chartData = ref<ChartDataPoint[]>([])
-const allNames = ref<string[]>([]) // List of all company names for selection
+const _allNames = ref<string[]>([]) // List of all company names for selection
 
 // Date Selection State
 const showDateDialog = ref(false)
@@ -89,7 +98,8 @@ const dateSelectionMode = ref<'month' | 'year' | 'custom'>('month')
 
 // Options for Month/Year selects
 const currentYear = new Date().getFullYear()
-const years = Array.from({ length: currentYear - 2015 + 2 }, (_, i) => (2015 + i).toString()).reverse()
+const years = Array.from({ length: currentYear - 2015 + 2 }, (_, i) =>
+  (2015 + i).toString()).reverse()
 const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString())
 
 const startYear = ref(currentYear.toString())
@@ -99,19 +109,22 @@ const endMonth = ref((new Date().getMonth() + 1).toString())
 
 // Date formatters for DatePicker
 const formattedStartDate = computed({
-  get: () => startDate.value ? startDate.value.toISOString().split('T')[0] : '',
+  get: () =>
+    startDate.value ? startDate.value.toISOString().split('T')[0] : '',
   set: (val: string) => {
-    if (val) startDate.value = new Date(val)
+    if (val)
+      startDate.value = new Date(val)
     else startDate.value = undefined
-  }
+  },
 })
 
 const formattedEndDate = computed({
-  get: () => endDate.value ? endDate.value.toISOString().split('T')[0] : '',
+  get: () => (endDate.value ? endDate.value.toISOString().split('T')[0] : ''),
   set: (val: string) => {
-    if (val) endDate.value = new Date(val)
+    if (val)
+      endDate.value = new Date(val)
     else endDate.value = undefined
-  }
+  },
 })
 
 // Filter State
@@ -148,45 +161,56 @@ const detailCustomerNames = computed(() => {
 
 // Filtered export customer options
 const filteredExportCustomers = computed(() => {
-  if (!exportCustomerSearch.value) return detailCustomerNames.value
+  if (!exportCustomerSearch.value)
+    return detailCustomerNames.value
   return detailCustomerNames.value.filter(n =>
-    n.toLowerCase().includes(exportCustomerSearch.value.toLowerCase())
+    n.toLowerCase().includes(exportCustomerSearch.value.toLowerCase()),
   )
 })
 
 // Paginated detail data
 const paginatedDetailData = computed(() => {
-  const pageSize = parseInt(detailPageSize.value)
+  const pageSize = Number.parseInt(detailPageSize.value)
   const start = (detailCurrentPage.value - 1) * pageSize
   const end = start + pageSize
   return detailData.value.slice(start, end)
 })
 
 const detailTotalPages = computed(() => {
-  const pageSize = parseInt(detailPageSize.value)
+  const pageSize = Number.parseInt(detailPageSize.value)
   return Math.ceil(detailData.value.length / pageSize) || 1
 })
 
 // Computed
 const formattedData = computed(() => {
-  if (!showZeroAsEmpty.value) return statisticsData.value
-  
-  // Create a copy to avoid mutating original if needed, 
+  if (!showZeroAsEmpty.value)
+    return statisticsData.value
+
+  // Create a copy to avoid mutating original if needed,
   // but for display we can just handle formatting in the template.
   return statisticsData.value
 })
 
 const summaryData = computed(() => {
-  if (statisticsData.value.length === 0) return null
-  
+  if (statisticsData.value.length === 0)
+    return null
+
   const sum = {
-    settledWDS: 0, notSettledWDS: 0, notNeedWDS: 0,
-    settledWZT: 0, notSettledWZT: 0, notNeedWZT: 0, totalWeight: 0, totalPrice: 0,
-    settledPDS: 0, notSettledPDS: 0,
-    settledPZT: 0, notSettledPZT: 0
+    settledWDS: 0,
+    notSettledWDS: 0,
+    notNeedWDS: 0,
+    settledWZT: 0,
+    notSettledWZT: 0,
+    notNeedWZT: 0,
+    totalWeight: 0,
+    totalPrice: 0,
+    settledPDS: 0,
+    notSettledPDS: 0,
+    settledPZT: 0,
+    notSettledPZT: 0,
   }
-  
-  statisticsData.value.forEach(item => {
+
+  statisticsData.value.forEach((item) => {
     sum.settledWDS += item.settledWDS
     sum.notSettledWDS += item.notSettledWDS
     sum.notNeedWDS += item.notNeedWDS
@@ -200,7 +224,7 @@ const summaryData = computed(() => {
     sum.settledPZT += item.settledPZT
     sum.notSettledPZT += item.notSettledPZT
   })
-  
+
   return sum
 })
 
@@ -227,13 +251,15 @@ function disableEndDate(date: Date) {
 }
 
 // Format number helper
-function formatVal(val: number, isPrice = false) {
-  if (showZeroAsEmpty.value && val === 0) return ''
+function formatVal(val: number, _isPrice = false) {
+  if (showZeroAsEmpty.value && val === 0)
+    return ''
   return val.toFixed(3)
 }
 
 function formatDateRange(start?: Date, end?: Date) {
-  if (!start || !end) return ''
+  if (!start || !end)
+    return ''
   const s = start.toLocaleDateString('zh-CN')
   // End date is exclusive in our logic (start of next day/month/year),
   // so we subtract 1ms to get the inclusive end for display.
@@ -242,7 +268,9 @@ function formatDateRange(start?: Date, end?: Date) {
 }
 
 // 日期范围字符串（供移动端使用）
-const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
+const dateRange = computed(() =>
+  formatDateRange(startDate.value, endDate.value),
+)
 
 async function loadCompanies() {
   try {
@@ -250,7 +278,8 @@ async function loadCompanies() {
     if (res.ok) {
       nameOptions.value = res.data.map(c => c.name)
     }
-  } catch (e) {
+  }
+  catch (e) {
     console.error(e)
   }
 }
@@ -277,7 +306,7 @@ async function fetchData() {
     // Fetch Table Data and Chart Data in parallel
     const [tableRes, chartRes] = await Promise.all([
       getStatisticsData(params),
-      getCustomerChartData(params)
+      getCustomerChartData(params),
     ])
 
     if (tableRes.ok) {
@@ -285,7 +314,8 @@ async function fetchData() {
       if (tableRes.stat_data.length === 0) {
         toast.info('没有找到数据，请选择其它日期')
       }
-    } else {
+    }
+    else {
       statisticsData.value = []
       toast.error('获取数据失败')
     }
@@ -293,10 +323,12 @@ async function fetchData() {
     if (chartRes.ok) {
       chartData.value = chartRes.chart_data
     }
-  } catch (e) {
+  }
+  catch (e) {
     console.error(e)
     toast.error('获取数据出错')
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -308,32 +340,42 @@ function openDateDialog() {
 function handleDateConfirm() {
   // Logic to set start and end date based on selection mode
   if (dateSelectionMode.value === 'month') {
-    const s = new Date(parseInt(startYear.value), parseInt(startMonth.value) - 1, 1)
-    const e = new Date(parseInt(endYear.value), parseInt(endMonth.value), 1) // Start of next month
-    
+    const s = new Date(
+      Number.parseInt(startYear.value),
+      Number.parseInt(startMonth.value) - 1,
+      1,
+    )
+    const e = new Date(
+      Number.parseInt(endYear.value),
+      Number.parseInt(endMonth.value),
+      1,
+    ) // Start of next month
+
     if (s >= e) {
       toast.error('开始月份不能晚于结束月份')
       return
     }
-    
+
     startDate.value = s
     endDate.value = e
-  } else if (dateSelectionMode.value === 'year') {
-    const year = parseInt(startYear.value)
-    
+  }
+  else if (dateSelectionMode.value === 'year') {
+    const year = Number.parseInt(startYear.value)
+
     const s = new Date(year, 0, 1)
     const e = new Date(year + 1, 0, 1)
-    
+
     startDate.value = s
     endDate.value = e
-  } else {
+  }
+  else {
     // Custom mode: already set via DatePickers
     if (!startDate.value || !endDate.value) {
       toast.error('请选择日期范围')
       return
     }
   }
-  
+
   showDateDialog.value = false
   fetchData()
 }
@@ -360,12 +402,15 @@ async function openAllDetails() {
     const res = await getCustomerDetail(params)
     if (res.ok) {
       detailData.value = res.detail_data
-    } else {
+    }
+    else {
       toast.error('获取明细失败')
     }
-  } catch (e) {
+  }
+  catch (e) {
     console.error(e)
-  } finally {
+  }
+  finally {
     detailLoading.value = false
   }
 }
@@ -391,18 +436,22 @@ async function openSingleDetail(name: string) {
     const res = await getCustomerDetail(params)
     if (res.ok) {
       detailData.value = res.detail_data
-    } else {
+    }
+    else {
       toast.error('获取明细失败')
     }
-  } catch (e) {
+  }
+  catch (e) {
     console.error(e)
-  } finally {
+  }
+  finally {
     detailLoading.value = false
   }
 }
 
 async function handleExport() {
-  if (statisticsData.value.length === 0) return
+  if (statisticsData.value.length === 0)
+    return
 
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('客户营业额')
@@ -412,19 +461,38 @@ async function handleExport() {
     top: { style: 'thin' },
     left: { style: 'thin' },
     bottom: { style: 'thin' },
-    right: { style: 'thin' }
+    right: { style: 'thin' },
   }
 
-  const orangeFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } }
-  const blueFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF93C5FD' } }
-  const indigoFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA5B4FC' } }
-  const grayFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+  const orangeFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFED7AA' },
+  }
+  const blueFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF93C5FD' },
+  }
+  const indigoFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFA5B4FC' },
+  }
+  const grayFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE5E7EB' },
+  }
 
   // 列宽跟踪
-  const columnWidths: number[] = Array(13).fill(0)
+  const columnWidths: number[] = Array.from({ length: 13 }).fill(0)
   const getTextWidth = (text: any): number => {
     const str = String(text || '')
-    return [...str].reduce((sum, char) => sum + (char.charCodeAt(0) > 127 ? 2 : 1), 0)
+    return [...str].reduce(
+      (sum, char) => sum + (char.charCodeAt(0) > 127 ? 2 : 1),
+      0,
+    )
   }
   const updateWidth = (col: number, text: any) => {
     columnWidths[col] = Math.max(columnWidths[col], getTextWidth(text))
@@ -535,8 +603,30 @@ async function handleExport() {
 
   // 表头第三行
   const h3 = sheet.getRow(rowNum)
-  const subHeaders = ['重量', '金额', '重量', '金额', '重量', '金额', '重量', '金额', '重量', '金额']
-  const fills = [blueFill, blueFill, blueFill, blueFill, indigoFill, indigoFill, indigoFill, indigoFill, indigoFill, indigoFill]
+  const subHeaders = [
+    '重量',
+    '金额',
+    '重量',
+    '金额',
+    '重量',
+    '金额',
+    '重量',
+    '金额',
+    '重量',
+    '金额',
+  ]
+  const fills = [
+    blueFill,
+    blueFill,
+    blueFill,
+    blueFill,
+    indigoFill,
+    indigoFill,
+    indigoFill,
+    indigoFill,
+    indigoFill,
+    indigoFill,
+  ]
 
   subHeaders.forEach((header, idx) => {
     const cell = h3.getCell(idx + 2)
@@ -555,15 +645,20 @@ async function handleExport() {
     const values = [
       item.name,
       // 代收代付: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额 (不包含"不需要结算")
-      item.settledWDS, item.settledPDS,
-      item.notSettledWDS, item.notSettledPDS,
+      item.settledWDS,
+      item.settledPDS,
+      item.notSettledWDS,
+      item.notSettledPDS,
       // 客户自提: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额, 不需要结算-重量, 不需要结算-金额
-      item.settledWZT, item.settledPZT,
-      item.notSettledWZT, item.notSettledPZT,
-      item.notNeedWZT, 0, // 不需要结算的重量和金额(金额为0)
+      item.settledWZT,
+      item.settledPZT,
+      item.notSettledWZT,
+      item.notSettledPZT,
+      item.notNeedWZT,
+      0, // 不需要结算的重量和金额(金额为0)
       // 总计
       item.totalWeight,
-      item.totalPrice
+      item.totalPrice,
     ]
 
     values.forEach((val, idx) => {
@@ -584,15 +679,20 @@ async function handleExport() {
     const sumVals = [
       '总计',
       // 代收代付: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额
-      summaryData.value.settledWDS, summaryData.value.settledPDS,
-      summaryData.value.notSettledWDS, summaryData.value.notSettledPDS,
+      summaryData.value.settledWDS,
+      summaryData.value.settledPDS,
+      summaryData.value.notSettledWDS,
+      summaryData.value.notSettledPDS,
       // 客户自提: 结算-重量, 结算-金额, 未结算-重量, 未结算-金额, 不需要结算-重量, 不需要结算-金额
-      summaryData.value.settledWZT, summaryData.value.settledPZT,
-      summaryData.value.notSettledWZT, summaryData.value.notSettledPZT,
-      summaryData.value.notNeedWZT, 0, // 不需要结算的重量和金额
+      summaryData.value.settledWZT,
+      summaryData.value.settledPZT,
+      summaryData.value.notSettledWZT,
+      summaryData.value.notSettledPZT,
+      summaryData.value.notNeedWZT,
+      0, // 不需要结算的重量和金额
       // 总计
       summaryData.value.totalWeight,
-      summaryData.value.totalPrice
+      summaryData.value.totalPrice,
     ]
 
     sumVals.forEach((val, idx) => {
@@ -609,12 +709,16 @@ async function handleExport() {
   }
 
   // 应用列宽
-  sheet.columns = columnWidths.map(width => ({ width: Math.max(10, Math.min(width + 2, 50)) }))
+  sheet.columns = columnWidths.map(width => ({
+    width: Math.max(10, Math.min(width + 2, 50)),
+  }))
 
   // 导出
   try {
     const buffer = await workbook.xlsx.writeBuffer()
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -649,26 +753,26 @@ function confirmDetailExport() {
 
   // 筛选选中客户的数据
   const filteredData = detailData.value.filter(item =>
-    exportSelectedCustomers.value.includes(item.name)
+    exportSelectedCustomers.value.includes(item.name),
   )
 
   const data = filteredData.map(item => ({
-    '订单号': item.order,
-    '提单号': item.bill_no,
-    '开单名称': item.name,
-    '车船号': item.veh_ves_name,
-    '目的地': item.ship_to,
-    '代收价格': item.coll_price,
-    '客户价格': item.price,
-    '价格': item.tot_price,
-    '发运块数': item.send_num,
-    '发运重量': item.send_weight,
-    '发货日期': new Date(item.ship_date).toLocaleDateString(),
-    '运单号': item.inv_no,
-    '发货仓库': item.warehouse,
-    '规格': item.spec,
-    '牌号': item.brand_no,
-    '合同号': item.contract_no
+    订单号: item.order,
+    提单号: item.bill_no,
+    开单名称: item.name,
+    车船号: item.veh_ves_name,
+    目的地: item.ship_to,
+    代收价格: item.coll_price,
+    客户价格: item.price,
+    价格: item.tot_price,
+    发运块数: item.send_num,
+    发运重量: item.send_weight,
+    发货日期: new Date(item.ship_date).toLocaleDateString(),
+    运单号: item.inv_no,
+    发货仓库: item.warehouse,
+    规格: item.spec,
+    牌号: item.brand_no,
+    合同号: item.contract_no,
   }))
 
   const ws = XLSX.utils.json_to_sheet(data)
@@ -682,8 +786,11 @@ function confirmDetailExport() {
 
 function toggleExportCustomer(name: string) {
   if (exportSelectedCustomers.value.includes(name)) {
-    exportSelectedCustomers.value = exportSelectedCustomers.value.filter(n => n !== name)
-  } else {
+    exportSelectedCustomers.value = exportSelectedCustomers.value.filter(
+      n => n !== name,
+    )
+  }
+  else {
     exportSelectedCustomers.value.push(name)
   }
 }
@@ -698,21 +805,24 @@ function clearExportCustomers() {
 
 // Multi-select helpers
 const filteredNameOptions = computed(() => {
-  if (!nameSearchQuery.value) return nameOptions.value
-  return nameOptions.value.filter(n => n.toLowerCase().includes(nameSearchQuery.value.toLowerCase()))
+  if (!nameSearchQuery.value)
+    return nameOptions.value
+  return nameOptions.value.filter(n =>
+    n.toLowerCase().includes(nameSearchQuery.value.toLowerCase()),
+  )
 })
 
 function toggleNameSelection(name: string) {
   if (selectedNames.value.includes(name)) {
     selectedNames.value = selectedNames.value.filter(n => n !== name)
-  } else {
+  }
+  else {
     selectedNames.value.push(name)
   }
 }
 
 // Load initial data
 loadCompanies()
-
 </script>
 
 <template>
@@ -730,9 +840,15 @@ loadCompanies()
   />
 
   <!-- 桌面端视图 -->
-  <BasicPage v-else title="客户营业额统计" description="查看客户营业额报表及图表">
+  <BasicPage
+    v-else
+    title="客户营业额统计"
+    description="查看客户营业额报表及图表"
+  >
     <!-- Toolbar -->
-    <div class="mb-6 p-5 border-0 rounded-xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 shadow-sm">
+    <div
+      class="mb-6 p-5 border-0 rounded-xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 shadow-sm"
+    >
       <div class="flex flex-wrap items-center justify-between gap-4">
         <!-- Left Side: Filters -->
         <div class="flex flex-wrap items-center gap-4">
@@ -741,35 +857,48 @@ loadCompanies()
             <Label class="text-sm font-medium text-muted-foreground">开单名称</Label>
             <Popover>
               <PopoverTrigger as-child>
-                <Button variant="outline" role="combobox" class="w-[240px] justify-between bg-white dark:bg-slate-900 shadow-sm border-0">
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  class="w-[240px] justify-between bg-white dark:bg-slate-900 shadow-sm border-0"
+                >
                   <span class="truncate">
-                    {{ selectedNames.length > 0 ? `已选择 ${selectedNames.length} 项` : '所有客户' }}
+                    {{
+                      selectedNames.length > 0
+                        ? `已选择 ${selectedNames.length} 项`
+                        : "所有客户"
+                    }}
                   </span>
                   <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent class="w-[240px] p-0">
-                 <div class="flex items-center border-b px-3">
-                    <Search class="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                    <input
-                        v-model="nameSearchQuery"
-                        class="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                        placeholder="搜索..."
+                <div class="flex items-center border-b px-3">
+                  <Search class="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                  <input
+                    v-model="nameSearchQuery"
+                    class="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="搜索..."
+                  >
+                </div>
+                <div class="max-h-[300px] overflow-y-auto p-1">
+                  <div
+                    v-for="name in filteredNameOptions"
+                    :key="name"
+                    class="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                    @click="toggleNameSelection(name)"
+                  >
+                    <Check
+                      class="mr-2 h-4 w-4"
+                      :class="[
+                        selectedNames.includes(name)
+                          ? 'opacity-100'
+                          : 'opacity-0',
+                      ]"
                     />
-                 </div>
-                 <div class="max-h-[300px] overflow-y-auto p-1">
-                    <div
-                        v-for="name in filteredNameOptions"
-                        :key="name"
-                        class="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
-                        @click="toggleNameSelection(name)"
-                    >
-                        <Check
-                            :class="['mr-2 h-4 w-4', selectedNames.includes(name) ? 'opacity-100' : 'opacity-0']"
-                        />
-                        {{ name }}
-                    </div>
-                 </div>
+                    {{ name }}
+                  </div>
+                </div>
               </PopoverContent>
             </Popover>
           </div>
@@ -779,68 +908,113 @@ loadCompanies()
             <label class="flex items-center gap-2 cursor-pointer group">
               <div class="relative">
                 <input
-                  type="checkbox"
                   v-model="showChart"
+                  type="checkbox"
                   class="peer sr-only"
+                >
+                <div
+                  class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"
                 />
-                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
               </div>
-              <span class="text-sm text-muted-foreground group-hover:text-foreground transition-colors">显示图表</span>
+              <span
+                class="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+              >显示图表</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer group">
               <div class="relative">
                 <input
-                  type="checkbox"
                   v-model="showZeroAsEmpty"
+                  type="checkbox"
                   class="peer sr-only"
+                >
+                <div
+                  class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"
                 />
-                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
               </div>
-              <span class="text-sm text-muted-foreground group-hover:text-foreground transition-colors">显示0为空</span>
+              <span
+                class="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+              >显示0为空</span>
             </label>
           </div>
         </div>
 
         <!-- Right Side: Actions -->
         <div class="flex flex-wrap items-center gap-2">
-            <Button @click="openDateDialog" class="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md border-0">
-                <Filter class="w-4 h-4 mr-2" />
-                选择统计日期
-            </Button>
-            <Button variant="outline" @click="openAllDetails" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">
-                <Search class="w-4 h-4 mr-2" />
-                所有明细
-            </Button>
-            <Button variant="outline" @click="handleExport" class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50">
-                <Download class="w-4 h-4 mr-2" />
-                导出数据
-            </Button>
+          <Button
+            class="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md border-0"
+            @click="openDateDialog"
+          >
+            <Filter class="w-4 h-4 mr-2" />
+            选择统计日期
+          </Button>
+          <Button
+            variant="outline"
+            class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50"
+            @click="openAllDetails"
+          >
+            <Search class="w-4 h-4 mr-2" />
+            所有明细
+          </Button>
+          <Button
+            variant="outline"
+            class="bg-white dark:bg-slate-900 shadow-sm border-0 hover:bg-gray-50"
+            @click="handleExport"
+          >
+            <Download class="w-4 h-4 mr-2" />
+            导出数据
+          </Button>
         </div>
       </div>
     </div>
 
     <!-- Chart Section -->
-    <div v-if="showChart && chartData.length > 0" class="mb-8 p-6 border-0 rounded-xl bg-gradient-to-br from-slate-50 to-white dark:from-slate-950/50 dark:to-background shadow-md">
+    <div
+      v-if="showChart && chartData.length > 0"
+      class="mb-8 p-6 border-0 rounded-xl bg-gradient-to-br from-slate-50 to-white dark:from-slate-950/50 dark:to-background shadow-md"
+    >
       <div class="flex items-center gap-3 mb-4">
-        <div class="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" class="h-5 w-5">
-            <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+        <div
+          class="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-sm"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            stroke-width="2"
+            class="h-5 w-5"
+          >
+            <path d="M3 3v18h18" />
+            <path d="M18 17V9" />
+            <path d="M13 17V5" />
+            <path d="M8 17v-3" />
           </svg>
         </div>
         <div>
-          <h3 class="font-semibold text-lg">营业额趋势图</h3>
-          <p class="text-sm text-muted-foreground">按月份统计代收代付与客户自提金额</p>
+          <h3 class="font-semibold text-lg">
+            营业额趋势图
+          </h3>
+          <p class="text-sm text-muted-foreground">
+            按月份统计代收代付与客户自提金额
+          </p>
         </div>
       </div>
-      <ChartContainer :config="chartConfig" class="aspect-auto h-[350px] w-full" :cursor="false">
+      <ChartContainer
+        :config="chartConfig"
+        class="aspect-auto h-[350px] w-full"
+        :cursor="false"
+      >
         <VisXYContainer :data="chartData">
           <VisGroupedBar
             :x="(_d: ChartDataPoint, i: number) => i"
             :y="[
               (d: ChartDataPoint) => Number(d.daishouPrice) || 0,
-              (d: ChartDataPoint) => Number(d.zitiPrice) || 0
+              (d: ChartDataPoint) => Number(d.zitiPrice) || 0,
             ]"
-            :color="(_d: ChartDataPoint, i: number) => [chartConfig.daishouPrice.color, chartConfig.zitiPrice.color][i]"
+            :color="
+              (_d: ChartDataPoint, i: number) =>
+                [chartConfig.daishouPrice.color, chartConfig.zitiPrice.color][i]
+            "
           />
           <VisAxis
             type="x"
@@ -866,392 +1040,702 @@ loadCompanies()
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex flex-col items-center justify-center p-24 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-white dark:from-gray-950/50 dark:to-background shadow-sm">
-        <div class="relative">
-          <div class="h-16 w-16 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500"></div>
-          <div class="absolute inset-0 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-6 w-6 text-blue-500">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-            </svg>
-          </div>
+    <div
+      v-if="loading"
+      class="flex flex-col items-center justify-center p-24 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-white dark:from-gray-950/50 dark:to-background shadow-sm"
+    >
+      <div class="relative">
+        <div
+          class="h-16 w-16 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500"
+        />
+        <div class="absolute inset-0 flex items-center justify-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            class="h-6 w-6 text-blue-500"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
         </div>
-        <p class="text-lg font-medium text-muted-foreground mt-6">正在查询数据，请稍等...</p>
-        <p class="text-sm text-muted-foreground/70 mt-1">数据加载中</p>
+      </div>
+      <p class="text-lg font-medium text-muted-foreground mt-6">
+        正在查询数据，请稍等...
+      </p>
+      <p class="text-sm text-muted-foreground/70 mt-1">
+        数据加载中
+      </p>
     </div>
 
     <!-- Table Section -->
     <div v-else-if="statisticsData.length > 0" class="space-y-6">
-        <div class="flex items-center gap-2 px-4 py-0 text-sm text-muted-foreground">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-4 w-4">
-            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
-          </svg>
-          <span>统计区间：{{ formatDateRange(startDate, endDate) }}</span>
-        </div>
-        <div class="border-0 rounded-xl overflow-hidden shadow-md bg-white dark:bg-slate-900">
-            <Table class="border-collapse">
-            <TableHeader>
-                <TableRow class="border-b-2 border-gray-200">
-                    <TableHead rowspan="3" class="text-center border bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 text-amber-800 dark:text-amber-300 font-bold w-[200px]">客户名称</TableHead>
-                    <TableHead colspan="5" class="text-center border bg-gradient-to-r from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-800 dark:text-blue-300 font-semibold">代收代付</TableHead>
-                    <TableHead colspan="5" class="text-center border bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30 text-indigo-800 dark:text-indigo-300 font-semibold">客户自提</TableHead>
-                    <TableHead rowspan="3" class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold w-[100px]">总吨数</TableHead>
-                    <TableHead rowspan="3" class="text-center border bg-gradient-to-br from-emerald-100 to-green-100 dark:from-emerald-900/30 dark:to-green-900/30 text-emerald-800 dark:text-emerald-300 font-bold w-[100px]">总金额</TableHead>
-                </TableRow>
-                <TableRow>
-                    <TableHead colspan="2" class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400">结算</TableHead>
-                    <TableHead colspan="2" class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400">未结算</TableHead>
-                    <TableHead rowspan="2" class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400">不需要结算</TableHead>
-                    <TableHead colspan="2" class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400">结算</TableHead>
-                    <TableHead colspan="2" class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400">未结算</TableHead>
-                    <TableHead rowspan="2" class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400">不需要结算</TableHead>
-                </TableRow>
-                <TableRow>
-                    <TableHead class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium">重量</TableHead>
-                    <TableHead class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium">金额</TableHead>
-                    <TableHead class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium">重量</TableHead>
-                    <TableHead class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium">金额</TableHead>
-                    <TableHead class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium">重量</TableHead>
-                    <TableHead class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium">金额</TableHead>
-                    <TableHead class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium">重量</TableHead>
-                    <TableHead class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium">金额</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                <TableRow v-for="item in formattedData" :key="item.name" class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors">
-                    <TableCell class="font-medium border relative group cursor-pointer bg-amber-50/30 dark:bg-amber-900/10" @contextmenu.prevent="openSingleDetail(item.name)">
-                         {{ item.name }}
-                         <Button
-                            variant="ghost"
-                            size="icon"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 bg-white dark:bg-slate-800 shadow-sm"
-                            title="查看明细"
-                            @click.stop="openSingleDetail(item.name)"
-                         >
-                            <Search class="h-3 w-3" />
-                         </Button>
-                    </TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(item.settledWDS) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-blue-600 dark:text-blue-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(item.settledPDS, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(item.notSettledWDS) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-blue-600 dark:text-blue-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(item.notSettledPDS, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-muted-foreground">{{ formatVal(item.notNeedWDS) }}</TableCell>
+      <div
+        class="flex items-center gap-2 px-4 py-0 text-sm text-muted-foreground"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          class="h-4 w-4"
+        >
+          <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+          <line x1="16" x2="16" y1="2" y2="6" />
+          <line x1="8" x2="8" y1="2" y2="6" />
+          <line x1="3" x2="21" y1="10" y2="10" />
+        </svg>
+        <span>统计区间：{{ formatDateRange(startDate, endDate) }}</span>
+      </div>
+      <div
+        class="border-0 rounded-xl overflow-hidden shadow-md bg-white dark:bg-slate-900"
+      >
+        <Table class="border-collapse">
+          <TableHeader>
+            <TableRow class="border-b-2 border-gray-200">
+              <TableHead
+                rowspan="3"
+                class="text-center border bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 text-amber-800 dark:text-amber-300 font-bold w-[200px]"
+              >
+                客户名称
+              </TableHead>
+              <TableHead
+                colspan="5"
+                class="text-center border bg-gradient-to-r from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-800 dark:text-blue-300 font-semibold"
+              >
+                代收代付
+              </TableHead>
+              <TableHead
+                colspan="5"
+                class="text-center border bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30 text-indigo-800 dark:text-indigo-300 font-semibold"
+              >
+                客户自提
+              </TableHead>
+              <TableHead
+                rowspan="3"
+                class="text-center border bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-800/50 dark:to-slate-800/50 font-bold w-[100px]"
+              >
+                总吨数
+              </TableHead>
+              <TableHead
+                rowspan="3"
+                class="text-center border bg-gradient-to-br from-emerald-100 to-green-100 dark:from-emerald-900/30 dark:to-green-900/30 text-emerald-800 dark:text-emerald-300 font-bold w-[100px]"
+              >
+                总金额
+              </TableHead>
+            </TableRow>
+            <TableRow>
+              <TableHead
+                colspan="2"
+                class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
+              >
+                结算
+              </TableHead>
+              <TableHead
+                colspan="2"
+                class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
+              >
+                未结算
+              </TableHead>
+              <TableHead
+                rowspan="2"
+                class="text-center border bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
+              >
+                不需要结算
+              </TableHead>
+              <TableHead
+                colspan="2"
+                class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400"
+              >
+                结算
+              </TableHead>
+              <TableHead
+                colspan="2"
+                class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400"
+              >
+                未结算
+              </TableHead>
+              <TableHead
+                rowspan="2"
+                class="text-center border bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400"
+              >
+                不需要结算
+              </TableHead>
+            </TableRow>
+            <TableRow>
+              <TableHead
+                class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium"
+              >
+                重量
+              </TableHead>
+              <TableHead
+                class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium"
+              >
+                金额
+              </TableHead>
+              <TableHead
+                class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium"
+              >
+                重量
+              </TableHead>
+              <TableHead
+                class="text-center border bg-blue-50/50 dark:bg-blue-900/10 text-xs font-medium"
+              >
+                金额
+              </TableHead>
+              <TableHead
+                class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium"
+              >
+                重量
+              </TableHead>
+              <TableHead
+                class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium"
+              >
+                金额
+              </TableHead>
+              <TableHead
+                class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium"
+              >
+                重量
+              </TableHead>
+              <TableHead
+                class="text-center border bg-indigo-50/50 dark:bg-indigo-900/10 text-xs font-medium"
+              >
+                金额
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="item in formattedData"
+              :key="item.name"
+              class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors"
+            >
+              <TableCell
+                class="font-medium border relative group cursor-pointer bg-amber-50/30 dark:bg-amber-900/10"
+                @contextmenu.prevent="openSingleDetail(item.name)"
+              >
+                {{ item.name }}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 bg-white dark:bg-slate-800 shadow-sm"
+                  title="查看明细"
+                  @click.stop="openSingleDetail(item.name)"
+                >
+                  <Search class="h-3 w-3" />
+                </Button>
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(item.settledWDS) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-blue-600 dark:text-blue-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(item.settledPDS, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(item.notSettledWDS) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-blue-600 dark:text-blue-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(item.notSettledPDS, true) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-muted-foreground"
+              >
+                {{ formatVal(item.notNeedWDS) }}
+              </TableCell>
 
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(item.settledWZT) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(item.settledPZT, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(item.notSettledWZT) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(item.notSettledPZT, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-muted-foreground">{{ formatVal(item.notNeedWZT) }}</TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(item.settledWZT) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(item.settledPZT, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(item.notSettledWZT) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(item.notSettledPZT, true) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-muted-foreground"
+              >
+                {{ formatVal(item.notNeedWZT) }}
+              </TableCell>
 
-                    <TableCell class="text-right border font-semibold tabular-nums bg-gray-50/50 dark:bg-gray-800/30">{{ formatVal(item.totalWeight) }}</TableCell>
-                    <TableCell class="text-right border font-semibold tabular-nums text-emerald-600 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10"><span class="text-xs mr-0.5">¥</span>{{ formatVal(item.totalPrice, true) }}</TableCell>
-                </TableRow>
+              <TableCell
+                class="text-right border font-semibold tabular-nums bg-gray-50/50 dark:bg-gray-800/30"
+              >
+                {{ formatVal(item.totalWeight) }}
+              </TableCell>
+              <TableCell
+                class="text-right border font-semibold tabular-nums text-emerald-600 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(item.totalPrice, true) }}
+              </TableCell>
+            </TableRow>
 
-                <!-- Summary Row -->
-                <TableRow v-if="summaryData" class="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800/50 dark:to-gray-800/50 font-bold">
-                    <TableCell class="border text-center">
-                      <span class="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm">总计</span>
-                    </TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.settledWDS) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-blue-600 dark:text-blue-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.settledPDS, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.notSettledWDS) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-blue-600 dark:text-blue-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.notSettledPDS, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.notNeedWDS) }}</TableCell>
+            <!-- Summary Row -->
+            <TableRow
+              v-if="summaryData"
+              class="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800/50 dark:to-gray-800/50 font-bold"
+            >
+              <TableCell class="border text-center">
+                <span
+                  class="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm"
+                >总计</span>
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.settledWDS) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-blue-600 dark:text-blue-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.settledPDS, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.notSettledWDS) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-blue-600 dark:text-blue-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.notSettledPDS, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.notNeedWDS) }}
+              </TableCell>
 
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.settledWZT) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.settledPZT, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.notSettledWZT) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.notSettledPZT, true) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums">{{ formatVal(summaryData.notNeedWZT) }}</TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.settledWZT) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.settledPZT, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.notSettledWZT) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-indigo-600 dark:text-indigo-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.notSettledPZT, true) }}
+              </TableCell>
+              <TableCell class="text-right border tabular-nums">
+                {{ formatVal(summaryData.notNeedWZT) }}
+              </TableCell>
 
-                    <TableCell class="text-right border tabular-nums text-lg">{{ formatVal(summaryData.totalWeight) }}</TableCell>
-                    <TableCell class="text-right border tabular-nums text-lg text-emerald-600 dark:text-emerald-400"><span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.totalPrice, true) }}</TableCell>
-                </TableRow>
-            </TableBody>
+              <TableCell class="text-right border tabular-nums text-lg">
+                {{ formatVal(summaryData.totalWeight) }}
+              </TableCell>
+              <TableCell
+                class="text-right border tabular-nums text-lg text-emerald-600 dark:text-emerald-400"
+              >
+                <span class="text-xs mr-0.5">¥</span>{{ formatVal(summaryData.totalPrice, true) }}
+              </TableCell>
+            </TableRow>
+          </TableBody>
         </Table>
-        </div>
+      </div>
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="!loading" class="flex flex-col items-center justify-center p-16 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-950/50 dark:to-slate-950/50 shadow-sm">
-      <div class="h-20 w-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center mb-6">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-10 w-10 text-blue-500">
-          <path d="M21 21l-6-6m6 6v-4.8m0 4.8h-4.8"/><path d="M3 16.2V21h4.8"/><path d="M21 7.8V3h-4.8"/><path d="M3 7.8V3h4.8"/>
-          <circle cx="12" cy="12" r="3"/>
+    <div
+      v-else-if="!loading"
+      class="flex flex-col items-center justify-center p-16 border-0 rounded-xl bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-950/50 dark:to-slate-950/50 shadow-sm"
+    >
+      <div
+        class="h-20 w-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center mb-6"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          class="h-10 w-10 text-blue-500"
+        >
+          <path d="M21 21l-6-6m6 6v-4.8m0 4.8h-4.8" />
+          <path d="M3 16.2V21h4.8" />
+          <path d="M21 7.8V3h-4.8" />
+          <path d="M3 7.8V3h4.8" />
+          <circle cx="12" cy="12" r="3" />
         </svg>
       </div>
-      <p class="text-lg font-medium text-muted-foreground mb-2">暂无统计数据</p>
-      <p class="text-sm text-muted-foreground/70">请选择日期范围并点击"选择统计日期"开始查询</p>
+      <p class="text-lg font-medium text-muted-foreground mb-2">
+        暂无统计数据
+      </p>
+      <p class="text-sm text-muted-foreground/70">
+        请选择日期范围并点击"选择统计日期"开始查询
+      </p>
     </div>
   </BasicPage>
 
   <!-- 对话框（移动端和桌面端共用） -->
   <!-- Date Selection Dialog -->
-    <Dialog v-model:open="showDateDialog">
-        <DialogContent class="sm:max-w-[450px] border-0 shadow-xl">
-            <DialogHeader class="pb-4 border-b">
-                <DialogTitle class="flex items-center gap-2 text-xl">
-                  <div class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" class="h-4 w-4">
-                      <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
-                    </svg>
-                  </div>
-                  选择统计日期
-                </DialogTitle>
-                <DialogDescription>
-                    选择要统计的时间范围
-                </DialogDescription>
-            </DialogHeader>
+  <Dialog v-model:open="showDateDialog">
+    <DialogContent class="sm:max-w-[450px] border-0 shadow-xl">
+      <DialogHeader class="pb-4 border-b">
+        <DialogTitle class="flex items-center gap-2 text-xl">
+          <div
+            class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              stroke-width="2"
+              class="h-4 w-4"
+            >
+              <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+              <line x1="16" x2="16" y1="2" y2="6" />
+              <line x1="8" x2="8" y1="2" y2="6" />
+              <line x1="3" x2="21" y1="10" y2="10" />
+            </svg>
+          </div>
+          选择统计日期
+        </DialogTitle>
+        <DialogDescription> 选择要统计的时间范围 </DialogDescription>
+      </DialogHeader>
 
-            <div class="grid gap-4 py-4">
-                <div class="flex items-center justify-center gap-2 p-1 bg-muted/50 rounded-lg">
-                     <Button
-                        :variant="dateSelectionMode === 'month' ? 'default' : 'ghost'"
-                        size="sm"
-                        class="flex-1"
-                        :class="dateSelectionMode === 'month' ? 'shadow-sm' : ''"
-                        @click="dateSelectionMode = 'month'"
-                     >
-                        按月
-                     </Button>
-                     <Button
-                        :variant="dateSelectionMode === 'year' ? 'default' : 'ghost'"
-                        size="sm"
-                        class="flex-1"
-                        :class="dateSelectionMode === 'year' ? 'shadow-sm' : ''"
-                        @click="dateSelectionMode = 'year'"
-                     >
-                        按年
-                     </Button>
-                     <Button
-                        :variant="dateSelectionMode === 'custom' ? 'default' : 'ghost'"
-                        size="sm"
-                        class="flex-1"
-                        :class="dateSelectionMode === 'custom' ? 'shadow-sm' : ''"
-                        @click="dateSelectionMode = 'custom'"
-                     >
-                        自定义
-                     </Button>
-                </div>
-                
-                <div v-if="dateSelectionMode === 'month'" class="space-y-4">
-                    <div class="grid gap-2">
-                        <Label>开始月份</Label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <Select v-model="startYear" class="w-full">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="年份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Select v-model="startMonth" class="w-full">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="月份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="m in months" :key="m" :value="m">{{ m }}月</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                    <div class="grid gap-2">
-                        <Label>结束月份</Label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <Select v-model="endYear">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="年份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Select v-model="endMonth">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="月份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="m in months" :key="m" :value="m">{{ m }}月</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                </div>
-                
-                <div v-else-if="dateSelectionMode === 'year'" class="grid gap-2">
-                    <Label>选择年份</Label>
-                    <Select v-model="startYear">
-                        <SelectTrigger>
-                            <SelectValue placeholder="年份" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                
-                <div v-else class="grid gap-4">
-                    <div class="grid gap-2">
-                        <Label>开始日期</Label>
-                        <DatePicker v-model="formattedStartDate" :disabled-date="disableStartDate" disabled-hint="开始日期不能晚于结束日期" />
-                    </div>
-                    <div class="grid gap-2">
-                        <Label>结束日期</Label>
-                        <DatePicker v-model="formattedEndDate" :disabled-date="disableEndDate" disabled-hint="结束日期不能早于开始日期" />
-                    </div>
-                </div>
-            </div>
-            
-            <DialogFooter>
-                <Button @click="handleDateConfirm">确定</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
+      <div class="grid gap-4 py-4">
+        <div
+          class="flex items-center justify-center gap-2 p-1 bg-muted/50 rounded-lg"
+        >
+          <Button
+            :variant="dateSelectionMode === 'month' ? 'default' : 'ghost'"
+            size="sm"
+            class="flex-1"
+            :class="dateSelectionMode === 'month' ? 'shadow-sm' : ''"
+            @click="dateSelectionMode = 'month'"
+          >
+            按月
+          </Button>
+          <Button
+            :variant="dateSelectionMode === 'year' ? 'default' : 'ghost'"
+            size="sm"
+            class="flex-1"
+            :class="dateSelectionMode === 'year' ? 'shadow-sm' : ''"
+            @click="dateSelectionMode = 'year'"
+          >
+            按年
+          </Button>
+          <Button
+            :variant="dateSelectionMode === 'custom' ? 'default' : 'ghost'"
+            size="sm"
+            class="flex-1"
+            :class="dateSelectionMode === 'custom' ? 'shadow-sm' : ''"
+            @click="dateSelectionMode = 'custom'"
+          >
+            自定义
+          </Button>
+        </div>
 
-    <!-- Details Dialog -->
-    <Dialog v-model:open="showDetailDialog">
-        <DialogContent class="min-w-[90vw] h-[90vh] flex flex-col">
-            <DialogHeader>
-                <DialogTitle>{{ detailTitle }}</DialogTitle>
-                <DialogDescription v-if="detailData.length > 0">
-                  共 {{ detailData.length }} 条数据，当前显示第 {{ (detailCurrentPage - 1) * parseInt(detailPageSize) + 1 }} - {{ Math.min(detailCurrentPage * parseInt(detailPageSize), detailData.length) }} 条
-                </DialogDescription>
-            </DialogHeader>
-
-            <div class="flex-1 overflow-auto border rounded-md">
-                 <Table class="relative">
-                    <TableHeader class="sticky top-0 bg-background z-10">
-                        <TableRow>
-                            <TableHead>订单号</TableHead>
-                            <TableHead>提单号</TableHead>
-                            <TableHead>开单名称</TableHead>
-                            <TableHead>车船号</TableHead>
-                            <TableHead>目的地</TableHead>
-                            <TableHead>代收价格</TableHead>
-                            <TableHead>客户价格</TableHead>
-                            <TableHead>价格</TableHead>
-                            <TableHead>发运块数</TableHead>
-                            <TableHead>发运重量</TableHead>
-                            <TableHead>发货日期</TableHead>
-                            <TableHead>运单号</TableHead>
-                            <TableHead>发货仓库</TableHead>
-                            <TableHead>规格</TableHead>
-                            <TableHead>牌号</TableHead>
-                            <TableHead>合同号</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow v-for="(item, idx) in paginatedDetailData" :key="idx">
-                            <TableCell>{{ item.order }}</TableCell>
-                            <TableCell>{{ item.bill_no }}</TableCell>
-                            <TableCell>{{ item.name }}</TableCell>
-                            <TableCell>{{ item.veh_ves_name }}</TableCell>
-                            <TableCell>{{ item.ship_to }}</TableCell>
-                            <TableCell>{{ item.coll_price }}</TableCell>
-                            <TableCell>{{ item.price }}</TableCell>
-                            <TableCell>{{ item.tot_price }}</TableCell>
-                            <TableCell>{{ item.send_num }}</TableCell>
-                            <TableCell>{{ item.send_weight }}</TableCell>
-                            <TableCell>{{ new Date(item.ship_date).toLocaleDateString() }}</TableCell>
-                            <TableCell>{{ item.inv_no }}</TableCell>
-                            <TableCell>{{ item.warehouse }}</TableCell>
-                            <TableCell>{{ item.spec }}</TableCell>
-                            <TableCell>{{ item.brand_no }}</TableCell>
-                            <TableCell>{{ item.contract_no }}</TableCell>
-                        </TableRow>
-                         <TableRow v-if="detailData.length === 0">
-                            <TableCell colspan="16" class="text-center h-32">暂无数据</TableCell>
-                        </TableRow>
-                    </TableBody>
-                 </Table>
-            </div>
-
-            <!-- Pagination -->
-            <div v-if="detailTotalPages > 1" class="flex items-center justify-center gap-2 py-2">
-              <Button variant="outline" size="sm" :disabled="detailCurrentPage <= 1" @click="detailCurrentPage--">上一页</Button>
-              <span class="text-sm text-muted-foreground">第 {{ detailCurrentPage }} / {{ detailTotalPages }} 页</span>
-              <Button variant="outline" size="sm" :disabled="detailCurrentPage >= detailTotalPages" @click="detailCurrentPage++">下一页</Button>
-              <Select v-model="detailPageSize" class="w-24">
-                <SelectTrigger class="h-8 w-24">
-                  <SelectValue />
+        <div v-if="dateSelectionMode === 'month'" class="space-y-4">
+          <div class="grid gap-2">
+            <Label>开始月份</Label>
+            <div class="grid grid-cols-2 gap-2">
+              <Select v-model="startYear" class="w-full">
+                <SelectTrigger>
+                  <SelectValue placeholder="年份" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="50">50条/页</SelectItem>
-                  <SelectItem value="100">100条/页</SelectItem>
-                  <SelectItem value="200">200条/页</SelectItem>
+                  <SelectItem v-for="y in years" :key="y" :value="y">
+                    {{ y }}年
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select v-model="startMonth" class="w-full">
+                <SelectTrigger>
+                  <SelectValue placeholder="月份" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="m in months" :key="m" :value="m">
+                    {{ m }}月
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
-            <DialogFooter class="mt-2">
-                <Button variant="outline" @click="openExportSelectDialog">
-                     <Download class="w-4 h-4 mr-2" />
-                     导出Excel
-                </Button>
-                <Button @click="showDetailDialog = false">关闭</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-
-    <!-- Export Customer Selection Dialog -->
-    <Dialog v-model:open="showExportSelectDialog">
-      <DialogContent class="sm:max-w-[450px]">
-        <DialogHeader>
-          <DialogTitle>选择导出客户</DialogTitle>
-          <DialogDescription>
-            选择要导出的客户，将导出所选客户在当前时间区间内的所有明细数据
-          </DialogDescription>
-        </DialogHeader>
-
-        <div class="space-y-4">
-          <!-- Search -->
-          <div class="flex items-center border rounded-md px-3">
-            <Search class="mr-2 h-4 w-4 shrink-0 opacity-50" />
-            <input
-              v-model="exportCustomerSearch"
-              class="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="搜索客户..."
-            />
           </div>
-
-          <!-- Select All / Clear -->
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="selectAllExportCustomers">全选 ({{ detailCustomerNames.length }})</Button>
-            <Button variant="outline" size="sm" @click="clearExportCustomers">清空</Button>
-            <span class="ml-auto text-sm text-muted-foreground self-center">已选 {{ exportSelectedCustomers.length }} 个</span>
-          </div>
-
-          <!-- Customer List -->
-          <div class="border rounded-md max-h-[300px] overflow-y-auto">
-            <div
-              v-for="name in filteredExportCustomers"
-              :key="name"
-              class="flex cursor-pointer items-center px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground border-b last:border-b-0"
-              @click="toggleExportCustomer(name)"
-            >
-              <Check :class="['mr-2 h-4 w-4', exportSelectedCustomers.includes(name) ? 'opacity-100' : 'opacity-0']" />
-              {{ name }}
-            </div>
-            <div v-if="filteredExportCustomers.length === 0" class="px-3 py-4 text-center text-muted-foreground">
-              没有找到匹配的客户
+          <div class="grid gap-2">
+            <Label>结束月份</Label>
+            <div class="grid grid-cols-2 gap-2">
+              <Select v-model="endYear">
+                <SelectTrigger>
+                  <SelectValue placeholder="年份" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="y in years" :key="y" :value="y">
+                    {{ y }}年
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select v-model="endMonth">
+                <SelectTrigger>
+                  <SelectValue placeholder="月份" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="m in months" :key="m" :value="m">
+                    {{ m }}月
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" @click="showExportSelectDialog = false">取消</Button>
-          <Button @click="confirmDetailExport" :disabled="exportSelectedCustomers.length === 0">
-            <Download class="w-4 h-4 mr-2" />
-            确认导出
+        <div v-else-if="dateSelectionMode === 'year'" class="grid gap-2">
+          <Label>选择年份</Label>
+          <Select v-model="startYear">
+            <SelectTrigger>
+              <SelectValue placeholder="年份" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="y in years" :key="y" :value="y">
+                {{ y }}年
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div v-else class="grid gap-4">
+          <div class="grid gap-2">
+            <Label>开始日期</Label>
+            <DatePicker
+              v-model="formattedStartDate"
+              :disabled-date="disableStartDate"
+              disabled-hint="开始日期不能晚于结束日期"
+            />
+          </div>
+          <div class="grid gap-2">
+            <Label>结束日期</Label>
+            <DatePicker
+              v-model="formattedEndDate"
+              :disabled-date="disableEndDate"
+              disabled-hint="结束日期不能早于开始日期"
+            />
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button @click="handleDateConfirm">
+          确定
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Details Dialog -->
+  <Dialog v-model:open="showDetailDialog">
+    <DialogContent class="min-w-[90vw] h-[90vh] flex flex-col">
+      <DialogHeader>
+        <DialogTitle>{{ detailTitle }}</DialogTitle>
+        <DialogDescription v-if="detailData.length > 0">
+          共 {{ detailData.length }} 条数据，当前显示第
+          {{ (detailCurrentPage - 1) * parseInt(detailPageSize) + 1 }} -
+          {{
+            Math.min(
+              detailCurrentPage * parseInt(detailPageSize),
+              detailData.length,
+            )
+          }}
+          条
+        </DialogDescription>
+      </DialogHeader>
+
+      <div class="flex-1 overflow-auto border rounded-md">
+        <Table class="relative">
+          <TableHeader class="sticky top-0 bg-background z-10">
+            <TableRow>
+              <TableHead>订单号</TableHead>
+              <TableHead>提单号</TableHead>
+              <TableHead>开单名称</TableHead>
+              <TableHead>车船号</TableHead>
+              <TableHead>目的地</TableHead>
+              <TableHead>代收价格</TableHead>
+              <TableHead>客户价格</TableHead>
+              <TableHead>价格</TableHead>
+              <TableHead>发运块数</TableHead>
+              <TableHead>发运重量</TableHead>
+              <TableHead>发货日期</TableHead>
+              <TableHead>运单号</TableHead>
+              <TableHead>发货仓库</TableHead>
+              <TableHead>规格</TableHead>
+              <TableHead>牌号</TableHead>
+              <TableHead>合同号</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="(item, idx) in paginatedDetailData" :key="idx">
+              <TableCell>{{ item.order }}</TableCell>
+              <TableCell>{{ item.bill_no }}</TableCell>
+              <TableCell>{{ item.name }}</TableCell>
+              <TableCell>{{ item.veh_ves_name }}</TableCell>
+              <TableCell>{{ item.ship_to }}</TableCell>
+              <TableCell>{{ item.coll_price }}</TableCell>
+              <TableCell>{{ item.price }}</TableCell>
+              <TableCell>{{ item.tot_price }}</TableCell>
+              <TableCell>{{ item.send_num }}</TableCell>
+              <TableCell>{{ item.send_weight }}</TableCell>
+              <TableCell>
+                {{ new Date(item.ship_date).toLocaleDateString() }}
+              </TableCell>
+              <TableCell>{{ item.inv_no }}</TableCell>
+              <TableCell>{{ item.warehouse }}</TableCell>
+              <TableCell>{{ item.spec }}</TableCell>
+              <TableCell>{{ item.brand_no }}</TableCell>
+              <TableCell>{{ item.contract_no }}</TableCell>
+            </TableRow>
+            <TableRow v-if="detailData.length === 0">
+              <TableCell colspan="16" class="text-center h-32">
+                暂无数据
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+
+      <!-- Pagination -->
+      <div
+        v-if="detailTotalPages > 1"
+        class="flex items-center justify-center gap-2 py-2"
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="detailCurrentPage <= 1"
+          @click="detailCurrentPage--"
+        >
+          上一页
+        </Button>
+        <span class="text-sm text-muted-foreground">第 {{ detailCurrentPage }} / {{ detailTotalPages }} 页</span>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="detailCurrentPage >= detailTotalPages"
+          @click="detailCurrentPage++"
+        >
+          下一页
+        </Button>
+        <Select v-model="detailPageSize" class="w-24">
+          <SelectTrigger class="h-8 w-24">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="50">
+              50条/页
+            </SelectItem>
+            <SelectItem value="100">
+              100条/页
+            </SelectItem>
+            <SelectItem value="200">
+              200条/页
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <DialogFooter class="mt-2">
+        <Button variant="outline" @click="openExportSelectDialog">
+          <Download class="w-4 h-4 mr-2" />
+          导出Excel
+        </Button>
+        <Button @click="showDetailDialog = false">
+          关闭
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Export Customer Selection Dialog -->
+  <Dialog v-model:open="showExportSelectDialog">
+    <DialogContent class="sm:max-w-[450px]">
+      <DialogHeader>
+        <DialogTitle>选择导出客户</DialogTitle>
+        <DialogDescription>
+          选择要导出的客户，将导出所选客户在当前时间区间内的所有明细数据
+        </DialogDescription>
+      </DialogHeader>
+
+      <div class="space-y-4">
+        <!-- Search -->
+        <div class="flex items-center border rounded-md px-3">
+          <Search class="mr-2 h-4 w-4 shrink-0 opacity-50" />
+          <input
+            v-model="exportCustomerSearch"
+            class="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="搜索客户..."
+          >
+        </div>
+
+        <!-- Select All / Clear -->
+        <div class="flex gap-2">
+          <Button variant="outline" size="sm" @click="selectAllExportCustomers">
+            全选 ({{ detailCustomerNames.length }})
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Button variant="outline" size="sm" @click="clearExportCustomers">
+            清空
+          </Button>
+          <span class="ml-auto text-sm text-muted-foreground self-center">已选 {{ exportSelectedCustomers.length }} 个</span>
+        </div>
+
+        <!-- Customer List -->
+        <div class="border rounded-md max-h-[300px] overflow-y-auto">
+          <div
+            v-for="name in filteredExportCustomers"
+            :key="name"
+            class="flex cursor-pointer items-center px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground border-b last:border-b-0"
+            @click="toggleExportCustomer(name)"
+          >
+            <Check
+              class="mr-2 h-4 w-4"
+              :class="[
+                exportSelectedCustomers.includes(name)
+                  ? 'opacity-100'
+                  : 'opacity-0',
+              ]"
+            />
+            {{ name }}
+          </div>
+          <div
+            v-if="filteredExportCustomers.length === 0"
+            class="px-3 py-4 text-center text-muted-foreground"
+          >
+            没有找到匹配的客户
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" @click="showExportSelectDialog = false">
+          取消
+        </Button>
+        <Button
+          :disabled="exportSelectedCustomers.length === 0"
+          @click="confirmDetailExport"
+        >
+          <Download class="w-4 h-4 mr-2" />
+          确认导出
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>
 .border {
-    border-color: #e5e7eb;
+  border-color: #e5e7eb;
 }
 </style>
 

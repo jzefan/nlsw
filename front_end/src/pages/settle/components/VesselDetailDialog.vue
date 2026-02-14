@@ -97,7 +97,7 @@ function formatNumber(num: number | string | undefined): string {
   if (num === null || num === undefined || num === '')
     return ''
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '' : n.toFixed(3)
+  return Number.isNaN(n) ? '' : n.toFixed(3)
 }
 
 defineExpose({ open })

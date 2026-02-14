@@ -9,7 +9,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'toggle-column', columnKey: string): void
+  (e: 'toggleColumn', columnKey: string): void
 }>()
 
 // Format cell value for display
@@ -25,7 +25,7 @@ function formatCellValue(value: any): string {
 
 // Handle column header click
 function handleColumnClick(col: ColumnDef) {
-  emit('toggle-column', col.key)
+  emit('toggleColumn', col.key)
 }
 
 // Check if column is required (from global state)

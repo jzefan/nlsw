@@ -9,6 +9,7 @@ let Company = require('../models/Company');
 let Bill = require('../models/Bill');
 let Destination = require('../models/Destination');
 let utils = require('./utils');
+const { hasAnyPermission } = require('../shared/permissions');
 
 let bunyan = require('bunyan');
 let logger = bunyan.createLogger({
@@ -22,7 +23,7 @@ exports.getCreateOrderPlan = async function (req, res) {
     return res.status(403).render('404');
   }
 
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
+  if (!hasAnyPermission(req.user.privilege, 'operator', 'statistics', 'selfVehicle')) {
     res.status(404).render('404');
   }
   else {
@@ -165,7 +166,7 @@ exports.getPlanList = async function (req, res) {
     return res.status(403).render('404');
   }
 
-  if (req.user.privilege[0] === '0' && req.user.privilege[1] === '0' && req.user.privilege[6] === '0') {
+  if (!hasAnyPermission(req.user.privilege, 'operator', 'statistics', 'selfVehicle')) {
     res.status(404).render('404');
   }
   else {

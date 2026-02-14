@@ -23,7 +23,7 @@ export function authGuard(router: Router) {
           authStore.setUser(response.data.user)
         }
       }
-      catch (e) {
+      catch {
         authStore.clearUser()
       }
     }
