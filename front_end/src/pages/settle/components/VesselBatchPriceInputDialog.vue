@@ -83,31 +83,44 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
     })
   })
 
-  // 构建车辆列表（内部运单，每条记录独立）
+  // 构建车辆列表（内部运单，同一 inner_waybill_no + veh_name 的记录需要聚合）
   const vehicleList: VehicleGroup[] = []
   innerNos.forEach((innerNo) => {
     const inv = getInvoiceByInnerNo(innerNo, allRecords)
     if (!inv) return
 
+    // 先聚合同一 inner_waybill_no 下相同车名的记录
+    let aggregatedWeight = 0
+    let vehPrice = 0
+    let vehName = ''
+    let priceRemark = ''
+
     inv.bills?.forEach((bill: any) => {
       bill.vehicles?.forEach((veh: any) => {
         if (veh.inner_waybill_no === innerNo) {
-          vehicleList.push({
-            id: generateId(`${veh.veh_name}_${innerNo}`),
-            name: veh.veh_name,
-            wno: innerNo,
-            shipFrom: inv.ship_from || '',
-            shipTo: inv.ship_to || '',
-            totalWeight: veh.send_weight,
-            totalPrice: veh.veh_price > 0 ? veh.veh_price * veh.send_weight : 0,
-            price: veh.veh_price || 0,
-            priceInput: veh.veh_price > 0 ? veh.veh_price.toString() : '',
-            remarkInput: veh.price_remark || '',
-            details: [{ wno: veh.inner_waybill_no, weight: veh.send_weight }],
-          })
+          aggregatedWeight += veh.send_weight
+          vehPrice = veh.veh_price || 0
+          vehName = veh.veh_name
+          priceRemark = veh.price_remark || ''
         }
       })
     })
+
+    if (vehName) {
+      vehicleList.push({
+        id: generateId(`${vehName}_${innerNo}`),
+        name: vehName,
+        wno: innerNo,
+        shipFrom: inv.ship_from || '',
+        shipTo: inv.ship_to || '',
+        totalWeight: aggregatedWeight,
+        totalPrice: vehPrice > 0 ? vehPrice * aggregatedWeight : 0,
+        price: vehPrice,
+        priceInput: vehPrice > 0 ? vehPrice.toString() : '',
+        remarkInput: priceRemark,
+        details: [{ wno: innerNo, weight: aggregatedWeight }],
+      })
+    }
   })
 
   vesselGroups.value = vesselList
@@ -191,36 +204,30 @@ async function handleConfirm() {
       const inv = getInvoiceByInnerNo(innerNo, dbRecords.value)
       if (!inv) return
 
-      inv.bills?.forEach((bill: any) => {
-        bill.vehicles?.forEach((veh: any) => {
-          if (veh.inner_waybill_no === innerNo) {
-            const group = vehicleGroups.value.find((g) => g.wno === innerNo)
-            if (!group || !group.priceInput) return
+      const group = vehicleGroups.value.find((g) => g.wno === innerNo)
+      if (!group || !group.priceInput) return
 
-            const price = Number.parseFloat(group.priceInput)
-            if (isNaN(price) || (price < 0 && price !== -1)) return
+      const price = Number.parseFloat(group.priceInput)
+      if (isNaN(price) || (price < 0 && price !== -1)) return
 
-            let unitPrice = 0
-            if (priceMode.value === 'unit') {
-              unitPrice = price
-            } else {
-              unitPrice = price / group.totalWeight
-            }
+      let unitPrice = 0
+      if (priceMode.value === 'unit') {
+        unitPrice = price
+      } else {
+        unitPrice = price / group.totalWeight
+      }
 
-            if (!wnoList.includes(inv.waybill_no)) {
-              wnoList.push(inv.waybill_no)
-            }
+      if (!wnoList.includes(inv.waybill_no)) {
+        wnoList.push(inv.waybill_no)
+      }
 
-            priceData.push({
-              wno: innerNo,
-              price: priceMode.value === 'unit' ? price * veh.send_weight : price,
-              inner: 1,
-              mode,
-              unitPrice,
-              remark: group.remarkInput,
-            })
-          }
-        })
+      priceData.push({
+        wno: innerNo,
+        price: priceMode.value === 'unit' ? price * group.totalWeight : price,
+        inner: 1,
+        mode,
+        unitPrice,
+        remark: group.remarkInput,
       })
     })
 

@@ -16,9 +16,17 @@ const { tenantStore } = require('../utils/tenant-context');
  * 租户上下文中间件
  * 在 passport.session() 之后使用
  */
+// 不需要租户检查的公开路径
+const PUBLIC_PATHS = ['/public-key', '/deploy-info', '/login', '/logout'];
+
 async function tenantContext(req, res, next) {
   // 未登录用户跳过
   if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return next();
+  }
+
+  // 公开路径跳过租户检查
+  if (PUBLIC_PATHS.includes(req.path)) {
     return next();
   }
 

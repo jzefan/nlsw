@@ -86,6 +86,7 @@ declare global {
   const useSessionMonitor: typeof import('../composables/use-session-monitor').useSessionMonitor
   const useSidebar: typeof import('../composables/use-sidebar').useSidebar
   const useSlots: typeof import('vue').useSlots
+  const useSubscriptionReminder: typeof import('../composables/use-subscription-reminder').useSubscriptionReminder
   const useSystemTheme: typeof import('../composables/use-system-theme').useSystemTheme
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useThemeConfig: typeof import('../composables/use-theme-config')['useThemeConfig']
@@ -103,6 +104,9 @@ declare global {
   // @ts-ignore
   export type { ExportColumn, ExportOptions, ExportAOAOptions } from '../composables/use-export'
   import('../composables/use-export')
+  // @ts-ignore
+  export type { Urgency } from '../composables/use-subscription-reminder'
+  import('../composables/use-subscription-reminder')
   // @ts-ignore
   export type { Permission } from '../constants/permissions'
   import('../constants/permissions')

@@ -100,6 +100,9 @@ const shipCustomers = ref<string[]>([])
 // 移动端展开的卡片
 const expandedCards = ref<Set<number>>(new Set())
 
+// 被修改的提单ID集合（用于高亮显示）
+const highlightedBillIds = ref<Set<string>>(new Set())
+
 function toggleCardExpand(index: number) {
   if (expandedCards.value.has(index)) {
     expandedCards.value.delete(index)
@@ -479,7 +482,9 @@ async function saveInvoice(state: string) {
       ship_from: form.value.shipFrom,
       ship_to: form.value.shipTo,
       ship_date: form.value.shipDate || undefined,
-      bills: selectedBills.value.filter((b) => b.send_num > 0 || b.send_weight > 0),
+      bills: selectedBills.value
+        .filter((b) => b.send_num > 0 || b.send_weight > 0)
+        .map((b) => ({ ...b, original_left_num: getOriginalLeftNum(b) })),
       total_weight: totalWeight.value,
       state,
       username: authStore.user?.userid,
@@ -507,6 +512,50 @@ async function saveInvoice(state: string) {
         waybillNo.value = ''
         isExistingInvoice.value = false
         originalSelectedBills.value = []
+      }
+    } else if (result.code === 'BILL_MODIFIED') {
+      // 自动刷新并高亮显示被修改的提单
+      const modifiedBillIds = (result.modifiedBills || []).map((b: any) => b._id)
+
+      toast.warning(result.message || '提单数据已被修改，已自动刷新', { duration: 4000 })
+
+      // 重新加载可用提单数据
+      if (form.value.shipName) {
+        // 清空缓存的订单数据，强制重新加载
+        availableOrdersData.value = []
+
+        // 重新加载当前选中的订单
+        if (selectedOrderNo.value) {
+          try {
+            const result = await getBillsByBillingName(form.value.shipName, '', 1, 100)
+            if (result.ok && result.data) {
+              availableOrdersData.value = result.data
+
+              // 更新已选提单的数据（刷新 left_num等字段）
+              for (const selectedBill of selectedBills.value) {
+                const freshBill = findBillById(selectedBill._id!)
+                if (freshBill) {
+                  // 更新剩余量等关键字段，但保留用户输入的 send_num 和 send_weight
+                  Object.assign(selectedBill, {
+                    left_num: freshBill.left_num,
+                    block_num: freshBill.block_num,
+                    total_weight: freshBill.total_weight,
+                  })
+                }
+              }
+            }
+          } catch (error) {
+            console.error('刷新提单数据失败', error)
+          }
+        }
+
+        // 高亮显示被修改的提单
+        highlightedBillIds.value = new Set(modifiedBillIds)
+
+        // 3秒后取消高亮
+        setTimeout(() => {
+          highlightedBillIds.value.clear()
+        }, 3000)
       }
     } else {
       toast.error(result.message || '保存失败')
@@ -708,6 +757,11 @@ function getBillLeftNum(bill: InvoiceBill) {
   }
   return Number((originalLeft - (bill.send_weight || 0)).toFixed(3))
 }
+
+// 检查提单是否被标记为已修改（需要高亮）
+function isBillHighlighted(bill: InvoiceBill) {
+  return bill._id ? highlightedBillIds.value.has(bill._id) : false
+}
 </script>
 
 <template>
@@ -821,7 +875,13 @@ function getBillLeftNum(bill: InvoiceBill) {
             </UiTableRow>
           </UiTableHeader>
           <UiTableBody>
-            <UiTableRow v-for="(bill, index) in selectedBills" :key="bill._id">
+            <UiTableRow
+              v-for="(bill, index) in selectedBills"
+              :key="bill._id"
+              :class="{
+                'bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+              }"
+            >
               <UiTableCell>
                 <UiButton variant="ghost" size="icon" class="h-6 w-6 text-destructive" @click="removeBill(index)">
                   <Trash2 class="w-4 h-4" />
@@ -868,7 +928,14 @@ function getBillLeftNum(bill: InvoiceBill) {
 
       <!-- 已选提单 - 移动端卡片 -->
       <div v-if="selectedBills.length > 0" class="lg:hidden space-y-2">
-        <div v-for="(bill, index) in selectedBills" :key="bill._id" class="border rounded-lg overflow-hidden bg-card">
+        <div
+          v-for="(bill, index) in selectedBills"
+          :key="bill._id"
+          class="border rounded-lg overflow-hidden bg-card"
+          :class="{
+            'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+          }"
+        >
           <!-- 卡片头部 -->
           <div class="p-3 flex items-start gap-3">
             <UiButton

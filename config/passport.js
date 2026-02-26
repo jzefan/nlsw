@@ -116,6 +116,83 @@ passport.use(new LocalStrategy(
   }
 ));
 
+// Sign in using phone and Password.
+// 通过手机号登录，不需要租户代码
+passport.use('phone-local', new LocalStrategy(
+  { usernameField: 'phone', passwordField: 'password', passReqToCallback: true },
+  async function(req, phone, password, done) {
+    try {
+      const phoneNumber = phone ? phone.trim() : null;
+      console.log('Phone Login Strategy: Attempting login for phone:', phoneNumber);
+
+      if (!phoneNumber) {
+        return done(null, false, { message: '请输入手机号' });
+      }
+
+      // 通过手机号查找用户（跨租户），先查顶层phone，再查profile.phone
+      var user = await User.findOne({ phone: phoneNumber }).populate('tenantId');
+      if (!user) {
+        user = await User.findOne({ 'profile.phone': phoneNumber }).populate('tenantId');
+      }
+
+      if (!user) {
+        console.log('Phone Login Strategy: User not found for phone:', phoneNumber);
+        return done(null, false, { message: '手机号未注册' });
+      }
+
+      // 检查租户状态（平台用户无租户，跳过）
+      if (user.tenantId) {
+        const tenant = user.tenantId;
+        if (tenant.status !== 'active') {
+          const statusMessages = {
+            suspended: '该公司账号已被暂停，请联系平台管理员',
+            deleted: '该公司账号已被删除'
+          };
+          return done(null, false, { message: statusMessages[tenant.status] || '公司账号状态异常' });
+        }
+
+        if (tenant.expireDate && new Date() > tenant.expireDate) {
+          return done(null, false, { message: '该公司账号已过期，请联系平台管理员续费' });
+        }
+      }
+
+      // 检查用户状态
+      if (user.status === 'disabled') {
+        return done(null, false, { message: '该账号已被禁用，请联系公司管理员' });
+      }
+
+      console.log('Phone Login Strategy: User found:', user.userid, 'role:', user.role);
+
+      // Decrypt password if encrypted, otherwise use as-is (backward compatible)
+      let plainPassword = password;
+      if (isEncryptedPassword(password)) {
+        try {
+          plainPassword = decryptPassword(password);
+          console.log('Phone Login Strategy: Password decrypted successfully');
+        } catch (decryptError) {
+          console.error('Phone Login Strategy: Password decryption failed:', decryptError.message);
+          return done(null, false, { message: '密码解密失败' });
+        }
+      }
+
+      const isMatch = await user.comparePassword(plainPassword);
+      console.log('Phone Login Strategy: Password match:', isMatch);
+
+      if (isMatch) {
+        // 更新最后登录时间
+        user.lastLoginAt = new Date();
+        await user.save();
+        return done(null, user);
+      } else {
+        return done(null, false, { message: '密码不正确' });
+      }
+    } catch (err) {
+      console.error('Phone Login Strategy Error:', err);
+      return done(err);
+    }
+  }
+));
+
 
 // Login Required middleware.
 exports.isAuthenticated = function(req, res, next) {

@@ -90,6 +90,7 @@ export interface CreateTenantData {
     contact?: TenantItem['contact']
     plan?: string
     maxUsers?: number
+    expireDate?: string
   }
   owner: {
     userid: string
@@ -106,6 +107,7 @@ export interface UpdateTenantData {
     contact?: TenantItem['contact']
     plan?: string
     maxUsers?: number
+    expireDate?: string
   }
   owner?: {
     userid: string
@@ -179,6 +181,15 @@ export async function deleteTenant(tenantId: string) {
 export async function getPlatformStats() {
   const response = await axiosInstance.get<{ ok: boolean; data: PlatformStats }>(
     '/platform/statistics',
+  )
+  return response.data
+}
+
+/** 重置用户密码 */
+export async function resetUserPassword(userId: string) {
+  const response = await axiosInstance.post<{ ok: boolean; msg?: string; data?: { userid: string; password: string } }>(
+    '/platform/users/reset-password',
+    { userId },
   )
   return response.data
 }

@@ -62,7 +62,8 @@ exports.getMe = async (req, res) => {
         name: req.tenant.name,
         fullName: req.tenant.fullName || '',
         plan: req.tenant.plan,
-        maxUsers: req.tenant.maxUsers
+        maxUsers: req.tenant.maxUsers,
+        expireDate: req.tenant.expireDate || null
       } : null
     );
 
@@ -157,6 +158,7 @@ exports.postUserMgr = async (req, res) => {
       user.profile.gender = '';
       user.profile.location = '';
       user.profile.phone = data.phone;
+      user.phone = data.phone ? data.phone.trim() : undefined;
 
       await user.save();
       res.json({ ok: true });
@@ -178,6 +180,7 @@ exports.postUserMgr = async (req, res) => {
       user.privilege = modData.privilege;
       user.profile.name = modData.name;
       user.profile.phone = modData.phone;
+      user.phone = modData.phone ? modData.phone.trim() : undefined;
 
       await user.save();
       res.json({ ok: true });

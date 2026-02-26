@@ -23,6 +23,7 @@ var userSchema = new mongoose.Schema({
   // === 原有字段 ===
   userid: { type: String, required: true },
   password: String,
+  phone: { type: String, sparse: true }, // 手机号，用于登录（可选，跨租户唯一）
   no: Number,    // 顺序号
   title: String, // 职务
   privilege: { type: mongoose.Schema.Types.Mixed, default: [] }, // ['admin'] or ['operator', 'account', ...]
@@ -30,7 +31,7 @@ var userSchema = new mongoose.Schema({
     name: { type: String, default: '' },
     gender: { type: String, default: '' },
     location: { type: String, default: '' },
-    phone: { type: String, default: '' },
+    phone: { type: String, default: '' }, // 保留用于向后兼容
     picture: { type: String, default: '' }
   },
 
@@ -52,6 +53,9 @@ var userSchema = new mongoose.Schema({
 // 复合唯一索引：同一租户内 userid 唯一
 // 平台用户 (tenantCode 为空) userid 全局唯一
 userSchema.index({ tenantCode: 1, userid: 1 }, { unique: true });
+
+// 手机号全局唯一索引（如果存在）
+userSchema.index({ phone: 1 }, { unique: true, sparse: true });
 
 /**
  * Hash the password for security.

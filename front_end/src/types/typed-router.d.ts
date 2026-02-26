@@ -277,6 +277,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/platform/orders': RouteRecordInfo<
+      '/platform/orders',
+      '/platform/orders',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/platform/statistics': RouteRecordInfo<
       '/platform/statistics',
       '/platform/statistics',
@@ -634,6 +641,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/platform/business.vue': {
       routes:
         | '/platform/business'
+      views:
+        | never
+    }
+    'src/pages/platform/orders.vue': {
+      routes:
+        | '/platform/orders'
       views:
         | never
     }

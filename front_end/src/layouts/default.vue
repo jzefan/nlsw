@@ -2,8 +2,11 @@
 import { useCookies } from '@vueuse/integrations/useCookies'
 import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
+import { toast } from 'vue-sonner'
 
 import AppSidebar from '@/components/app-sidebar/index.vue'
+import PaymentQRDialog from '@/components/subscription-reminder/PaymentQRDialog.vue'
+import SubscriptionBanner from '@/components/subscription-reminder/SubscriptionBanner.vue'
 import ThemePopover from '@/components/custom-theme/theme-popover.vue'
 import ToggleTheme from '@/components/toggle-theme.vue'
 import {
@@ -15,6 +18,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { SIDEBAR_COOKIE_NAME } from '@/components/ui/sidebar/utils'
+import { useSubscriptionReminder } from '@/composables/use-subscription-reminder'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
@@ -63,9 +67,20 @@ const routeMap: Record<string, { parent?: string; title: string }> = {
   '/data-process/round-steel': { parent: '数据处理', title: '圆钢' },
   '/data-process/plate': { parent: '数据处理', title: '板材' },
   '/platform/tenants': { parent: '平台管理', title: '公司账号管理' },
+  '/platform/orders': { parent: '平台管理', title: '订单管理' },
   '/platform/business': { parent: '平台管理', title: '公司业务查看' },
   '/platform/statistics': { parent: '平台管理', title: '平台统计报告' },
 }
+
+// Subscription reminder
+const { shouldShowToast, reminderText: subReminderText } = useSubscriptionReminder()
+const showPaymentQR = ref(false)
+
+onMounted(() => {
+  if (shouldShowToast()) {
+    toast.warning(subReminderText.value, { duration: 6000 })
+  }
+})
 
 // 计算面包屑（不包括首页，首页在模板中固定显示）
 const breadcrumbs = computed(() => {
@@ -141,9 +156,13 @@ const breadcrumbs = computed(() => {
           <ThemePopover />
         </div>
       </header>
+      <SubscriptionBanner @open-payment="showPaymentQR = true" />
       <div :class="cn('p-4 grow', contentLayout === 'centered' ? 'container mx-auto ' : '')">
         <router-view />
       </div>
     </UiSidebarInset>
+
+    <!-- Payment QR Dialog -->
+    <PaymentQRDialog v-model:open="showPaymentQR" />
   </UiSidebarProvider>
 </template>

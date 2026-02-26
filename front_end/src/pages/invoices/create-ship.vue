@@ -113,6 +113,9 @@ const confirmedBills = ref<InvoiceBill[]>([])
 const expandedPendingCards = ref<Set<number>>(new Set())
 const expandedConfirmedCards = ref<Set<string>>(new Set())
 
+// 被修改的提单ID集合（用于高亮显示）
+const highlightedBillIds = ref<Set<string>>(new Set())
+
 function togglePendingCardExpand(index: number) {
   if (expandedPendingCards.value.has(index)) {
     expandedPendingCards.value.delete(index)
@@ -633,7 +636,7 @@ async function saveInvoice(state: string) {
       ship_from: form.value.shipFrom,
       ship_to: form.value.shipTo,
       ship_date: form.value.shipDate || undefined,
-      bills: confirmedBills.value,
+      bills: confirmedBills.value.map((b) => ({ ...b, original_left_num: getBaseLeft(b._id!) })),
       total_weight: totalWeight.value,
       state,
       username: authStore.user?.userid,
@@ -661,6 +664,64 @@ async function saveInvoice(state: string) {
         waybillNo.value = ''
         isExistingInvoice.value = false
         originalConfirmedBills.value = []
+      }
+    } else if (result.code === 'BILL_MODIFIED') {
+      // 自动刷新并高亮显示被修改的提单
+      const modifiedBillIds = (result.modifiedBills || []).map((b: any) => b._id)
+
+      toast.warning(result.message || '提单数据已被修改，已自动刷新', { duration: 4000 })
+
+      // 重新加载可用提单数据
+      if (form.value.billingName) {
+        // 清空缓存的订单数据，强制重新加载
+        availableOrdersData.value = []
+
+        // 重新加载当前选中的订单
+        if (selectedOrderNo.value) {
+          try {
+            const result = await getBillsByBillingName(form.value.billingName, '', 1, 100)
+            if (result.ok && result.data) {
+              availableOrdersData.value = result.data
+
+              // 更新已确认提单的数据（刷新 left_num等字段）
+              for (const confirmedBill of confirmedBills.value) {
+                const freshBill = findBillById(confirmedBill._id!)
+                if (freshBill) {
+                  // 更新剩余量等关键字段，但保留用户输入的 send_num 和 send_weight
+                  Object.assign(confirmedBill, {
+                    left_num: freshBill.left_num,
+                    block_num: freshBill.block_num,
+                    total_weight: freshBill.total_weight,
+                  })
+                  // 更新 _originalLeft 以反映新的基准值
+                  ;(confirmedBill as any)._originalLeft = freshBill.left_num
+                }
+              }
+
+              // 更新待确认提单的数据
+              for (const pendingBill of pendingBills.value) {
+                const freshBill = findBillById(pendingBill._id!)
+                if (freshBill) {
+                  Object.assign(pendingBill, {
+                    left_num: freshBill.left_num,
+                    block_num: freshBill.block_num,
+                    total_weight: freshBill.total_weight,
+                  })
+                }
+              }
+            }
+          } catch (error) {
+            console.error('刷新提单数据失败', error)
+          }
+        }
+
+        // 高亮显示被修改的提单
+        highlightedBillIds.value = new Set(modifiedBillIds)
+
+        // 3秒后取消高亮
+        setTimeout(() => {
+          highlightedBillIds.value.clear()
+        }, 3000)
       }
     } else {
       toast.error(result.message || '保存失败')
@@ -1042,6 +1103,11 @@ function formatWeight(weight: number) {
   if (weight == null) return '-'
   return Number(weight).toFixed(3)
 }
+
+// 检查提单是否被标记为已修改（需要高亮）
+function isBillHighlighted(bill: InvoiceBill) {
+  return bill._id ? highlightedBillIds.value.has(bill._id) : false
+}
 </script>
 
 <template>
@@ -1170,7 +1236,13 @@ function formatWeight(weight: number) {
               </UiTableRow>
             </UiTableHeader>
             <UiTableBody>
-              <UiTableRow v-for="(bill, index) in pendingBills" :key="`${bill.bill_no}-${index}`">
+              <UiTableRow
+                v-for="(bill, index) in pendingBills"
+                :key="`${bill.bill_no}-${index}`"
+                :class="{
+                  'bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+                }"
+              >
                 <UiTableCell>
                   <UiButton
                     variant="ghost"
@@ -1225,6 +1297,9 @@ function formatWeight(weight: number) {
             v-for="(bill, index) in pendingBills"
             :key="`${bill.bill_no}-${index}`"
             class="border rounded-lg overflow-hidden bg-card"
+            :class="{
+              'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+            }"
           >
             <!-- 卡片头部 -->
             <div class="p-3 flex items-start gap-3">
@@ -1386,7 +1461,13 @@ function formatWeight(weight: number) {
                 </UiTableRow>
               </UiTableHeader>
               <UiTableBody>
-                <UiTableRow v-for="bill in group.bills" :key="`${bill.bill_no}-${bill.inner_waybill_no}`">
+                <UiTableRow
+                  v-for="bill in group.bills"
+                  :key="`${bill.bill_no}-${bill.inner_waybill_no}`"
+                  :class="{
+                    'bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+                  }"
+                >
                   <UiTableCell>
                     <UiButton
                       variant="ghost"
@@ -1441,6 +1522,9 @@ function formatWeight(weight: number) {
               v-for="bill in group.bills"
               :key="`${bill.bill_no}-${bill.inner_waybill_no}`"
               class="border rounded-lg overflow-hidden bg-card"
+              :class="{
+                'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+              }"
             >
               <!-- 卡片头部 -->
               <div class="p-3 flex items-start gap-3">

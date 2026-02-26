@@ -19,19 +19,24 @@ import {
 // 权限检查：平台管理员、公司管理员、或权限管理员可访问
 const router = useRouter()
 const { user: authUser } = useAuth()
-const canAccess = computed(() =>
-  authUser.value?.role === 'platform'
-  || authUser.value?.role === 'owner'
-  || isAdminPrivilege(authUser.value?.privilege ?? []),
+const canAccess = computed(
+  () =>
+    authUser.value?.role === 'platform' ||
+    authUser.value?.role === 'owner' ||
+    isAdminPrivilege(authUser.value?.privilege ?? []),
 )
 
 // 无权限用户重定向
-watch(canAccess, (val) => {
-  if (val === false) {
-    toast.error('无权限访问此页面')
-    router.push('/dashboard')
-  }
-}, { immediate: true })
+watch(
+  canAccess,
+  (val) => {
+    if (val === false) {
+      toast.error('无权限访问此页面')
+      router.push('/dashboard')
+    }
+  },
+  { immediate: true },
+)
 
 // 状态
 const loading = ref(false)
@@ -39,7 +44,7 @@ const users = ref<User[]>([])
 const selectedUsers = ref<User[]>([])
 
 // 单选的用户（用于编辑和重置密码）
-const selectedUser = computed(() => selectedUsers.value.length === 1 ? selectedUsers.value[0] : null)
+const selectedUser = computed(() => (selectedUsers.value.length === 1 ? selectedUsers.value[0] : null))
 
 // 对话框状态
 const showEditDialog = ref(false)
@@ -87,29 +92,26 @@ async function loadData() {
     if (result.ok) {
       users.value = result.data
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('加载数据失败', { description: e.message })
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
 // 选择/取消选择用户
 function toggleSelect(user: User) {
-  const index = selectedUsers.value.findIndex(u => u.userid === user.userid)
+  const index = selectedUsers.value.findIndex((u) => u.userid === user.userid)
   if (index >= 0) {
     selectedUsers.value.splice(index, 1)
-  }
-  else {
+  } else {
     selectedUsers.value.push(user)
   }
 }
 
 // 是否选中
 function isSelected(user: User) {
-  return selectedUsers.value.some(u => u.userid === user.userid)
+  return selectedUsers.value.some((u) => u.userid === user.userid)
 }
 
 // 全选复选框状态
@@ -118,8 +120,7 @@ const allSelected = computed({
   set: (value: boolean) => {
     if (value) {
       selectedUsers.value = [...users.value]
-    }
-    else {
+    } else {
       selectedUsers.value = []
     }
   },
@@ -127,11 +128,10 @@ const allSelected = computed({
 
 // 处理单个用户复选框变化
 function handleUserCheck(user: User, checked: boolean) {
-  const index = selectedUsers.value.findIndex(u => u.userid === user.userid)
+  const index = selectedUsers.value.findIndex((u) => u.userid === user.userid)
   if (checked && index < 0) {
     selectedUsers.value.push(user)
-  }
-  else if (!checked && index >= 0) {
+  } else if (!checked && index >= 0) {
     selectedUsers.value.splice(index, 1)
   }
 }
@@ -174,7 +174,7 @@ function openEditDialog(user?: User) {
 
 // 获取职务代码
 function getTitleCode(label: string): string {
-  const option = titleOptions.find(o => o.label === label)
+  const option = titleOptions.find((o) => o.label === label)
   return option?.value || ''
 }
 
@@ -240,29 +240,24 @@ function onAdminChange(checked: boolean) {
     permissions.value.vesselRevenue = false
     permissions.value.selfVehicle = false
     permissions.value.seePrice = false
-  }
-  else {
+  } else {
     permissions.value.admin = false
   }
 }
 
 // 职务变更
 function onTitleChange(value: string | number | bigint | boolean | Record<string, any> | null) {
-  if (!value || typeof value !== 'string')
-    return
+  if (!value || typeof value !== 'string') return
   if (value === 'ceo' || value === 'mgr') {
     onAdminChange(true)
-  }
-  else {
+  } else {
     permissions.value.admin = false
     resetPermissions()
     if (value === 'operator') {
       permissions.value.operator = true
-    }
-    else if (value === 'account') {
+    } else if (value === 'account') {
       permissions.value.account = true
-    }
-    else if (value === 'statistician') {
+    } else if (value === 'statistician') {
       permissions.value.statistics = true
     }
   }
@@ -270,13 +265,11 @@ function onTitleChange(value: string | number | bigint | boolean | Record<string
 
 // 检查用户名重复
 function checkUsernameDuplicate() {
-  if (dialogMode.value === 'edit')
-    return
+  if (dialogMode.value === 'edit') return
   const username = editForm.value.userid.trim()
   if (username) {
-    usernameDuplicate.value = users.value.some(u => u.userid === username)
-  }
-  else {
+    usernameDuplicate.value = users.value.some((u) => u.userid === username)
+  } else {
     usernameDuplicate.value = false
   }
 }
@@ -284,21 +277,23 @@ function checkUsernameDuplicate() {
 // 是否可以提交
 const canSubmit = computed(() => {
   const hasUsername = !!editForm.value.userid.trim()
+  const hasPhone = !!editForm.value.phone.trim()
   const hasTitle = !!editForm.value.title
-  const hasPermission = permissions.value.admin
-    || permissions.value.operator
-    || permissions.value.statistics
-    || permissions.value.account
-    || permissions.value.custRevenue
-    || permissions.value.vesselRevenue
-    || permissions.value.selfVehicle
+  const hasPermission =
+    permissions.value.admin ||
+    permissions.value.operator ||
+    permissions.value.statistics ||
+    permissions.value.account ||
+    permissions.value.custRevenue ||
+    permissions.value.vesselRevenue ||
+    permissions.value.selfVehicle
 
-  return hasUsername && hasTitle && hasPermission && !usernameDuplicate.value
+  return hasUsername && hasPhone && hasTitle && hasPermission && !usernameDuplicate.value
 })
 
 // 获取职务中文名
 function getTitleLabel(code: string): string {
-  const option = titleOptions.find(o => o.value === code)
+  const option = titleOptions.find((o) => o.value === code)
   return option?.label || code
 }
 
@@ -316,8 +311,7 @@ async function handleSave() {
     let result
     if (dialogMode.value === 'add') {
       result = await addUser(data)
-    }
-    else {
+    } else {
       result = await updateUser(data)
     }
 
@@ -326,12 +320,10 @@ async function handleSave() {
       showEditDialog.value = false
       selectedUsers.value = []
       loadData()
-    }
-    else {
+    } else {
       toast.error('操作失败', { description: result.message || result.response })
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('操作失败', { description: e.message })
   }
 }
@@ -339,6 +331,11 @@ async function handleSave() {
 // 是否为主账号（不可删除/编辑角色）
 function isOwnerUser(user: User) {
   return user.role === 'owner'
+}
+
+// 是否是当前登录用户自己
+function isSelf(user: User) {
+  return user.userid === authUser.value?.userid
 }
 
 // 角色显示
@@ -353,38 +350,38 @@ async function handleDeleteOne(user: User) {
     toast.warning('主账号不可删除')
     return
   }
-  if (!confirm(`确定要删除用户 "${user.name || user.userid}" 吗?`))
+  if (isSelf(user)) {
+    toast.warning('不能删除自己的账号')
     return
+  }
+  if (!confirm(`确定要删除用户 "${user.name || user.userid}" 吗?`)) return
 
   try {
     const result = await deleteUser(user.userid)
     if (result.ok) {
       toast.success('用户删除成功')
-      selectedUsers.value = selectedUsers.value.filter(u => u.userid !== user.userid)
+      selectedUsers.value = selectedUsers.value.filter((u) => u.userid !== user.userid)
       loadData()
-    }
-    else {
+    } else {
       toast.error('删除失败', { description: result.message || result.response })
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('删除失败', { description: e.message })
   }
 }
 
 // 批量删除用户
 async function handleDeleteSelected() {
-  // 过滤掉主账号
-  const deletable = selectedUsers.value.filter(u => !isOwnerUser(u))
+  // 过滤掉主账号和自己
+  const deletable = selectedUsers.value.filter((u) => !isOwnerUser(u) && !isSelf(u))
   if (deletable.length === 0) {
-    toast.warning('没有可删除的用户（主账号不可删除）')
+    toast.warning('没有可删除的用户（主账号和自己不可删除）')
     return
   }
 
   const count = deletable.length
-  const names = deletable.map(u => u.name || u.userid).join(', ')
-  if (!confirm(`确定要删除 ${count} 个用户吗?\n${names}`))
-    return
+  const names = deletable.map((u) => u.name || u.userid).join(', ')
+  if (!confirm(`确定要删除 ${count} 个用户吗?\n${names}`)) return
 
   try {
     let successCount = 0
@@ -393,8 +390,7 @@ async function handleDeleteSelected() {
       const result = await deleteUser(user.userid)
       if (result.ok) {
         successCount++
-      }
-      else {
+      } else {
         failCount++
       }
     }
@@ -408,8 +404,7 @@ async function handleDeleteSelected() {
 
     selectedUsers.value = []
     loadData()
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('删除失败', { description: e.message })
   }
 }
@@ -421,7 +416,11 @@ async function handleResetPassword() {
     return
   }
 
-  if (!confirm(`确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`))
+  if (
+    !confirm(
+      `确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`,
+    )
+  )
     return
 
   try {
@@ -429,12 +428,10 @@ async function handleResetPassword() {
     if (result.ok) {
       toast.success(`成功重置用户 ${selectedUser.value.name || selectedUser.value.userid} 的密码`)
       selectedUsers.value = []
-    }
-    else {
+    } else {
       toast.error('重置密码失败', { description: result.message })
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('重置密码失败', { description: e.message })
   }
 }
@@ -463,30 +460,15 @@ onMounted(() => {
     <!-- 工具栏 -->
     <div class="mb-4 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <UiButton
-          variant="outline"
-          size="sm"
-          :disabled="!selectedUser"
-          @click="openEditDialog()"
-        >
+        <UiButton variant="outline" size="sm" :disabled="!selectedUser" @click="openEditDialog()">
           <Pencil class="w-4 h-4 mr-1" />
           修改
         </UiButton>
-        <UiButton
-          variant="outline"
-          size="sm"
-          :disabled="selectedUsers.length === 0"
-          @click="handleDeleteSelected"
-        >
+        <UiButton variant="outline" size="sm" :disabled="selectedUsers.length === 0" @click="handleDeleteSelected">
           <Trash2 class="w-4 h-4 mr-1" />
           删除{{ selectedUsers.length > 0 ? ` (${selectedUsers.length})` : '' }}
         </UiButton>
-        <UiButton
-          variant="outline"
-          size="sm"
-          :disabled="!selectedUser"
-          @click="handleResetPassword"
-        >
+        <UiButton variant="outline" size="sm" :disabled="!selectedUser" @click="handleResetPassword">
           <KeyRound class="w-4 h-4 mr-1" />
           重置密码
         </UiButton>
@@ -507,29 +489,15 @@ onMounted(() => {
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
                 :checked="selectedUsers.length === users.length && users.length > 0"
                 @change="allSelected = ($event.target as HTMLInputElement).checked"
-              >
+              />
             </th>
-            <th class="p-3 text-left">
-              用户名
-            </th>
-            <th class="p-3 text-left">
-              真实名字
-            </th>
-            <th class="p-3 text-left">
-              角色
-            </th>
-            <th class="p-3 text-left">
-              职务
-            </th>
-            <th class="p-3 text-left">
-              权限
-            </th>
-            <th class="p-3 text-left">
-              联系电话
-            </th>
-            <th class="p-3 w-16 text-center">
-              操作
-            </th>
+            <th class="p-3 text-left">用户名</th>
+            <th class="p-3 text-left">手机号</th>
+            <th class="p-3 text-left">真实名字</th>
+            <th class="p-3 text-left">角色</th>
+            <th class="p-3 text-left">职务</th>
+            <th class="p-3 text-left">权限</th>
+            <th class="p-3 w-16 text-center">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -546,34 +514,24 @@ onMounted(() => {
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
                 :checked="isSelected(user)"
                 @change="handleUserCheck(user, ($event.target as HTMLInputElement).checked)"
-              >
+              />
             </td>
-            <td class="p-3">
-              {{ user.userid }}
-            </td>
-            <td class="p-3">
-              {{ user.name }}
-            </td>
+            <td class="p-3">{{ user.userid }}</td>
+            <td class="p-3">{{ user.phone }}</td>
+            <td class="p-3">{{ user.name }}</td>
             <td class="p-3">
               <UiBadge v-if="isOwnerUser(user)" variant="outline">
                 {{ getRoleDisplay(user.role) }}
               </UiBadge>
             </td>
+            <td class="p-3">{{ user.title }}</td>
             <td class="p-3">
-              {{ user.title }}
-            </td>
-            <td class="p-3">
-              <UiBadge v-if="user.privilege.includes('admin')" variant="destructive">
-                管理
-              </UiBadge>
+              <UiBadge v-if="user.privilege.includes('admin')" variant="destructive"> 管理 </UiBadge>
               <span v-else>{{ getPrivilegeDisplay(user.privilege) }}</span>
-            </td>
-            <td class="p-3">
-              {{ user.phone }}
             </td>
             <td class="p-3 text-center" @click.stop>
               <UiButton
-                v-if="!isOwnerUser(user)"
+                v-if="!isOwnerUser(user) && !isSelf(user)"
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8 text-muted-foreground hover:text-destructive"
@@ -584,9 +542,7 @@ onMounted(() => {
             </td>
           </tr>
           <tr v-if="users.length === 0 && !loading">
-            <td colspan="8" class="p-8 text-center text-muted-foreground">
-              暂无数据
-            </td>
+            <td colspan="8" class="p-8 text-center text-muted-foreground">暂无数据</td>
           </tr>
         </tbody>
       </table>
@@ -612,9 +568,14 @@ onMounted(() => {
               :disabled="dialogMode === 'edit'"
               @input="checkUsernameDuplicate"
             />
-            <p v-if="usernameDuplicate" class="text-xs text-destructive">
-              此用户名已注册!
-            </p>
+            <p v-if="usernameDuplicate" class="text-xs text-destructive">此用户名已注册!</p>
+          </div>
+
+          <!-- 电话 -->
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">手机号 <span class="text-destructive">*</span></label>
+            <UiInput v-model="editForm.phone" placeholder="请输入手机号" />
+            <p class="text-xs text-muted-foreground">手机号也可以作为登录账号使用</p>
           </div>
 
           <!-- 真实名字 -->
@@ -627,7 +588,7 @@ onMounted(() => {
           <div class="grid gap-2">
             <label class="text-sm font-medium">职务 <span class="text-destructive">*</span></label>
             <UiSelect v-model="editForm.title" @update:model-value="onTitleChange">
-              <UiSelectTrigger>
+              <UiSelectTrigger class="w-full">
                 <UiSelectValue placeholder="请选择职务" />
               </UiSelectTrigger>
               <UiSelectContent>
@@ -636,12 +597,6 @@ onMounted(() => {
                 </UiSelectItem>
               </UiSelectContent>
             </UiSelect>
-          </div>
-
-          <!-- 电话 -->
-          <div class="grid gap-2">
-            <label class="text-sm font-medium">联系电话</label>
-            <UiInput v-model="editForm.phone" placeholder="请输入联系电话" />
           </div>
 
           <!-- 权限选择 -->
@@ -661,7 +616,7 @@ onMounted(() => {
                   class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   :checked="permissions.admin"
                   @change="onAdminChange(($event.target as HTMLInputElement).checked)"
-                >
+                />
                 <span class="text-sm">管理员</span>
               </label>
 
@@ -680,7 +635,7 @@ onMounted(() => {
                   :checked="permissions.operator"
                   :disabled="permissions.admin"
                   @change="permissions.operator = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">业务</span>
               </label>
 
@@ -699,7 +654,7 @@ onMounted(() => {
                   :checked="permissions.account"
                   :disabled="permissions.admin"
                   @change="permissions.account = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">会计</span>
               </label>
 
@@ -718,7 +673,7 @@ onMounted(() => {
                   :checked="permissions.statistics"
                   :disabled="permissions.admin"
                   @change="permissions.statistics = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">统计</span>
               </label>
 
@@ -737,7 +692,7 @@ onMounted(() => {
                   :checked="permissions.custRevenue"
                   :disabled="permissions.admin"
                   @change="permissions.custRevenue = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">客户营业额</span>
               </label>
 
@@ -756,7 +711,7 @@ onMounted(() => {
                   :checked="permissions.vesselRevenue"
                   :disabled="permissions.admin"
                   @change="permissions.vesselRevenue = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">车船营业额</span>
               </label>
 
@@ -775,7 +730,7 @@ onMounted(() => {
                   :checked="permissions.selfVehicle"
                   :disabled="permissions.admin"
                   @change="permissions.selfVehicle = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">自有车管理</span>
               </label>
 
@@ -794,7 +749,7 @@ onMounted(() => {
                   :checked="permissions.seePrice"
                   :disabled="permissions.admin"
                   @change="permissions.seePrice = ($event.target as HTMLInputElement).checked"
-                >
+                />
                 <span class="text-sm">查看价格</span>
               </label>
             </div>
@@ -802,12 +757,8 @@ onMounted(() => {
         </div>
 
         <UiDialogFooter>
-          <UiButton variant="outline" @click="showEditDialog = false">
-            取消
-          </UiButton>
-          <UiButton :disabled="!canSubmit" @click="handleSave">
-            确定
-          </UiButton>
+          <UiButton variant="outline" @click="showEditDialog = false"> 取消 </UiButton>
+          <UiButton :disabled="!canSubmit" @click="handleSave"> 确定 </UiButton>
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>

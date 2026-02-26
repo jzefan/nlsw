@@ -28,6 +28,7 @@ export interface InvoiceBill {
   send_weight: number
   wagon_no?: string // 船运时的车号
   inner_waybill_no?: string
+  original_left_num?: number // 加载时的 left_num 快照，用于并发检测
 }
 
 // 运单

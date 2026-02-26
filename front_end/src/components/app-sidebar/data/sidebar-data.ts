@@ -11,6 +11,7 @@ import {
   Receipt,
   Settings,
   Ship,
+  ShoppingCart,
   TrendingUp,
   Truck,
   Wrench,
@@ -159,9 +160,10 @@ export function generatePlatformNavData(): NavGroup[] {
     {
       title: '平台管理',
       items: [
-        { title: '公司账号管理', url: '/platform/tenants', icon: Building2 },
-        { title: '公司业务查看', url: '/platform/business', icon: Eye },
-        { title: '平台统计报告', url: '/platform/statistics', icon: BarChart3 },
+        { title: '账号管理', url: '/platform/tenants', icon: Building2 },
+        { title: '订单管理', url: '/platform/orders', icon: ShoppingCart },
+        { title: '业务查看', url: '/platform/business', icon: Eye },
+        { title: '统计报告', url: '/platform/statistics', icon: BarChart3 },
       ],
     },
     {

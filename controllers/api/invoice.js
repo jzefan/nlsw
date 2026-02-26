@@ -461,6 +461,46 @@ exports.buildShipInvoice = async (req, res) => {
       }
     }
 
+    // 6.5 并发检测：检查前端快照与数据库当前值是否一致
+    const modifiedBills = [];
+    for (const fb of flatBills) {
+      if (fb.original_left_num == null) continue; // 向后兼容
+      const dbBill = billIdToDbBill[fb._id];
+      if (!dbBill) continue;
+
+      // 计算前端加载时应该看到的值（更新场景要加回旧分配量）
+      let expectedLeft = dbBill.left_num;
+      const oldData = oldBillMapForValidation[fb._id];
+      if (oldData) {
+        if (dbBill.block_num > 0) {
+          expectedLeft += oldData.num;
+        } else {
+          expectedLeft += oldData.weight;
+        }
+      }
+
+      const diff = Math.abs(expectedLeft - fb.original_left_num);
+      if (diff > EPSILON) {
+        modifiedBills.push({
+          _id: fb._id,
+          bill_no: dbBill.bill_no,
+          expected: expectedLeft,
+          userSaw: fb.original_left_num
+        });
+      }
+    }
+
+    // 如果有被修改的提单，返回所有冲突信息
+    if (modifiedBills.length > 0) {
+      const billNames = modifiedBills.map(b => b.bill_no).join('、');
+      return res.json({
+        ok: false,
+        code: 'BILL_MODIFIED',
+        message: `以下提单的剩余量已被其他用户修改: ${billNames}，已自动刷新数据`,
+        modifiedBills: modifiedBills.map(b => ({ _id: b._id, bill_no: b.bill_no }))
+      });
+    }
+
     // 7. 构建 Invoice 的 bills 数组
     const invoiceBills = [];
     for (const billId of billIdList) {
@@ -1038,6 +1078,46 @@ exports.buildTruckInvoice = async (req, res) => {
           });
         }
       }
+    }
+
+    // 6.5 并发检测：检查前端快照与数据库当前值是否一致
+    const modifiedBills = [];
+    for (const fb of flatBills) {
+      if (fb.original_left_num == null) continue; // 向后兼容
+      const dbBill = billIdToDbBill[fb._id];
+      if (!dbBill) continue;
+
+      // 计算前端加载时应该看到的值（更新场景要加回旧分配量）
+      let expectedLeft = dbBill.left_num;
+      const oldData = oldBillMapForValidation[fb._id];
+      if (oldData) {
+        if (dbBill.block_num > 0) {
+          expectedLeft += oldData.num;
+        } else {
+          expectedLeft += oldData.weight;
+        }
+      }
+
+      const diff = Math.abs(expectedLeft - fb.original_left_num);
+      if (diff > EPSILON) {
+        modifiedBills.push({
+          _id: fb._id,
+          bill_no: dbBill.bill_no,
+          expected: expectedLeft,
+          userSaw: fb.original_left_num
+        });
+      }
+    }
+
+    // 如果有被修改的提单，返回所有冲突信息
+    if (modifiedBills.length > 0) {
+      const billNames = modifiedBills.map(b => b.bill_no).join('、');
+      return res.json({
+        ok: false,
+        code: 'BILL_MODIFIED',
+        message: `以下提单的剩余量已被其他用户修改: ${billNames}，已自动刷新数据`,
+        modifiedBills: modifiedBills.map(b => ({ _id: b._id, bill_no: b.bill_no }))
+      });
     }
 
     // 7. 构建 Invoice 的 bills 数组

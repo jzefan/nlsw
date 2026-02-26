@@ -16,6 +16,7 @@ export interface Tenant {
   fullName?: string
   plan?: string
   maxUsers?: number
+  expireDate?: string | null
 }
 
 export type DeployMode = 'saas' | 'standalone'

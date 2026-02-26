@@ -301,13 +301,10 @@ exports.createTenant = async (req, res) => {
     return res.status(400).json({ ok: false, msg: '最大用户数须在1-1000之间' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     // 检查公司编码是否已存在
-    const existingTenant = await Tenant.findOne({ code }).session(session);
+    const existingTenant = await Tenant.findOne({ code });
     if (existingTenant) {
-      await session.abortTransaction();
       return res.status(400).json({ ok: false, msg: '公司编码已存在' });
     }
 
@@ -325,14 +322,17 @@ exports.createTenant = async (req, res) => {
       },
       plan: tenantData.plan || 'basic',
       maxUsers,
+      expireDate: tenantData.expireDate ? new Date(tenantData.expireDate) : undefined,
       creator: req.user.userid,
     });
-    await tenant.save({ session });
+    await tenant.save();
 
     // 创建主账号 (owner)
+    const phoneNumber = ownerData.phone ? String(ownerData.phone).trim() : '';
     const owner = new User({
       userid: String(ownerData.userid).trim(),
       password: '123456',
+      phone: phoneNumber || undefined, // 顶层phone字段用于登录
       no: 1,
       title: 'ceo',
       privilege: ['admin'],
@@ -341,12 +341,10 @@ exports.createTenant = async (req, res) => {
       tenantCode: tenant.code,
     });
     owner.profile.name = String(ownerData.name).trim();
-    owner.profile.phone = ownerData.phone ? String(ownerData.phone).trim() : '';
+    owner.profile.phone = phoneNumber; // 保留profile.phone用于向后兼容
     owner.profile.gender = '';
     owner.profile.location = '';
-    await owner.save({ session });
-
-    await session.commitTransaction();
+    await owner.save();
 
     res.json({
       ok: true,
@@ -356,14 +354,11 @@ exports.createTenant = async (req, res) => {
       },
     });
   } catch (err) {
-    await session.abortTransaction();
     console.error('createTenant error:', err);
     if (err.code === 11000) {
       return res.status(400).json({ ok: false, msg: '公司编码或用户名已存在' });
     }
     res.status(500).json({ ok: false, msg: '创建公司失败' });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -392,12 +387,9 @@ exports.updateTenant = async (req, res) => {
     }
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    const tenant = await Tenant.findById(tenantId).session(session);
+    const tenant = await Tenant.findById(tenantId);
     if (!tenant || tenant.status === 'deleted') {
-      await session.abortTransaction();
       return res.status(404).json({ ok: false, msg: '公司不存在' });
     }
 
@@ -416,7 +408,10 @@ exports.updateTenant = async (req, res) => {
       }
       if (tenantData.plan !== undefined) tenant.plan = tenantData.plan;
       if (tenantData.maxUsers !== undefined) tenant.maxUsers = Number(tenantData.maxUsers);
-      await tenant.save({ session });
+      if (tenantData.expireDate !== undefined) {
+        tenant.expireDate = tenantData.expireDate ? new Date(tenantData.expireDate) : undefined;
+      }
+      await tenant.save();
     }
 
     // 更新主账号信息
@@ -425,22 +420,22 @@ exports.updateTenant = async (req, res) => {
         tenantId: tenant._id,
         userid: ownerData.userid,
         role: 'owner',
-      }).session(session);
+      });
       if (owner) {
         if (ownerData.name !== undefined) owner.profile.name = String(ownerData.name).trim();
-        if (ownerData.phone !== undefined) owner.profile.phone = String(ownerData.phone).trim();
-        await owner.save({ session });
+        if (ownerData.phone !== undefined) {
+          const phoneNumber = String(ownerData.phone).trim();
+          owner.phone = phoneNumber || undefined; // 顶层phone字段用于登录
+          owner.profile.phone = phoneNumber; // 保留profile.phone用于向后兼容
+        }
+        await owner.save();
       }
     }
 
-    await session.commitTransaction();
     res.json({ ok: true });
   } catch (err) {
-    await session.abortTransaction();
     console.error('updateTenant error:', err);
     res.status(500).json({ ok: false, msg: '修改公司失败' });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -456,33 +451,66 @@ exports.deleteTenant = async (req, res) => {
     return res.status(400).json({ ok: false, msg: '缺少公司 ID' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    const tenant = await Tenant.findById(tenantId).session(session);
+    const tenant = await Tenant.findById(tenantId);
     if (!tenant || tenant.status === 'deleted') {
-      await session.abortTransaction();
       return res.status(404).json({ ok: false, msg: '公司不存在' });
     }
 
     // 软删除租户
     tenant.status = 'deleted';
-    await tenant.save({ session });
+    await tenant.save();
 
     // 禁用该公司所有用户
     await User.updateMany(
       { tenantId: tenant._id },
-      { $set: { status: 'disabled' } },
-      { session }
+      { $set: { status: 'disabled' } }
     );
 
-    await session.commitTransaction();
     res.json({ ok: true });
   } catch (err) {
-    await session.abortTransaction();
     console.error('deleteTenant error:', err);
     res.status(500).json({ ok: false, msg: '删除公司失败' });
-  } finally {
-    session.endSession();
+  }
+};
+
+/**
+ * POST /platform/users/reset-password
+ * 重置用户密码为默认密码
+ * body: { userId }
+ */
+exports.resetUserPassword = async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ ok: false, msg: '无效的用户ID' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ ok: false, msg: '用户不存在' });
+    }
+
+    // 不允许重置平台用户密码
+    if (user.role === 'platform') {
+      return res.status(403).json({ ok: false, msg: '无权重置平台用户密码' });
+    }
+
+    // 重置密码为默认值
+    const defaultPassword = '123456';
+    user.password = defaultPassword;
+    await user.save();
+
+    res.json({
+      ok: true,
+      data: {
+        userid: user.userid,
+        password: defaultPassword
+      }
+    });
+  } catch (err) {
+    console.error('resetUserPassword error:', err);
+    res.status(500).json({ ok: false, msg: '重置密码失败' });
   }
 };

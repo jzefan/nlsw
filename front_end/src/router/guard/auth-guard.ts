@@ -31,6 +31,19 @@ export function authGuard(router: Router) {
       }
       catch (e) {
         authStore.clearUser()
+        // 未登录时也需要获取部署模式，以便登录页正确显示
+        try {
+          const { axiosInstance: axios } = useAxios()
+          const deployInfoRes = await axios.get('/deploy-info')
+          if (deployInfoRes.data.deployMode) {
+            authStore.setDeployMode(deployInfoRes.data.deployMode)
+          }
+          if (deployInfoRes.data.standaloneCompany) {
+            authStore.setStandaloneCompany(deployInfoRes.data.standaloneCompany)
+          }
+        } catch (_) {
+          // ignore
+        }
       }
     }
 

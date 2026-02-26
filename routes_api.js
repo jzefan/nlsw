@@ -19,6 +19,8 @@ const vesselStatisticsApiController = require('./controllers/api/vessel-statisti
 const drayageForkliftApiController = require('./controllers/api/drayage_forklift');
 const vesselFixedCostApiController = require('./controllers/api/vessel_fixed_cost');
 const platformApiController = require('./controllers/api/platform');
+const orderApiController = require('./controllers/api/order');
+const paymentQRController = require('./controllers/api/payment-qr');
 
 const planController = require('./controllers/order_plan');
 
@@ -146,8 +148,20 @@ module.exports = function (app) {
     app.post('/platform/tenants/delete', requirePlatformUser, platformApiController.deleteTenant);
     app.post('/platform/tenants/status', requirePlatformUser, platformApiController.updateTenantStatus);
     app.get('/platform/tenants/:tenantId/users', requirePlatformUser, platformApiController.getTenantUsers);
+    app.post('/platform/users/reset-password', requirePlatformUser, platformApiController.resetUserPassword);
     app.get('/platform/tenants/:tenantId/bills', requirePlatformUser, platformApiController.getTenantBills);
     app.get('/platform/tenants/:tenantId/invoices', requirePlatformUser, platformApiController.getTenantInvoices);
     app.get('/platform/statistics', requirePlatformUser, platformApiController.getPlatformStats);
+
+    // Order management
+    app.get('/platform/orders', requirePlatformUser, orderApiController.getOrders);
+    app.post('/platform/orders', requirePlatformUser, orderApiController.createOrder);
+    app.post('/platform/orders/update', requirePlatformUser, orderApiController.updateOrder);
+    app.post('/platform/orders/delete', requirePlatformUser, orderApiController.deleteOrder);
+
+    // Payment QR code
+    app.post('/platform/payment-qr', requirePlatformUser, paymentQRController.uploadQR);
+    app.get('/payment-qr', requireTenant, paymentQRController.getQR);
+    app.get('/payment-qr/check', requireTenant, paymentQRController.checkQR);
   }
 };

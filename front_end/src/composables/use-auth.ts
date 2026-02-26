@@ -78,6 +78,54 @@ export function useAuth() {
     }
   }
 
+  // 手机号登录
+  async function phoneLogin(phone: string, password: string) {
+    loading.value = true
+    error.value = null
+
+    try {
+      // Encrypt password before transmission
+      const encryptedPassword = await encryptPassword(password)
+
+      const response = await axiosInstance.post('/login/phone', {
+        phone: phone.trim(),
+        password: encryptedPassword,
+      }, {
+        headers: {
+          Accept: 'application/json',
+        },
+      })
+
+      if (response.data.ok) {
+        authStore.setUser(response.data.user, response.data.tenant || null)
+        if (response.data.deployMode) {
+          authStore.setDeployMode(response.data.deployMode)
+        }
+        if (response.data.standaloneCompany) {
+          authStore.setStandaloneCompany(response.data.standaloneCompany)
+        }
+
+        const redirect = router.currentRoute.value.query.redirect as string
+        if (!redirect || redirect.startsWith('//')) {
+          toHome()
+        }
+        else {
+          router.push(redirect)
+        }
+      }
+      else {
+        error.value = response.data.msg || '登录失败'
+      }
+    }
+    catch (e: any) {
+      console.error('Phone login error:', e)
+      error.value = e.response?.data?.msg || '网络错误，请稍后重试'
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
   // 检查当前登录状态（用于页面刷新时恢复状态）
   async function checkAuth() {
     try {
@@ -106,6 +154,7 @@ export function useAuth() {
     isLogin,
     logout,
     login,
+    phoneLogin,
     checkAuth,
   }
 }

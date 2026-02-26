@@ -141,7 +141,8 @@ exports.postLogin = async function (req, res, next) {
                                                       code: t.code,
                                                       name: t.name,
                                                       plan: t.plan,
-                                                      maxUsers: t.maxUsers
+                                                      maxUsers: t.maxUsers,
+                                                      expireDate: t.expireDate || null
                                                   };
                                               }
                                           } catch (e) {
@@ -708,4 +709,83 @@ exports.postUserMgr = async function (req, res) {
         res.end(JSON.stringify({ ok: false, response: err.message }));
     }
   }
+};
+
+/**
+ * POST /login/phone
+ * 手机号登录（不需要公司编码）
+ */
+exports.postPhoneLogin = async function (req, res, next) {
+  await body('phone').notEmpty().withMessage('手机号不能为空').run(req);
+  await body('password').notEmpty().withMessage('密码不能为空').run(req);
+
+  var errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.json({ ok: false, msg: errors.array()[0].msg });
+  }
+
+  console.log('postPhoneLogin: calling passport.authenticate for', req.body.phone);
+
+  passport.authenticate('phone-local', function (err, user, info) {
+    if (err) {
+      console.error('postPhoneLogin: passport error', err);
+      return next(err);
+    }
+
+    if (!user) {
+      console.log('postPhoneLogin: user login failed', info);
+      return res.json({ ok: false, msg: info.message });
+    }
+
+    req.logIn(user, function (err) {
+      if (err) {
+        console.error('postPhoneLogin: req.logIn error', err);
+        return next(err);
+      }
+
+      console.log('postPhoneLogin: success for phone:', req.body.phone);
+      udpateUserNo(user);
+
+      req.session.save(async function(err) {
+        if (err) console.error('Session save error:', err);
+
+        // Build user response with role
+        var userRole = user.role || 'member';
+        var userData = {
+          userid: user.userid,
+          name: user.profile.name,
+          privilege: user.privilege,
+          role: userRole
+        };
+
+        // Look up tenant for non-platform users
+        var tenantData = null;
+        if (userRole !== 'platform' && user.tenantId) {
+          try {
+            var t = await Tenant.findById(user.tenantId).lean();
+            if (t) {
+              tenantData = {
+                id: t._id,
+                code: t.code,
+                name: t.name,
+                plan: t.plan,
+                maxUsers: t.maxUsers,
+                expireDate: t.expireDate || null
+              };
+            }
+          } catch (e) {
+            console.error('Phone login tenant lookup error:', e);
+          }
+        }
+
+        return res.json({
+          ok: true,
+          user: userData,
+          tenant: tenantData,
+          deployMode: getDeployMode(),
+          standaloneCompany: getStandaloneCompany()
+        });
+      });
+    });
+  })(req, res, next);
 };

@@ -1596,7 +1596,7 @@ function handleUploadReceiptConfirm() {
           <Table class="text-sm min-w-[1024px] w-full">
             <TableHeader class="bg-muted/80 sticky top-0 z-10">
               <TableRow class="border-b">
-                <TableHead class="px-1.5 py-1.5 text-left w-20" nowrap>
+                <TableHead class="px-1.5 py-1.5 text-left flex items-center w-20" nowrap>
                   <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll" />
                   <TooltipProvider>
                     <Tooltip>
@@ -1661,7 +1661,12 @@ function handleUploadReceiptConfirm() {
                 <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 卸船日期 </TableHead>
                 <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]"> 滞留天数 </TableHead>
                 <TableHead class="px-1.5 py-1.5 text-left min-w-[140px]"> 运单号 </TableHead>
-                <TableHead v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'" class="px-1.5 py-1.5 text-left min-w-[100px]"> 票号 </TableHead>
+                <TableHead
+                  v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
+                  class="px-1.5 py-1.5 text-left min-w-[100px]"
+                >
+                  票号
+                </TableHead>
                 <TableHead
                   class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky right-24 bg-muted border-l border-gray-200 z-10 hover:bg-orange-100 transition-colors"
                   :class="{ 'cursor-pointer': hasPrivilegePrice }"
@@ -1672,13 +1677,7 @@ function handleUploadReceiptConfirm() {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger as-child>
-                          <UiButton
-                            variant="secondary"
-                            size="sm"
-                            class="h-6 text-xs"
-                          >
-                            预付
-                          </UiButton>
+                          <UiButton variant="secondary" size="sm" class="h-6 text-xs"> 预付 </UiButton>
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>批量设置预付金额和油卡</p>
@@ -1701,7 +1700,10 @@ function handleUploadReceiptConfirm() {
             <TableBody>
               <!-- 空状态 -->
               <TableRow v-if="pagedData.length === 0">
-                <TableCell :colspan="filterForm.settleState === '已付款' || filterForm.settleState === '全部' ? 19 : 18" class="p-8 text-center text-muted-foreground">
+                <TableCell
+                  :colspan="filterForm.settleState === '已付款' || filterForm.settleState === '全部' ? 19 : 18"
+                  class="p-8 text-center text-muted-foreground"
+                >
                   暂无数据，请调整筛选条件后重新查询
                 </TableCell>
               </TableRow>
@@ -1820,7 +1822,10 @@ function handleUploadReceiptConfirm() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'" class="px-1.5 py-1.5">
+                  <TableCell
+                    v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
+                    class="px-1.5 py-1.5"
+                  >
                     {{ row.ticket_no || '-' }}
                   </TableCell>
                   <TableCell
@@ -1873,7 +1878,7 @@ function handleUploadReceiptConfirm() {
                   }"
                   @click="handleSubRowClick(row)"
                 >
-                  <TableCell class="px-1.5 py-1.5 pl-6" nowrap>
+                  <TableCell class="px-1.5 py-1.5 pl-6 flex items-center" nowrap>
                     <input
                       v-model="row.selected"
                       type="checkbox"
@@ -1966,7 +1971,10 @@ function handleUploadReceiptConfirm() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'" class="px-1.5 py-1.5">
+                  <TableCell
+                    v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
+                    class="px-1.5 py-1.5"
+                  >
                     {{ row.ticket_no || '-' }}
                   </TableCell>
                   <TableCell
@@ -2118,12 +2126,7 @@ function handleUploadReceiptConfirm() {
             <AlertDialogTitle>确认付款</AlertDialogTitle>
             <AlertDialogDescription>
               请输入票号（可选）：
-              <Input
-                v-model="ticketNo"
-                placeholder="票号"
-                class="mt-2"
-                @keyup.enter="handleConfirmPay"
-              />
+              <Input v-model="ticketNo" placeholder="票号" class="mt-2" @keyup.enter="handleConfirmPay" />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

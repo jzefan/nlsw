@@ -50,7 +50,7 @@ async function loadTenants() {
 }
 
 async function loadBills() {
-  if (!selectedTenantId.value) return
+  if (!selectedTenantId.value || !selectedTenantId.value.trim()) return
   billsLoading.value = true
   try {
     const res = await getTenantBills(selectedTenantId.value, billsPage.value, billsLimit.value)
@@ -68,7 +68,7 @@ async function loadBills() {
 }
 
 async function loadInvoices() {
-  if (!selectedTenantId.value) return
+  if (!selectedTenantId.value || !selectedTenantId.value.trim()) return
   invoicesLoading.value = true
   try {
     const res = await getTenantInvoices(selectedTenantId.value, invoicesPage.value, invoicesLimit.value)
@@ -92,7 +92,7 @@ function onTenantChange() {
   invoices.value = []
   billsTotal.value = 0
   invoicesTotal.value = 0
-  if (selectedTenantId.value) {
+  if (selectedTenantId.value && selectedTenantId.value.trim()) {
     loadBills()
     loadInvoices()
   }
@@ -162,30 +162,31 @@ onMounted(() => {
     <!-- 公司选择 -->
     <div class="mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-2">
       <label class="text-sm font-medium shrink-0">选择公司:</label>
-      <select
-        v-model="selectedTenantId"
-        class="h-9 w-full sm:w-72 rounded-md border border-input bg-background px-3 text-sm"
-        @change="onTenantChange"
-      >
-        <option value="">
-          -- 请选择公司 --
-        </option>
-        <option v-for="t in tenants" :key="t._id" :value="t._id">
-          {{ t.name }} [{{ t.code }}]
-        </option>
-      </select>
+      <UiSelect v-model="selectedTenantId" @update:model-value="onTenantChange">
+        <UiSelectTrigger class="w-full sm:w-72">
+          <UiSelectValue placeholder="-- 请选择公司 --" />
+        </UiSelectTrigger>
+        <UiSelectContent>
+          <UiSelectItem value=" ">
+            -- 请选择公司 --
+          </UiSelectItem>
+          <UiSelectItem v-for="t in tenants" :key="t._id" :value="t._id">
+            {{ t.name }} [{{ t.code }}]
+          </UiSelectItem>
+        </UiSelectContent>
+      </UiSelect>
       <span v-if="selectedTenant" class="text-sm text-muted-foreground">
         提单: {{ billsTotal }} 条 | 运单: {{ invoicesTotal }} 条
       </span>
     </div>
 
     <!-- 无选择提示 -->
-    <div v-if="!selectedTenantId" class="py-12 text-center text-muted-foreground">
+    <div v-if="!selectedTenantId || !selectedTenantId.trim()" class="py-12 text-center text-muted-foreground">
       请选择一个公司查看业务数据
     </div>
 
     <!-- Tab 切换 -->
-    <div v-if="selectedTenantId">
+    <div v-if="selectedTenantId && selectedTenantId.trim()">
       <div class="flex border-b mb-4">
         <button
           class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
