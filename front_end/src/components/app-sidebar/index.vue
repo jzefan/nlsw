@@ -10,7 +10,7 @@ import NavFooter from './nav-footer.vue'
 import NavTeam from './nav-team.vue'
 
 const authStore = useAuthStore()
-const { user, isPlatformUser } = storeToRefs(authStore)
+const { user, isPlatformUser, features } = storeToRefs(authStore)
 
 // 根据用户角色和权限动态生成菜单
 const navMain = computed(() => {
@@ -18,7 +18,7 @@ const navMain = computed(() => {
     return generatePlatformNavData()
   }
   const privilege = user.value?.privilege ?? []
-  return generateNavData(privilege)
+  return generateNavData(privilege, features.value)
 })
 
 // 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名

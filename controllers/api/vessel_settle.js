@@ -11,7 +11,7 @@ const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
 // 查询车船结算运单
 exports.getInvoiceSettleVessel = async (req, res) => {
   try {
-    const { fVeh, fContact, fName, fDest, fDate1, fDate2, fSettledState, fReceipt, fAmount, fWeight } = req.query;
+    const { fVeh, fContact, fName, fDest, fDate1, fDate2, fSettledState, fReceipt, fAmount, fWeight, selfOwned } = req.query;
 
     const baseQuery = { state: { $in: ['已配发', '已结算'] } };
 
@@ -23,6 +23,14 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     if (fReceipt != null && fReceipt != 2) baseQuery.receipt = parseInt(fReceipt);
     if (fAmount) baseQuery.vessel_price = parseFloat(fAmount);
     if (fWeight) baseQuery.total_weight = parseFloat(fWeight);
+
+    // 自有车过滤
+    if (selfOwned === '1' || selfOwned === 1) {
+      baseQuery.selfOwned = 1;
+    } else if (selfOwned === '0' || selfOwned === 0) {
+      baseQuery.selfOwned = { $ne: 1 };
+    }
+    // 如果 selfOwned 未指定，不过滤（显示所有运单）
 
     const query = buildTenantQuery(req, baseQuery);
     const invs = await Invoice.find(query).populate('bills.bill_id').sort({ ship_date: -1 }).lean().exec();

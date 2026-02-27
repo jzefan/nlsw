@@ -14,7 +14,11 @@ import { getSettleDetail } from '@/services/api/ticket.api'
 
 import type { DisplayMode, SettleRecord } from './ticket-types'
 
+const route = useRoute()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+
+// 自有车模式（从路由参数读取）
+const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
 
 // 获取默认日期区间（一年前到今天，返回字符串格式）
 function getDefaultDateRange() {
@@ -69,7 +73,7 @@ async function loadData() {
   try {
     const result = await getMoneyList({
       display_mode: displayMode.value,
-      selfOwned: '0',
+      selfOwned: isSelfOwnedMode.value ? '1' : '0',
     })
     if (result.ok) {
       allSettles.value = result.settles
@@ -499,7 +503,9 @@ async function handleShowDetail() {
 </script>
 
 <template>
-  <BasicPage title="回款管理" description="结算记录的回款管理">
+  <BasicPage
+    :title="isSelfOwnedMode ? '回款管理(自有车)' : '回款管理'"
+    :description="isSelfOwnedMode ? '自有车结算记录的回款管理' : '结算记录的回款管理'">
     <Tabs v-model="displayMode" class="w-full">
       <!-- Tabs 和操作按钮 -->
       <div class="flex items-center justify-between mb-4">

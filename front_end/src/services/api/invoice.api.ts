@@ -230,9 +230,15 @@ export async function getVehicles(params?: {
 }
 
 // 搜索车辆
-export async function searchVehicles(search: string, type?: '车' | '船', limit = 20, page = 1) {
+export async function searchVehicles(
+  search: string,
+  type?: '车' | '船',
+  limit = 20,
+  page = 1,
+  category?: '自有' | '外挂'
+) {
   const response = await axiosInstance.get('/vehicles/search', {
-    params: { search, type, limit, page },
+    params: { search, type, limit, page, category },
   })
   return response.data
 }

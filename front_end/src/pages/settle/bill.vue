@@ -35,7 +35,11 @@ import {
   CUSTOMER_SETTLE_FLAG,
 } from './types'
 
+const route = useRoute()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+
+// 自有车模式（从路由参数读取）
+const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
 
 // 状态管理
 const settleMode = ref<SettleMode>('CUSTOMER')
@@ -304,6 +308,7 @@ async function loadData(startDate?: string, endDate?: string) {
       fDate1: startDate,
       fDate2: endDate,
       fType: 'invoice-first',
+      selfOwned: isSelfOwnedMode.value ? '1' : undefined,
     })
     if (result.ok) {
       allBills.value = result.bills.sort((a, b) => {
@@ -931,7 +936,7 @@ async function loadSettledRecords() {
     const result = await getSettleList({
       settle_type: settleMode.value,
       display_mode: 'settle',
-      selfOwned: '0',
+      selfOwned: isSelfOwnedMode.value ? '1' : '0',
     })
     console.log('getSettleList result:', result)
     if (result.ok) {
@@ -1028,8 +1033,8 @@ function getOrderDisplay(bill: SettleBill) {
 
 <template>
   <BasicPage
-    title="结算管理"
-    description="客户结算和南钢结算（代收代付）管理"
+    :title="isSelfOwnedMode ? '结算管理(自有车)' : '结算管理'"
+    :description="isSelfOwnedMode ? '自有车客户结算和南钢结算（代收代付）管理' : '客户结算和南钢结算（代收代付）管理'"
   >
     <Tabs v-model="viewTab" class="w-full">
       <!-- Tabs 和操作按钮在同一行 -->

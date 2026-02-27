@@ -60,4 +60,5 @@ module.exports = {
   companyName: process.env.COMPANY_NAME || "物流管理平台",
   deployMode: process.env.DEPLOY_MODE || "saas",
   standaloneCompany: process.env.STANDALONE_COMPANY || "",
+  enableSelfVehicle: process.env.ENABLE_SELF_VEHICLE === "true",
 };

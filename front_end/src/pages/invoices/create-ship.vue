@@ -24,7 +24,14 @@ import { searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
+const route = useRoute()
 const authStore = useAuthStore()
+
+// 自有车模式（从路由参数读取）
+const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
+
+// 只有在功能启用时才过滤车辆类别
+const enableCategoryFilter = computed(() => authStore.features?.selfVehicle === true)
 
 // 状态
 const loading = ref(false)
@@ -150,12 +157,30 @@ const totalNumber = computed(() => {
 
 // 搜索船
 async function searchShips(search: string, limit: number, page: number) {
-  return searchVehicles(search, '船', limit, page)
+  // 关键逻辑：只有在功能启用时才根据模式过滤
+  let category: '自有' | '外挂' | undefined = undefined
+
+  if (enableCategoryFilter.value) {
+    // 功能启用：自有车模式显示自有船，非自有车模式显示外挂船
+    category = isSelfOwnedMode.value ? '自有' : '外挂'
+  }
+  // 功能关闭：category = undefined，显示所有船
+
+  return searchVehicles(search, '船', limit, page, category)
 }
 
 // 搜索车辆
 async function searchTrucks(search: string, limit: number, page: number) {
-  return searchVehicles(search, '车', limit, page)
+  // 关键逻辑：只有在功能启用时才根据模式过滤
+  let category: '自有' | '外挂' | undefined = undefined
+
+  if (enableCategoryFilter.value) {
+    // 功能启用：自有车模式显示自有车，非自有车模式显示外挂车
+    category = isSelfOwnedMode.value ? '自有' : '外挂'
+  }
+  // 功能关闭：category = undefined，显示所有车辆
+
+  return searchVehicles(search, '车', limit, page, category)
 }
 
 // 搜索发货单位（本地搜索当前公司的客户列表）
@@ -641,6 +666,7 @@ async function saveInvoice(state: string) {
       state,
       username: authStore.user?.userid,
       shipper: authStore.user?.userid,
+      selfOwned: isSelfOwnedMode.value,
     }
 
     const result = await buildShipInvoice(data)
@@ -1111,7 +1137,9 @@ function isBillHighlighted(bill: InvoiceBill) {
 </script>
 
 <template>
-  <BasicPage title="配发货-船运" description="使用船舶进行货物配发，需要为每批货物指定装卸车辆">
+  <BasicPage
+    :title="isSelfOwnedMode ? '配发货-船运(自有车)' : '配发货-船运'"
+    :description="isSelfOwnedMode ? '使用自有船舶进行货物配发，需要为每批货物指定装卸车辆' : '使用船舶进行货物配发，需要为每批货物指定装卸车辆'">
     <template #actions>
       <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto">
         <UiButton size="sm" :disabled="loading" @click="createNewInvoice">

@@ -21,12 +21,17 @@ export interface Tenant {
 
 export type DeployMode = 'saas' | 'standalone'
 
+export interface Features {
+  selfVehicle: boolean
+}
+
 export const useAuthStore = defineStore('user', () => {
   const isLogin = ref(false)
   const user = ref<User | null>(null)
   const tenant = ref<Tenant | null>(null)
   const deployMode = ref<DeployMode>('saas')
   const standaloneCompany = ref('')
+  const features = ref<Features>({ selfVehicle: false })
 
   function setUser(userData: User | null, tenantData: Tenant | null = null) {
     user.value = userData
@@ -40,6 +45,10 @@ export const useAuthStore = defineStore('user', () => {
 
   function setStandaloneCompany(name: string) {
     standaloneCompany.value = name
+  }
+
+  function setFeatures(featureData: Features) {
+    features.value = featureData
   }
 
   function clearUser() {
@@ -70,6 +79,7 @@ export const useAuthStore = defineStore('user', () => {
     tenant,
     deployMode,
     standaloneCompany,
+    features,
     isPlatformUser,
     isOwner,
     isMember,
@@ -80,6 +90,7 @@ export const useAuthStore = defineStore('user', () => {
     setUser,
     setDeployMode,
     setStandaloneCompany,
+    setFeatures,
     clearUser,
   }
 })

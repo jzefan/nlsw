@@ -18,9 +18,10 @@ import {
 } from 'lucide-vue-next'
 
 import type { NavGroup } from '../types'
+import type { Features } from '@/stores/auth'
 import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 
-export function generateNavData(privilege: string[]): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features): NavGroup[] {
   const groups: NavGroup[] = []
 
   // 总览 - 所有人可见
@@ -81,6 +82,33 @@ export function generateNavData(privilege: string[]): NavGroup[] {
     groups.push({
       title: '业务管理',
       items: bizItems,
+    })
+  }
+
+  // 自有车管理 - 仅在功能开关启用 + 有权限时显示
+  if (features?.selfVehicle && hasPermission(privilege, PERMISSIONS.SELF_VEHICLE)) {
+    groups.push({
+      title: '自有车管理',
+      items: [
+        {
+          title: '运单管理',
+          icon: Truck,
+          items: [
+            { title: '配发货-车运', url: '/invoices/create-truck?selfOwned=true' },
+            { title: '配发货-船运', url: '/invoices/create-ship?selfOwned=true' },
+          ],
+        },
+        {
+          title: '结算管理',
+          icon: Receipt,
+          items: [
+            { title: '结算', url: '/settle/bill?selfOwned=true', icon: Receipt },
+            { title: '开票', url: '/settle/ticket?selfOwned=true', icon: CreditCard },
+            { title: '回款', url: '/settle/money?selfOwned=true', icon: CreditCard },
+            { title: '车船结算', url: '/settle/vessel?selfOwned=true', icon: Ship },
+          ],
+        },
+      ],
     })
   }
 

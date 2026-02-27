@@ -4,6 +4,7 @@ const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
 const { getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
+const secrets = require('../../config/secrets');
 
 // 是否有用户管理权限：平台用户、公司主账号、或 admin 权限
 function canManageUsers(req) {
@@ -72,7 +73,10 @@ exports.getMe = async (req, res) => {
       user,
       tenant,
       deployMode: getDeployMode(),
-      standaloneCompany: getStandaloneCompany()
+      standaloneCompany: getStandaloneCompany(),
+      features: {
+        selfVehicle: secrets.enableSelfVehicle
+      }
     });
   } catch (error) {
     console.error('获取用户信息失败:', error);

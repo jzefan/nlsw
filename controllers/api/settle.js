@@ -127,10 +127,13 @@ exports.getSettleBills = async (req, res) => {
     // 构建运单查询条件
     const invoiceQuery = {};
 
-    // 只有当selfOwned为'1'或1时，才作为查询条件
-    if (selfOwned === '1' || selfOwned === 1 || parseInt(selfOwned) === 1) {
+    // 自有车过滤
+    if (selfOwned === '1' || selfOwned === 1) {
       invoiceQuery.selfOwned = 1;
+    } else if (selfOwned === '0' || selfOwned === 0) {
+      invoiceQuery.selfOwned = { $ne: 1 };
     }
+    // 如果 selfOwned 未指定，不过滤（显示所有运单）
 
     // 开单名称过滤
     if (fName && Array.isArray(fName) && fName.length > 0) {

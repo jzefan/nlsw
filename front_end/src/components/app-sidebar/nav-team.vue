@@ -15,24 +15,45 @@ const route = useRoute()
 
 const { state, isMobile } = useSidebar()
 
+// 比较URL时考虑查询参数
+function matchUrl(menuUrl: string | undefined, currentFullPath: string): boolean {
+  if (!menuUrl) return false
+
+  // 如果菜单URL包含查询参数，需要完全匹配
+  if (menuUrl.includes('?')) {
+    return currentFullPath === menuUrl
+  }
+
+  // 如果菜单URL不包含查询参数
+  // 只有在当前URL也不包含查询参数时才匹配
+  const currentPath = currentFullPath.split('?')[0]
+  const hasQueryParams = currentFullPath.includes('?')
+
+  if (hasQueryParams) {
+    return false  // 当前URL有查询参数，但菜单URL没有，不匹配
+  }
+
+  return currentPath === menuUrl
+}
+
 function isCollapsed(menu: NavItem): boolean {
-  const pathname = route.path
+  const currentFullPath = route.fullPath
   navMain.forEach((group) => {
     group.items.forEach((item) => {
-      if (item.url === pathname) {
+      if (matchUrl(item.url, currentFullPath)) {
         return true
       }
     })
   })
-  return !!menu.items?.some(item => item.url === pathname)
+  return !!menu.items?.some(item => matchUrl(item.url, currentFullPath))
 }
 
 function isActive(menu: NavItem): boolean {
-  const pathname = route.path
+  const currentFullPath = route.fullPath
   if (menu.url) {
-    return pathname === menu.url
+    return matchUrl(menu.url, currentFullPath)
   }
-  return !!menu.items?.some(item => item.url === pathname)
+  return !!menu.items?.some(item => matchUrl(item.url, currentFullPath))
 }
 </script>
 

@@ -149,13 +149,24 @@ exports.postDeleteVFCData = async function(req, res) {
 
 exports.searchVehicles = async function(req, res) {
   try {
-    const { search, type, page = 1, limit = 20 } = req.query;
+    const { search, type, category, page = 1, limit = 20 } = req.query;
     const baseQuery = {};
 
     // 只有明确指定 type 时才过滤类型，否则搜索所有车船
     if (type) {
       baseQuery.veh_type = type;
     }
+
+    // 按类别过滤（自有/外挂）
+    if (category) {
+      if (category === '自有') {
+        baseQuery.veh_category = '自有';
+      } else if (category === '外挂') {
+        // 外挂：veh_category 为 '外挂' 或不是 '自有' 的所有记录
+        baseQuery.veh_category = { $ne: '自有' };
+      }
+    }
+    // 如果 category 未指定，不过滤（显示所有车辆）
 
     if (search) {
       baseQuery.name = { $regex: search, $options: 'i' };

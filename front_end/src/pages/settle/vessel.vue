@@ -40,7 +40,19 @@ import VesselUploadReceiptDialog from './components/VesselUploadReceiptDialog.vu
 import { useSettleBasket } from './composables/useSettleBasket'
 import { hasPermission, PERMISSIONS } from '@/constants/permissions'
 
+const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
+
+// 自有车模式（从路由参数读取）
+const isSelfOwnedMode = ref(route.query.selfOwned === 'true')
+
+// 监听路由变化
+watch(() => route.query.selfOwned, (val) => {
+  isSelfOwnedMode.value = val === 'true'
+  // 路由变化时重新加载数据
+  handleSearch(true)
+})
 
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
@@ -255,6 +267,7 @@ async function handleSearch(silent = false) {
       fReceipt: Number(filterForm.value.receiptState),
       fAmount: filterForm.value.amount,
       fWeight: filterForm.value.weight,
+      selfOwned: isSelfOwnedMode.value ? '1' : undefined,
     }
 
     const [response, initialData] = await Promise.all([
@@ -1381,7 +1394,9 @@ function handleUploadReceiptConfirm() {
 </script>
 
 <template>
-  <BasicPage title="车船结算" description="车船运费结算管理">
+  <BasicPage
+    :title="isSelfOwnedMode ? '车船结算(自有车)' : '车船结算'"
+    :description="isSelfOwnedMode ? '自有车船运费结算管理' : '车船运费结算管理'">
     <div class="settle-vessel-page relative h-full flex flex-col">
       <!-- 操作栏 -->
       <div class="flex items-center justify-between gap-4 mb-4">

@@ -27,6 +27,9 @@ export function authGuard(router: Router) {
           if (response.data.standaloneCompany) {
             authStore.setStandaloneCompany(response.data.standaloneCompany)
           }
+          if (response.data.features) {
+            authStore.setFeatures(response.data.features)
+          }
         }
       }
       catch (e) {

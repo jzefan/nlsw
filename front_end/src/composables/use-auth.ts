@@ -56,6 +56,9 @@ export function useAuth() {
         if (response.data.standaloneCompany) {
           authStore.setStandaloneCompany(response.data.standaloneCompany)
         }
+        if (response.data.features) {
+          authStore.setFeatures(response.data.features)
+        }
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -104,6 +107,9 @@ export function useAuth() {
         if (response.data.standaloneCompany) {
           authStore.setStandaloneCompany(response.data.standaloneCompany)
         }
+        if (response.data.features) {
+          authStore.setFeatures(response.data.features)
+        }
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -137,6 +143,9 @@ export function useAuth() {
         }
         if (response.data.standaloneCompany) {
           authStore.setStandaloneCompany(response.data.standaloneCompany)
+        }
+        if (response.data.features) {
+          authStore.setFeatures(response.data.features)
         }
         return true
       }
