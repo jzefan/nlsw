@@ -108,6 +108,12 @@ export async function unclosePlans(orderNos: string[]) {
   return response.data
 }
 
+// 根据订单号查询计划信息
+export async function getPlanByOrderNo(orderNo: string) {
+  const response = await axiosInstance.get<{ ok: boolean; data: { order_no: string; order_weight: number; left_weight: number } | null }>(`/plans/by-order/${encodeURIComponent(orderNo)}`)
+  return response.data
+}
+
 // 检查订单号是否存在
 export async function checkPlanExists(orderNo: string) {
   const response = await axiosInstance.get('/plans/check', { params: { q: orderNo } })

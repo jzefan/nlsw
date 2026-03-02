@@ -95,6 +95,7 @@ export async function getInvoiceSettleVessel(params: {
   const response = await axiosInstance.get<{
     ok: boolean
     invs: any[]
+    vehPersonMap?: Record<string, any>
   }>('/get_invoice_settle_vellel', { params })
   return response.data
 }
@@ -278,23 +279,23 @@ export async function searchVehicles(search: string, limit: number) {
   return response.data
 }
 
-// 车船结算 - 搜索开单名称（使用通用的 companies 接口）
+// 车船结算 - 搜索开单名称（使用优化的快速搜索接口）
 export async function searchBillingNames(search: string, limit: number) {
   const response = await axiosInstance.get<{
     ok: boolean
     data: Array<{ name: string }>
-  }>('/companies', {
+  }>('/companies/search', {
     params: { search, limit },
   })
   return response.data
 }
 
-// 车船结算 - 搜索目的地（使用通用的 destinations 接口）
+// 车船结算 - 搜索目的地（使用优化的快速搜索接口）
 export async function searchDestinations(search: string, limit: number) {
   const response = await axiosInstance.get<{
     ok: boolean
     data: Array<{ name: string }>
-  }>('/destinations', {
+  }>('/destinations/search', {
     params: { search, limit },
   })
   return response.data

@@ -52,11 +52,11 @@ exports.getBills = async (req, res) => {
     if (req.query.startTime || req.query.endTime) {
       baseQuery.create_date = {};
       if (req.query.startTime) {
-        baseQuery.create_date.$gte = new Date(req.query.startTime);
+        baseQuery.create_date.$gte = utils.parseLocalDate(req.query.startTime);
       }
       if (req.query.endTime) {
         // Add 1 day to include the end date fully
-        const end = new Date(req.query.endTime);
+        const end = utils.parseLocalDate(req.query.endTime);
         end.setDate(end.getDate() + 1);
         baseQuery.create_date.$lt = end;
       }
@@ -83,7 +83,7 @@ exports.getBills = async (req, res) => {
   }
 };
 
-// 获取可配发提单的开单名称列表（status_flag 0=新建 或 1=部分配发，且 left_num > 0）
+// 获取可配发提单的开单名称列表（left_num > 0 即可配发）
 exports.getBillingNames = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -91,8 +91,8 @@ exports.getBillingNames = async (req, res) => {
     const search = req.query.search || '';
 
     const matchStage = {
-      status_flag: { $in: [0, 1] },
-      left_num: { $gt: 0 }
+      left_num: { $gt: 0 },
+      billing_name: { $exists: true, $nin: [null, ''] }
     };
 
     if (!isPlatformUser(req)) {
@@ -245,6 +245,15 @@ exports.createBills = async (req, res) => {
       let bno = row_data.billNo || row_data.bill_no;
       let order_combined = order_no + '-' + utils.leftPad(order_item_no, 3);
 
+      // Validate billing_name is required
+      let billing_name = row_data.billingName || row_data.billing_name;
+      if (!billing_name || billing_name.trim() === '') {
+        return res.status(400).json({
+          ok: false,
+          error: `提单 ${order_combined}-${bno} 缺少开单名称，该字段为必填项`
+        });
+      }
+
       let bill = await Bill.findOne(buildTenantQuery(req, { order: order_combined, bill_no: bno })).exec();
       if (!bill) {
         bill = new Bill(injectTenantId(req, {
@@ -252,7 +261,7 @@ exports.createBills = async (req, res) => {
           bill_no: bno,
           order_no: order_no,
           order_item_no: order_item_no,
-          billing_name: row_data.billingName || row_data.billing_name,
+          billing_name: billing_name,
           sale_dep: row_data.saleDep || row_data.sale_dep,
           block_num: utils.getIntValue(row_data.blockNum || row_data.block_num),
           total_weight: utils.getFloatValue(row_data.totalWeight || row_data.total_weight, 3),
@@ -401,11 +410,19 @@ exports.updateBill = async (req, res) => {
     const updateData = req.body;
     delete updateData._id;
 
-    if (updateData.billing_name) {
-       let company = await Company.findOne(buildTenantQuery(req, { name: updateData.billing_name })).exec();
-       if (!company) {
-         await new Company(injectTenantId(req, { name: updateData.billing_name })).save();
-       }
+    // Validate billing_name is required and not empty
+    if ('billing_name' in updateData) {
+      if (!updateData.billing_name || updateData.billing_name.trim() === '') {
+        return res.status(400).json({
+          ok: false,
+          error: '开单名称不能为空，该字段为必填项'
+        });
+      }
+
+      let company = await Company.findOne(buildTenantQuery(req, { name: updateData.billing_name })).exec();
+      if (!company) {
+        await new Company(injectTenantId(req, { name: updateData.billing_name })).save();
+      }
     }
 
     await Bill.findOneAndUpdate(buildTenantQuery(req, { _id: id }), updateData).exec();

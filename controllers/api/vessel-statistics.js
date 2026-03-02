@@ -59,7 +59,7 @@ exports.getVesselRevenueData = async (req, res) => {
     // 4. Get Invoices within Date Range
     const invQuery = buildTenantQuery(req, {
       state: { $ne: '新建' },
-      ship_date: { $gte: new Date(fDate1), $lt: new Date(fDate2) }
+      ship_date: { $gte: utils.parseLocalDate(fDate1), $lt: utils.parseLocalDate(fDate2) }
     });
 
     const db_invs = await Invoice.find(invQuery)
@@ -198,7 +198,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
 
     const invQuery = buildTenantQuery(req, {
       state: { $ne: '新建' },
-      ship_date: { $gte: new Date(fDate1), $lt: new Date(fDate2) }
+      ship_date: { $gte: utils.parseLocalDate(fDate1), $lt: utils.parseLocalDate(fDate2) }
     });
 
     const db_invs = await Invoice.find(invQuery).lean().exec();

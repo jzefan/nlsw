@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { Loader2, ShoppingCart, Filter } from 'lucide-vue-next'
+import { Loader2, ShoppingCart, Filter, Settings2 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -21,10 +21,11 @@ import {
 import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toggle } from '@/components/ui/toggle'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import * as settleApi from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
@@ -99,12 +100,34 @@ const filterForm = ref({
   vehicle: '',
   billName: '',
   destination: '',
-  startDate: dayjs().subtract(6, 'month').format('YYYY-MM-DD'),
+  startDate: dayjs().subtract(6, 'month').format('YYYY-MM-DD'),  // 默认查询6个月
   endDate: dayjs().format('YYYY-MM-DD'),
   settleState: '未结算',
   receiptState: '2',
   amount: '',
   weight: '',
+})
+
+// 列显示配置
+const showColState = ref(true)
+const showColVehicle = ref(true)
+const showColCarrier = ref(true)
+const showColBillName = ref(true)
+const showColDestination = ref(true)
+const showColTotalPrice = ref(true)
+const showColUnitPrice = ref(true)
+const showColQuantity = ref(true)
+const showColWeight = ref(true)
+const showColShipDate = ref(true)
+const showColSettleDate = ref(true)
+const showColUnshipDate = ref(false)  // 默认隐藏
+const showColDelayDays = ref(false)   // 默认隐藏
+const showColWaybillNo = ref(true)
+const showColTicketNo = ref(false)  // 已付款状态下自动显示
+
+// 切换结算状态时自动控制票号列
+watch(() => filterForm.value.settleState, (state) => {
+  showColTicketNo.value = state === '已付款'
 })
 
 // 筛选选项
@@ -270,17 +293,14 @@ async function handleSearch(silent = false) {
       selfOwned: isSelfOwnedMode.value ? '1' : undefined,
     }
 
-    const [response, initialData] = await Promise.all([
-      settleApi.getInvoiceSettleVessel(params),
-      settleApi.getVesselSettleData(params),
-    ])
-
-    if (initialData.ok && initialData.options?.vehPersonMap) {
-      vehPersonMap.value = initialData.options.vehPersonMap
-    }
+    const response = await settleApi.getInvoiceSettleVessel(params)
 
     if (response.ok) {
       dbRecords.value = response.invs || []
+      // 使用返回的 vehPersonMap（只包含结果集中的车辆）
+      if (response.vehPersonMap) {
+        vehPersonMap.value = response.vehPersonMap
+      }
       buildTableData()
       updateButtonStates()
       if (!silent) toast.success(`查询成功`, { id: 'search' })
@@ -418,12 +438,15 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
   // 价格文本
   let priceText = '无'
   let unitPrice = '无'
+  let priceColor = 'text-gray-400'
   if (inv.vessel_price < 0) {
-    priceText = '<code style="color: darkgray">无</code>'
+    priceText = '无'
+    priceColor = 'text-gray-400'
   } else if (inv.vessel_price > 0) {
     const price = inv.vessel_price * inv.total_weight
-    priceText = `<code style="color: blue">${formatNumber(price)}</code>`
+    priceText = formatNumber(price)
     unitPrice = formatNumber(inv.vessel_price)
+    priceColor = 'text-blue-600'
   }
 
   // 预付文本
@@ -457,6 +480,7 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
     carrierOptions,
     selectedCarrier: carrierBoss,
     priceText,
+    priceColor,
     unitPrice,
     chargeText,
     statusHtml,
@@ -505,12 +529,15 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
   // 价格文本
   let priceText = '无'
   let unitPrice = '无'
+  let priceColor = 'text-gray-400'
   if (veh.price < 0) {
     priceText = '无'
+    priceColor = 'text-gray-400'
   } else if (veh.price > 0) {
     const price = veh.price * veh.weight
     priceText = formatNumber(price)
     unitPrice = formatNumber(veh.price)
+    priceColor = 'text-blue-600'
   }
 
   // 预付文本
@@ -553,6 +580,7 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
     carrierOptions,
     selectedCarrier: carrierBoss,
     priceText,
+    priceColor,
     unitPrice,
     chargeText,
     statusHtml,
@@ -670,10 +698,10 @@ function formatNumber(num: number | string): string {
   return isNaN(n) ? '0' : n.toFixed(3)
 }
 
-// 格式化日期
+// 格式化日期（显示到秒）
 function formatDate(date: any, allowEmpty = false): string {
   if (!date) return allowEmpty ? '' : '-'
-  return dayjs(date).format('YYYY-MM-DD')
+  return dayjs(date).format('YYYY-MM-DD HH:mm')
 }
 
 // 更新按钮状态
@@ -1235,7 +1263,8 @@ function handlePrintDetail() {
 
 // 不需要结算
 function handleNotNeedSettle(row: any) {
-  if (filterForm.value.settleState !== '未结算') {
+  const isAlreadyNotNeed = row.notNeedColor === 'darkgray'
+  if (!isAlreadyNotNeed && filterForm.value.settleState !== '未结算') {
     toast.warning('已结算,不能再进行"不需要结算操作"')
     return
   }
@@ -1397,7 +1426,7 @@ function handleUploadReceiptConfirm() {
   <BasicPage
     :title="isSelfOwnedMode ? '车船结算(自有车)' : '车船结算'"
     :description="isSelfOwnedMode ? '自有车船运费结算管理' : '车船运费结算管理'">
-    <div class="settle-vessel-page relative h-full flex flex-col">
+    <div class="settle-vessel-page relative flex flex-col" style="height: calc(100vh - 80px);">
       <!-- 操作栏 -->
       <div class="flex items-center justify-between gap-4 mb-4">
         <div class="flex items-center gap-2">
@@ -1459,7 +1488,7 @@ function handleUploadReceiptConfirm() {
         </div>
 
         <!-- 状态筛选 -->
-        <div class="ml-auto flex items-center gap-3">
+        <div class="ml-auto flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': loading }">
           <Tabs v-model="filterForm.settleState" @update:model-value="() => handleSearch(true)">
             <TabsList class="h-9">
               <TabsTrigger
@@ -1492,11 +1521,88 @@ function handleUploadReceiptConfirm() {
             <Filter class="w-4 h-4 mr-1" />
             筛选
           </UiButton>
+
+          <!-- 列显示设置 -->
+          <Popover>
+            <PopoverTrigger as-child>
+              <UiButton variant="outline" size="sm">
+                <Settings2 class="w-4 h-4 mr-1" />
+                列设置
+              </UiButton>
+            </PopoverTrigger>
+            <PopoverContent class="w-56" align="end">
+              <div class="space-y-2">
+                <h4 class="font-medium text-sm mb-3">显示列</h4>
+                <div class="space-y-2 max-h-80 overflow-y-auto">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColState" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">状态</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColVehicle" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">车船号</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColCarrier" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">承运单位</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColBillName" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">开单名称/发货单位</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColDestination" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">起始→目的地</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColTotalPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">总价格</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColUnitPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">单价</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColQuantity" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">发运数</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColWeight" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">发运量</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColShipDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">发货日期</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColSettleDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">结算日期</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColUnshipDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">卸船日期</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColDelayDays" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">滞留天数</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColWaybillNo" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">运单号</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColTicketNo" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">票号</span>
+                  </label>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
       <!-- 筛选区域 -->
-      <div v-show="showFilter" class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4">
+      <div v-show="showFilter" class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4" :class="{ 'pointer-events-none opacity-50': loading }">
         <!-- 第一行：车船号 | 开单名称 | 目的地 | 回执状态 -->
         <div class="grid grid-cols-4 gap-2">
           <SearchableCombobox
@@ -1574,7 +1680,7 @@ function handleUploadReceiptConfirm() {
       <!-- 统计信息行 -->
       <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
         <span class="text-muted-foreground">
-          记录数: <strong class="text-foreground">{{ pagedData.length }}</strong>
+          记录数: <strong class="text-foreground">{{ tableData.length }}</strong>
         </span>
         <span class="text-muted-foreground">
           重量: <strong class="text-foreground">{{ formatNumber(totalWeight) }}</strong>
@@ -1606,12 +1712,18 @@ function handleUploadReceiptConfirm() {
       </div>
 
       <!-- 表格 -->
-      <div class="flex-1 min-h-0 border rounded-lg overflow-hidden">
-        <div class="h-full overflow-auto">
-          <Table class="text-sm min-w-[1024px] w-full">
-            <TableHeader class="bg-muted/80 sticky top-0 z-10">
+      <div class="flex-1 min-h-0 border rounded-lg overflow-auto relative">
+        <!-- 加载遮罩 -->
+        <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-30">
+          <div class="flex items-center gap-2 text-muted-foreground">
+            <Loader2 class="w-5 h-5 animate-spin" />
+            <span>加载中...</span>
+          </div>
+        </div>
+        <table class="w-full caption-bottom text-sm min-w-[1024px]">
+          <TableHeader>
               <TableRow class="border-b">
-                <TableHead class="px-1.5 py-1.5 text-left flex items-center w-20" nowrap>
+                <TableHead class="px-1 py-1.5 text-left flex items-center w-14 sticky top-0 bg-background z-20 shadow-sm" nowrap>
                   <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll" />
                   <TooltipProvider>
                     <Tooltip>
@@ -1621,7 +1733,7 @@ function handleUploadReceiptConfirm() {
                           @click="handleBatchNotNeed"
                           size="sm"
                           class="ml-2 h-6 w-6 p-0"
-                          :class="allNotNeed ? 'text-gray-400' : 'text-red-500'"
+                          :class="allNotNeed ? 'text-gray-400' : 'text-black'"
                         >
                           ★
                         </Toggle>
@@ -1632,10 +1744,10 @@ function handleUploadReceiptConfirm() {
                     </Tooltip>
                   </TooltipProvider>
                 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[80px]"> 状态 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 车船号 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 承运单位 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left relative min-w-[180px]">
+                <TableHead v-if="showColState" class="px-1.5 py-1.5 text-left min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 状态 </TableHead>
+                <TableHead v-if="showColVehicle" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 车船号 </TableHead>
+                <TableHead v-if="showColCarrier" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 承运单位 </TableHead>
+                <TableHead v-if="showColBillName" class="px-1.5 py-1.5 text-left relative min-w-[180px] sticky top-0 bg-background z-20 shadow-sm">
                   开单名称/发货单位
                   <span
                     class="ml-2 cursor-pointer"
@@ -1666,24 +1778,19 @@ function handleUploadReceiptConfirm() {
                     </div>
                   </div>
                 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[120px]"> 起始→目的地 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]"> 总价格 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]"> 单价 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]"> 发运数 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-center min-w-[80px]"> 发运量 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 发货日期 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 结算日期 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[100px]"> 卸船日期 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-center min-w-[70px]"> 滞留天数 </TableHead>
-                <TableHead class="px-1.5 py-1.5 text-left min-w-[140px]"> 运单号 </TableHead>
+                <TableHead v-if="showColDestination" class="px-1.5 py-1.5 text-left min-w-[120px] sticky top-0 bg-background z-20 shadow-sm"> 起始→目的地 </TableHead>
+                <TableHead v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 总价格 </TableHead>
+                <TableHead v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 单价 </TableHead>
+                <TableHead v-if="showColQuantity" class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"> 发运数 </TableHead>
+                <TableHead v-if="showColWeight" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 发运量 </TableHead>
+                <TableHead v-if="showColShipDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 发货日期 </TableHead>
+                <TableHead v-if="showColSettleDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 结算日期 </TableHead>
+                <TableHead v-if="showColUnshipDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 卸船日期 </TableHead>
+                <TableHead v-if="showColDelayDays" class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"> 滞留天数 </TableHead>
+                <TableHead v-if="showColWaybillNo" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 运单号 </TableHead>
+                <TableHead v-if="showColTicketNo" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 票号 </TableHead>
                 <TableHead
-                  v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
-                  class="px-1.5 py-1.5 text-left min-w-[100px]"
-                >
-                  票号
-                </TableHead>
-                <TableHead
-                  class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky right-24 bg-muted border-l border-gray-200 z-10 hover:bg-orange-100 transition-colors"
+                  class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky top-0 right-24 bg-muted border-l border-gray-200 z-30 shadow-sm hover:bg-orange-100 transition-colors"
                   :class="{ 'cursor-pointer': hasPrivilegePrice }"
                   nowrap
                   @click="hasPrivilegePrice && handleBatchCharge()"
@@ -1702,7 +1809,7 @@ function handleUploadReceiptConfirm() {
                   </template>
                   <span v-else class="text-sm font-medium">预付</span>
                 </TableHead>
-                <TableHead class="px-0 py-1.5 text-center w-24 sticky right-0 w-24 min-w-24 bg-muted z-10" nowrap>
+                <TableHead class="px-0 py-1.5 text-center w-24 sticky top-0 right-0 min-w-24 bg-muted z-30 shadow-sm" nowrap>
                   <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
                   <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
                     <!-- <span :class="allReceiptOk ? 'text-green-600' : 'text-red-500'" class="mr-[2px] text-2xl">{{ allReceiptOk ? '☑' : '☐' }}</span> -->
@@ -1716,14 +1823,14 @@ function handleUploadReceiptConfirm() {
               <!-- 空状态 -->
               <TableRow v-if="pagedData.length === 0">
                 <TableCell
-                  :colspan="filterForm.settleState === '已付款' || filterForm.settleState === '全部' ? 19 : 18"
+                  colspan="20"
                   class="p-8 text-center text-muted-foreground"
                 >
                   暂无数据，请调整筛选条件后重新查询
                 </TableCell>
               </TableRow>
 
-              <template v-for="(row, index) in pagedData" :key="row.waybill_no || row.inner_waybill_no">
+              <template v-for="(row, index) in pagedData" :key="row.isSubItem ? `sub-${row.inner_waybill_no}` : `main-${row.waybill_no}`">
                 <!-- 主行 -->
                 <TableRow
                   v-if="!row.isSubItem"
@@ -1755,7 +1862,7 @@ function handleUploadReceiptConfirm() {
                             @click.stop="handleNotNeedSettle(row)"
                             size="sm"
                             class="ml-2 h-6 w-6 p-0"
-                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
+                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
                           >
                             ★
                           </Toggle>
@@ -1773,11 +1880,11 @@ function handleUploadReceiptConfirm() {
                       {{ row.expanded ? '▼' : '▶' }}
                     </span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                  <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
                     {{ row.vehicle_vessel_name }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                     <Select
                       v-if="row.carrierOptions && row.carrierOptions.length > 1"
                       v-model="row.selectedCarrier"
@@ -1795,37 +1902,37 @@ function handleUploadReceiptConfirm() {
                     </Select>
                     <span v-else>{{ row.carrierBoss }}</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
                     {{ row.shipName }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice" v-html="row.priceText" />
+                  <TableCell v-if="showColDestination" class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
+                  <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
                     <span v-else class="blurred-price">***</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
+                  <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
                     <span v-else class="blurred-price">***</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
                     {{ row.send_num }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                     {{ formatNumber(row.total_weight) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.ship_date) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.settle_date) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.unship_date, true) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
                     {{ row.delay_day }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
                     <div class="flex items-center gap-1.5">
                       <span>{{ row.waybill_no }}</span>
                       <span
@@ -1837,14 +1944,11 @@ function handleUploadReceiptConfirm() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell
-                    v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
-                    class="px-1.5 py-1.5"
-                  >
+                  <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                     {{ row.ticket_no || '-' }}
                   </TableCell>
                   <TableCell
-                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-10"
+                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-20"
                     :class="
                       row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'
                     "
@@ -1853,7 +1957,7 @@ function handleUploadReceiptConfirm() {
                     {{ row.chargeText }}
                   </TableCell>
                   <TableCell
-                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10"
+                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
                     :class="
                       row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'
                     "
@@ -1911,7 +2015,7 @@ function handleUploadReceiptConfirm() {
                             @click.stop="handleNotNeedSettle(row)"
                             size="sm"
                             class="ml-2 h-6 w-6 p-0"
-                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-red-500'"
+                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
                           >
                             ★
                           </Toggle>
@@ -1922,11 +2026,11 @@ function handleUploadReceiptConfirm() {
                       </Tooltip>
                     </TooltipProvider>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                  <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
                     {{ row.veh_name }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                     <Select
                       v-if="row.carrierOptions && row.carrierOptions.length > 1"
                       v-model="row.selectedCarrier"
@@ -1944,37 +2048,37 @@ function handleUploadReceiptConfirm() {
                     </Select>
                     <span v-else>{{ row.carrierBoss }}</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
                     {{ row.shipName }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice">{{ row.priceText }}</span>
+                  <TableCell v-if="showColDestination" class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
+                  <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
                     <span v-else class="blurred-price">***</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice">{{ row.unitPrice }}</span>
+                  <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
                     <span v-else class="blurred-price">***</span>
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
                     {{ row.send_num }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                     {{ formatNumber(row.send_weight) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.ship_date) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.settle_date) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
                     {{ formatDate(row.unship_date, true) }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5 text-center">
+                  <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
                     {{ row.delay_day }}
                   </TableCell>
-                  <TableCell class="px-1.5 py-1.5">
+                  <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
                     <div class="flex items-center gap-1.5">
                       <span>{{ row.inner_waybill_no }}</span>
                       <span
@@ -1986,21 +2090,18 @@ function handleUploadReceiptConfirm() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell
-                    v-if="filterForm.settleState === '已付款' || filterForm.settleState === '全部'"
-                    class="px-1.5 py-1.5"
-                  >
+                  <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                     {{ row.ticket_no || '-' }}
                   </TableCell>
                   <TableCell
-                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-10"
+                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-20"
                     :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
                     nowrap
                   >
                     {{ row.chargeText }}
                   </TableCell>
                   <TableCell
-                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-10"
+                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
                     :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
                     nowrap
                   >
@@ -2028,8 +2129,7 @@ function handleUploadReceiptConfirm() {
                 </TableRow>
               </template>
             </TableBody>
-          </Table>
-        </div>
+        </table>
       </div>
 
       <!-- 分页 -->

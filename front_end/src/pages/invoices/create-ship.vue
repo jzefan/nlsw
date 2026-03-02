@@ -20,7 +20,7 @@ import {
   searchVehicles,
   searchWarehouses,
 } from '@/services/api/invoice.api'
-import { searchCompanies } from '@/services/api/plan.api'
+import { getPlanByOrderNo, searchCompanies } from '@/services/api/plan.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
@@ -107,6 +107,9 @@ const availableOrdersData = ref<any[]>([])
 const selectedOrderNo = ref('')
 // 当前订单的可用提单
 const currentOrderBills = ref<any[]>([])
+
+// 当前订单的计划信息
+const orderPlanInfo = ref<{ order_weight: number; left_weight: number } | null>(null)
 
 // 当前公司的客户列表
 const shipCustomers = ref<string[]>([])
@@ -242,6 +245,7 @@ function resetForm() {
   pendingBills.value = []
   confirmedBills.value = []
   shipCustomers.value = []
+  orderPlanInfo.value = null
 }
 
 // 根据提单号查找提单信息（从分组数据中查找）
@@ -398,8 +402,18 @@ function handleOrderChange(orderNo: string) {
   selectedOrderNo.value = orderNo
   if (!orderNo) {
     currentOrderBills.value = []
+    orderPlanInfo.value = null
     return
   }
+
+  // 异步获取订单计划信息
+  getPlanByOrderNo(orderNo)
+    .then((result) => {
+      orderPlanInfo.value = result.ok && result.data ? result.data : null
+    })
+    .catch(() => {
+      orderPlanInfo.value = null
+    })
 
   // 从分组数据中找到该订单
   const orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
@@ -660,7 +674,12 @@ async function saveInvoice(state: string) {
       ship_customer: form.value.shipCustomer,
       ship_from: form.value.shipFrom,
       ship_to: form.value.shipTo,
-      ship_date: form.value.shipDate || undefined,
+      ship_date: form.value.shipDate
+        ? (() => {
+            const now = new Date()
+            return `${form.value.shipDate} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+          })()
+        : undefined,
       bills: confirmedBills.value.map((b) => ({ ...b, original_left_num: getBaseLeft(b._id!) })),
       total_weight: totalWeight.value,
       state,
@@ -1118,10 +1137,18 @@ async function loadInvoiceDetail(invoice: any) {
   }
 }
 
-// 格式化日期
+// 格式化日期时间
 function formatDate(date: any) {
   if (!date) return '-'
-  return new Date(date).toLocaleDateString('zh-CN')
+  const d = new Date(date)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  const s = String(d.getSeconds()).padStart(2, '0')
+  if (h === '00' && min === '00' && s === '00') return `${y}-${m}-${day}`
+  return `${y}-${m}-${day} ${h}:${min}:${s}`
 }
 
 // 格式化重量（最多3位小数）
@@ -1139,7 +1166,12 @@ function isBillHighlighted(bill: InvoiceBill) {
 <template>
   <BasicPage
     :title="isSelfOwnedMode ? '配发货-船运(自有车)' : '配发货-船运'"
-    :description="isSelfOwnedMode ? '使用自有船舶进行货物配发，需要为每批货物指定装卸车辆' : '使用船舶进行货物配发，需要为每批货物指定装卸车辆'">
+    :description="
+      isSelfOwnedMode
+        ? '使用自有船舶进行货物配发，需要为每批货物指定装卸车辆'
+        : '使用船舶进行货物配发，需要为每批货物指定装卸车辆'
+    "
+  >
     <template #actions>
       <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto">
         <UiButton size="sm" :disabled="loading" @click="createNewInvoice">
@@ -1164,7 +1196,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400'
             "
           >
-            <span class="font-medium">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
+            <span class="text-xs">{{ isExistingInvoice ? '修改运单' : '新建运单' }}</span>
             <span class="text-xs bg-white dark:bg-gray-800 px-1.5 sm:px-2 py-0.5 rounded">{{ waybillNo }}</span>
           </div>
         </div>
@@ -1201,7 +1233,12 @@ function isBillHighlighted(bill: InvoiceBill) {
           />
 
           <!-- 发货日期 -->
-          <DatePicker v-model="form.shipDate" placeholder="发货日期" />
+          <DatePicker
+            v-model="form.shipDate"
+            placeholder="发货日期"
+            :disabled-date="(d: Date) => d > new Date()"
+            disabled-hint="不能选择未来日期"
+          />
         </div>
 
         <!-- 车辆配发区域 -->
@@ -1232,6 +1269,13 @@ function isBillHighlighted(bill: InvoiceBill) {
               :disabled="!selectedOrderNo"
               @update:model-value="handleBillSelect"
             />
+          </div>
+
+          <!-- 订单计划提示 -->
+          <div v-if="orderPlanInfo" class="mt-1 px-1 text-xs text-muted-foreground">
+            订单计划: 订单量 {{ orderPlanInfo.order_weight.toFixed(3) }} 吨 | 已发
+            {{ (orderPlanInfo.order_weight - orderPlanInfo.left_weight).toFixed(3) }} 吨 | 剩余
+            {{ orderPlanInfo.left_weight.toFixed(3) }} 吨
           </div>
         </div>
       </div>

@@ -196,11 +196,11 @@ exports.getInvoiceList = async (req, res) => {
     if (startDate || endDate) {
       query.ship_date = {};
       if (startDate) {
-        query.ship_date.$gte = new Date(startDate);
+        query.ship_date.$gte = utils.parseLocalDate(startDate);
       }
       if (endDate) {
         // 如果是日期字符串，设为当天的结束时间
-        const end = new Date(endDate);
+        const end = utils.parseLocalDate(endDate);
         if (endDate.length <= 10) { // YYYY-MM-DD
            end.setHours(23, 59, 59, 999);
         }

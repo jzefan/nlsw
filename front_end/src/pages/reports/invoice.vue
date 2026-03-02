@@ -389,7 +389,7 @@ function handlePrint() {
                    <td class="text-right">${formatNumber(billInfo.len)}</td>
                    <td class="text-right">${formatNumber(billInfo.weight)}</td>
                    <td class="text-right">${veh.send_num}</td>
-                   <td class="text-right">${formatNumber(veh.send_weight)}</td>
+                   <td class="text-right">${formatNumber(getVehSendWeight(veh, billInfo))}</td>
                    <td>${billInfo.ship_warehouse || ''}</td>
                    <td>${billInfo.contract_no || ''}</td>
                    <td>${veh.veh_name || ''}</td>
@@ -408,7 +408,7 @@ function handlePrint() {
                  <td class="text-right">${formatNumber(billInfo.len)}</td>
                  <td class="text-right">${formatNumber(billInfo.weight)}</td>
                  <td class="text-right">${bill.num || 0}</td>
-                 <td class="text-right">${formatNumber(bill.weight)}</td>
+                 <td class="text-right">${formatNumber(getBillSendWeight(bill))}</td>
                  <td>${billInfo.ship_warehouse || ''}</td>
                  <td>${billInfo.contract_no || ''}</td>
                  <td>-</td>
@@ -681,7 +681,7 @@ async function handleExport() {
           formatNumber(billInfo.len),
           formatNumber(billInfo.weight),
           veh.send_num,
-          formatNumber(veh.send_weight),
+          formatNumber(getVehSendWeight(veh, billInfo)),
           billInfo.ship_warehouse || '',
           billInfo.contract_no || '',
           veh.veh_name || ''
@@ -698,7 +698,7 @@ async function handleExport() {
         formatNumber(billInfo.len),
         formatNumber(billInfo.weight),
         bill.num || 0,
-        formatNumber(bill.weight),
+        formatNumber(getBillSendWeight(bill)),
         billInfo.ship_warehouse || '',
         billInfo.contract_no || '',
         '-'
@@ -751,6 +751,22 @@ async function handleExport() {
   }
 }
 
+// 计算提单的单块重（兼容 weight 字段为空的情况）
+function getUnitWeight(billInfo: any) {
+  if (!billInfo) return 0
+  return billInfo.weight || (billInfo.block_num > 0 ? (billInfo.total_weight || 0) / billInfo.block_num : 0)
+}
+
+// 计算船运车辆的发运重量
+function getVehSendWeight(veh: any, billInfo: any) {
+  return veh.send_weight || ((veh.send_num || 0) * getUnitWeight(billInfo))
+}
+
+// 计算车运提单的发运重量
+function getBillSendWeight(bill: any) {
+  return bill.weight || ((bill.num || 0) * getUnitWeight(bill.bill_id))
+}
+
 // Calculate totals from bills
 const calculateTotals = computed(() => {
   if (!invoiceDetail.value?.bills)
@@ -763,12 +779,12 @@ const calculateTotals = computed(() => {
     if (bill.vehicles?.length > 0) {
       bill.vehicles.forEach((veh: any) => {
         totalNum += veh.send_num || 0
-        totalWeight += veh.send_weight || 0
+        totalWeight += getVehSendWeight(veh, bill.bill_id)
       })
     }
     else {
       totalNum += bill.num || 0
-      totalWeight += bill.weight || 0
+      totalWeight += getBillSendWeight(bill)
     }
   })
 
@@ -942,7 +958,7 @@ const calculateTotals = computed(() => {
                     {{ veh.send_num }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(veh.send_weight) }}
+                    {{ formatNumber(getVehSendWeight(veh, bill.bill_id)) }}
                   </TableCell>
                   <TableCell>{{ bill.bill_id?.ship_warehouse }}</TableCell>
                   <TableCell>{{ bill.bill_id?.contract_no }}</TableCell>
@@ -970,7 +986,7 @@ const calculateTotals = computed(() => {
                     {{ bill.num || 0 }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.weight) }}
+                    {{ formatNumber(getBillSendWeight(bill)) }}
                   </TableCell>
                   <TableCell>{{ bill.bill_id?.ship_warehouse }}</TableCell>
                   <TableCell>{{ bill.bill_id?.contract_no }}</TableCell>

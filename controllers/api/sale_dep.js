@@ -6,6 +6,7 @@ exports.getSaleDeps = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
+    const skipCount = req.query.skipCount === 'true';
 
     const baseQuery = {};
     if (search) {
@@ -14,7 +15,14 @@ exports.getSaleDeps = async (req, res) => {
 
     const query = buildTenantQuery(req, baseQuery);
 
-    const count = await SaleDep.countDocuments(query);
+    // 对于搜索场景（如下拉列表），跳过耗时的 countDocuments 查询
+    const shouldSkipCount = skipCount || (search && limit <= 50);
+
+    let count = 0;
+    if (!shouldSkipCount) {
+      count = await SaleDep.countDocuments(query);
+    }
+
     const saleDeps = await SaleDep.find(query)
       .skip((page - 1) * limit)
       .limit(limit)
@@ -25,9 +33,9 @@ exports.getSaleDeps = async (req, res) => {
     res.json({
       ok: true,
       data: saleDeps,
-      total: count,
+      total: shouldSkipCount ? -1 : count,
       page: page,
-      totalPages: Math.ceil(count / limit)
+      totalPages: shouldSkipCount ? -1 : Math.ceil(count / limit)
     });
   } catch (error) {
     console.error('getSaleDeps error:', error);

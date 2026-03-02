@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import dayjs from 'dayjs'
 import { Download, FileCheck, FileX, Filter as FilterIcon, List } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
@@ -7,7 +8,7 @@ import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { DatePicker } from '@/components/ui/date-picker'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { deleteSettle, getSettleDetail, getSettleList, updateTicket } from '@/services/api/ticket.api'
 
@@ -46,6 +47,8 @@ const displaySettles = ref<SettleRecord[]>([])
 const selectedSettles = ref<SettleRecord[]>([])
 const loading = ref(false)
 const showFilter = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(50)
 
 // 过滤参数
 const filterBillingName = ref('')
@@ -116,22 +119,37 @@ function updateDisplaySettles() {
     filtered = filtered.filter((s) => s.ship_to === filterShipTo.value)
   }
 
-  // 开票日期过滤（仅在已开票模式下生效，未开票记录没有 ticket_date）
-  if (displayMode.value === 'ticket' && filterTicketDateStart.value && filterTicketDateEnd.value) {
+  // 日期过滤（未开票用 settle_date，已开票用 ticket_date）
+  if (filterTicketDateStart.value && filterTicketDateEnd.value) {
     filtered = filtered.filter((s) => {
-      if (!s.ticket_date) return false
-      const ticketDate = new Date(s.ticket_date)
+      const dateValue = displayMode.value === 'ticket' ? s.ticket_date : s.settle_date
+      if (!dateValue) return false
+      const d = new Date(dateValue)
       const startDate = new Date(filterTicketDateStart.value)
       const endDate = new Date(filterTicketDateEnd.value)
       startDate.setHours(0, 0, 0, 0)
       endDate.setHours(23, 59, 59, 999)
-      return ticketDate >= startDate && ticketDate <= endDate
+      return d >= startDate && d <= endDate
     })
   }
 
-  displaySettles.value = filtered
+  // 按日期降序排列（最新的在前面）
+  // 使用 [...filtered] 避免原地修改 allSettles
+  displaySettles.value = [...filtered].sort((a, b) => {
+    const dateA = new Date(a.ticket_date || a.settle_date || 0).getTime()
+    const dateB = new Date(b.ticket_date || b.settle_date || 0).getTime()
+    return dateB - dateA
+  })
   selectedSettles.value = []
+  currentPage.value = 1
 }
+
+// 分页
+const totalPages = computed(() => Math.ceil(displaySettles.value.length / pageSize.value))
+const pagedSettles = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return displaySettles.value.slice(start, start + pageSize.value)
+})
 
 // 重置过滤条件
 function resetFilter() {
@@ -228,6 +246,29 @@ const filterOptions = computed(() => {
   }
 })
 
+// 本地搜索过滤选项（用于 SearchableCombobox 的分页搜索）
+function localFilterSearch(items: string[], search: string, limit: number, page: number) {
+  let filtered = items
+  if (search) {
+    filtered = filtered.filter(item => item.toLowerCase().includes(search.toLowerCase()))
+  }
+  const start = (page - 1) * limit
+  const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
+  return Promise.resolve({ ok: true as const, data, total: filtered.length })
+}
+
+function searchFilterBillingNames(search: string, limit: number, page: number) {
+  return localFilterSearch(filterOptions.value.billingNames, search, limit, page)
+}
+
+function searchFilterSerialNumbers(search: string, limit: number, page: number) {
+  return localFilterSearch(filterOptions.value.serialNumbers, search, limit, page)
+}
+
+function searchFilterShipTos(search: string, limit: number, page: number) {
+  return localFilterSearch(filterOptions.value.shipTos, search, limit, page)
+}
+
 // 统计信息
 const statistics = computed(() => {
   let totalNum = 0
@@ -235,9 +276,9 @@ const statistics = computed(() => {
   let totalAmount = 0
 
   displaySettles.value.forEach((settle) => {
-    totalNum += settle.ship_number
-    totalWeight += settle.ship_weight
-    totalAmount += settle.price
+    totalNum += settle.ship_number || 0
+    totalWeight += settle.ship_weight || 0
+    totalAmount += settle.price || 0
   })
 
   return {
@@ -397,7 +438,48 @@ async function handleDelete() {
 
 // 导出
 function handleExport() {
-  toast.info('导出功能开发中...')
+  if (displaySettles.value.length === 0) {
+    toast.warning('没有可导出的数据')
+    return
+  }
+
+  const fmtDate = (d: string) => d ? dayjs(d).format('YYYY-MM-DD HH:mm') : '-'
+
+  const columns = [
+    { header: '结算号', key: 'serial_number' },
+    { header: '开单名称', key: 'billing_name' },
+    { header: '目的地', key: 'ship_to' },
+    { header: '块数', key: 'ship_number' },
+    { header: '重量', key: 'ship_weight' },
+    { header: '金额', key: 'price' },
+    { header: '结算日期', key: 'settle_date' },
+    ...(displayMode.value === 'ticket' ? [
+      { header: '开票号', key: 'ticket_no' },
+      { header: '开票日期', key: 'ticket_date' },
+    ] : []),
+    { header: '状态', key: 'status' },
+  ]
+
+  const exportData = displaySettles.value.map(settle => ({
+    serial_number: settle.serial_number,
+    billing_name: settle.billing_name,
+    ship_to: settle.ship_to,
+    ship_number: settle.ship_number,
+    ship_weight: (settle.ship_weight || 0).toFixed(3),
+    price: (settle.price || 0).toFixed(2),
+    settle_date: fmtDate(settle.settle_date),
+    ticket_no: settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : (settle.ticket_no || '-'),
+    ticket_date: settle.ticket_date ? fmtDate(settle.ticket_date) : '-',
+    status: settle.status,
+  }))
+
+  const modeLabel = displayMode.value === 'ticket' ? '已开票' : '已结算'
+  exportWithPicker({
+    fileName: `开票管理_${modeLabel}_${new Date().toLocaleDateString()}`,
+    sheetName: modeLabel,
+    columns,
+    data: exportData,
+  })
 }
 
 // 显示明细对话框状态
@@ -579,55 +661,46 @@ async function handleShowDetail() {
       <TabsContent value="settle" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="flex items-center gap-2 flex-wrap">
-            <Select v-model="filterBillingName" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="开单名称" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="name in filterOptions.billingNames" :key="name" :value="name">
-                  {{ name }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+            <SearchableCombobox
+              v-model="filterBillingName"
+              :search-fn="searchFilterBillingNames"
+              placeholder="开单名称"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
-            <Select v-model="filterSerialNumber" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="结算号" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="number in filterOptions.serialNumbers" :key="number" :value="number">
-                  {{ number }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableCombobox
+              v-model="filterSerialNumber"
+              :search-fn="searchFilterSerialNumbers"
+              placeholder="结算号"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
-            <Select v-model="filterShipTo" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="目的地" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="dest in filterOptions.shipTos" :key="dest" :value="dest">
-                  {{ dest }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableCombobox
+              v-model="filterShipTo"
+              :search-fn="searchFilterShipTos"
+              placeholder="目的地"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
             <DatePicker
               v-model="filterTicketDateStart"
-              placeholder="起始开票日期"
+              placeholder="起始日期"
               :disabled-date="disableStartDate"
               disabled-hint="开始日期不能晚于结束日期"
-              class="h-8 text-sm flex-1 min-w-[150px]"
+              class="h-8 text-sm w-full"
               @update:model-value="updateDisplaySettles"
             />
 
             <DatePicker
               v-model="filterTicketDateEnd"
-              placeholder="结束开票日期"
+              placeholder="结束日期"
               :disabled-date="disableEndDate"
               disabled-hint="结束日期不能早于开始日期"
-              class="h-8 text-sm flex-1 min-w-[150px]"
+              class="h-8 text-sm w-full"
               @update:model-value="updateDisplaySettles"
             />
 
@@ -667,20 +740,20 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
-                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
+                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">加载中...</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">没有数据</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">没有数据</td>
                 </tr>
                 <tr
-                  v-for="settle in displaySettles"
+                  v-for="settle in pagedSettles"
                   v-else
                   :key="settle._id"
                   class="border-b hover:bg-muted/50 cursor-pointer transition-colors"
@@ -710,19 +783,19 @@ async function handleShowDetail() {
                     {{ settle.ship_number }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.ship_weight.toFixed(3) }}
+                    {{ (settle.ship_weight || 0).toFixed(3) }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.price.toFixed(2) }}
+                    {{ (settle.price || 0).toFixed(2) }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ new Date(settle.settle_date).toLocaleDateString() }}
+                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
                   </td>
-                  <td class="px-2 py-2">
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
                     {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.ticket_date ? new Date(settle.ticket_date).toLocaleDateString() : '-' }}
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
+                    {{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD HH:mm') : '-' }}
                   </td>
                   <td class="px-2 py-2">
                     <span
@@ -747,55 +820,46 @@ async function handleShowDetail() {
       <TabsContent value="ticket" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="flex items-center gap-2 flex-wrap">
-            <Select v-model="filterBillingName" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="开单名称" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="name in filterOptions.billingNames" :key="name" :value="name">
-                  {{ name }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+            <SearchableCombobox
+              v-model="filterBillingName"
+              :search-fn="searchFilterBillingNames"
+              placeholder="开单名称"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
-            <Select v-model="filterSerialNumber" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="结算号" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="number in filterOptions.serialNumbers" :key="number" :value="number">
-                  {{ number }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableCombobox
+              v-model="filterSerialNumber"
+              :search-fn="searchFilterSerialNumbers"
+              placeholder="结算号"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
-            <Select v-model="filterShipTo" @update:model-value="updateDisplaySettles">
-              <SelectTrigger class="h-8 text-sm flex-1 min-w-[150px]">
-                <SelectValue placeholder="目的地" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="dest in filterOptions.shipTos" :key="dest" :value="dest">
-                  {{ dest }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SearchableCombobox
+              v-model="filterShipTo"
+              :search-fn="searchFilterShipTos"
+              placeholder="目的地"
+              class="h-8 text-sm w-full"
+              @update:model-value="updateDisplaySettles"
+            />
 
             <DatePicker
               v-model="filterTicketDateStart"
-              placeholder="起始开票日期"
+              placeholder="起始日期"
               :disabled-date="disableStartDate"
               disabled-hint="开始日期不能晚于结束日期"
-              class="h-8 text-sm flex-1 min-w-[150px]"
+              class="h-8 text-sm w-full"
               @update:model-value="updateDisplaySettles"
             />
 
             <DatePicker
               v-model="filterTicketDateEnd"
-              placeholder="结束开票日期"
+              placeholder="结束日期"
               :disabled-date="disableEndDate"
               disabled-hint="结束日期不能早于开始日期"
-              class="h-8 text-sm flex-1 min-w-[150px]"
+              class="h-8 text-sm w-full"
               @update:model-value="updateDisplaySettles"
             />
 
@@ -835,20 +899,20 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
-                  <th class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
+                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">加载中...</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td colspan="11" class="p-8 text-center text-muted-foreground">没有数据</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">没有数据</td>
                 </tr>
                 <tr
-                  v-for="settle in displaySettles"
+                  v-for="settle in pagedSettles"
                   v-else
                   :key="settle._id"
                   class="border-b hover:bg-muted/50 cursor-pointer transition-colors"
@@ -878,19 +942,19 @@ async function handleShowDetail() {
                     {{ settle.ship_number }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.ship_weight.toFixed(3) }}
+                    {{ (settle.ship_weight || 0).toFixed(3) }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.price.toFixed(2) }}
+                    {{ (settle.price || 0).toFixed(2) }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ new Date(settle.settle_date).toLocaleDateString() }}
+                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
                   </td>
-                  <td class="px-2 py-2">
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
                     {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.ticket_date ? new Date(settle.ticket_date).toLocaleDateString() : '-' }}
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
+                    {{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD HH:mm') : '-' }}
                   </td>
                   <td class="px-2 py-2">
                     <span
@@ -911,6 +975,30 @@ async function handleShowDetail() {
         </div>
       </TabsContent>
     </Tabs>
+
+    <!-- 分页 -->
+    <div v-if="displaySettles.length > 0" class="flex items-center justify-between mt-4 px-2">
+      <div class="text-sm text-muted-foreground">
+        显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条
+      </div>
+      <div class="flex items-center gap-2">
+        <select v-model.number="pageSize" class="h-8 px-2 text-sm border rounded" @change="currentPage = 1">
+          <option :value="10">10条/页</option>
+          <option :value="20">20条/页</option>
+          <option :value="30">30条/页</option>
+          <option :value="40">40条/页</option>
+          <option :value="50">50条/页</option>
+          <option :value="100">100条/页</option>
+        </select>
+        <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="currentPage--">
+          上一页
+        </UiButton>
+        <span class="text-sm">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <UiButton variant="outline" size="sm" :disabled="currentPage >= totalPages" @click="currentPage++">
+          下一页
+        </UiButton>
+      </div>
+    </div>
 
     <!-- 开票对话框 -->
     <UiDialog v-model:open="showTicketDialog">

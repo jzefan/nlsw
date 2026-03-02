@@ -356,8 +356,8 @@ exports.getDashboardStatistics = async function (req, res) {
     // Check for YYYY-MM format from frontend input type="month"
     if (req.query.startDate && req.query.endDate) {
       // Start date: 1st of the month
-      startDate = new Date(req.query.startDate + "-01"); 
-      
+      startDate = utils.parseLocalDate(req.query.startDate + "-01");
+
       // End date: Last second of the end month
       const endParts = req.query.endDate.split('-');
       const endYear = parseInt(endParts[0]);
@@ -592,7 +592,7 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
-      startDate = new Date(req.query.startDate + "-01");
+      startDate = utils.parseLocalDate(req.query.startDate + "-01");
       const endParts = req.query.endDate.split('-');
       const endYear = parseInt(endParts[0]);
       const endMonth = parseInt(endParts[1]);
@@ -707,7 +707,7 @@ exports.getDashboardBillingNamesStats = async function (req, res) {
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
-      startDate = new Date(req.query.startDate + "-01");
+      startDate = utils.parseLocalDate(req.query.startDate + "-01");
       const endParts = req.query.endDate.split('-');
       const endYear = parseInt(endParts[0]);
       const endMonth = parseInt(endParts[1]);

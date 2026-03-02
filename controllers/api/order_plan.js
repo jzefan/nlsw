@@ -2,6 +2,21 @@ const OrderPlan = require('../../models/OrderPlan');
 const utils = require('../../controllers/utils');
 const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
 
+exports.getPlanByOrderNo = async (req, res) => {
+  try {
+    const { orderNo } = req.params;
+    if (!orderNo) {
+      return res.json({ ok: true, data: null });
+    }
+    const query = buildTenantQuery(req, { order_no: orderNo });
+    const plan = await OrderPlan.findOne(query).select('order_no order_weight left_weight').lean();
+    res.json({ ok: true, data: plan });
+  } catch (error) {
+    console.error('getPlanByOrderNo error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
 exports.getPlans = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -22,8 +37,8 @@ exports.getPlans = async (req, res) => {
       baseQuery.status = (req.query.status === '生效') ? 0 : 1;
     }
     if (req.query.startDate && req.query.endDate) {
-      const start = new Date(req.query.startDate);
-      const end = new Date(req.query.endDate);
+      const start = utils.parseLocalDate(req.query.startDate);
+      const end = utils.parseLocalDate(req.query.endDate);
       // Adjust end date to end of day if it's just a date string
       end.setHours(23, 59, 59, 999);
       baseQuery.entry_time = { $gte: start, $lte: end };

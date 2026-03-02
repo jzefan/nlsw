@@ -45,6 +45,20 @@ Date.prototype.format = function(format) {
   return format;
 };
 
+/**
+ * 解析日期字符串为本地时间（北京时间）
+ * new Date("2026-03-01") 按 JS 规范始终解析为 UTC 零点，导致查询偏移 8 小时
+ * 本函数追加 T00:00:00 使其按本地时区解析
+ */
+exports.parseLocalDate = function (dateStr) {
+  if (!dateStr) return null;
+  // 已包含时间部分（T 或空格分隔），直接解析
+  if (dateStr.includes('T') || dateStr.includes(' ')) {
+    return new Date(dateStr);
+  }
+  return new Date(dateStr + 'T00:00:00');
+};
+
 exports.leftPad = function (number, length) {
   var str = '' + number;
   while (str.length < length) {

@@ -6,6 +6,7 @@ exports.getWarehouses = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
+    const skipCount = req.query.skipCount === 'true';
 
     const baseQuery = {};
     if (search) {
@@ -14,7 +15,14 @@ exports.getWarehouses = async (req, res) => {
 
     const query = buildTenantQuery(req, baseQuery);
 
-    const count = await Warehouse.countDocuments(query);
+    // 对于搜索场景（如下拉列表），跳过耗时的 countDocuments 查询
+    const shouldSkipCount = skipCount || (search && limit <= 50);
+
+    let count = 0;
+    if (!shouldSkipCount) {
+      count = await Warehouse.countDocuments(query);
+    }
+
     const warehouses = await Warehouse.find(query)
       .skip((page - 1) * limit)
       .limit(limit)
@@ -25,9 +33,9 @@ exports.getWarehouses = async (req, res) => {
     res.json({
       ok: true,
       data: warehouses,
-      total: count,
+      total: shouldSkipCount ? -1 : count,
       page: page,
-      totalPages: Math.ceil(count / limit)
+      totalPages: shouldSkipCount ? -1 : Math.ceil(count / limit)
     });
   } catch (error) {
     console.error('getWarehouses error:', error);

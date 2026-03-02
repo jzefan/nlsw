@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Download, Filter, ShoppingCart, Trash2, X } from 'lucide-vue-next'
+import dayjs from 'dayjs'
+import { Download, Filter, Loader2, ShoppingCart, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -47,7 +48,7 @@ const viewTab = ref<'unsettled' | 'settled'>('unsettled') // 视图标签：未�
 const allBills = ref<SettleBill[]>([])
 const displayBills = ref<SettleBill[]>([])
 const selectedBills = ref<SettleBill[]>([])
-const loading = ref(false)
+const loading = ref(true)  // 初始显示loading，数据加载完成后自动关闭
 const showFilter = ref(true) // 默认显示过滤器
 const showNonSettle = ref(false)
 
@@ -184,6 +185,26 @@ const statistics = computed(() => {
   }
 })
 
+// 初始加载状态（仅首次打开页面时显示加载图标）
+const isInitialLoading = computed(() => loading.value && allBills.value.length === 0)
+
+// 已结算记录统计信息
+const settledStatistics = computed(() => {
+  let totalWeight = 0
+  let totalAmount = 0
+
+  settledRecords.value.forEach((record) => {
+    totalWeight += record.ship_weight || 0
+    totalAmount += record.price || 0
+  })
+
+  return {
+    count: settledRecords.value.length,
+    totalWeight,
+    totalAmount,
+  }
+})
+
 // 选中的统计信息
 const selectedStatistics = computed(() => {
   let totalNum = 0
@@ -308,7 +329,7 @@ async function loadData(startDate?: string, endDate?: string) {
       fDate1: startDate,
       fDate2: endDate,
       fType: 'invoice-first',
-      selfOwned: isSelfOwnedMode.value ? '1' : undefined,
+      selfOwned: isSelfOwnedMode.value ? 1 : undefined,
     })
     if (result.ok) {
       allBills.value = result.bills.sort((a, b) => {
@@ -835,7 +856,7 @@ function handleExport() {
     const priceText = getPriceText(price)
     const spec = `${bill.thickness}*${bill.width}*${bill.len}`
     const specSize = getSpecSize(bill.width, bill.len)
-    const shipDate = bill.inv_ship_date ? new Date(bill.inv_ship_date).toLocaleDateString('zh-CN') : ''
+    const shipDate = bill.inv_ship_date ? dayjs(bill.inv_ship_date).format('YYYY-MM-DD HH:mm') : ''
 
     return {
       status: getSettleStatus(bill),
@@ -1040,7 +1061,7 @@ function getOrderDisplay(bill: SettleBill) {
       <!-- Tabs 和操作按钮在同一行 -->
       <div class="flex items-center justify-between mb-4">
         <!-- 操作按钮组 -->
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" :class="{ 'pointer-events-none opacity-50': loading }">
           <!-- 结算模式切换 -->
           <div class="inline-flex rounded-md shadow-sm" role="group">
             <button
@@ -1148,7 +1169,7 @@ function getOrderDisplay(bill: SettleBill) {
           </template>
         </div>
 
-        <TabsList>
+        <TabsList :class="{ 'pointer-events-none opacity-50': loading }">
           <TabsTrigger value="unsettled" class="w-[120px]">
             未结算
           </TabsTrigger>
@@ -1164,6 +1185,7 @@ function getOrderDisplay(bill: SettleBill) {
           v-if="showFilter"
           ref="settleFilterRef"
           v-model:show-non-settle="showNonSettle"
+          :class="{ 'pointer-events-none opacity-50': loading }"
           :settle-mode="settleMode"
           :billing-names="filterOptions.billingNames"
           :vehicle-names="filterOptions.vehicleNames"
@@ -1175,8 +1197,14 @@ function getOrderDisplay(bill: SettleBill) {
           @apply="applyFilter"
         />
 
+        <!-- 初始加载指示器 -->
+        <div v-if="isInitialLoading" class="flex flex-col items-center justify-center py-20">
+          <Loader2 class="w-8 h-8 animate-spin text-primary mb-2" />
+          <span class="text-muted-foreground text-sm">正在加载数据...</span>
+        </div>
+
         <!-- 汇总统计信息 -->
-        <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div v-if="!isInitialLoading" class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm" :class="{ 'pointer-events-none opacity-50': loading }">
           <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
           <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
           <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
@@ -1215,6 +1243,7 @@ function getOrderDisplay(bill: SettleBill) {
 
         <!-- 数据表格 -->
         <SettleTable
+          v-if="!isInitialLoading"
           v-model:selected="selectedBills"
           :bills="pagedBills"
           :settle-mode="settleMode"
@@ -1283,8 +1312,10 @@ function getOrderDisplay(bill: SettleBill) {
       <TabsContent value="settled" class="space-y-4">
         <!-- 汇总统计 -->
         <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
-          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ settledRecords.length }}</strong></span>
-          <span v-if="selectedSettles.length > 0" class="text-primary font-medium">
+          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ settledStatistics.count }}</strong></span>
+          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ settledStatistics.totalWeight.toFixed(3) }}</strong> 吨</span>
+          <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ settledStatistics.totalAmount.toFixed(2) }}</strong></span>
+          <span v-if="selectedSettles.length > 0" class="text-primary font-medium ml-auto">
             已选: {{ selectedSettles.length }} 条
           </span>
         </div>
@@ -1374,13 +1405,13 @@ function getOrderDisplay(bill: SettleBill) {
                     {{ settle.ship_number }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.ship_weight.toFixed(3) }}
+                    {{ (settle.ship_weight || 0).toFixed(3) }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ settle.price.toFixed(2) }}
+                    {{ (settle.price || 0).toFixed(2) }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ new Date(settle.settle_date).toLocaleDateString() }}
+                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.settler || '-' }}

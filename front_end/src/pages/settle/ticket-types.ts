@@ -5,7 +5,7 @@ export type SettleType = 'CUSTOMER' | 'COLLECTION'
 export type SettleStatus = '已结算' | '已开票' | '已回款'
 
 // 显示模式
-export type DisplayMode = 'settle' | 'ticket'
+export type DisplayMode = 'settle' | 'ticket' | 'money'
 
 // 结算记录
 export interface SettleRecord {

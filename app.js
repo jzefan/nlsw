@@ -2,6 +2,8 @@
  * Module dependencies.
  */
 
+process.env.TZ = "Asia/Shanghai";
+
 require("dotenv").config({ path: process.env.ENV_FILE || ".env" });
 
 const schedule = require("node-schedule");

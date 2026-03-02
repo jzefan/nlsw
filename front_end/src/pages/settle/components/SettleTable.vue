@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import dayjs from 'dayjs'
 import { computed } from 'vue'
 
 import type { SettleBill, SettleMode } from '../types'
@@ -145,7 +146,7 @@ function getBillingNameDisplay(bill: SettleBill) {
 function formatDate(date: string) {
   if (!date)
     return '-'
-  return new Date(date).toLocaleDateString('zh-CN')
+  return dayjs(date).format('YYYY-MM-DD HH:mm')
 }
 
 // 获取规格显示

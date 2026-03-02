@@ -1,9 +1,9 @@
-const Bill = require('../../models/Bill');
-const Invoice = require('../../models/Invoice');
-const OrderPlan = require('../../models/OrderPlan');
-const Settle = require('../../models/Settle');
-const utils = require('../utils');
-const { buildTenantQuery, injectTenantId } = require('../../utils/tenant');
+const Bill = require("../../models/Bill");
+const Invoice = require("../../models/Invoice");
+const OrderPlan = require("../../models/OrderPlan");
+const Settle = require("../../models/Settle");
+const utils = require("../utils");
+const { buildTenantQuery, injectTenantId } = require("../../utils/tenant");
 
 const EPSILON = 0.0001;
 
@@ -13,11 +13,11 @@ const VESSEL_SETTLE_FLAG = 4; // 0100
 
 // 辅助函数：检查结算标志
 function checkFlag(flag, type) {
-  if (type === 'CUSTOMER' || type === '客户结算') {
+  if (type === "CUSTOMER" || type === "客户结算") {
     return (flag & CUSTOMER_SETTLE_FLAG) === CUSTOMER_SETTLE_FLAG;
-  } else if (type === 'COLLECTION' || type === '代收代付结算') {
+  } else if (type === "COLLECTION" || type === "代收代付结算") {
     return (flag & COLLECTION_SETTLE_FLAG) === COLLECTION_SETTLE_FLAG;
-  } else if (type === 'VESSEL_VEH' || type === '车船结算') {
+  } else if (type === "VESSEL_VEH" || type === "车船结算") {
     return (flag & VESSEL_SETTLE_FLAG) === VESSEL_SETTLE_FLAG;
   }
   return false;
@@ -26,11 +26,11 @@ function checkFlag(flag, type) {
 // 辅助函数：设置结算标志
 function setFlag(flag, type) {
   flag = flag || 0;
-  if (type === 'CUSTOMER' || type === '客户结算') {
+  if (type === "CUSTOMER" || type === "客户结算") {
     return flag | CUSTOMER_SETTLE_FLAG;
-  } else if (type === 'COLLECTION' || type === '代收代付结算') {
+  } else if (type === "COLLECTION" || type === "代收代付结算") {
     return flag | COLLECTION_SETTLE_FLAG;
-  } else if (type === 'VESSEL_VEH' || type === '车船结算') {
+  } else if (type === "VESSEL_VEH" || type === "车船结算") {
     return flag | VESSEL_SETTLE_FLAG;
   }
   return flag;
@@ -39,11 +39,11 @@ function setFlag(flag, type) {
 // 辅助函数：清除结算标志
 function clearFlag(flag, type) {
   flag = flag || 0;
-  if (type === 'CUSTOMER' || type === '客户结算') {
+  if (type === "CUSTOMER" || type === "客户结算") {
     return flag & ~CUSTOMER_SETTLE_FLAG;
-  } else if (type === 'COLLECTION' || type === '代收代付结算') {
+  } else if (type === "COLLECTION" || type === "代收代付结算") {
     return flag & ~COLLECTION_SETTLE_FLAG;
-  } else if (type === 'VESSEL_VEH' || type === '车船结算') {
+  } else if (type === "VESSEL_VEH" || type === "车船结算") {
     return flag & ~VESSEL_SETTLE_FLAG;
   }
   return flag;
@@ -69,7 +69,7 @@ async function updateInvoiceStatus(allInvNo, settle_type, req) {
     const invs = await Invoice.find(invQuery).exec();
 
     for (const invoice of invs) {
-      const ids = invoice.bills.map(b => b.bill_id);
+      const ids = invoice.bills.map((b) => b.bill_id);
       const billQuery = buildTenantQuery(req, { _id: { $in: ids } });
       const billArr = await Bill.find(billQuery).exec();
 
@@ -88,20 +88,20 @@ async function updateInvoiceStatus(allInvNo, settle_type, req) {
       // 更新运单状态
       if (settled) {
         if (!checkFlag(invoice.settle_flag, settle_type)) {
-          invoice.state = '已结算';
+          invoice.state = "已结算";
           invoice.settle_flag = setFlag(invoice.settle_flag, settle_type);
           await invoice.save();
         }
       } else {
         if (checkFlag(invoice.settle_flag, settle_type)) {
-          invoice.state = '已配发';
+          invoice.state = "已配发";
           invoice.settle_flag = clearFlag(invoice.settle_flag, settle_type);
           await invoice.save();
         }
       }
     }
   } catch (error) {
-    console.error('updateInvoiceStatus error:', error);
+    console.error("updateInvoiceStatus error:", error);
     throw error;
   }
 }
@@ -109,6 +109,7 @@ async function updateInvoiceStatus(allInvNo, settle_type, req) {
 /**
  * 获取结算提单列表
  * 根据过滤条件获取已配发但未结算的提单
+ * 优化：使用聚合管道减少查询次数和数据处理
  */
 exports.getSettleBills = async (req, res) => {
   try {
@@ -121,185 +122,211 @@ exports.getSettleBills = async (req, res) => {
       fDate1,
       fDate2,
       fType,
-      selfOwned
+      selfOwned,
     } = req.query;
 
-    // 构建运单查询条件
-    const invoiceQuery = {};
+    // 构建匹配条件数组
+    const matchConditions = [];
+
+    // 租户过滤
+    const tenantFilter = buildTenantQuery(req, {});
+    if (tenantFilter.tenantId) {
+      matchConditions.push({ tenantId: tenantFilter.tenantId });
+    }
 
     // 自有车过滤
-    if (selfOwned === '1' || selfOwned === 1) {
-      invoiceQuery.selfOwned = 1;
-    } else if (selfOwned === '0' || selfOwned === 0) {
-      invoiceQuery.selfOwned = { $ne: 1 };
+    if (selfOwned === "1" || selfOwned === 1) {
+      matchConditions.push({ selfOwned: 1 });
+    } else if (selfOwned === "0" || selfOwned === 0) {
+      matchConditions.push({ selfOwned: { $ne: 1 } });
     }
-    // 如果 selfOwned 未指定，不过滤（显示所有运单）
 
     // 开单名称过滤
     if (fName && Array.isArray(fName) && fName.length > 0) {
-      invoiceQuery.ship_name = { $in: fName };
-    } else if (fName && typeof fName === 'string') {
-      invoiceQuery.ship_name = fName;
+      matchConditions.push({ ship_name: { $in: fName } });
+    } else if (fName && typeof fName === "string") {
+      matchConditions.push({ ship_name: fName });
     }
 
     // 车船号过滤
     if (fVeh && Array.isArray(fVeh) && fVeh.length > 0) {
-      invoiceQuery.vehicle_vessel_name = { $in: fVeh };
+      matchConditions.push({ vehicle_vessel_name: { $in: fVeh } });
     }
 
     // 目的地过滤
     if (fDest && Array.isArray(fDest) && fDest.length > 0) {
-      invoiceQuery.ship_to = { $in: fDest };
+      matchConditions.push({ ship_to: { $in: fDest } });
     }
 
     // 日期范围过滤
     if (fDate1 && fDate2) {
-      invoiceQuery.ship_date = {
-        $gte: new Date(fDate1),
-        $lte: new Date(fDate2)
-      };
+      matchConditions.push({
+        ship_date: {
+          $gte: utils.parseLocalDate(fDate1),
+          $lte: utils.parseLocalDate(fDate2),
+        },
+      });
     }
 
     // 只查询已配发的运单
-    invoiceQuery.state = { $in: ['已配发', '新建'] };
+    matchConditions.push({ state: { $in: ["已配发", "新建"] } });
 
-    // 查询运单 - 应用租户过滤
-    const query = buildTenantQuery(req, invoiceQuery);
-    const invoices = await Invoice.find(query)
-      .populate({
-        path: 'bills.bill_id',
-        select: 'bill_no order_no order_item_no thickness width len contract_no ship_warehouse'
-      })
-      .sort({ ship_date: -1, createdAt: -1 })
-      .lean()
-      .exec();
+    // 使用聚合管道优化查询
+    const pipeline = [
+      // 第一步：匹配运单
+      {
+        $match: matchConditions.length > 0 ? { $and: matchConditions } : {},
+      },
 
-    // 展开提单数据
+      // 第二步：展开 bills 数组
+      { $unwind: { path: "$bills", preserveNullAndEmptyArrays: false } },
+
+      // 第三步：lookup 提单信息（一次性获取所有关联数据）
+      {
+        $lookup: {
+          from: "bills",
+          let: { billId: "$bills.bill_id" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$billId"] } } },
+            {
+              $project: {
+                _id: 1,
+                bill_no: 1,
+                order_no: 1,
+                order_item_no: 1,
+                thickness: 1,
+                width: 1,
+                len: 1,
+                weight: 1,
+                contract_no: 1,
+                ship_warehouse: 1,
+                collection_price: 1,
+                incoming_price_remark: 1,
+                settle_flag: 1,
+                invoices: 1,
+              },
+            },
+          ],
+          as: "billInfo",
+        },
+      },
+
+      // 第四步：展开 billInfo（应该只有一个）
+      { $unwind: { path: "$billInfo", preserveNullAndEmptyArrays: false } },
+
+      // 第五步：按发货日期降序排序
+      { $sort: { ship_date: -1, createdAt: -1 } },
+
+      // 第六步：构造输出格式
+      {
+        $project: {
+          _id: "$billInfo._id",
+          bill_no: "$billInfo.bill_no",
+          order_no: "$billInfo.order_no",
+          order_item_no: "$billInfo.order_item_no",
+          billing_name: "$ship_name",
+          ship_customer: "$ship_customer",
+          veh_ves_name: "$vehicle_vessel_name",
+          ship_to: "$ship_to",
+          ship_from: "$ship_from",
+          ship_warehouse: "$billInfo.ship_warehouse",
+          inv_no: "$waybill_no",
+          inv_ship_date: "$ship_date",
+          inv_shipper: "$shipper",
+          send_num: "$bills.num",
+          send_weight: "$bills.weight",
+          thickness: "$billInfo.thickness",
+          width: "$billInfo.width",
+          len: "$billInfo.len",
+          contract_no: "$billInfo.contract_no",
+          collection_price: "$billInfo.collection_price",
+          incoming_price_remark: "$billInfo.incoming_price_remark",
+          settle_flag: "$billInfo.settle_flag",
+          status: "$bills.status",
+          bill_weight: "$billInfo.weight",
+          billInvoices: "$billInfo.invoices",
+        },
+      },
+    ];
+
+    const results = await Invoice.aggregate(pipeline).exec();
+
+    // 处理结果
     const bills = [];
-    for (const invoice of invoices) {
-      for (const invBill of invoice.bills) {
-        const billInfo = invBill.bill_id;
-        if (!billInfo) continue;
 
-        // 订单号过滤
-        if (fOrder && Array.isArray(fOrder) && fOrder.length > 0) {
-          if (!fOrder.includes(billInfo.order_no)) continue;
-        }
-
-        // 提单号过滤
-        if (fBno && Array.isArray(fBno) && fBno.length > 0) {
-          if (!fBno.includes(billInfo.bill_no)) continue;
-        }
-
-        // 处理车辆信息（船运有多个车辆）
-        if (invBill.vehicles && invBill.vehicles.length > 0) {
-          // 船运：每个车辆生成一条记录
-          for (const vehicle of invBill.vehicles) {
-            bills.push({
-              _id: billInfo._id,
-              bill_no: billInfo.bill_no,
-              order_no: billInfo.order_no,
-              order_item_no: billInfo.order_item_no,
-              billing_name: invoice.ship_name,
-              ship_customer: invoice.ship_customer,
-              veh_ves_name: invoice.vehicle_vessel_name,
-              ship_to: invoice.ship_to,
-              ship_from: vehicle.veh_ship_from || invoice.ship_from,
-              ship_warehouse: billInfo.ship_warehouse,
-              inv_no: invoice.waybill_no,
-              inv_ship_date: invoice.ship_date,
-              inv_shipper: invoice.shipper,
-              send_num: vehicle.send_num || 0,
-              send_weight: vehicle.send_weight || 0,
-              thickness: billInfo.thickness,
-              width: billInfo.width,
-              len: billInfo.length,
-              contract_no: billInfo.contract_no,
-              price: vehicle.veh_price || 0,
-              collection_price: 0, // 从 Bill 中获取
-              incoming_price_remark: '',
-              inv_settle_flag: vehicle.inv_settle_flag || 0,
-              status: invBill.status
-            });
-          }
-        } else {
-          // 车运：只有一条记录
-          bills.push({
-            _id: billInfo._id,
-            bill_no: billInfo.bill_no,
-            order_no: billInfo.order_no,
-            order_item_no: billInfo.order_item_no,
-            billing_name: invoice.ship_name,
-            ship_customer: invoice.ship_customer,
-            veh_ves_name: invoice.vehicle_vessel_name,
-            ship_to: invoice.ship_to,
-            ship_from: invoice.ship_from,
-            ship_warehouse: billInfo.ship_warehouse,
-            inv_no: invoice.waybill_no,
-            inv_ship_date: invoice.ship_date,
-            inv_shipper: invoice.shipper,
-            send_num: invBill.num || 0,
-            send_weight: invBill.weight || 0,
-            thickness: billInfo.thickness,
-            width: billInfo.width,
-            len: billInfo.length,
-            contract_no: billInfo.contract_no,
-            price: 0, // 从运单的 invoices 中获取
-            collection_price: 0, // 从 Bill 中获取
-            incoming_price_remark: '',
-            inv_settle_flag: 0,
-            status: invBill.status
-          });
-        }
+    for (const item of results) {
+      // 订单号过滤（在聚合后过滤，因为订单号在嵌套文档中）
+      if (fOrder && Array.isArray(fOrder) && fOrder.length > 0) {
+        if (!fOrder.includes(item.order_no)) continue;
       }
-    }
 
-    // 获取每个提单的价格和结算信息
-    const billIds = [...new Set(bills.map(b => b._id.toString()))];
-    const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
-    const dbBills = await Bill.find(billQuery)
-      .select('_id bill_no collection_price incoming_price_remark settle_flag invoices')
-      .lean()
-      .exec();
+      // 提单号过滤
+      if (fBno && Array.isArray(fBno) && fBno.length > 0) {
+        if (!fBno.includes(item.bill_no)) continue;
+      }
 
-    const billMap = {};
-    dbBills.forEach(b => {
-      billMap[b._id.toString()] = b;
-    });
+      // 从 billInvoices 中查找客户价格和结算状态（统一处理船运和车运）
+      let price = 0;
+      let inv_settle_flag = 0;
 
-    // 填充价格信息
-    bills.forEach(bill => {
-      const dbBill = billMap[bill._id.toString()];
-      if (dbBill) {
-        // 代收代付价格
-        bill.collection_price = dbBill.collection_price || 0;
-        bill.incoming_price_remark = dbBill.incoming_price_remark || '';
+      if (item.billInvoices) {
+        const invInfo = item.billInvoices.find(
+          (inv) => inv.inv_no === item.inv_no,
+        );
+        if (invInfo) {
+          price = invInfo.price || 0;
+          inv_settle_flag = invInfo.inv_settle_flag || 0;
 
-        // 从 invoices 中查找客户价格
-        if (dbBill.invoices) {
-          const invInfo = dbBill.invoices.find(inv => inv.inv_no === bill.inv_no);
-          if (invInfo) {
-            bill.price = invInfo.price || 0;
-            bill.inv_settle_flag = invInfo.inv_settle_flag || 0;
-
-            // 船运：从 vehicles 中查找具体车辆的价格
-            if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-              const vehInfo = invInfo.vehicles.find(v => v.veh_name === bill.veh_ves_name);
-              if (vehInfo) {
-                bill.price = vehInfo.veh_price || 0;
-              }
+          // 从 vehicles 中查找具体车辆的价格
+          if (invInfo.vehicles && invInfo.vehicles.length > 0) {
+            const vehInfo = invInfo.vehicles.find(
+              (v) => v.veh_name === item.veh_ves_name,
+            );
+            if (vehInfo) {
+              price = vehInfo.veh_price || 0;
             }
           }
         }
       }
-    });
 
-    res.json({
-      ok: true,
-      bills
-    });
+      // 单块重（用于定尺提单：重量为0时按 块数*单重 计算）
+      const unitWeight = item.bill_weight || 0;
+
+      // 每个提单-运单组合生成一条记录（不按车辆展开）
+      const sendNum = item.send_num || 0;
+      const sendWeight = item.send_weight || sendNum * unitWeight;
+
+      bills.push({
+        _id: item._id,
+        bill_no: item.bill_no,
+        order_no: item.order_no,
+        order_item_no: item.order_item_no,
+        billing_name: item.billing_name,
+        ship_customer: item.ship_customer,
+        veh_ves_name: item.veh_ves_name,
+        ship_to: item.ship_to,
+        ship_from: item.ship_from,
+        ship_warehouse: item.ship_warehouse,
+        inv_no: item.inv_no,
+        inv_ship_date: item.inv_ship_date,
+        inv_shipper: item.inv_shipper,
+        send_num: sendNum,
+        send_weight: sendWeight,
+        thickness: item.thickness,
+        width: item.width,
+        len: item.len,
+        contract_no: item.contract_no,
+        price,
+        collection_price: item.collection_price || 0,
+        incoming_price_remark: item.incoming_price_remark || "",
+        inv_settle_flag,
+        status: item.status,
+      });
+    }
+
+    res.json({ ok: true, bills });
   } catch (error) {
-    console.error('getSettleBills error:', error);
+    console.error("getSettleBills error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -312,12 +339,12 @@ exports.inputPrice = async (req, res) => {
     const { data, act } = req.body;
 
     if (!data || !Array.isArray(data) || data.length === 0) {
-      return res.json({ ok: false, message: '没有要保存的数据' });
+      return res.json({ ok: false, message: "没有要保存的数据" });
     }
 
     // 按提单分组
     const billGroups = {};
-    data.forEach(item => {
+    data.forEach((item) => {
       if (!billGroups[item.bid]) {
         billGroups[item.bid] = [];
       }
@@ -330,11 +357,11 @@ exports.inputPrice = async (req, res) => {
       const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('inputPrice: 未找到提单或无权限 bid=' + bid);
+        console.warn("inputPrice: 未找到提单或无权限 bid=" + bid);
         continue;
       }
 
-      if (act === 'COLLECTION') {
+      if (act === "COLLECTION") {
         // 代收代付价格：直接保存到 Bill
         const price = items[0].price;
         dbBill.collection_price = price;
@@ -343,9 +370,11 @@ exports.inputPrice = async (req, res) => {
         }
       } else {
         // 客户价格：保存到 Bill.invoices 中
-        items.forEach(item => {
+        items.forEach((item) => {
           if (dbBill.invoices) {
-            const invInfo = dbBill.invoices.find(inv => inv.inv_no === item.inv_no);
+            const invInfo = dbBill.invoices.find(
+              (inv) => inv.inv_no === item.inv_no,
+            );
             if (invInfo) {
               invInfo.price = item.price;
               if (item.remark !== undefined) {
@@ -354,7 +383,7 @@ exports.inputPrice = async (req, res) => {
 
               // 船运：更新 vehicles 中的价格
               if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach(veh => {
+                invInfo.vehicles.forEach((veh) => {
                   veh.veh_price = item.price;
                 });
               }
@@ -368,7 +397,7 @@ exports.inputPrice = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
-    console.error('inputPrice error:', error);
+    console.error("inputPrice error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -378,24 +407,30 @@ exports.inputPrice = async (req, res) => {
  */
 exports.settleBills = async (req, res) => {
   try {
-    const { settleObj, price, settle_type, billName, shipTo, selfOwned } = req.body;
+    const { settleObj, price, settle_type, billName, shipTo, selfOwned } =
+      req.body;
 
     if (!settleObj || !Array.isArray(settleObj) || settleObj.length === 0) {
-      return res.json({ ok: false, message: '没有要结算的数据' });
+      return res.json({ ok: false, message: "没有要结算的数据" });
     }
 
-    const user = req.user || { userid: 'admin', no: 0 };
+    const user = req.user || { userid: "admin", no: 0 };
     const userId = user.userid;
-    const flag = settle_type === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG;
+    const flag =
+      settle_type === "CUSTOMER"
+        ? CUSTOMER_SETTLE_FLAG
+        : COLLECTION_SETTLE_FLAG;
 
     // 生成流水号
     const uno = utils.leftPad(user.no, 4);
     const date_no = new Date().yyyymmdd() + uno;
-    const reg = new RegExp('^JS' + date_no + '.*', 'g');
+    const reg = new RegExp("^JS" + date_no + ".*", "g");
 
-    const settleNumQuery = buildTenantQuery(req, { serial_number: { $regex: reg } });
+    const settleNumQuery = buildTenantQuery(req, {
+      serial_number: { $regex: reg },
+    });
     const settles = await Settle.find(settleNumQuery)
-      .sort({ serial_number: 'desc' })
+      .sort({ serial_number: "desc" })
       .exec();
 
     let no = utils.leftPad(1, 3);
@@ -404,7 +439,7 @@ exports.settleBills = async (req, res) => {
       no = utils.leftPad(parseInt(str) + 1, 3);
     }
 
-    const serialNumber = 'JS' + date_no + no;
+    const serialNumber = "JS" + date_no + no;
 
     // 统计总数和总重量
     let totalNum = 0;
@@ -425,13 +460,13 @@ exports.settleBills = async (req, res) => {
         num: item.num,
         weight: item.weight,
         inv_no: item.inv_no,
-        settle_flag: item.settle_flag
+        settle_flag: item.settle_flag,
       });
     }
 
     // 按提单分组
     const billGroups = {};
-    settleObj.forEach(item => {
+    settleObj.forEach((item) => {
       if (!billGroups[item.bid]) {
         billGroups[item.bid] = [];
       }
@@ -445,27 +480,32 @@ exports.settleBills = async (req, res) => {
       const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('settleBills: 未找到提单或无权限 bid=' + bid);
+        console.warn("settleBills: 未找到提单或无权限 bid=" + bid);
         continue;
       }
 
       // 检查提单状态，只有已配发（status_flag === 2）的提单才能结算
-      const isShipped = dbBill.status_flag === 2 || dbBill.status === '已配发';
+      const isShipped = dbBill.status_flag === 2 || dbBill.status === "已配发";
 
       // 更新提单状态
-      if (isShipped && dbBill.status === '已配发') {
-        dbBill.status = '已结算';
+      if (isShipped && dbBill.status === "已配发") {
+        dbBill.status = "已结算";
       }
 
-      items.forEach(item => {
+      items.forEach((item) => {
         if (dbBill.invoices) {
-          const invInfo = dbBill.invoices.find(inv => inv.inv_no === item.inv_no);
+          const invInfo = dbBill.invoices.find(
+            (inv) => inv.inv_no === item.inv_no,
+          );
           if (invInfo) {
-            invInfo.inv_settle_flag = setFlag(invInfo.inv_settle_flag, settle_type);
+            invInfo.inv_settle_flag = setFlag(
+              invInfo.inv_settle_flag,
+              settle_type,
+            );
 
             // 船运：更新 vehicles 中的结算状态
             if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-              invInfo.vehicles.forEach(veh => {
+              invInfo.vehicles.forEach((veh) => {
                 veh.inv_settle_flag = setFlag(veh.inv_settle_flag, settle_type);
               });
             }
@@ -475,7 +515,7 @@ exports.settleBills = async (req, res) => {
 
       // 只有当提单已配发时才更新 Bill.settle_flag
       if (isShipped) {
-        if (settle_type === 'COLLECTION') {
+        if (settle_type === "COLLECTION") {
           // 代收代付结算：直接设置标志位
           dbBill.settle_flag = (dbBill.settle_flag || 0) | flag;
         } else {
@@ -500,7 +540,8 @@ exports.settleBills = async (req, res) => {
     }
 
     // 创建结算记录
-    const settleTypeText = settle_type === 'CUSTOMER' ? '客户结算' : '代收代付结算';
+    const settleTypeText =
+      settle_type === "CUSTOMER" ? "客户结算" : "代收代付结算";
 
     const settleData = injectTenantId(req, {
       serial_number: serialNumber,
@@ -515,7 +556,7 @@ exports.settleBills = async (req, res) => {
       settle_date: new Date(),
       settler: userId,
       selfOwned: selfOwned || 0,
-      status: '已结算'
+      status: "已结算",
     });
     const settle = new Settle(settleData);
 
@@ -526,7 +567,7 @@ exports.settleBills = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
-    console.error('settleBills error:', error);
+    console.error("settleBills error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -538,11 +579,18 @@ exports.markNotRequireSettle = async (req, res) => {
   try {
     const { nonSettleObj, settle_type } = req.body;
 
-    if (!nonSettleObj || !Array.isArray(nonSettleObj) || nonSettleObj.length === 0) {
-      return res.json({ ok: false, message: '没有要标记的数据' });
+    if (
+      !nonSettleObj ||
+      !Array.isArray(nonSettleObj) ||
+      nonSettleObj.length === 0
+    ) {
+      return res.json({ ok: false, message: "没有要标记的数据" });
     }
 
-    const flag = settle_type === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG;
+    const flag =
+      settle_type === "CUSTOMER"
+        ? CUSTOMER_SETTLE_FLAG
+        : COLLECTION_SETTLE_FLAG;
 
     // 收集所有运单号
     const allInvNo = [];
@@ -554,7 +602,7 @@ exports.markNotRequireSettle = async (req, res) => {
 
     // 按提单分组
     const billGroups = {};
-    nonSettleObj.forEach(item => {
+    nonSettleObj.forEach((item) => {
       if (!billGroups[item.bid]) {
         billGroups[item.bid] = [];
       }
@@ -568,25 +616,27 @@ exports.markNotRequireSettle = async (req, res) => {
       const dbBill = await Bill.findOne(billQ).exec();
 
       if (!dbBill) {
-        console.warn('markNotRequireSettle: 未找到提单或无权限 bid=' + bid);
+        console.warn("markNotRequireSettle: 未找到提单或无权限 bid=" + bid);
         continue;
       }
 
-      if (settle_type === 'COLLECTION') {
+      if (settle_type === "COLLECTION") {
         // 代收代付：设置为 -1
         dbBill.collection_price = -1;
         dbBill.settle_flag = (dbBill.settle_flag || 0) & ~flag;
 
         // 更新 invoices 中的结算状态
-        items.forEach(item => {
+        items.forEach((item) => {
           if (dbBill.invoices) {
-            const invInfo = dbBill.invoices.find(inv => inv.inv_no === item.inv_no);
+            const invInfo = dbBill.invoices.find(
+              (inv) => inv.inv_no === item.inv_no,
+            );
             if (invInfo) {
               invInfo.inv_settle_flag = item.settle_flag || 0;
 
               // 船运：更新 vehicles 中的结算状态
               if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach(veh => {
+                invInfo.vehicles.forEach((veh) => {
                   veh.inv_settle_flag = item.settle_flag || 0;
                 });
               }
@@ -595,16 +645,18 @@ exports.markNotRequireSettle = async (req, res) => {
         });
       } else {
         // 客户结算：设置价格为 -1
-        items.forEach(item => {
+        items.forEach((item) => {
           if (dbBill.invoices) {
-            const invInfo = dbBill.invoices.find(inv => inv.inv_no === item.inv_no);
+            const invInfo = dbBill.invoices.find(
+              (inv) => inv.inv_no === item.inv_no,
+            );
             if (invInfo) {
               invInfo.price = -1;
               invInfo.inv_settle_flag = (invInfo.inv_settle_flag || 0) & ~flag;
 
               // 船运：更新 vehicles 中的价格和结算状态
               if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach(veh => {
+                invInfo.vehicles.forEach((veh) => {
                   veh.veh_price = -1;
                   veh.inv_settle_flag = (veh.inv_settle_flag || 0) & ~flag;
                 });
@@ -622,7 +674,7 @@ exports.markNotRequireSettle = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
-    console.error('markNotRequireSettle error:', error);
+    console.error("markNotRequireSettle error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -632,21 +684,23 @@ exports.markNotRequireSettle = async (req, res) => {
  */
 exports.getVehicleList = async (req, res) => {
   try {
-    const vehQuery = buildTenantQuery(req, { state: { $in: ['已配发', '新建'] } });
+    const vehQuery = buildTenantQuery(req, {
+      state: { $in: ["已配发", "新建"] },
+    });
     const invoices = await Invoice.find(vehQuery)
-      .select('vehicle_vessel_name')
-      .distinct('vehicle_vessel_name')
+      .select("vehicle_vessel_name")
+      .distinct("vehicle_vessel_name")
       .lean()
       .exec();
 
-    const vehicles = invoices.map(name => ({ name, veh_type: '车船' }));
+    const vehicles = invoices.map((name) => ({ name, veh_type: "车船" }));
 
     res.json({
       ok: true,
-      vehicles
+      vehicles,
     });
   } catch (error) {
-    console.error('getVehicleList error:', error);
+    console.error("getVehicleList error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };

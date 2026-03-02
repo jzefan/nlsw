@@ -4,6 +4,7 @@ node_modules/
 /data/db/
 /data/backup/
 /data/db.old/
+/data/db-bak/
 /data/mongod.pid
 log/
 *.bak

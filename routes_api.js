@@ -35,7 +35,9 @@ module.exports = function (app) {
   });
 
   // New API Routes for Frontend - Data Dictionary (tenant-scoped)
+  app.get('/companies/search', requireTenant, companyApiController.searchCompanies);  // 快速搜索接口
   app.get('/companies', requireTenant, companyApiController.getCompanies);
+  app.get('/destinations/search', requireTenant, destinationApiController.searchDestinations);  // 快速搜索接口
   app.get('/destinations', requireTenant, destinationApiController.getDestinations);
   app.get('/brands', requireTenant, brandApiController.getBrands);
   app.get('/sale_deps', requireTenant, saleDepApiController.getSaleDeps);
@@ -53,6 +55,7 @@ module.exports = function (app) {
   app.get('/statistics/vessel/detail', requireTenant, vesselStatisticsApiController.getVesselAllocationDetail);
 
   // Plan API (tenant-scoped)
+  app.get('/plans/by-order/:orderNo', requireTenant, planApiController.getPlanByOrderNo);
   app.get('/plans', requireTenant, planApiController.getPlans);
   app.post('/plans', requireTenant, planController.postCreateOrderPlan);
   app.post('/plans/update', requireTenant, planController.postUpdatePlan);

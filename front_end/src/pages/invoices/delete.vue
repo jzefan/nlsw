@@ -173,6 +173,9 @@ const detailByWagon = computed(() => {
       if (!groups[wagonNo]) {
         groups[wagonNo] = []
       }
+      const sendNum = vehicle.send_num || 0
+      const unitWeight = getUnitWeight(billInfo)
+      const sendWeight = vehicle.send_weight || (sendNum * unitWeight)
       groups[wagonNo].push({
         bill_no: billInfo.bill_no,
         order_no: billInfo.order_no,
@@ -180,9 +183,9 @@ const detailByWagon = computed(() => {
         thickness: billInfo.thickness,
         width: billInfo.width,
         len: billInfo.len || billInfo.length,
-        weight: billInfo.weight,
-        send_num: vehicle.send_num || 0,
-        send_weight: vehicle.send_weight || 0,
+        weight: unitWeight,
+        send_num: sendNum,
+        send_weight: sendWeight,
         ship_from: vehicle.veh_ship_from,
       })
     }
@@ -198,6 +201,19 @@ function getDetailWagonStats(bills: any[]) {
   return { totalNum, totalWeight }
 }
 
+// 计算提单的单块重（兼容 weight 字段为空的情况）
+function getUnitWeight(billInfo: any) {
+  if (!billInfo) return 0
+  return billInfo.weight || (billInfo.block_num > 0 ? (billInfo.total_weight || 0) / billInfo.block_num : 0)
+}
+
+// 计算车运提单的发运重量
+function getSendWeight(invBill: any) {
+  if (invBill.weight) return invBill.weight
+  const unitWeight = getUnitWeight(invBill.bill_id)
+  return (invBill.num || 0) * unitWeight
+}
+
 // 计算总重量和总块数
 const totalStats = computed(() => {
   if (!invoiceDetail.value?.bills)
@@ -208,7 +224,7 @@ const totalStats = computed(() => {
 
   invoiceDetail.value.bills.forEach((invBill: any) => {
     totalNum += invBill.num || 0
-    totalWeight += invBill.weight || 0
+    totalWeight += getSendWeight(invBill)
   })
 
   return { totalNum, totalWeight }
@@ -247,9 +263,9 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 lg:grid-cols-10 gap-4">
         <!-- 左侧：运单列表 -->
-        <div class="border rounded-lg">
+        <div class="border rounded-lg lg:col-span-4">
           <div class="p-3 border-b bg-muted/50">
             <h3 class="font-medium">
               运单列表
@@ -328,7 +344,7 @@ onMounted(() => {
         </div>
 
         <!-- 右侧：运单详情 -->
-        <div class="border rounded-lg">
+        <div class="border rounded-lg lg:col-span-6">
           <div class="p-3 border-b bg-muted/50 flex items-center justify-between">
             <h3 class="font-medium">
               运单详情
@@ -476,7 +492,7 @@ onMounted(() => {
                       <UiTableCell>{{ invBill.bill_id?.width || '-' }}</UiTableCell>
                       <UiTableCell>{{ invBill.bill_id?.len || '-' }}</UiTableCell>
                       <UiTableCell>{{ invBill.num || 0 }}</UiTableCell>
-                      <UiTableCell>{{ formatWeight(invBill.weight) }}</UiTableCell>
+                      <UiTableCell>{{ formatWeight(getSendWeight(invBill)) }}</UiTableCell>
                     </UiTableRow>
                   </UiTableBody>
                 </UiTable>
