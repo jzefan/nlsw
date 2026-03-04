@@ -11,21 +11,21 @@ const mode = useColorMode()
       <UiButton variant="outline" size="icon">
         <Moon class=" rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
         <Sun class="absolute  rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-        <span class="sr-only">Toggle theme</span>
+        <span class="sr-only">切换主题</span>
       </UiButton>
     </UiDropdownMenuTrigger>
     <UiDropdownMenuContent align="end">
       <UiDropdownMenuItem @click="mode = 'light'">
         <Sun />
-        Light
+        浅色
       </UiDropdownMenuItem>
       <UiDropdownMenuItem @click="mode = 'dark'">
         <Moon />
-        Dark
+        深色
       </UiDropdownMenuItem>
       <UiDropdownMenuItem @click="mode = 'auto'">
         <SunMoon />
-        System
+        跟随系统
       </UiDropdownMenuItem>
     </UiDropdownMenuContent>
   </UiDropdownMenu>

@@ -18,6 +18,7 @@ export interface ERPRawRow {
   customerName: string // 客户名称
   contractNo?: string // 合同号
   warehouse?: string // 仓库
+  loadingListNo?: string // 装车单号
 }
 
 // Aggregated output row
@@ -86,6 +87,8 @@ const roundSteelHeaderMap: Record<string, string> = {
   '仓库': 'warehouse',
   '发货仓库': 'warehouse',
   '发货库别': 'warehouse',
+  '装车明细表': 'loadingListNo',
+  '装车单号': 'loadingListNo',
 }
 
 // Table header mapping for plate
@@ -126,7 +129,7 @@ export interface ParsedFile {
 // Required fields for processing (these columns will be marked with checkmark)
 const requiredFields = new Set([
   'bundleNo', 'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'width', 'len', 'fixedLength',
-  'quantity', 'weight', 'customerName', 'contractNo', 'warehouse',
+  'quantity', 'weight', 'customerName', 'contractNo', 'warehouse', 'loadingListNo',
 ])
 
 /**
@@ -242,6 +245,7 @@ export function parseERPExcel(
               customerName: String(item.customerName || ''),
               contractNo: String(item.contractNo || ''),
               warehouse: String(item.warehouse || ''),
+              loadingListNo: String(item.loadingListNo || ''),
             })
           }
         }
@@ -583,4 +587,446 @@ export async function parseMultipleFiles(
     results.push(parsed)
   }
   return results
+}
+
+// ============================================================
+// V2: 按装车单号分组的新流程（圆钢 4 步向导）
+// ============================================================
+
+/**
+ * 验证必要列是否存在
+ */
+export function validateRequiredColumns(
+  columnDefs: ColumnDef[],
+  requiredMappedKeys: string[],
+): { valid: boolean, missingColumns: string[] } {
+  const presentKeys = new Set(
+    columnDefs.filter(c => c.mappedKey).map(c => c.mappedKey!),
+  )
+  const missingColumns: string[] = []
+
+  for (const key of requiredMappedKeys) {
+    if (!presentKeys.has(key)) {
+      missingColumns.push(key)
+    }
+  }
+
+  return { valid: missingColumns.length === 0, missingColumns }
+}
+
+// 圆钢 V2 必要列
+export const roundSteelV2RequiredKeys = [
+  'bundleNo', 'orderNo', 'orderItemNo', 'weight', 'diameter',
+  'width', 'len', 'brandNo', 'fixedLength', 'quantity',
+  'customerName', 'loadingListNo',
+]
+
+// 字段名称映射（用于显示缺失列提示）
+export const fieldNameMap: Record<string, string> = {
+  bundleNo: '捆号',
+  orderNo: '订单编号/订单号',
+  orderItemNo: '订单项次/项次',
+  weight: '重量',
+  diameter: '厚度/直径',
+  width: '宽度',
+  len: '长度',
+  brandNo: '牌号',
+  fixedLength: '定尺',
+  quantity: '支数/数量',
+  customerName: '客户名称',
+  loadingListNo: '装车明细表/装车单号',
+}
+
+/**
+ * 按装车单号分组后的聚合行（组内按 orderNo+orderItemNo+customerName 合并）
+ */
+export interface LoadingListAggregatedRow {
+  bundleNo: string
+  orderNo: string
+  orderItemNo: string
+  quantity: number // 合计
+  weight: number // 合计
+  thickness: number
+  width: number
+  length: number
+  brandNo: string
+  fixedLength: number
+  customerName: string
+  warehouse: string
+  contractNo: string // 用户填写
+}
+
+/**
+ * 装车单号分组
+ */
+export interface LoadingListGroup {
+  loadingListNo: string
+  vehicleNo: string // 用户选择的车号
+  rows: LoadingListAggregatedRow[]
+  rawRows: ERPRawRow[] // 保留原始行用于导出 Sheet1
+  subtotalQuantity: number
+  subtotalWeight: number
+}
+
+/**
+ * 按装车单号分组
+ * 组内按 (orderNo + orderItemNo + customerName) 聚合，求和 quantity 和 weight
+ */
+export function groupByLoadingList(data: ERPRawRow[]): LoadingListGroup[] {
+  // 先按装车单号分组原始行
+  const rawGroupMap = new Map<string, ERPRawRow[]>()
+  for (const row of data) {
+    const key = row.loadingListNo || '未知装车单'
+    if (!rawGroupMap.has(key)) {
+      rawGroupMap.set(key, [])
+    }
+    rawGroupMap.get(key)!.push(row)
+  }
+
+  const groups: LoadingListGroup[] = []
+
+  for (const [loadingListNo, rawRows] of rawGroupMap.entries()) {
+    // 组内聚合
+    const aggMap = new Map<string, LoadingListAggregatedRow>()
+
+    for (const row of rawRows) {
+      const aggKey = `${row.orderNo}-${row.orderItemNo}-${row.customerName}`
+
+      if (aggMap.has(aggKey)) {
+        const existing = aggMap.get(aggKey)!
+        existing.quantity += row.quantity
+        existing.weight += row.weight || row.scaleWeight
+      }
+      else {
+        aggMap.set(aggKey, {
+          bundleNo: row.bundleNo,
+          orderNo: row.orderNo,
+          orderItemNo: row.orderItemNo,
+          quantity: row.quantity,
+          weight: row.weight || row.scaleWeight,
+          thickness: row.diameter,
+          width: row.width,
+          length: row.len,
+          brandNo: row.brandNo,
+          fixedLength: row.fixedLength,
+          customerName: row.customerName,
+          warehouse: row.warehouse || '',
+          contractNo: row.contractNo || '',
+        })
+      }
+    }
+
+    const rows = Array.from(aggMap.values()).sort((a, b) =>
+      a.orderNo.localeCompare(b.orderNo),
+    )
+
+    groups.push({
+      loadingListNo,
+      vehicleNo: '',
+      rows,
+      rawRows,
+      subtotalQuantity: rows.reduce((sum, r) => sum + r.quantity, 0),
+      subtotalWeight: rows.reduce((sum, r) => sum + r.weight, 0),
+    })
+  }
+
+  // 按装车单号排序
+  groups.sort((a, b) => a.loadingListNo.localeCompare(b.loadingListNo))
+
+  return groups
+}
+
+/**
+ * 生成 V2 双 Sheet Excel（发货明细 + 合同汇总）
+ */
+export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise<void> {
+  const workbook = new ExcelJS.Workbook()
+
+  // ===== Sheet1: 发货明细 =====
+  const sheet1 = workbook.addWorksheet('发货明细')
+  const sheet1Headers = [
+    '捆号', '订单号', '订单项次', '发运块数', '发运重量',
+    '厚度', '宽度', '长度', '牌号', '定尺',
+    '客户名称', '装车单号', '车船号', '合同号',
+  ]
+
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' },
+  }
+
+  const s1ColWidths: number[] = Array.from({ length: sheet1Headers.length }).fill(10) as number[]
+  const updateWidth = (widths: number[], colIndex: number, text: string) => {
+    const w = getTextWidth(String(text))
+    if (w > widths[colIndex]) {
+      widths[colIndex] = w
+    }
+  }
+
+  // Header row
+  const headerRow1 = sheet1.getRow(1)
+  sheet1Headers.forEach((h, i) => {
+    const cell = headerRow1.getCell(i + 1)
+    cell.value = h
+    cell.border = thinBorder
+    cell.font = { bold: true, size: 11 }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    updateWidth(s1ColWidths, i, h)
+  })
+
+  let currentRow = 2
+  let grandQuantity = 0
+  let grandWeight = 0
+
+  for (const group of groups) {
+    // 写入每个 rawRow，注入 vehicleNo 和 contractNo
+    // 先构建 contractNo 查找表（从聚合行）
+    const contractMap = new Map<string, string>()
+    for (const aggRow of group.rows) {
+      const key = `${aggRow.orderNo}-${aggRow.orderItemNo}-${aggRow.customerName}`
+      if (aggRow.contractNo) {
+        contractMap.set(key, aggRow.contractNo)
+      }
+    }
+
+    for (const raw of group.rawRows) {
+      const contractKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
+      const contractNo = contractMap.get(contractKey) || raw.contractNo || ''
+
+      const values = [
+        raw.bundleNo,
+        raw.orderNo,
+        raw.orderItemNo,
+        raw.quantity,
+        raw.weight,
+        raw.diameter,
+        raw.width,
+        raw.len,
+        raw.brandNo,
+        raw.fixedLength,
+        raw.customerName,
+        raw.loadingListNo || group.loadingListNo,
+        group.vehicleNo,
+        contractNo,
+      ]
+
+      const row = sheet1.getRow(currentRow)
+      values.forEach((v, i) => {
+        const cell = row.getCell(i + 1)
+        cell.value = v
+        cell.border = thinBorder
+        cell.font = { size: 10 }
+        if ([3, 4, 5, 6, 7, 9].includes(i)) {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        }
+        updateWidth(s1ColWidths, i, String(v))
+      })
+      currentRow++
+
+      grandQuantity += raw.quantity
+      grandWeight += raw.weight
+    }
+
+    // 小计行
+    const subtotalRow = sheet1.getRow(currentRow)
+    subtotalRow.getCell(1).value = `小计 (${group.loadingListNo})`
+    subtotalRow.getCell(4).value = group.subtotalQuantity
+    subtotalRow.getCell(5).value = group.subtotalWeight
+    for (let i = 1; i <= sheet1Headers.length; i++) {
+      const cell = subtotalRow.getCell(i)
+      cell.border = thinBorder
+      cell.font = { bold: true, size: 10 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFD700' } }
+    }
+    currentRow++
+  }
+
+  // 总计行
+  const totalRow = sheet1.getRow(currentRow)
+  totalRow.getCell(1).value = `总计: ${grandQuantity}件, ${grandWeight.toFixed(3)}吨`
+  totalRow.getCell(4).value = grandQuantity
+  totalRow.getCell(5).value = grandWeight
+  for (let i = 1; i <= sheet1Headers.length; i++) {
+    const cell = totalRow.getCell(i)
+    cell.border = thinBorder
+    cell.font = { bold: true, size: 11 }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFA500' } }
+  }
+
+  sheet1.columns = s1ColWidths.map(w => ({ width: w }))
+
+  // ===== Sheet2: 合同汇总 =====
+  const sheet2 = workbook.addWorksheet('合同汇总')
+
+  // 先收集所有聚合行，加上 vehicleNo 和 loadingListNo
+  const allAggRows: AggregatedRow[] = []
+  for (const group of groups) {
+    for (const aggRow of group.rows) {
+      allAggRows.push({
+        billNo: aggRow.bundleNo,
+        orderNo: aggRow.orderNo,
+        orderItemNo: aggRow.orderItemNo,
+        brandNo: aggRow.brandNo,
+        spec: generateSpec({
+          bundleNo: aggRow.bundleNo,
+          heatNo: '',
+          orderNo: aggRow.orderNo,
+          orderItemNo: aggRow.orderItemNo,
+          weight: aggRow.weight,
+          diameter: aggRow.thickness,
+          width: aggRow.width,
+          len: aggRow.length,
+          fixedLength: aggRow.fixedLength,
+          brandNo: aggRow.brandNo,
+          quantity: aggRow.quantity,
+          scaleWeight: 0,
+          customerName: aggRow.customerName,
+        }),
+        unitWeight: aggRow.quantity > 0 ? aggRow.weight / aggRow.quantity : 0,
+        quantity: aggRow.quantity,
+        totalWeight: aggRow.weight,
+        warehouse: '',
+        contractNo: aggRow.contractNo,
+        colorMark: '',
+      })
+    }
+  }
+
+  const contractGroups = groupByContract(allAggRows)
+
+  const s2Headers = ['提单号', '订单号', '项次号', '牌号', '规格', '单重', '发运数', '发运重量', '合同号']
+  const s2ColWidths: number[] = Array.from({ length: s2Headers.length }).fill(10) as number[]
+
+  const s2HeaderRow = sheet2.getRow(1)
+  s2Headers.forEach((h, i) => {
+    const cell = s2HeaderRow.getCell(i + 1)
+    cell.value = h
+    cell.border = thinBorder
+    cell.font = { bold: true, size: 11 }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    updateWidth(s2ColWidths, i, h)
+  })
+
+  let s2Row = 2
+  for (const cg of contractGroups) {
+    // 合同头
+    const cgHeaderRow = sheet2.getRow(s2Row)
+    cgHeaderRow.getCell(1).value = `合同号: ${cg.contractNo}`
+    for (let i = 1; i <= s2Headers.length; i++) {
+      cgHeaderRow.getCell(i).border = thinBorder
+      cgHeaderRow.getCell(i).font = { bold: true, size: 11 }
+      cgHeaderRow.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } }
+    }
+    sheet2.mergeCells(s2Row, 1, s2Row, s2Headers.length)
+    s2Row++
+
+    for (const row of cg.rows) {
+      const values = [
+        row.billNo, row.orderNo, row.orderItemNo, row.brandNo,
+        row.spec, row.unitWeight.toFixed(4), row.quantity,
+        row.totalWeight.toFixed(3), row.contractNo,
+      ]
+      const dataRow = sheet2.getRow(s2Row)
+      values.forEach((v, i) => {
+        const cell = dataRow.getCell(i + 1)
+        cell.value = v
+        cell.border = thinBorder
+        cell.font = { size: 10 }
+        if ([5, 6, 7].includes(i)) {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        }
+        updateWidth(s2ColWidths, i, String(v))
+      })
+      s2Row++
+    }
+
+    // 小计
+    const subtotalRow = sheet2.getRow(s2Row)
+    subtotalRow.getCell(1).value = `小计: ${cg.subtotalQuantity}件`
+    subtotalRow.getCell(7).value = cg.subtotalQuantity
+    subtotalRow.getCell(8).value = cg.subtotalWeight.toFixed(3)
+    for (let i = 1; i <= s2Headers.length; i++) {
+      const cell = subtotalRow.getCell(i)
+      cell.border = thinBorder
+      cell.font = { bold: true, size: 10 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFD700' } }
+    }
+    s2Row += 2
+  }
+
+  sheet2.columns = s2ColWidths.map(w => ({ width: w }))
+
+  // 生成下载
+  const dateStr = new Date().toISOString().slice(0, 10)
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `发货明细_${dateStr}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * 构建保存到后端的数据
+ * 展平所有组的 rawRows，注入 vehicleNo 和 contractNo
+ */
+export function buildSavePayload(groups: LoadingListGroup[]): {
+  productType: string
+  rows: {
+    bundleNo: string
+    orderNo: string
+    orderItemNo: string
+    quantity: number
+    weight: number
+    thickness: number
+    width: number
+    length: number
+    brandNo: string
+    fixedLength: number
+    customerName: string
+    loadingListNo: string
+    vehicleNo: string
+    contractNo: string
+  }[]
+} {
+  const rows: any[] = []
+
+  for (const group of groups) {
+    // 构建 contractNo 查找表（从聚合行）
+    const contractMap = new Map<string, string>()
+    for (const aggRow of group.rows) {
+      const key = `${aggRow.orderNo}-${aggRow.orderItemNo}-${aggRow.customerName}`
+      if (aggRow.contractNo) {
+        contractMap.set(key, aggRow.contractNo)
+      }
+    }
+
+    for (const raw of group.rawRows) {
+      const contractKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
+      rows.push({
+        bundleNo: raw.bundleNo,
+        orderNo: raw.orderNo,
+        orderItemNo: raw.orderItemNo,
+        quantity: raw.quantity,
+        weight: raw.weight,
+        thickness: raw.diameter,
+        width: raw.width,
+        length: raw.len,
+        brandNo: raw.brandNo,
+        fixedLength: raw.fixedLength,
+        customerName: raw.customerName,
+        loadingListNo: raw.loadingListNo || group.loadingListNo,
+        vehicleNo: group.vehicleNo,
+        contractNo: contractMap.get(contractKey) || raw.contractNo || '',
+      })
+    }
+  }
+
+  return { productType: 'round-steel', rows }
 }

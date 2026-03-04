@@ -21,6 +21,7 @@ const vesselFixedCostApiController = require('./controllers/api/vessel_fixed_cos
 const platformApiController = require('./controllers/api/platform');
 const orderApiController = require('./controllers/api/order');
 const paymentQRController = require('./controllers/api/payment-qr');
+const dataProcessApiController = require('./controllers/api/data_process');
 
 const planController = require('./controllers/order_plan');
 
@@ -81,7 +82,7 @@ module.exports = function (app) {
   app.post('/resetPwd', requireOwnerOrPlatform, userApiController.resetPassword);  // Owner or platform only
   
   // Report API (tenant-scoped)
-  app.get('/get_invoices_bill', requireTenant, reportApiController.getIntegratedQuery);
+  app.get('/report/integrated_query', requireTenant, reportApiController.getIntegratedQuery);
   app.get('/report/invoice_report', requireTenant, reportApiController.getInvoiceReport);
 
   // Bill API (tenant-scoped)
@@ -142,6 +143,10 @@ module.exports = function (app) {
   app.get('/vessel_fixed_costs/detail', requireTenant, vesselFixedCostApiController.getOne);
   app.post('/vessel_fixed_costs', requireTenant, vesselFixedCostApiController.upsert);
   app.post('/vessel_fixed_costs/delete', requireTenant, vesselFixedCostApiController.delete);
+
+  // Data Process API (数据处理) (tenant-scoped)
+  app.post('/data-process/shipment/save', requireTenant, dataProcessApiController.saveShipmentDetail);
+  app.get('/data-process/shipment/list', requireTenant, dataProcessApiController.getShipmentDetails);
 
   // Platform Admin API (platform-only, SaaS mode only)
   if (isSaas()) {

@@ -103,6 +103,20 @@ onMounted(() => {
 const showVehicleDrillDownDialog = ref(false)
 const vehicleDrillDownTitle = ref('')
 const vehicleDrillDownData = ref<VehicleData[]>([])
+const vehicleCategoryFilter = ref<'all' | '自有' | '外挂'>('all')
+
+const filteredVehicleDrillDownData = computed(() => {
+  if (vehicleCategoryFilter.value === 'all') return vehicleDrillDownData.value
+  return vehicleDrillDownData.value.filter(v => v.veh_category === vehicleCategoryFilter.value)
+})
+
+const vehicleDrillDownTotalPrice = computed(() => {
+  return filteredVehicleDrillDownData.value.reduce((sum, v) => sum + (v.total_price || 0), 0)
+})
+
+const vehicleDrillDownTotalTonnage = computed(() => {
+  return filteredVehicleDrillDownData.value.reduce((sum, v) => sum + v.value, 0)
+})
 
 // 运单明细下钻对话框状态
 const showInvoiceDialog = ref(false)
@@ -121,9 +135,6 @@ const exportType = ref<'vehicle' | 'billingName' | 'invoice'>('vehicle')
 
 // 车辆下钻函数
 function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
-  console.log('drillDownVehicle called with type:', type)
-  console.log('stats.allVehicles:', stats.value.allVehicles)
-
   const titles = {
     own: '自有车辆明细',
     outsourced: '外挂车辆明细',
@@ -140,10 +151,9 @@ function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
 
   vehicleDrillDownTitle.value = titles[type]
   vehicleDrillDownData.value = stats.value.allVehicles.filter(filters[type])
-  console.log('Filtered data:', vehicleDrillDownData.value)
+  vehicleCategoryFilter.value = (type === 'own') ? '自有' : (type === 'outsourced') ? '外挂' : 'all'
   exportType.value = 'vehicle'
   showVehicleDrillDownDialog.value = true
-  console.log('Dialog should open now')
 }
 
 // 运单明细下钻函数
@@ -214,12 +224,18 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
 
     if (exportType.value === 'vehicle') {
       // 车辆导出
-      sheet.columns = [
+      const hasDestType = vehicleDrillDownData.value.some(v => v.dest_type)
+      const columns = [
         { header: '车船号', key: 'name', width: 20 },
         { header: '配发吨数', key: 'value', width: 15 },
+        { header: '总价格', key: 'total_price', width: 15 },
         { header: '车辆类型', key: 'veh_type', width: 12 },
-        { header: '所有权', key: 'veh_category', width: 12 }
+        { header: '所有权', key: 'veh_category', width: 12 },
       ]
+      if (hasDestType) {
+        columns.push({ header: '目的地', key: 'dest_type', width: 12 })
+      }
+      sheet.columns = columns
 
       const headerRow = sheet.getRow(1)
       headerRow.font = { bold: true }
@@ -229,13 +245,16 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         fgColor: { argb: 'FFE5E7EB' }
       }
 
-      vehicleDrillDownData.value.forEach(item => {
-        sheet.addRow({
+      filteredVehicleDrillDownData.value.forEach(item => {
+        const row: Record<string, unknown> = {
           name: item.name,
           value: item.value,
+          total_price: item.total_price || 0,
           veh_type: item.veh_type || '-',
-          veh_category: item.veh_category || '-'
-        })
+          veh_category: item.veh_category || '-',
+        }
+        if (hasDestType) row.dest_type = item.dest_type || '-'
+        sheet.addRow(row)
       })
     } else if (exportType.value === 'invoice') {
       // 运单明细导出
@@ -493,9 +512,31 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         <DialogHeader>
           <DialogTitle>{{ vehicleDrillDownTitle }}</DialogTitle>
           <DialogDescription>
-            共 {{ vehicleDrillDownData.length }} 条记录
+            共 {{ filteredVehicleDrillDownData.length }} 条记录，合计 {{ vehicleDrillDownTotalTonnage.toLocaleString() }} 吨，总价 {{ vehicleDrillDownTotalPrice.toLocaleString() }} 元
           </DialogDescription>
         </DialogHeader>
+
+        <!-- 自有/外挂筛选 -->
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-muted-foreground">筛选：</span>
+          <div class="flex gap-1">
+            <Button
+              size="sm" variant="outline"
+              :class="vehicleCategoryFilter === 'all' ? 'bg-primary text-primary-foreground' : ''"
+              @click="vehicleCategoryFilter = 'all'"
+            >全部</Button>
+            <Button
+              size="sm" variant="outline"
+              :class="vehicleCategoryFilter === '自有' ? 'bg-primary text-primary-foreground' : ''"
+              @click="vehicleCategoryFilter = '自有'"
+            >自有</Button>
+            <Button
+              size="sm" variant="outline"
+              :class="vehicleCategoryFilter === '外挂' ? 'bg-primary text-primary-foreground' : ''"
+              @click="vehicleCategoryFilter = '外挂'"
+            >外挂</Button>
+          </div>
+        </div>
 
         <div class="flex-1 overflow-auto border rounded-md">
           <Table>
@@ -503,16 +544,20 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
               <TableRow>
                 <TableHead>车船号</TableHead>
                 <TableHead class="text-right">配发吨数</TableHead>
+                <TableHead class="text-right">总价格</TableHead>
                 <TableHead>车辆类型</TableHead>
                 <TableHead>所有权</TableHead>
+                <TableHead v-if="vehicleDrillDownData.some(v => v.dest_type)">目的地</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="item in vehicleDrillDownData" :key="item.name">
+              <TableRow v-for="(item, idx) in filteredVehicleDrillDownData" :key="item.name + '-' + item.dest_type + '-' + idx">
                 <TableCell class="font-medium">{{ item.name }}</TableCell>
                 <TableCell class="text-right">{{ item.value.toLocaleString() }}</TableCell>
+                <TableCell class="text-right">{{ (item.total_price || 0).toLocaleString() }}</TableCell>
                 <TableCell>{{ item.veh_type || '-' }}</TableCell>
                 <TableCell>{{ item.veh_category || '-' }}</TableCell>
+                <TableCell v-if="vehicleDrillDownData.some(v => v.dest_type)">{{ item.dest_type || '-' }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>

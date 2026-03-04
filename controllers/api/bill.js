@@ -5,6 +5,7 @@ const Brand = require('../../models/Brand');
 const utils = require('../../controllers/utils');
 const fastcsv = require('fast-csv');
 const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
+const { pinyin } = require('pinyin-pro');
 
 function pushArr(arr, elem) {
   if (elem && arr.indexOf(elem) < 0) {
@@ -84,11 +85,19 @@ exports.getBills = async (req, res) => {
 };
 
 // 获取可配发提单的开单名称列表（left_num > 0 即可配发）
+// Cache pinyin initials per tenant to avoid repeated computation
+const _pinyinCache = new Map(); // tenantId -> { names: Map<name, initials>, ts: number }
+const PINYIN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getPinyinInitials(name) {
+  return pinyin(name, { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase();
+}
+
 exports.getBillingNames = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const search = req.query.search || '';
+    const search = (req.query.search || '').trim();
 
     const matchStage = {
       left_num: { $gt: 0 },
@@ -99,31 +108,44 @@ exports.getBillingNames = async (req, res) => {
       matchStage.tenantId = req.tenantId;
     }
 
-    const pipeline = [
+    // Get all distinct billing names (small set, typically <200)
+    const allNames = await Bill.aggregate([
       { $match: matchStage },
       { $group: { _id: '$billing_name' } },
-    ];
+      { $sort: { _id: 1 } }
+    ]);
+
+    let filtered = allNames.map(r => r._id);
 
     if (search) {
-      pipeline.push({ $match: { _id: { $regex: search, $options: 'i' } } });
+      const searchLower = search.toLowerCase();
+      // Get or build pinyin cache for this tenant
+      const cacheKey = String(req.tenantId || 'platform');
+      let cache = _pinyinCache.get(cacheKey);
+      if (!cache || Date.now() - cache.ts > PINYIN_CACHE_TTL) {
+        cache = { names: new Map(), ts: Date.now() };
+        _pinyinCache.set(cacheKey, cache);
+      }
+
+      filtered = filtered.filter(name => {
+        // Match by Chinese substring
+        if (name.toLowerCase().includes(searchLower)) return true;
+        // Match by pinyin initials
+        let initials = cache.names.get(name);
+        if (initials === undefined) {
+          initials = getPinyinInitials(name);
+          cache.names.set(name, initials);
+        }
+        return initials.includes(searchLower);
+      });
     }
 
-    pipeline.push({ $sort: { _id: 1 } });
-
-    // Count total
-    const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await Bill.aggregate(countPipeline);
-    const total = countResult.length > 0 ? countResult[0].total : 0;
-
-    // Paginate
-    pipeline.push({ $skip: (page - 1) * limit });
-    pipeline.push({ $limit: limit });
-
-    const results = await Bill.aggregate(pipeline);
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit);
 
     res.json({
       ok: true,
-      data: results.map(r => ({ name: r._id })),
+      data: data.map(name => ({ name })),
       total,
       page,
       totalPages: Math.ceil(total / limit)
@@ -160,63 +182,53 @@ exports.getOrders = async (req, res) => {
       ];
     }
 
-    // 使用聚合按订单号分组
     if (!isPlatformUser(req)) {
       matchStage.tenantId = req.tenantId;
     }
-    const pipeline = [
-      { $match: matchStage },
-      {
-        $group: {
-          _id: '$order_no',
-          bills: {
-            $push: {
-              _id: '$_id',
-              bill_no: '$bill_no',
-              order_item_no: '$order_item_no',
-              left_num: '$left_num',
-              block_num: '$block_num',
-              weight: '$weight',
-              thickness: '$thickness',
-              width: '$width',
-              len: '$len',
-              ship_warehouse: '$ship_warehouse',
-              contract_no: '$contract_no',
-              brand_no: '$brand_no',
-              total_weight: '$total_weight'
-            }
-          }
-        }
-      },
-      { $sort: { _id: 1 } } // 按订单号排序
-    ];
 
-    // 获取总订单数
-    const countResult = await Bill.aggregate([
+    // Step 1: Lightweight aggregation — get distinct order_nos with pagination
+    const [orderResult] = await Bill.aggregate([
       { $match: matchStage },
       { $group: { _id: '$order_no' } },
-      { $count: 'total' }
-    ]);
-    const total = countResult.length > 0 ? countResult[0].total : 0;
-
-    // 分页获取订单
-    const orders = await Bill.aggregate([
-      ...pipeline,
-      { $skip: (page - 1) * limit },
-      { $limit: limit }
+      { $sort: { _id: 1 } },
+      { $facet: {
+        metadata: [{ $count: 'total' }],
+        data: [{ $skip: (page - 1) * limit }, { $limit: limit }]
+      } }
     ]);
 
-    // 格式化结果
-    const formattedOrders = orders.map(order => ({
-      order_no: order._id,
-      bills: order.bills.sort((a, b) => {
-        // 按 order_item_no 和 bill_no 排序
-        const aItem = a.order_item_no || 0;
-        const bItem = b.order_item_no || 0;
-        if (aItem !== bItem) return aItem - bItem;
-        return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
-      })
-    }));
+    const total = orderResult.metadata.length > 0 ? orderResult.metadata[0].total : 0;
+    const pageOrderNos = orderResult.data.map(r => r._id);
+
+    // Step 2: Fetch full bill details only for the current page's orders
+    let formattedOrders = [];
+    if (pageOrderNos.length > 0) {
+      const billMatch = { ...matchStage, order_no: { $in: pageOrderNos } };
+      const bills = await Bill.find(billMatch, {
+        _id: 1, order_no: 1, bill_no: 1, order_item_no: 1,
+        left_num: 1, block_num: 1, weight: 1,
+        thickness: 1, width: 1, len: 1,
+        ship_warehouse: 1, contract_no: 1, brand_no: 1, total_weight: 1
+      }).lean();
+
+      // Group bills by order_no
+      const orderMap = new Map();
+      for (const bill of bills) {
+        const key = bill.order_no;
+        if (!orderMap.has(key)) orderMap.set(key, []);
+        orderMap.get(key).push(bill);
+      }
+
+      formattedOrders = pageOrderNos.map(orderNo => ({
+        order_no: orderNo,
+        bills: (orderMap.get(orderNo) || []).sort((a, b) => {
+          const aItem = a.order_item_no || 0;
+          const bItem = b.order_item_no || 0;
+          if (aItem !== bItem) return aItem - bItem;
+          return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
+        })
+      }));
+    }
 
     res.json({
       ok: true,

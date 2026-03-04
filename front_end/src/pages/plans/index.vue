@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle, ChevronDown, ChevronUp, Filter, Pencil, Plus, RefreshCw, Trash2, XCircle } from 'lucide-vue-next'
+import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, Plus, RefreshCw, Square, Trash2, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { OrderPlan } from '@/services/api/plan.api'
@@ -437,10 +437,10 @@ onMounted(() => {
         <thead class="bg-muted/50">
           <tr>
             <th class="p-2 text-left w-10 whitespace-nowrap">
-              <UiCheckbox
-                :checked="selectedPlans.length === plans.length && plans.length > 0"
-                @update:checked="toggleSelectAll"
-              />
+              <button class="focus:outline-none" @click="toggleSelectAll">
+                <CheckSquare v-if="selectedPlans.length === plans.length && plans.length > 0" class="w-4 h-4 text-primary" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
+              </button>
             </th>
             <th class="p-2 text-left whitespace-nowrap">
               订单号
@@ -501,7 +501,10 @@ onMounted(() => {
             @click="toggleSelect(plan)"
           >
             <td class="p-2" @click.stop>
-              <UiCheckbox :checked="isSelected(plan)" @update:checked="toggleSelect(plan)" />
+              <button class="focus:outline-none" @click="toggleSelect(plan)">
+                <CheckSquare v-if="isSelected(plan)" class="w-4 h-4 text-primary" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
+              </button>
             </td>
             <td class="p-2 font-mono">
               {{ plan.order_no }}
@@ -569,10 +572,10 @@ onMounted(() => {
     <div class="lg:hidden space-y-2">
       <!-- 全选 -->
       <div class="flex items-center gap-2 p-2 border rounded-lg bg-muted/30">
-        <UiCheckbox
-          :checked="selectedPlans.length === plans.length && plans.length > 0"
-          @update:checked="toggleSelectAll"
-        />
+        <button class="focus:outline-none" @click="toggleSelectAll">
+          <CheckSquare v-if="selectedPlans.length === plans.length && plans.length > 0" class="w-4 h-4 text-primary" />
+          <Square v-else class="w-4 h-4 text-muted-foreground" />
+        </button>
         <span class="text-sm text-muted-foreground">全选</span>
       </div>
 
@@ -589,7 +592,10 @@ onMounted(() => {
           @click="toggleSelect(plan)"
         >
           <div @click.stop>
-            <UiCheckbox :checked="isSelected(plan)" @update:checked="toggleSelect(plan)" />
+            <button class="focus:outline-none" @click="toggleSelect(plan)">
+              <CheckSquare v-if="isSelected(plan)" class="w-4 h-4 text-primary" />
+              <Square v-else class="w-4 h-4 text-muted-foreground" />
+            </button>
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">

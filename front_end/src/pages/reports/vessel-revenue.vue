@@ -184,15 +184,26 @@ async function fetchData() {
 
 function handleDateConfirm() {
   if (dateSelectionMode.value === 'month') {
-    const s = new Date(parseInt(startYear.value), parseInt(startMonth.value) - 1, 1)
-    const e = new Date(parseInt(endYear.value), parseInt(endMonth.value), 1)
+    const startY = parseInt(startYear.value)
+    const startM = parseInt(startMonth.value)
+    const endY = parseInt(endYear.value)
+    const endM = parseInt(endMonth.value)
+
+    // 财务月：上月26日 00:00:00 到本月25日 23:59:59
+    const s = startM === 1
+      ? new Date(startY - 1, 11, 26, 0, 0, 0)   // 1月→上月=上年12月
+      : new Date(startY, startM - 2, 26, 0, 0, 0)
+    const e = new Date(endY, endM - 1, 25, 23, 59, 59)
+
     if (s >= e) { toast.error('开始月份不能晚于结束月份'); return }
     startDate.value = s
     endDate.value = e
   } else if (dateSelectionMode.value === 'year') {
     const year = parseInt(startYear.value)
-    startDate.value = new Date(year, 0, 1)
-    endDate.value = new Date(year + 1, 0, 1)
+
+    // 财务年：上年12月26日 00:00:00 到本年12月25日 23:59:59
+    startDate.value = new Date(year - 1, 11, 26, 0, 0, 0)
+    endDate.value = new Date(year, 11, 25, 23, 59, 59)
   } else {
     if (!startDate.value || !endDate.value) { toast.error('请选择日期范围'); return }
   }

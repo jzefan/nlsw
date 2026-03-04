@@ -8,6 +8,11 @@ const themeStore = useThemeStore()
 const { setTheme } = themeStore
 const { theme: t } = storeToRefs(themeStore)
 
+const themeLabels: Record<string, string> = {
+  zinc: '锌灰', red: '红色', rose: '玫瑰', orange: '橙色',
+  green: '绿色', blue: '蓝色', yellow: '黄色', violet: '紫色',
+}
+
 watchEffect(() => {
   document.documentElement.classList.remove(...THEMES.map(theme => `theme-${theme}`))
   document.documentElement.classList.add(`theme-${t.value}`)
@@ -17,7 +22,7 @@ watchEffect(() => {
 <template>
   <div class="space-y-1.5 pt-6">
     <UiLabel for="radius" class="text-xs">
-      Color
+      主题色
     </UiLabel>
     <div class="grid grid-cols-2 gap-2 py-1.5">
       <UiButton
@@ -33,7 +38,7 @@ watchEffect(() => {
           }"
           class="size-2 rounded-full bg-(--theme-primary)"
         />
-        <span class="text-xs">{{ theme.theme[0].toUpperCase() }}{{ theme.theme.slice(1) }}</span>
+        <span class="text-xs">{{ themeLabels[theme.theme] }}</span>
       </UiButton>
     </div>
   </div>

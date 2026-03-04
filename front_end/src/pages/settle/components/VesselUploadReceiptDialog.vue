@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X as XIcon, Upload as UploadIcon } from 'lucide-vue-next'
+import { Loader2, X as XIcon, Upload as UploadIcon } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -21,7 +21,18 @@ const fileInput = ref<HTMLInputElement>()
 const MAX_FILES = 9
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
-function open(wno: string) {
+// 已上传的回执图片
+interface ExistingImage {
+  id: string
+  original_filename: string
+  file_size: number
+  upload_time: string
+}
+const existingImages = ref<ExistingImage[]>([])
+const existingImageCache = ref<Record<string, string>>({})
+const loadingExisting = ref(false)
+
+async function open(wno: string) {
   if (!wno) {
     toast.error('运单号不能为空')
     return
@@ -30,6 +41,31 @@ function open(wno: string) {
   currentWno.value = wno
   resetForm()
   visible.value = true
+
+  // 加载已有回执图片
+  loadingExisting.value = true
+  existingImages.value = []
+  existingImageCache.value = {}
+  try {
+    const response = await settleApi.getReceiptImagesList(wno)
+    if (response.ok && response.images && response.images.length > 0) {
+      existingImages.value = response.images
+      // 并发加载缩略图
+      await Promise.all(
+        response.images.map(async (image: any) => {
+          try {
+            const imgRes = await settleApi.getReceiptImageById(image.id)
+            if (imgRes.ok && imgRes.data) {
+              existingImageCache.value[image.id] = `data:${imgRes.contentType};base64,${imgRes.data}`
+            }
+          } catch { /* 忽略单张加载失败 */ }
+        }),
+      )
+    }
+  } catch { /* 已有图片加载失败不阻塞上传 */ }
+  finally {
+    loadingExisting.value = false
+  }
 }
 
 function resetForm() {
@@ -191,6 +227,33 @@ defineExpose({ open })
       </DialogHeader>
 
       <div class="py-4 overflow-y-auto flex-1">
+        <!-- 已上传的回执图片 -->
+        <div v-if="loadingExisting" class="flex items-center justify-center py-4 text-sm text-muted-foreground">
+          <Loader2 class="h-4 w-4 animate-spin mr-2" />
+          加载已有回执...
+        </div>
+        <div v-else-if="existingImages.length > 0" class="mb-4">
+          <p class="text-sm text-muted-foreground mb-2">已上传 {{ existingImages.length }} 张回执：</p>
+          <div class="grid grid-cols-4 gap-2">
+            <div
+              v-for="img in existingImages"
+              :key="img.id"
+              class="aspect-square border rounded-md overflow-hidden bg-muted/30"
+            >
+              <img
+                v-if="existingImageCache[img.id]"
+                :src="existingImageCache[img.id]"
+                :alt="img.original_filename"
+                :title="img.original_filename"
+                class="w-full h-full object-cover"
+              >
+              <div v-else class="w-full h-full flex items-center justify-center">
+                <Loader2 class="h-4 w-4 animate-spin text-muted-foreground/50" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 上传区域 -->
         <div
           v-if="selectedFiles.length < MAX_FILES"

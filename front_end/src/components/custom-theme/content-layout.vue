@@ -12,7 +12,7 @@ const { contentLayout } = storeToRefs(themeStore)
 <template>
   <div class="space-y-1.5 pt-6">
     <UiLabel for="radius" class="text-xs">
-      Content Layout
+      内容布局
     </UiLabel>
     <div class="grid grid-cols-2 gap-2 py-1.5">
       <UiButton

@@ -96,4 +96,8 @@ var invoiceSchema = new Schema({
   pay_date: Date   // 付款日期
 });
 
+// Indexes for aggregation performance
+invoiceSchema.index({ tenantId: 1, waybill_no: 1 });
+invoiceSchema.index({ tenantId: 1, ship_date: -1 });
+
 module.exports = mongoose.model('Invoice', invoiceSchema);

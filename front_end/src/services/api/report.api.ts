@@ -7,6 +7,7 @@ export interface IntegratedQueryFilter {
   fVeh?: string[] // Vehicle
   fVehMode?: string // Transport Mode
   fDest?: string[] // Destination
+  fFrom?: string[] // Origin
   fDate1?: string // Start Date
   fDate2?: string // End Date
   fBno?: string // Bill No
@@ -30,6 +31,7 @@ export interface IntegratedQueryBill {
   billing_name: string
   ship_customer?: string
   veh_ves_name?: string
+  veh_mode?: string
   ship_to?: string
   send_num: number
   send_weight: number
@@ -63,16 +65,19 @@ export interface IntegratedQueryResponse {
   total?: number
   page?: number
   limit?: number
+  totalSendNum?: number
+  totalSendWeight?: number
+  totalUnsendWeight?: number
 }
 
 // 综合查询
 export async function getIntegratedQuery(params: IntegratedQueryFilter) {
-  const response = await axiosInstance.get<IntegratedQueryResponse>('/get_invoices_bill', {
+  const response = await axiosInstance.get<IntegratedQueryResponse>('/report/integrated_query', {
     params,
     paramsSerializer: {
       indexes: null, // array params like fName[] will be fName=v1&fName=v2
     },
-    timeout: 30000,
+    timeout: 60000,
   })
   return response.data
 }

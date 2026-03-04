@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useThrottleFn } from '@vueuse/core'
+import { pinyin } from 'pinyin-pro'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -49,12 +50,28 @@ onMounted(() => {
   applyFilter()
 })
 
-// 本地搜索函数工厂
+// Pinyin initials cache
+const pinyinCache = new Map<string, string>()
+
+function getPinyinInitials(name: string): string {
+  let initials = pinyinCache.get(name)
+  if (initials === undefined) {
+    initials = pinyin(name, { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase()
+    pinyinCache.set(name, initials)
+  }
+  return initials
+}
+
+// 本地搜索函数工厂（支持拼音首字母）
 function createLocalSearchFn(options: string[]) {
   return async (search: string, limit: number, page: number) => {
     let filtered = options
     if (search) {
-      filtered = filtered.filter(item => item.toLowerCase().includes(search.toLowerCase()))
+      const searchLower = search.toLowerCase()
+      filtered = filtered.filter((item) => {
+        if (item.toLowerCase().includes(searchLower)) return true
+        return getPinyinInitials(item).includes(searchLower)
+      })
     }
     const start = (page - 1) * limit
     const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
@@ -104,8 +121,8 @@ function applyFilter() {
     fOrder: orderNos.value ? [orderNos.value] : undefined,
     fBno: billNos.value ? [billNos.value] : undefined,
     fInvNo: invNos.value ? [invNos.value] : undefined,
-    fDate1: startDate.value || undefined,
-    fDate2: endDate.value || undefined,
+    fDate1: startDate.value ? startDate.value + 'T00:00:00' : undefined,
+    fDate2: endDate.value ? endDate.value + 'T23:59:59' : undefined,
     fType: 'invoice-first',
   }
 

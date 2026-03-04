@@ -137,7 +137,7 @@ const breadcrumbs = computed(() => {
         </Breadcrumb>
 
         <div class="flex-1" />
-        <div class="ml-auto flex items-center space-x-4">
+        <div class="ml-auto flex items-center space-x-2">
           <template v-if="!authStore.isStandalone">
             <!-- 租户信息 (standalone 模式下隐藏) -->
             <div v-if="tenant" class="flex items-center gap-1.5 text-sm text-muted-foreground">

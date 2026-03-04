@@ -19,6 +19,6 @@ export const RADIUS = [0, 0.25, 0.5, 0.75, 1] as const
 
 export type ContentLayout = 'full' | 'centered'
 export const CONTENT_LAYOUTS = [
-  { label: 'Full', value: 'full', icon: UnfoldHorizontal },
-  { label: 'Centered', value: 'centered', icon: MoveHorizontal },
+  { label: '全宽', value: 'full', icon: UnfoldHorizontal },
+  { label: '居中', value: 'centered', icon: MoveHorizontal },
 ] as const

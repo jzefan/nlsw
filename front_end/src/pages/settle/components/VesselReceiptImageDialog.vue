@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Image, Loader2, Trash2, X as XIcon } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { Download, Image, Loader2, Maximize2, Minimize2, Printer, Trash2, X as XIcon, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { Button } from '@/components/ui/button'
@@ -37,6 +37,25 @@ const fullImageFilename = ref('')
 
 // 缓存已加载的图片数据
 const imageCache = ref<Record<string, string>>({})
+
+// 缩放状态
+const zoomLevel = ref(1)
+const imageNaturalWidth = ref(0)
+const isMaximized = ref(false)
+
+// 图片宽度样式：用 naturalWidth * zoomLevel 计算像素宽度
+const imageWidthStyle = computed(() => {
+  if (imageNaturalWidth.value <= 0) return {}
+  return { width: `${Math.round(imageNaturalWidth.value * zoomLevel.value)}px` }
+})
+
+// 全屏对话框的动态 class
+const fullImageDialogClass = computed(() => {
+  if (isMaximized.value) {
+    return 'w-[100vw] h-[100vh] max-w-none max-h-none rounded-none flex flex-col p-0 overflow-hidden'
+  }
+  return 'max-w-[98vw] max-h-[98vh] w-[90vw] h-[85vh] flex flex-col p-0 overflow-hidden'
+})
 
 // 删除相关状态
 const showDeleteDialog = ref(false)
@@ -104,13 +123,51 @@ async function open(wno: string) {
 function handleImageClick(image: ReceiptImage) {
   // 图片已经在打开对话框时加载到缓存中
   if (imageCache.value[image.id]) {
-    fullImageUrl.value = imageCache.value[image.id]
+    const url = imageCache.value[image.id]
+    fullImageUrl.value = url
     fullImageFilename.value = image.original_filename
+    zoomLevel.value = 1
+    isMaximized.value = false
+
+    // 用临时 Image 对象读取原始尺寸（不依赖 DOM，data URL 同步可用）
+    const tempImg = new window.Image()
+    tempImg.src = url
+    if (tempImg.naturalWidth > 0) {
+      imageNaturalWidth.value = tempImg.naturalWidth
+    } else {
+      imageNaturalWidth.value = 0
+      tempImg.onload = () => {
+        imageNaturalWidth.value = tempImg.naturalWidth
+      }
+    }
+
     showFullImage.value = true
   }
   else {
     toast.warning('图片加载中，请稍后再试')
   }
+}
+
+function zoomIn() {
+  zoomLevel.value = Math.min(+(zoomLevel.value + 0.25).toFixed(2), 5)
+}
+
+function zoomOut() {
+  zoomLevel.value = Math.max(+(zoomLevel.value - 0.25).toFixed(2), 0.25)
+}
+
+function resetZoom() {
+  zoomLevel.value = 1
+}
+
+function toggleMaximize() {
+  isMaximized.value = !isMaximized.value
+}
+
+function handleWheel(e: WheelEvent) {
+  e.preventDefault()
+  if (e.deltaY < 0) zoomIn()
+  else zoomOut()
 }
 
 function formatFileSize(bytes: number): string {
@@ -180,6 +237,90 @@ async function confirmDelete() {
   }
 }
 
+// 下载单张图片
+function downloadImage(event: MouseEvent, image: ReceiptImage) {
+  event.stopPropagation()
+  const url = imageCache.value[image.id]
+  if (!url) {
+    toast.warning('图片尚未加载完成')
+    return
+  }
+  const a = document.createElement('a')
+  a.href = url
+  a.download = image.original_filename
+  a.click()
+}
+
+// 下载当前全屏图片
+function downloadCurrentImage() {
+  if (!fullImageUrl.value) return
+  const a = document.createElement('a')
+  a.href = fullImageUrl.value
+  a.download = fullImageFilename.value
+  a.click()
+}
+
+// 下载全部图片
+function downloadAll() {
+  const loaded = images.value.filter(img => imageCache.value[img.id])
+  if (loaded.length === 0) {
+    toast.warning('没有可下载的图片')
+    return
+  }
+  loaded.forEach((image, index) => {
+    setTimeout(() => {
+      const a = document.createElement('a')
+      a.href = imageCache.value[image.id]
+      a.download = image.original_filename
+      a.click()
+    }, index * 300)
+  })
+}
+
+// 打印当前全屏图片
+function printCurrentImage() {
+  if (!fullImageUrl.value) return
+  const win = window.open('', '_blank')
+  if (!win) {
+    toast.error('打印失败：请在浏览器中允许弹出窗口')
+    return
+  }
+  win.document.write(`<!DOCTYPE html><html><head><title>${fullImageFilename.value}</title>
+    <style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+    img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head>
+    <body><img src="${fullImageUrl.value}" /></body></html>`)
+  win.document.close()
+  win.focus()
+  setTimeout(() => { win.print(); win.close() }, 300)
+}
+
+// 打印全部图片（每张一页）
+function printAll() {
+  const loaded = images.value.filter(img => imageCache.value[img.id])
+  if (loaded.length === 0) {
+    toast.warning('没有可打印的图片')
+    return
+  }
+  const imgsHtml = loaded.map(img =>
+    `<div class="page"><img src="${imageCache.value[img.id]}" /><p class="name">${img.original_filename}</p></div>`,
+  ).join('')
+  const win = window.open('', '_blank')
+  if (!win) {
+    toast.error('打印失败：请在浏览器中允许弹出窗口')
+    return
+  }
+  win.document.write(`<!DOCTYPE html><html><head><title>回执图片打印</title>
+    <style>body{margin:0;font-family:sans-serif;}
+    .page{page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;box-sizing:border-box;}
+    .page:last-child{page-break-after:auto;}
+    img{max-width:100%;max-height:90vh;object-fit:contain;}
+    .name{margin-top:10px;font-size:12px;color:#666;}</style></head>
+    <body>${imgsHtml}</body></html>`)
+  win.document.close()
+  win.focus()
+  setTimeout(() => { win.print(); win.close() }, 300)
+}
+
 defineExpose({ open })
 </script>
 
@@ -207,15 +348,27 @@ defineExpose({ open })
             class="relative border rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer bg-muted/30 group"
             @click="handleImageClick(image)"
           >
-            <!-- 删除按钮 -->
-            <Button
-              variant="destructive"
-              size="icon"
-              class="absolute top-2 right-2 z-20 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-              @click="handleDeleteClick($event, image)"
-            >
-              <Trash2 class="h-4 w-4" />
-            </Button>
+            <!-- 操作按钮：下载 + 删除 -->
+            <div class="absolute top-2 right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                variant="secondary"
+                size="icon"
+                class="h-8 w-8 shadow-lg"
+                title="下载"
+                @click="downloadImage($event, image)"
+              >
+                <Download class="h-4 w-4" />
+              </Button>
+              <Button
+                variant="destructive"
+                size="icon"
+                class="h-8 w-8 shadow-lg"
+                title="删除"
+                @click="handleDeleteClick($event, image)"
+              >
+                <Trash2 class="h-4 w-4" />
+              </Button>
+            </div>
 
             <!-- 图片预览 -->
             <div class="aspect-square bg-muted/50 flex items-center justify-center relative overflow-hidden">
@@ -261,7 +414,15 @@ defineExpose({ open })
         </div>
       </div>
 
-      <DialogFooter>
+      <DialogFooter class="gap-2">
+        <Button v-if="images.length > 0" variant="outline" @click="printAll">
+          <Printer class="h-4 w-4 mr-2" />
+          打印全部
+        </Button>
+        <Button v-if="images.length > 0" variant="outline" @click="downloadAll">
+          <Download class="h-4 w-4 mr-2" />
+          下载全部
+        </Button>
         <Button @click="visible = false">
           关闭
         </Button>
@@ -269,29 +430,51 @@ defineExpose({ open })
     </DialogContent>
   </Dialog>
 
-  <!-- 放大查看对话框 - 显示原始大小 -->
+  <!-- 放大查看对话框 -->
   <Dialog :open="showFullImage" @update:open="(val) => (showFullImage = val)">
-    <DialogContent class="max-w-[98vw] max-h-[98vh] w-auto h-auto flex flex-col p-0 overflow-hidden">
+    <DialogContent :class="fullImageDialogClass" :show-close-button="false">
       <DialogHeader class="px-4 py-3 border-b flex flex-row items-center justify-between shrink-0">
         <DialogTitle class="flex-1 truncate" :title="fullImageFilename">
           {{ fullImageFilename }}
         </DialogTitle>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8 ml-2"
-          @click="showFullImage = false"
-        >
-          <XIcon class="h-4 w-4" />
-        </Button>
+        <div class="flex items-center gap-1 ml-2">
+          <!-- 缩放控件 -->
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="缩小 (滚轮)" :disabled="zoomLevel <= 0.25" @click="zoomOut">
+            <ZoomOut class="h-4 w-4" />
+          </Button>
+          <span
+            class="text-xs text-muted-foreground min-w-[3rem] text-center cursor-pointer select-none"
+            title="点击还原 100%"
+            @click="resetZoom"
+          >{{ Math.round(zoomLevel * 100) }}%</span>
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="放大 (滚轮)" :disabled="zoomLevel >= 5" @click="zoomIn">
+            <ZoomIn class="h-4 w-4" />
+          </Button>
+          <div class="w-px h-4 bg-border mx-1 shrink-0" />
+          <Button variant="ghost" size="icon" class="h-8 w-8" :title="isMaximized ? '还原窗口' : '最大化'" @click="toggleMaximize">
+            <Minimize2 v-if="isMaximized" class="h-4 w-4" />
+            <Maximize2 v-else class="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="下载" @click="downloadCurrentImage">
+            <Download class="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="打印" @click="printCurrentImage">
+            <Printer class="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="关闭" @click="showFullImage = false">
+            <XIcon class="h-4 w-4" />
+          </Button>
+        </div>
       </DialogHeader>
-      <div class="overflow-auto bg-muted/30 p-4">
+      <div class="overflow-auto bg-muted/30 flex-1" @wheel.prevent="handleWheel">
         <img
           v-if="fullImageUrl"
           :src="fullImageUrl"
           :alt="fullImageFilename"
-          class="rounded-md shadow-md"
-          style="display: block;"
+          class="rounded-md shadow-md m-4 block"
+          :style="imageWidthStyle"
+          title="双击还原 100%"
+          @dblclick="resetZoom"
         >
       </div>
     </DialogContent>

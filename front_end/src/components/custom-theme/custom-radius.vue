@@ -16,7 +16,7 @@ watchEffect(() => {
 <template>
   <div class="space-y-1.5 pt-6">
     <UiLabel for="radius" class="text-xs">
-      Radius
+      圆角
     </UiLabel>
     <div class="grid grid-cols-5 gap-2 py-1.5">
       <UiButton

@@ -1,34 +1,37 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, CheckCircle, Download, FileSpreadsheet, Layers, RefreshCcw } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, CheckCircle, ChevronDown, ChevronUp, Download, FileSpreadsheet, RefreshCcw, Save, Trash2 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
-import type { AggregatedRow, ColumnDef, ContractGroup, HeaderInfo, ParsedFile } from '@/utils/excel-transform'
+import type { ColumnDef, LoadingListGroup, ParsedFile } from '@/utils/excel-transform'
 
 import { BasicPage } from '@/components/global-layout'
+import { saveShipmentDetail } from '@/services/api/data-process.api'
 import {
-  aggregateByOrderItem,
-  generateOutputExcel,
-  groupByContract,
+  buildSavePayload,
+  fieldNameMap,
+  generateOutputExcelV2,
+  groupByLoadingList,
   mergeFiles,
   parseMultipleFiles,
+  roundSteelV2RequiredKeys,
+  validateRequiredColumns,
 } from '@/utils/excel-transform'
 
 import FilePreviewCard from './components/FilePreviewCard.vue'
 import FileUploader from './components/FileUploader.vue'
-import GroupedDataEditor from './components/GroupedDataEditor.vue'
-import HeaderEditor from './components/HeaderEditor.vue'
-import MergedDataEditor from './components/MergedDataEditor.vue'
+import LoadingListEditor from './components/LoadingListEditor.vue'
 
-// Step state
+// Step state (1-4)
 const currentStep = ref(1)
 const loading = ref(false)
+const saving = ref(false)
 
 // Step 1: File upload
 const uploadedFiles = ref<File[]>([])
 const parsedFiles = ref<ParsedFile[]>([])
 
-// Step 2: Preview (files are parsed)
+// Step 2: Preview
 const activeFileTab = ref('')
 const globalColumnDefs = ref<ColumnDef[]>([])
 
@@ -37,26 +40,60 @@ const showColumnConfirm = ref(false)
 const pendingColumnKey = ref('')
 const pendingColumnAction = ref<'select' | 'deselect'>('select')
 
-// Missing contract confirmation dialog
-const showMissingContractConfirm = ref(false)
-const missingContractCount = ref(0)
+// Validation state
+const validationError = ref('')
 
-// Step 3: Edit - two sub-steps
-// 3a: Edit merged data (user inputs contractNo and colorMark)
-const mergedData = ref<AggregatedRow[]>([])
-// 3b: After grouping by contract
-const isGrouped = ref(false)
-const contractGroups = ref<ContractGroup[]>([])
+// Step 3: Edit by loading list groups
+const loadingListGroups = ref<LoadingListGroup[]>([])
+const checkedLoadingListNos = ref<Set<string>>(new Set())
 
-// Header info (no invoiceNo needed)
-const headerInfo = ref<HeaderInfo>({
-  invoiceNo: '',
-  billingName: '',
-  vehicle: '',
-  shipper: '',
-  shipDate: new Date().toISOString().slice(0, 10),
-  destination: '',
-})
+// Step 4: Export & Save results
+const savedBatchId = ref('')
+
+// Checked groups (for stats and Step 4)
+const checkedGroups = computed(() =>
+  loadingListGroups.value.filter(g => checkedLoadingListNos.value.has(g.loadingListNo)),
+)
+
+// Step 4: expanded groups for detail view
+const expandedStep4Groups = ref<Set<string>>(new Set())
+
+function toggleStep4Group(loadingListNo: string) {
+  const updated = new Set(expandedStep4Groups.value)
+  if (updated.has(loadingListNo)) {
+    updated.delete(loadingListNo)
+  }
+  else {
+    updated.add(loadingListNo)
+  }
+  expandedStep4Groups.value = updated
+}
+
+function handleDeleteRow(loadingListNo: string, rowIndex: number) {
+  const groupIdx = loadingListGroups.value.findIndex(g => g.loadingListNo === loadingListNo)
+  if (groupIdx < 0) return
+
+  const group = loadingListGroups.value[groupIdx]
+  if (group.rows.length <= 1) {
+    // Last row — remove the entire group and uncheck it
+    loadingListGroups.value = loadingListGroups.value.filter(g => g.loadingListNo !== loadingListNo)
+    const updated = new Set(checkedLoadingListNos.value)
+    updated.delete(loadingListNo)
+    checkedLoadingListNos.value = updated
+    return
+  }
+
+  const newRows = [...group.rows]
+  newRows.splice(rowIndex, 1)
+  const newGroups = [...loadingListGroups.value]
+  newGroups[groupIdx] = {
+    ...group,
+    rows: newRows,
+    subtotalQuantity: newRows.reduce((s, r) => s + r.quantity, 0),
+    subtotalWeight: newRows.reduce((s, r) => s + r.weight, 0),
+  }
+  loadingListGroups.value = newGroups
+}
 
 // Stats
 const totalRows = computed(() =>
@@ -73,27 +110,25 @@ function canGoNext(): boolean {
     return uploadedFiles.value.length > 0
   }
   if (currentStep.value === 2) {
-    return parsedFiles.value.length > 0 && parsedFiles.value.some(f => f.rowCount > 0)
+    return parsedFiles.value.length > 0
+      && parsedFiles.value.some(f => f.rowCount > 0)
+      && !validationError.value
+  }
+  if (currentStep.value === 3) {
+    return loadingListGroups.value.length > 0
   }
   return true
 }
 
 function goBack() {
-  if (currentStep.value > 1) {
-    if (currentStep.value === 3 && isGrouped.value) {
-      // Go back to merged data editing
-      isGrouped.value = false
-      contractGroups.value = []
-    }
-    else {
-      currentStep.value--
-      if (currentStep.value === 2) {
-        // Reset step 3 data
-        mergedData.value = []
-        isGrouped.value = false
-        contractGroups.value = []
-      }
-    }
+  if (currentStep.value === 2) {
+    currentStep.value = 1
+  }
+  else if (currentStep.value === 3) {
+    currentStep.value = 2
+  }
+  else if (currentStep.value === 4) {
+    currentStep.value = 3
   }
 }
 
@@ -107,11 +142,14 @@ async function goNext() {
         toast.warning('未能从文件中解析到有效数据，请检查文件格式')
         return
       }
-      // Set first file as active tab
       if (parsedFiles.value.length > 0) {
         activeFileTab.value = parsedFiles.value[0].fileName
         globalColumnDefs.value = [...parsedFiles.value[0].columnDefs]
       }
+
+      // Validate required columns
+      runValidation()
+
       toast.success(`成功解析 ${parsedFiles.value.length} 个文件，共 ${totalRows.value} 行数据`)
       currentStep.value = 2
     }
@@ -123,30 +161,60 @@ async function goNext() {
     }
   }
   else if (currentStep.value === 2) {
-    // Merge files and aggregate
+    // Merge files and group by loading list
     loading.value = true
     try {
       const allData = mergeFiles(parsedFiles.value)
-      mergedData.value = aggregateByOrderItem(allData)
+      loadingListGroups.value = groupByLoadingList(allData)
 
-      // Auto-fill header info from first row
-      if (allData.length > 0) {
-        const first = allData[0]
-        if (first.customerName && !headerInfo.value.billingName) {
-          headerInfo.value.billingName = first.customerName
-        }
+      if (loadingListGroups.value.length === 0) {
+        toast.warning('分组后无数据')
+        return
       }
 
-      toast.success(`合并成功，共 ${mergedData.value.length} 条数据`)
+      toast.success(`按装车单号分组成功，共 ${loadingListGroups.value.length} 个组`)
       currentStep.value = 3
-      isGrouped.value = false
     }
     catch (e: any) {
-      toast.error('合并失败', { description: e.message })
+      toast.error('分组失败', { description: e.message })
     }
     finally {
       loading.value = false
     }
+  }
+  else if (currentStep.value === 3) {
+    // Must have at least one checked group
+    if (checkedGroups.value.length === 0) {
+      toast.warning('请至少勾选一个装车单')
+      return
+    }
+    // Validate: each checked group must have vehicleNo
+    const missingVehicle = checkedGroups.value.filter(g => !g.vehicleNo)
+    if (missingVehicle.length > 0) {
+      toast.warning(`已勾选的装车单中有 ${missingVehicle.length} 个未选择车船号，请先完成选择`)
+      return
+    }
+    currentStep.value = 4
+  }
+}
+
+function runValidation() {
+  if (globalColumnDefs.value.length === 0) {
+    validationError.value = ''
+    return
+  }
+
+  const { valid, missingColumns } = validateRequiredColumns(
+    globalColumnDefs.value,
+    roundSteelV2RequiredKeys,
+  )
+
+  if (!valid) {
+    const names = missingColumns.map(k => fieldNameMap[k] || k).join('、')
+    validationError.value = `缺少必要列: ${names}`
+  }
+  else {
+    validationError.value = ''
   }
 }
 
@@ -154,17 +222,17 @@ async function goNext() {
 function handleFilesChange(files: File[]) {
   uploadedFiles.value = files
   parsedFiles.value = []
-  mergedData.value = []
-  contractGroups.value = []
+  loadingListGroups.value = []
+  checkedLoadingListNos.value = new Set()
   globalColumnDefs.value = []
-  isGrouped.value = false
+  validationError.value = ''
+  savedBatchId.value = ''
 }
 
 // Handle column toggle request
 function handleToggleColumn(columnKey: string) {
   const col = globalColumnDefs.value.find(c => c.key === columnKey)
-  if (!col)
-    return
+  if (!col) return
 
   pendingColumnKey.value = columnKey
   pendingColumnAction.value = col.isRequired ? 'deselect' : 'select'
@@ -186,52 +254,47 @@ function cancelColumnToggle() {
   pendingColumnKey.value = ''
 }
 
-// Generate groups by contract number
-function handleGenerateGroups() {
-  if (mergedData.value.length === 0) {
-    toast.warning('没有数据可分组')
-    return
-  }
-
-  // Check if all rows have contractNo
-  const missingContract = mergedData.value.filter(r => !r.contractNo)
-  if (missingContract.length > 0) {
-    missingContractCount.value = missingContract.length
-    showMissingContractConfirm.value = true
-    return
-  }
-
-  doGenerateGroups()
-}
-
-function doGenerateGroups() {
-  contractGroups.value = groupByContract(mergedData.value)
-  isGrouped.value = true
-  toast.success(`分组成功，共 ${contractGroups.value.length} 个合同组`)
-}
-
-function confirmGenerateGroups() {
-  showMissingContractConfirm.value = false
-  doGenerateGroups()
-}
-
-function cancelGenerateGroups() {
-  showMissingContractConfirm.value = false
-}
-
 // Export Excel
 async function handleExport() {
-  if (contractGroups.value.length === 0) {
-    toast.warning('请先生成分组')
+  if (checkedGroups.value.length === 0) {
+    toast.warning('没有已勾选的数据可导出')
     return
   }
 
   try {
-    await generateOutputExcel(headerInfo.value, contractGroups.value)
+    await generateOutputExcelV2(checkedGroups.value)
     toast.success('导出成功')
   }
   catch (e: any) {
     toast.error('导出失败', { description: e.message })
+  }
+}
+
+// Save to backend
+async function handleSave() {
+  if (checkedGroups.value.length === 0) {
+    toast.warning('没有已勾选的数据可保存')
+    return
+  }
+
+  saving.value = true
+  try {
+    const payload = buildSavePayload(checkedGroups.value)
+    const result = await saveShipmentDetail(payload)
+
+    if (result.ok && result.data) {
+      savedBatchId.value = result.data.batchId
+      toast.success(`保存成功，共 ${result.data.count} 条记录`)
+    }
+    else {
+      toast.error('保存失败', { description: result.error || '未知错误' })
+    }
+  }
+  catch (e: any) {
+    toast.error('保存失败', { description: e.message })
+  }
+  finally {
+    saving.value = false
   }
 }
 
@@ -240,28 +303,25 @@ function handleReset() {
   currentStep.value = 1
   uploadedFiles.value = []
   parsedFiles.value = []
-  mergedData.value = []
-  contractGroups.value = []
+  loadingListGroups.value = []
+  checkedLoadingListNos.value = new Set()
   globalColumnDefs.value = []
-  isGrouped.value = false
-  headerInfo.value = {
-    invoiceNo: '',
-    billingName: '',
-    vehicle: '',
-    shipper: '',
-    shipDate: new Date().toISOString().slice(0, 10),
-    destination: '',
-  }
+  validationError.value = ''
+  savedBatchId.value = ''
 }
+
+// Step info
+const steps = [
+  { num: 1, label: '上传文件' },
+  { num: 2, label: '预览验证' },
+  { num: 3, label: '编辑数据' },
+  { num: 4, label: '导出保存' },
+]
 </script>
 
 <template>
-  <BasicPage title="圆钢数据处理" description="将ERP导出的圆钢数据转换为客户需要的格式">
+  <BasicPage title="圆钢数据处理" description="上传ERP圆钢数据，按装车单号分组编辑，导出双Sheet Excel">
     <template #actions>
-      <UiButton v-if="currentStep === 3 && isGrouped" size="sm" @click="handleExport">
-        <Download class="w-4 h-4 mr-1" />
-        导出Excel
-      </UiButton>
       <UiButton variant="outline" size="sm" @click="handleReset">
         <RefreshCcw class="w-4 h-4 mr-1" />
         重置
@@ -270,30 +330,24 @@ function handleReset() {
 
     <!-- Step indicator -->
     <div class="mb-4">
-      <div class="flex items-center justify-center gap-4">
-        <div
-          class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
-          :class="currentStep === 1 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
-        >
-          <span class="w-6 h-6 rounded-full border flex items-center justify-center text-sm font-medium">1</span>
-          <span>上传文件</span>
-        </div>
-        <ArrowRight class="w-4 h-4 text-muted-foreground" />
-        <div
-          class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
-          :class="currentStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
-        >
-          <span class="w-6 h-6 rounded-full border flex items-center justify-center text-sm font-medium">2</span>
-          <span>预览确认</span>
-        </div>
-        <ArrowRight class="w-4 h-4 text-muted-foreground" />
-        <div
-          class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
-          :class="currentStep === 3 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'"
-        >
-          <span class="w-6 h-6 rounded-full border flex items-center justify-center text-sm font-medium">3</span>
-          <span>编辑导出</span>
-        </div>
+      <div class="flex items-center justify-center gap-3">
+        <template v-for="(step, idx) in steps" :key="step.num">
+          <div
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors"
+            :class="[
+              currentStep === step.num ? 'bg-primary text-primary-foreground' :
+              currentStep > step.num ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400' :
+              'bg-muted text-muted-foreground'
+            ]"
+          >
+            <span class="w-6 h-6 rounded-full border flex items-center justify-center text-sm font-medium">
+              <CheckCircle v-if="currentStep > step.num" class="w-4 h-4" />
+              <template v-else>{{ step.num }}</template>
+            </span>
+            <span class="text-sm">{{ step.label }}</span>
+          </div>
+          <ArrowRight v-if="idx < steps.length - 1" class="w-4 h-4 text-muted-foreground" />
+        </template>
       </div>
     </div>
 
@@ -310,8 +364,14 @@ function handleReset() {
       </div>
     </div>
 
-    <!-- Step 2: Preview -->
+    <!-- Step 2: Preview & Validate -->
     <div v-else-if="currentStep === 2" class="flex flex-col gap-3 h-[calc(100vh-180px)] text-base">
+      <!-- Validation error -->
+      <div v-if="validationError" class="p-3 border border-red-300 rounded-lg bg-red-50 dark:bg-red-950/30 flex-shrink-0">
+        <p class="text-sm text-red-600 dark:text-red-400 font-medium">{{ validationError }}</p>
+        <p class="text-xs text-red-500 dark:text-red-400 mt-1">请上传包含以上列的文件，或检查列名是否匹配</p>
+      </div>
+
       <!-- Summary -->
       <div class="p-2 border rounded-lg bg-muted/30 flex items-center gap-6 flex-shrink-0">
         <div class="flex items-center gap-2">
@@ -363,90 +423,186 @@ function handleReset() {
         </UiButton>
         <UiButton :disabled="!canGoNext() || loading" @click="goNext">
           <UiSpinner v-if="loading" class="mr-2" />
-          下一步（合并数据）
+          下一步（按装车单号分组）
           <ArrowRight class="w-4 h-4 ml-1" />
         </UiButton>
       </div>
     </div>
 
-    <!-- Step 3: Edit & Export -->
+    <!-- Step 3: Edit by Loading List groups -->
     <div v-else-if="currentStep === 3" class="flex flex-col gap-3 h-[calc(100vh-180px)]">
-      <!-- Sub-step 3a: Edit merged data -->
-      <template v-if="!isGrouped">
-        <!-- Header editor -->
-        <div class="flex-shrink-0">
-          <HeaderEditor v-model="headerInfo" />
-        </div>
+      <div class="flex-1 min-h-0">
+        <UiCard class="h-full flex flex-col">
+          <UiCardHeader class="py-2 flex-shrink-0">
+            <div class="flex items-center justify-between">
+              <div class="flex items-baseline gap-2">
+                <UiCardTitle class="text-base">按装车单号分组编辑</UiCardTitle>
+                <UiCardDescription class="text-[10px]">
+                  为每个装车单选择车船号，填写合同号
+                </UiCardDescription>
+              </div>
+              <div class="flex items-center gap-4 text-sm">
+                <span class="font-medium">已选 {{ checkedGroups.length }} / {{ loadingListGroups.length }} 个装车单</span>
+                <span class="text-muted-foreground">|</span>
+                <span>已选发运数: <strong>{{ checkedGroups.reduce((s, g) => s + g.subtotalQuantity, 0) }}</strong></span>
+                <span class="text-muted-foreground">|</span>
+                <span>已选重量: <strong>{{ checkedGroups.reduce((s, g) => s + g.subtotalWeight, 0).toFixed(3) }}</strong> 吨</span>
+              </div>
+            </div>
+          </UiCardHeader>
+          <UiCardContent class="flex-1 overflow-hidden p-3 pt-0">
+            <LoadingListEditor v-model="loadingListGroups" v-model:checked="checkedLoadingListNos" />
+          </UiCardContent>
+        </UiCard>
+      </div>
 
-        <!-- Merged data editor with scroll -->
-        <div class="flex-1 min-h-0">
-          <UiCard class="h-full flex flex-col">
-            <UiCardHeader class="py-0 flex-shrink-0">
-              <div class="flex items-center justify-between">
-                <div class="flex items-baseline gap-2">
-                  <UiCardTitle class="text-base">
-                    合并数据
-                  </UiCardTitle>
-                  <UiCardDescription class="text-[10px]">
-                    点击单元格可编辑，请为每个订单填写合同号
-                  </UiCardDescription>
+      <!-- Actions -->
+      <div class="flex justify-between flex-shrink-0">
+        <UiButton variant="outline" @click="goBack">
+          <ArrowLeft class="w-4 h-4 mr-1" />
+          上一步
+        </UiButton>
+        <UiButton @click="goNext">
+          下一步（导出保存）
+          <ArrowRight class="w-4 h-4 ml-1" />
+        </UiButton>
+      </div>
+    </div>
+
+    <!-- Step 4: Export & Save -->
+    <div v-else-if="currentStep === 4" class="flex flex-col gap-4">
+      <!-- Summary -->
+      <UiCard>
+        <UiCardHeader>
+          <UiCardTitle class="text-base">数据汇总</UiCardTitle>
+        </UiCardHeader>
+        <UiCardContent>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-3 bg-muted/30 rounded-lg text-center">
+              <div class="text-2xl font-bold">{{ checkedGroups.length }}</div>
+              <div class="text-sm text-muted-foreground">装车单数</div>
+            </div>
+            <div class="p-3 bg-muted/30 rounded-lg text-center">
+              <div class="text-2xl font-bold">{{ checkedGroups.reduce((s, g) => s + g.rows.length, 0) }}</div>
+              <div class="text-sm text-muted-foreground">聚合行数</div>
+            </div>
+            <div class="p-3 bg-muted/30 rounded-lg text-center">
+              <div class="text-2xl font-bold">{{ checkedGroups.reduce((s, g) => s + g.subtotalQuantity, 0) }}</div>
+              <div class="text-sm text-muted-foreground">总发运数</div>
+            </div>
+            <div class="p-3 bg-muted/30 rounded-lg text-center">
+              <div class="text-2xl font-bold">{{ checkedGroups.reduce((s, g) => s + g.subtotalWeight, 0).toFixed(3) }}</div>
+              <div class="text-sm text-muted-foreground">总重量(吨)</div>
+            </div>
+          </div>
+
+          <!-- Group details -->
+          <div class="mt-4 space-y-2">
+            <div
+              v-for="group in checkedGroups"
+              :key="group.loadingListNo"
+              class="border rounded-lg overflow-hidden"
+            >
+              <!-- Group header -->
+              <div
+                class="flex items-center justify-between p-2 text-sm cursor-pointer hover:bg-muted/50 transition-colors"
+                @click="toggleStep4Group(group.loadingListNo)"
+              >
+                <div class="flex items-center gap-2">
+                  <ChevronDown v-if="expandedStep4Groups.has(group.loadingListNo)" class="w-4 h-4 text-muted-foreground" />
+                  <ChevronUp v-else class="w-4 h-4 text-muted-foreground" />
+                  <span class="font-medium">{{ group.loadingListNo }}</span>
                 </div>
-                <div class="flex items-center gap-4 text-sm">
-                  <span class="font-medium">共 {{ mergedData.length }} 条数据</span>
-                  <span class="text-muted-foreground">|</span>
-                  <span>总发运数: <strong>{{ mergedData.reduce((sum, r) => sum + r.quantity, 0) }}</strong></span>
-                  <span class="text-muted-foreground">|</span>
-                  <span>总重量: <strong>{{ mergedData.reduce((sum, r) => sum + r.totalWeight, 0).toFixed(3) }}</strong> 吨</span>
+                <div class="flex items-center gap-4 text-muted-foreground">
+                  <span>车号: <strong class="text-foreground">{{ group.vehicleNo }}</strong></span>
+                  <span>{{ group.rows.length }} 订单</span>
+                  <span>{{ group.subtotalQuantity }} 件</span>
+                  <span>{{ group.subtotalWeight.toFixed(3) }} 吨</span>
                 </div>
               </div>
-            </UiCardHeader>
-            <UiCardContent class="flex-1 overflow-hidden" style="padding: 0">
-              <MergedDataEditor v-model="mergedData" />
-            </UiCardContent>
-          </UiCard>
-        </div>
 
-        <!-- Actions -->
-        <div class="flex justify-between flex-shrink-0">
-          <UiButton variant="outline" @click="goBack">
-            <ArrowLeft class="w-4 h-4 mr-1" />
-            上一步
-          </UiButton>
-          <UiButton @click="handleGenerateGroups">
-            <Layers class="w-4 h-4 mr-1" />
-            生成分组
-          </UiButton>
-        </div>
-      </template>
+              <!-- Order rows (expandable table) -->
+              <div v-if="expandedStep4Groups.has(group.loadingListNo)" class="border-t overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead class="bg-muted/40">
+                    <tr>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">订单号</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">项次号</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">客户名称</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">牌号</th>
+                      <th class="px-2 py-1 text-right whitespace-nowrap">厚度</th>
+                      <th class="px-2 py-1 text-right whitespace-nowrap">宽度</th>
+                      <th class="px-2 py-1 text-right whitespace-nowrap">长度</th>
+                      <th class="px-2 py-1 text-right whitespace-nowrap">件数</th>
+                      <th class="px-2 py-1 text-right whitespace-nowrap">重量(吨)</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">仓库</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">合同号</th>
+                      <th class="px-2 py-1 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(row, rowIdx) in group.rows"
+                      :key="`${row.orderNo}-${row.orderItemNo}`"
+                      class="group/row border-t hover:bg-muted/30"
+                    >
+                      <td class="px-2 py-1 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">{{ row.orderNo }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.orderItemNo }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.customerName }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.brandNo }}</td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.thickness }}</td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.width }}</td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.length }}</td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.quantity }}</td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.weight.toFixed(3) }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.warehouse }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.contractNo }}</td>
+                      <td class="px-2 py-1">
+                        <button
+                          class="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                          title="删除此订单"
+                          @click.stop="handleDeleteRow(group.loadingListNo, rowIdx)"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </UiCardContent>
+      </UiCard>
 
-      <!-- Sub-step 3b: View grouped data and export -->
-      <template v-else>
-        <!-- Header editor -->
-        <div class="flex-shrink-0">
-          <HeaderEditor v-model="headerInfo" />
-        </div>
+      <!-- Actions -->
+      <div class="flex items-center gap-3">
+        <UiButton variant="outline" @click="goBack">
+          <ArrowLeft class="w-4 h-4 mr-1" />
+          返回编辑
+        </UiButton>
+        <div class="flex-1" />
+        <UiButton variant="outline" @click="handleExport">
+          <Download class="w-4 h-4 mr-1" />
+          导出Excel
+        </UiButton>
+        <UiButton :disabled="saving" @click="handleSave">
+          <UiSpinner v-if="saving" class="mr-2" />
+          <Save v-else class="w-4 h-4 mr-1" />
+          保存到系统
+        </UiButton>
+      </div>
 
-        <!-- Grouped data editor with scroll -->
-        <div class="flex-1 min-h-0">
-          <UiCard class="h-full">
-            <UiCardContent class="p-4 h-full overflow-hidden">
-              <GroupedDataEditor v-model="contractGroups" />
-            </UiCardContent>
-          </UiCard>
+      <!-- Save result -->
+      <div v-if="savedBatchId" class="p-3 border border-green-300 rounded-lg bg-green-50 dark:bg-green-950/30">
+        <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
+          <CheckCircle class="w-5 h-5" />
+          <span class="font-medium">保存成功</span>
         </div>
-
-        <!-- Actions -->
-        <div class="flex justify-between flex-shrink-0">
-          <UiButton variant="outline" @click="goBack">
-            <ArrowLeft class="w-4 h-4 mr-1" />
-            返回编辑
-          </UiButton>
-          <UiButton @click="handleExport">
-            <Download class="w-4 h-4 mr-1" />
-            导出Excel
-          </UiButton>
-        </div>
-      </template>
+        <p class="text-sm text-green-600 dark:text-green-400 mt-1">
+          批次号: {{ savedBatchId }}
+        </p>
+      </div>
     </div>
 
     <!-- Column toggle confirmation dialog -->
@@ -469,28 +625,6 @@ function handleReset() {
           </UiAlertDialogCancel>
           <UiAlertDialogAction @click="confirmColumnToggle">
             确定
-          </UiAlertDialogAction>
-        </UiAlertDialogFooter>
-      </UiAlertDialogContent>
-    </UiAlertDialog>
-
-    <!-- Missing contract confirmation dialog -->
-    <UiAlertDialog :open="showMissingContractConfirm" @update:open="showMissingContractConfirm = $event">
-      <UiAlertDialogContent>
-        <UiAlertDialogHeader>
-          <UiAlertDialogTitle>部分数据未填写合同号</UiAlertDialogTitle>
-          <UiAlertDialogDescription>
-            有 <strong>{{ missingContractCount }}</strong> 条数据未填写合同号，这些数据将归入"未分组"。
-            <br><br>
-            是否继续生成分组？或者返回填写合同号？
-          </UiAlertDialogDescription>
-        </UiAlertDialogHeader>
-        <UiAlertDialogFooter>
-          <UiAlertDialogCancel @click="cancelGenerateGroups">
-            返回填写
-          </UiAlertDialogCancel>
-          <UiAlertDialogAction @click="confirmGenerateGroups">
-            继续分组
           </UiAlertDialogAction>
         </UiAlertDialogFooter>
       </UiAlertDialogContent>

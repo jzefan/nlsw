@@ -292,11 +292,11 @@ const activeFilterCount = computed(() => {
               <!-- 复选框 -->
               <div class="flex items-center gap-6 py-2">
                 <div class="flex items-center gap-2">
-                  <Checkbox id="m-showNotSent" v-model:checked="localShowNotSent" />
+                  <Checkbox id="m-showNotSent" v-model="localShowNotSent" />
                   <Label for="m-showNotSent" class="text-sm">未配发</Label>
                 </div>
                 <div class="flex items-center gap-2">
-                  <Checkbox id="m-showDestForVessel" v-model:checked="localShowDestForVessel" :disabled="localShowNotSent" />
+                  <Checkbox id="m-showDestForVessel" v-model="localShowDestForVessel" :disabled="localShowNotSent" />
                   <Label for="m-showDestForVessel" class="text-sm">目的地为船</Label>
                 </div>
               </div>

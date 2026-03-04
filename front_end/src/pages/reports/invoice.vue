@@ -44,7 +44,15 @@ import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
 import { useAuthStore } from '@/stores/auth'
 import { COMPANY_FULL_NAME } from '@/config/constants'
 
-const companyName = computed(() => authStore.companyDisplayName || COMPANY_FULL_NAME)
+const companyName = computed(() => {
+  // 优先使用运单的开单名称（发货单抬头应属于运单所属公司）
+  if (invoiceDetail.value?.ship_name) return invoiceDetail.value.ship_name
+  // 独立部署模式：使用配置的公司名称
+  if (authStore.isStandalone && authStore.standaloneCompany) return authStore.standaloneCompany
+  // SaaS 模式：使用当前租户公司名称
+  if (authStore.companyDisplayName) return authStore.companyDisplayName
+  return COMPANY_FULL_NAME
+})
 import { isAdmin } from '@/constants/permissions'
 
 const authStore = useAuthStore()

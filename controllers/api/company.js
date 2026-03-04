@@ -1,56 +1,64 @@
 const Company = require('../../models/Company');
 const { buildTenantQuery } = require('../../utils/tenant');
+const { pinyin } = require('pinyin-pro');
 
-// 快速搜索接口 - 专门用于下拉列表等场景
-// 使用聚合管道直接获取去重的名称列表，避免查询完整文档
+// Pinyin cache: tenantId -> { names: Map<name, initials>, ts }
+const _pinyinCache = new Map();
+const PINYIN_CACHE_TTL = 5 * 60 * 1000;
+
+function getPinyinInitials(name) {
+  return pinyin(name, { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase();
+}
+
+function matchWithPinyin(name, searchLower, cache) {
+  if (name.toLowerCase().includes(searchLower)) return true;
+  let initials = cache.names.get(name);
+  if (initials === undefined) {
+    initials = getPinyinInitials(name);
+    cache.names.set(name, initials);
+  }
+  return initials.includes(searchLower);
+}
+
+function getCache(tenantId) {
+  const cacheKey = String(tenantId || 'platform');
+  let cache = _pinyinCache.get(cacheKey);
+  if (!cache || Date.now() - cache.ts > PINYIN_CACHE_TTL) {
+    cache = { names: new Map(), ts: Date.now() };
+    _pinyinCache.set(cacheKey, cache);
+  }
+  return cache;
+}
+
+// 快速搜索接口 - 支持拼音首字母搜索
 exports.searchCompanies = async (req, res) => {
   try {
-    const search = req.query.search || '';
+    const search = (req.query.search || '').trim();
     const limit = parseInt(req.query.limit) || 20;
 
-    const pipeline = [];
-
-    // 第一步：租户过滤（必须在最前面）
     const matchStage = {};
     if (req.tenantId) {
       matchStage.tenantId = req.tenantId;
     }
 
-    // 第二步：名称搜索（使用前缀匹配优化性能）
+    // Get all distinct names (small set)
+    const allNames = await Company.aggregate([
+      { $match: matchStage },
+      { $group: { _id: '$name' } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    let filtered = allNames.map(r => r._id);
+
     if (search) {
-      // 使用前缀匹配，可以利用索引
-      matchStage.name = { $regex: `^${search}`, $options: 'i' };
+      const searchLower = search.toLowerCase();
+      const cache = getCache(req.tenantId);
+      filtered = filtered.filter(name => matchWithPinyin(name, searchLower, cache));
     }
 
-    pipeline.push({ $match: matchStage });
+    const data = filtered.slice(0, limit).map(name => ({ name }));
 
-    // 第三步：只选择 name 字段并去重
-    pipeline.push({
-      $group: {
-        _id: '$name'
-      }
-    });
-
-    // 第四步：排序
-    pipeline.push({ $sort: { _id: 1 } });
-
-    // 第五步：限制结果数量
-    pipeline.push({ $limit: limit });
-
-    // 第六步：格式化输出
-    pipeline.push({
-      $project: {
-        _id: 0,
-        name: '$_id'
-      }
-    });
-
-    const companies = await Company.aggregate(pipeline);
-
-    res.json({
-      ok: true,
-      data: companies
-    });
+    res.json({ ok: true, data });
   } catch (error) {
     console.error('searchCompanies error:', error);
     res.status(500).json({ ok: false, error: error.message });
@@ -61,38 +69,38 @@ exports.getCompanies = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const search = req.query.search || '';
+    const search = (req.query.search || '').trim();
     const skipCount = req.query.skipCount === 'true';
 
-    const baseQuery = {};
+    const matchStage = {};
+    if (req.tenantId) {
+      matchStage.tenantId = req.tenantId;
+    }
+
+    // Get all distinct names (small set)
+    const allNames = await Company.aggregate([
+      { $match: matchStage },
+      { $group: { _id: '$name' } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    let filtered = allNames.map(r => r._id);
+
     if (search) {
-      baseQuery.name = { $regex: search, $options: 'i' };
+      const searchLower = search.toLowerCase();
+      const cache = getCache(req.tenantId);
+      filtered = filtered.filter(name => matchWithPinyin(name, searchLower, cache));
     }
 
-    const query = buildTenantQuery(req, baseQuery);
-
-    // 对于搜索场景（如下拉列表），跳过耗时的 countDocuments 查询
-    // 可通过 skipCount=true 参数显式跳过，或在搜索模式下自动跳过
-    const shouldSkipCount = skipCount || (search && limit <= 50);
-
-    let count = 0;
-    if (!shouldSkipCount) {
-      count = await Company.countDocuments(query);
-    }
-
-    const companies = await Company.find(query)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ create_time: -1 })
-      .select('name customers contact_name phone address')
-      .lean();
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit).map(name => ({ name }));
 
     res.json({
       ok: true,
-      data: companies,
-      total: shouldSkipCount ? -1 : count,
-      page: page,
-      totalPages: shouldSkipCount ? -1 : Math.ceil(count / limit)
+      data,
+      total: skipCount ? -1 : total,
+      page,
+      totalPages: skipCount ? -1 : Math.ceil(total / limit)
     });
   } catch (error) {
     console.error('getCompanies error:', error);

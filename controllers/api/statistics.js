@@ -425,7 +425,21 @@ exports.getDashboardStatistics = async function (req, res) {
             {
               $group: {
                 _id: '$vehicle_vessel_name',
-                weight: { $sum: '$total_weight' }
+                weight: { $sum: '$total_weight' },
+                total_price: { $sum: { $ifNull: ['$vessel_price', 0] } }
+              }
+            },
+            { $sort: { weight: -1 } }
+          ],
+          // 内部车辆（装船的车）：从船运单的 bills.vehicles 中提取
+          byInnerVehicle: [
+            { $unwind: '$bills' },
+            { $unwind: '$bills.vehicles' },
+            {
+              $group: {
+                _id: '$bills.vehicles.veh_name',
+                weight: { $sum: '$bills.vehicles.send_weight' },
+                total_price: { $sum: { $ifNull: ['$bills.vehicles.veh_price', 0] } }
               }
             },
             { $sort: { weight: -1 } }
@@ -498,11 +512,13 @@ exports.getDashboardStatistics = async function (req, res) {
     const totalPaymentTonnage = settleTonnageResult[0] ? settleTonnageResult[0].paymentTonnage : 0;
 
     // 计算车辆分类统计
-    // 从data.byVehicle获取所有车船及其吨数
-    const vehicleNames = data.byVehicle.map(v => v._id).filter(name => name); // 过滤掉空名称
+    // 从 byVehicle + byInnerVehicle 获取所有车船名称
+    const vehicleNames = data.byVehicle.map(v => v._id).filter(name => name);
+    const innerVehicleNames = data.byInnerVehicle.map(v => v._id).filter(name => name);
+    const allVehicleNames = [...new Set([...vehicleNames, ...innerVehicleNames])];
 
     // 查询Vehicle表获取车辆信息
-    const vehicles = await Vehicle.find(buildTenantQuery(req, { name: { $in: vehicleNames } }))
+    const vehicles = await Vehicle.find(buildTenantQuery(req, { name: { $in: allVehicleNames } }))
       .select('name veh_type veh_category')
       .lean()
       .exec();
@@ -524,13 +540,16 @@ exports.getDashboardStatistics = async function (req, res) {
     let truckTonnage = 0;
     let vesselTonnage = 0;
 
-    const allVehicles = data.byVehicle.map(v => {
+    const allVehicles = [];
+
+    // 主运单级别车辆（vehicle_vessel_name）
+    data.byVehicle.forEach(v => {
       const vehicleName = v._id;
       const tonnage = v.weight;
+      const price = v.total_price || 0;
       const info = vehicleInfoMap[vehicleName];
 
       if (info) {
-        // 按所有权分类
         if (info.veh_category === '自有') {
           ownVehicleCount++;
           ownVehicleTonnage += tonnage;
@@ -539,7 +558,6 @@ exports.getDashboardStatistics = async function (req, res) {
           outsourcedVehicleTonnage += tonnage;
         }
 
-        // 按类型分类
         if (info.veh_type === '车') {
           truckTonnage += tonnage;
         } else if (info.veh_type === '船') {
@@ -547,12 +565,32 @@ exports.getDashboardStatistics = async function (req, res) {
         }
       }
 
-      return {
+      allVehicles.push({
         name: vehicleName || '未命名',
         value: parseFloat(tonnage.toFixed(3)),
+        total_price: parseFloat(price.toFixed(2)),
         veh_type: info ? info.veh_type : '',
-        veh_category: info ? info.veh_category : ''
-      };
+        veh_category: info ? info.veh_category : '',
+        dest_type: (info && info.veh_type === '车') ? '到客户' : ''
+      });
+    });
+
+    // 内部车辆（装船的车）— dest_type: '到船'
+    data.byInnerVehicle.forEach(v => {
+      const vehicleName = v._id;
+      if (!vehicleName) return;
+      const tonnage = v.weight;
+      const price = v.total_price || 0;
+      const info = vehicleInfoMap[vehicleName];
+
+      allVehicles.push({
+        name: vehicleName,
+        value: parseFloat(tonnage.toFixed(3)),
+        total_price: parseFloat(price.toFixed(2)),
+        veh_type: '车',
+        veh_category: info ? info.veh_category : '',
+        dest_type: '到船'
+      });
     });
 
     res.json({
