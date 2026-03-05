@@ -48,7 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { DatePicker } from '@/components/ui/date-picker'
+import { DatePicker, MonthPicker } from '@/components/ui/date-picker'
 import { getCompanies } from '@/services/api/data-dict.api'
 import {
   getStatisticsData,
@@ -96,6 +96,25 @@ const startYear = ref(currentYear.toString())
 const startMonth = ref((new Date().getMonth() + 1).toString())
 const endYear = ref(currentYear.toString())
 const endMonth = ref((new Date().getMonth() + 1).toString())
+
+// MonthPicker 双向绑定：YYYY-MM ↔ startYear/startMonth, endYear/endMonth
+const startYearMonth = computed({
+  get: () => `${startYear.value}-${startMonth.value.padStart(2, '0')}`,
+  set: (val: string) => {
+    const [y, m] = val.split('-')
+    startYear.value = y
+    startMonth.value = String(parseInt(m))
+  },
+})
+
+const endYearMonth = computed({
+  get: () => `${endYear.value}-${endMonth.value.padStart(2, '0')}`,
+  set: (val: string) => {
+    const [y, m] = val.split('-')
+    endYear.value = y
+    endMonth.value = String(parseInt(m))
+  },
+})
 
 // Date formatters for DatePicker
 const formattedStartDate = computed({
@@ -1065,45 +1084,11 @@ loadCompanies()
                 <div v-if="dateSelectionMode === 'month'" class="space-y-4">
                     <div class="grid gap-2">
                         <Label>开始月份</Label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <Select v-model="startYear">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="年份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Select v-model="startMonth">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="月份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="m in months" :key="m" :value="m">{{ m }}月</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+                        <MonthPicker v-model="startYearMonth" placeholder="选择开始月份" />
                     </div>
                     <div class="grid gap-2">
                         <Label>结束月份</Label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <Select v-model="endYear">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="年份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="y in years" :key="y" :value="y">{{ y }}年</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Select v-model="endMonth">
-                                <SelectTrigger>
-                                    <SelectValue placeholder="月份" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="m in months" :key="m" :value="m">{{ m }}月</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+                        <MonthPicker v-model="endYearMonth" placeholder="选择结束月份" />
                     </div>
                 </div>
                 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Filter, RefreshCw, SearchX, Trash2, X } from 'lucide-vue-next'
+import { CheckSquare, Filter, RefreshCw, SearchX, Square, Trash2, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { BillFilterValues } from '@/components/bill-filter.vue'
@@ -407,12 +407,10 @@ onMounted(() => {
         <thead class="bg-muted/50">
           <tr>
             <th class="p-2 text-left w-10 whitespace-nowrap">
-              <input
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300"
-                :checked="selectedBills.length === bills.length && bills.length > 0"
-                @change="toggleSelectAll"
-              >
+              <button class="flex items-center focus:outline-none" @click="toggleSelectAll">
+                <CheckSquare v-if="selectedBills.length === bills.length && bills.length > 0" class="w-4 h-4 text-primary" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
+              </button>
             </th>
             <th class="p-2 text-center whitespace-nowrap">
               状态
@@ -467,12 +465,10 @@ onMounted(() => {
             @click="toggleSelect(bill)"
           >
             <td class="p-2" @click.stop>
-              <input
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300"
-                :checked="isSelected(bill)"
-                @change="toggleSelect(bill)"
-              >
+              <button class="flex items-center focus:outline-none" @click="toggleSelect(bill)">
+                <CheckSquare v-if="isSelected(bill)" class="w-4 h-4 text-primary" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
+              </button>
             </td>
             <td class="p-2 text-center">
               <UiBadge variant="secondary">

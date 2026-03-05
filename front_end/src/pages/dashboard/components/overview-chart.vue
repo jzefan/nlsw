@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { VisAxis, VisStackedBar, VisXYContainer, VisTooltip, VisCrosshair } from '@unovis/vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { MonthPicker } from '@/components/ui/date-picker'
 
 const props = defineProps<{
   data: { date: string, weight: number }[]
@@ -59,21 +60,24 @@ const tickFormat = (i: number) => {
 // Ensure xDomain covers all bars with padding
 const xDomain = computed(() => [-0.5, chartData.value.length - 0.5])
 
-function handleStartChange(event: Event) {
-  emit('update:startDate', (event.target as HTMLInputElement).value)
-}
+// MonthPicker 直接使用 YYYY-MM 格式，与 startDate/endDate 一致
+const startDateLocal = computed({
+  get: () => props.startDate,
+  set: (val: string) => emit('update:startDate', val),
+})
 
-function handleEndChange(event: Event) {
-  emit('update:endDate', (event.target as HTMLInputElement).value)
-}
+const endDateLocal = computed({
+  get: () => props.endDate,
+  set: (val: string) => emit('update:endDate', val),
+})
 </script>
 
 <template>
   <Card class="h-full flex flex-col border-0 shadow-md bg-gradient-to-br from-slate-50 to-white dark:from-slate-950/50 dark:to-background">
-    <CardHeader class="flex flex-row items-center justify-between pb-2">
+    <CardHeader class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 pb-2">
       <div class="space-y-1">
         <CardTitle class="flex items-center gap-2">
-          <div class="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <div class="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 text-blue-600">
               <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
             </svg>
@@ -82,20 +86,10 @@ function handleEndChange(event: Event) {
         </CardTitle>
         <CardDescription class="pl-10">展示选定时间段内的配发总吨数趋势</CardDescription>
       </div>
-      <div class="flex items-center space-x-2 bg-white dark:bg-slate-900 border rounded-lg p-1.5 shadow-sm">
-        <input
-          type="month"
-          :value="startDate"
-          @input="handleStartChange"
-          class="bg-transparent text-sm border-none focus:ring-0 focus:outline-none px-2 py-1"
-        />
+      <div class="flex items-center gap-2 shrink-0">
+        <MonthPicker v-model="startDateLocal" placeholder="开始月份" class="w-[130px] h-8 text-sm" />
         <span class="text-muted-foreground text-sm">至</span>
-        <input
-          type="month"
-          :value="endDate"
-          @input="handleEndChange"
-          class="bg-transparent text-sm border-none focus:ring-0 focus:outline-none px-2 py-1"
-        />
+        <MonthPicker v-model="endDateLocal" placeholder="结束月份" class="w-[130px] h-8 text-sm" />
       </div>
     </CardHeader>
     <CardContent class="chart-content pl-0 flex-1 min-h-0 overflow-hidden">

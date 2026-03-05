@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { Download, Printer, Search } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, watchEffect } from 'vue'
 import { toast } from 'vue-sonner'
 import ExcelJS from 'exceljs'
 
@@ -53,9 +53,19 @@ const companyName = computed(() => {
   if (authStore.companyDisplayName) return authStore.companyDisplayName
   return COMPANY_FULL_NAME
 })
-import { isAdmin } from '@/constants/permissions'
+import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 
 const authStore = useAuthStore()
+
+// 权限
+const privilege = computed(() => authStore.user?.privilege ?? [])
+const canSeePrice = computed(() => hasPermission(privilege.value, PERMISSIONS.SEE_PRICE))
+// 业务权限用户只能看自己的运单（无统计/会计/管理权限）
+const isOperatorOnly = computed(() =>
+  !isAdmin(privilege.value)
+  && !hasPermission(privilege.value, PERMISSIONS.STATISTICS)
+  && !hasPermission(privilege.value, PERMISSIONS.ACCOUNT)
+)
 
 // State
 const loading = ref(false)
@@ -77,8 +87,12 @@ const advForm = ref({
   endDate: '',
 })
 
-// Computed
-const isAdminUser = computed(() => isAdmin(authStore.user?.privilege ?? []))
+// 业务权限用户强制只看自己的运单
+watchEffect(() => {
+  if (isOperatorOnly.value) {
+    myWaybills.value = true
+  }
+})
 
 // Search function for the combobox
 async function searchInvoices(keyword: string, limit: number, page: number) {
@@ -816,7 +830,7 @@ const calculateTotals = computed(() => {
           />
         </div>
 
-        <div class="flex items-center gap-2">
+        <div v-if="!isOperatorOnly" class="flex items-center gap-2">
           <input
             id="my-waybills"
             type="checkbox"

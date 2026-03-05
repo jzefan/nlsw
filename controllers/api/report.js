@@ -5,6 +5,7 @@ const Settle = require('../../models/Settle');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
 const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
+const { hasPermission, PERMISSIONS } = require('../../utils/permissions');
 
 // Helper to get start/end date
 function getStartEndDate(start, end, isDay) {
@@ -288,6 +289,18 @@ exports.getIntegratedQuery = async function (req, res) {
     qDate = getStartEndDate(query.fDate1, query.fDate2, true);
   }
 
+  const user = req.user || {};
+  const canSeePrice = hasPermission(user.privilege, PERMISSIONS.SEE_PRICE);
+
+  // 无查看价格权限时，从结果中移除价格字段
+  function stripPriceFields(rows) {
+    if (canSeePrice) return rows;
+    return rows.map(row => {
+      const { price, collection_price, veh_ves_price, ...rest } = row;
+      return rest;
+    });
+  }
+
   try {
     if (query.fType === 'invoice-first') {
       obj = { $and: [{ state: { $ne: '新建' } }] };
@@ -328,7 +341,7 @@ exports.getIntegratedQuery = async function (req, res) {
             return sum + w;
           }, 0);
           const pagedData = isExport ? combined : combined.slice(skip, skip + limit);
-          res.json({ bills: pagedData, ok: true, total, page, limit, totalSendNum, totalSendWeight });
+          res.json({ bills: stripPriceFields(pagedData), ok: true, total, page, limit, totalSendNum, totalSendWeight });
         } else {
           res.json({ ok: false, bills: [], total: 0 });
         }
@@ -360,7 +373,7 @@ exports.getIntegratedQuery = async function (req, res) {
           return sum + w;
         }, 0);
         const pagedData = isExport ? bills : bills.slice(skip, skip + limit);
-        res.json({ ok: true, bills: pagedData, total, page, limit, totalSendNum: 0, totalSendWeight: 0, totalUnsendWeight });
+        res.json({ ok: true, bills: stripPriceFields(pagedData), total, page, limit, totalSendNum: 0, totalSendWeight: 0, totalUnsendWeight });
 
       } else {
         // ── 聚合管道优化：从 Invoice 出发（利用 ship_date 索引），再 $lookup Bill ──
@@ -540,7 +553,7 @@ exports.getIntegratedQuery = async function (req, res) {
           await applySettleStatus(req, allData);
 
           const meta = countResult || { total: 0, totalSendNum: 0, totalSendWeight: 0 };
-          res.json({ ok: true, bills: allData, total: meta.total, page, limit, totalSendNum: meta.totalSendNum, totalSendWeight: meta.totalSendWeight, totalUnsendWeight: 0 });
+          res.json({ ok: true, bills: stripPriceFields(allData), total: meta.total, page, limit, totalSendNum: meta.totalSendNum, totalSendWeight: meta.totalSendWeight, totalUnsendWeight: 0 });
         } else {
           pipeline.push({
             $facet: {
@@ -560,7 +573,7 @@ exports.getIntegratedQuery = async function (req, res) {
 
           await applySettleStatus(req, pagedData);
 
-          res.json({ ok: true, bills: pagedData, total: meta.total, page, limit, totalSendNum: meta.totalSendNum, totalSendWeight: meta.totalSendWeight, totalUnsendWeight: 0 });
+          res.json({ ok: true, bills: stripPriceFields(pagedData), total: meta.total, page, limit, totalSendNum: meta.totalSendNum, totalSendWeight: meta.totalSendWeight, totalUnsendWeight: 0 });
         }
       }
     }

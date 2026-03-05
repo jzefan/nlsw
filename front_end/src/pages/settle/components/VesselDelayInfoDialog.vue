@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
 import { Upload as UploadIcon, X as XIcon } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { Button } from '@/components/ui/button'
@@ -42,20 +42,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 const totalImagesCount = computed(() => existingImages.value.length + uploadedFiles.value.length)
 
-// 有图片时自动勾选且禁用，无图片时允许用户手动勾选
-const isReceiptDisabled = computed(() => totalImagesCount.value > 0)
-
-// 监听图片数量变化，自动更新回执勾选状态
-watch(totalImagesCount, (newCount) => {
-  if (newCount > 0) {
-    // 有图片时自动勾选
-    formData.value.receiptChecked = true
-  }
-  else {
-    // 无图片时自动取消勾选
-    formData.value.receiptChecked = false
-  }
-})
+// 上传图片后自动勾选回执（仅在新增图片时自动勾选，不限制用户手动操作）
 
 const formData = ref({
   chargeCash: '0',
@@ -225,12 +212,9 @@ function handleDelayDayInput(event: Event) {
   }, 500)
 }
 
-// 回执状态变化
-function handleReceiptChange(checked: boolean) {
-  if (checked && uploadedFiles.value.length === 0) {
-    // 如果勾选了回执但还没上传图片，提示上传
-    toast.info('请上传回执图片')
-  }
+// 回执状态变化（用户可自由切换，无需图片）
+function handleReceiptChange(_checked: boolean) {
+  // 回执状态与图片解耦，无需额外逻辑
 }
 
 // 文件选择
@@ -288,7 +272,10 @@ function processFiles(files: File[]) {
     }
     reader.readAsDataURL(file)
   }
-  // 注：回执勾选状态由 watch(totalImagesCount) 自动处理
+  // 上传图片后自动勾选回执
+  if (uploadedFiles.value.length > 0) {
+    formData.value.receiptChecked = true
+  }
 }
 
 // 删除新上传的图片（尚未提交）
@@ -299,7 +286,6 @@ function handleRemoveImage(index: number) {
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
-  // 注：回执勾选状态由 watch(totalImagesCount) 自动处理
 }
 
 // 删除已上传的图片（服务器上的）
@@ -308,7 +294,6 @@ async function handleDeleteExistingImage(imageId: string) {
     await settleApi.deleteReceiptImage(imageId)
     existingImages.value = existingImages.value.filter(img => img.id !== imageId)
     toast.success('图片删除成功')
-    // 注：回执勾选状态由 watch(totalImagesCount) 自动处理
   }
   catch (error: any) {
     toast.error(error.message || '删除图片失败')
@@ -497,25 +482,17 @@ defineExpose({ open, openBatch })
         <!-- 回执信息（仅单条记录模式） -->
         <div v-if="!isBatchMode" class="space-y-3">
           <label
-            class="flex items-center space-x-3 my-3 h-10 w-full px-3 rounded-md border transition-colors"
-            :class="[
-              isReceiptDisabled
-                ? 'border-muted bg-muted/30 cursor-not-allowed'
-                : 'border-transparent hover:bg-muted/50 hover:border-muted-foreground/20 cursor-pointer'
-            ]"
+            class="flex items-center space-x-3 my-3 h-10 w-full px-3 rounded-md border transition-colors border-transparent hover:bg-muted/50 hover:border-muted-foreground/20 cursor-pointer"
           >
             <input
               id="receipt-checked"
               v-model="formData.receiptChecked"
               type="checkbox"
-              :disabled="isReceiptDisabled"
-              class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
-              :class="isReceiptDisabled ? 'cursor-not-allowed' : 'cursor-pointer'"
+              class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
               @change="handleReceiptChange(formData.receiptChecked)"
             >
-            <span class="text-sm font-medium" :class="isReceiptDisabled ? 'text-muted-foreground' : ''">
+            <span class="text-sm font-medium">
               收到回执
-              <span v-if="isReceiptDisabled" class="text-xs text-muted-foreground ml-1">(已上传图片)</span>
             </span>
           </label>
 

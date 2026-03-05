@@ -6,6 +6,30 @@ const utils = require('../../controllers/utils');
 const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
 const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
 
+// 财务月日期解析：YYYY-MM → 上月26日 00:00:00 ~ 本月25日 23:59:59
+function parseFiscalDateRange(startYM, endYM) {
+  const [startY, startM] = startYM.split('-').map(Number);
+  const [endY, endM] = endYM.split('-').map(Number);
+
+  // 财务月开始：上月26日
+  const startDate = startM === 1
+    ? new Date(startY - 1, 11, 26, 0, 0, 0)
+    : new Date(startY, startM - 2, 26, 0, 0, 0);
+
+  // 财务月结束：当月25日
+  const endDate = new Date(endY, endM - 1, 25, 23, 59, 59, 999);
+
+  return { startDate, endDate };
+}
+
+function parseFiscalYearRange(year) {
+  // 财务年：上年12月26日 ~ 本年12月25日
+  return {
+    startDate: new Date(year - 1, 11, 26, 0, 0, 0),
+    endDate: new Date(year, 11, 25, 23, 59, 59, 999)
+  };
+}
+
 // Helper function: Search DB Data
 async function searchDbData(req, res, query, inv_f_selected, bill_f_selected) {
   var obj = { $and: [{ state: { $ne: '新建' } }] };
@@ -353,25 +377,11 @@ exports.getDashboardStatistics = async function (req, res) {
     const isAdmin = isAdminPrivilege(user.privilege);
 
     let startDate, endDate;
-    // Check for YYYY-MM format from frontend input type="month"
     if (req.query.startDate && req.query.endDate) {
-      // Start date: 1st of the month
-      startDate = utils.parseLocalDate(req.query.startDate + "-01");
-
-      // End date: Last second of the end month
-      const endParts = req.query.endDate.split('-');
-      const endYear = parseInt(endParts[0]);
-      const endMonth = parseInt(endParts[1]);
-      // Date(year, month, 0) gives the last day of the previous month. 
-      // So Date(endYear, endMonth, 0) gives last day of endMonth (since month is 0-indexed in Date but 1-indexed in input)
-      // Wait: Date(2024, 1, 0) -> Jan 31. Date(2024, 12, 0) -> Dec 31.
-      // input 2024-01 -> endMonth=1. Date(2024, 1, 0) is Jan 31. Correct.
-      endDate = new Date(endYear, endMonth, 0, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalDateRange(req.query.startDate, req.query.endDate));
     } else {
-      // Default to current year
       const year = parseInt(req.query.year) || new Date().getFullYear();
-      startDate = new Date(year, 0, 1);
-      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalYearRange(year));
     }
 
     const matchStage = {
@@ -443,6 +453,34 @@ exports.getDashboardStatistics = async function (req, res) {
               }
             },
             { $sort: { weight: -1 } }
+          ],
+          // 按车辆+月份分组（主运单级别）
+          byVehicleMonthly: [
+            {
+              $group: {
+                _id: {
+                  vehicle: '$vehicle_vessel_name',
+                  year: { $year: '$ship_date' },
+                  month: { $month: '$ship_date' }
+                },
+                weight: { $sum: '$total_weight' }
+              }
+            }
+          ],
+          // 按内部车辆+月份分组
+          byInnerVehicleMonthly: [
+            { $unwind: '$bills' },
+            { $unwind: '$bills.vehicles' },
+            {
+              $group: {
+                _id: {
+                  vehicle: '$bills.vehicles.veh_name',
+                  year: { $year: '$ship_date' },
+                  month: { $month: '$ship_date' }
+                },
+                weight: { $sum: '$bills.vehicles.send_weight' }
+              }
+            }
           ]
         }
       }
@@ -485,6 +523,7 @@ exports.getDashboardStatistics = async function (req, res) {
       {
         $group: {
           _id: null,
+          settledTonnage: { $sum: '$ship_weight' },
           invoiceTonnage: {
             $sum: {
               $cond: [
@@ -508,6 +547,7 @@ exports.getDashboardStatistics = async function (req, res) {
     );
     const settleTonnageResult = await Settle.aggregate(settlePipeline).exec();
 
+    const totalSettledTonnage = settleTonnageResult[0] ? settleTonnageResult[0].settledTonnage : 0;
     const totalInvoiceTonnage = settleTonnageResult[0] ? settleTonnageResult[0].invoiceTonnage : 0;
     const totalPaymentTonnage = settleTonnageResult[0] ? settleTonnageResult[0].paymentTonnage : 0;
 
@@ -532,6 +572,126 @@ exports.getDashboardStatistics = async function (req, res) {
       };
     });
 
+    // === 未结算统计 ===
+    const shipVehicleNames = Object.entries(vehicleInfoMap)
+      .filter(([, info]) => info && info.veh_type === '船')
+      .map(([name]) => name);
+
+    const unsettledDateQuery = { ship_date: matchStage.ship_date };
+    if (!isAdmin) unsettledDateQuery.shipper = user.userid;
+
+    // 1. 车运到船未结算：船运单中 bills.vehicles.send_weight 之和
+    //    定尺提单 send_weight=0 时用 send_num * 单块重
+    let truckToShipUnsettledTonnage = 0;
+    if (shipVehicleNames.length > 0) {
+      const shipInvoices = await Invoice.find(
+        buildTenantQuery(req, { ...unsettledDateQuery, state: { $ne: '新建' }, vehicle_vessel_name: { $in: shipVehicleNames } })
+      ).select('bills').lean();
+
+      const shipBillIds = [];
+      shipInvoices.forEach(inv => {
+        inv.bills?.forEach(b => { if (b.bill_id) shipBillIds.push(b.bill_id); });
+      });
+
+      const shipBillDocs = await Bill.find(
+        buildTenantQuery(req, { _id: { $in: shipBillIds } })
+      ).select('weight size_type').lean();
+
+      const billInfoMap = {};
+      shipBillDocs.forEach(b => {
+        billInfoMap[b._id.toString()] = { weight: b.weight, size_type: b.size_type };
+      });
+
+      shipInvoices.forEach(inv => {
+        inv.bills?.forEach(b => {
+          const billInfo = billInfoMap[b.bill_id?.toString()];
+          b.vehicles?.forEach(v => {
+            let w = v.send_weight || 0;
+            if (w === 0 && billInfo && billInfo.size_type === '定尺' && billInfo.weight && v.send_num) {
+              w = v.send_num * billInfo.weight;
+            }
+            truckToShipUnsettledTonnage += w;
+          });
+        });
+      });
+    }
+
+    // 2. 客户/代收代付 未结算：参考 settle/bills 接口逻辑
+    //    state='已配发'或'新建'，$lookup Bill，按 collection_price 区分类型
+    const clientPipeline = [];
+    if (!isPlatformUser(req)) {
+      clientPipeline.push({ $match: { tenantId: req.tenantId } });
+    }
+    const clientMatchConds = [
+      { ship_date: { $gte: startDate, $lte: endDate } },
+      { state: { $in: ['已配发', '新建'] } }
+    ];
+    if (!isAdmin) clientMatchConds.push({ shipper: user.userid });
+
+    clientPipeline.push(
+      { $match: { $and: clientMatchConds } },
+      { $unwind: { path: '$bills', preserveNullAndEmptyArrays: false } },
+      {
+        $lookup: {
+          from: 'bills',
+          let: { billId: '$bills.bill_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$billId'] } } },
+            { $project: { weight: 1, collection_price: 1 } }
+          ],
+          as: 'billInfo'
+        }
+      },
+      { $unwind: { path: '$billInfo', preserveNullAndEmptyArrays: false } },
+      // send_weight: bills.weight，为0时回退 bills.num * 单块重
+      {
+        $addFields: {
+          send_weight: {
+            $cond: {
+              if: { $gt: [{ $ifNull: ['$bills.weight', 0] }, 0] },
+              then: '$bills.weight',
+              else: { $multiply: [{ $ifNull: ['$bills.num', 0] }, { $ifNull: ['$billInfo.weight', 0] }] }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          // collection_price = -1 或 null → 客户结算
+          customerUnsettled: {
+            $sum: {
+              $cond: [
+                { $or: [
+                  { $eq: ['$billInfo.collection_price', -1] },
+                  { $eq: ['$billInfo.collection_price', null] }
+                ]},
+                '$send_weight',
+                0
+              ]
+            }
+          },
+          // collection_price != -1 且非 null → 代收代付（南钢）
+          collectionUnsettled: {
+            $sum: {
+              $cond: [
+                { $and: [
+                  { $ne: ['$billInfo.collection_price', -1] },
+                  { $ne: ['$billInfo.collection_price', null] }
+                ]},
+                '$send_weight',
+                0
+              ]
+            }
+          }
+        }
+      }
+    );
+
+    const clientResult = await Invoice.aggregate(clientPipeline).exec();
+    const customerUnsettledTonnage = clientResult[0]?.customerUnsettled || 0;
+    const collectionUnsettledTonnage = clientResult[0]?.collectionUnsettled || 0;
+
     // 统计各分类的数量和吨数，同时构建包含车辆信息的allVehicles
     let ownVehicleCount = 0;
     let ownVehicleTonnage = 0;
@@ -540,11 +700,12 @@ exports.getDashboardStatistics = async function (req, res) {
     let truckTonnage = 0;
     let vesselTonnage = 0;
 
-    const allVehicles = [];
+    // 用 Map 按车船名称合并数据
+    const vehicleMap = new Map();
 
     // 主运单级别车辆（vehicle_vessel_name）
     data.byVehicle.forEach(v => {
-      const vehicleName = v._id;
+      const vehicleName = v._id || '未命名';
       const tonnage = v.weight;
       const price = v.total_price || 0;
       const info = vehicleInfoMap[vehicleName];
@@ -557,7 +718,6 @@ exports.getDashboardStatistics = async function (req, res) {
           outsourcedVehicleCount++;
           outsourcedVehicleTonnage += tonnage;
         }
-
         if (info.veh_type === '车') {
           truckTonnage += tonnage;
         } else if (info.veh_type === '船') {
@@ -565,17 +725,18 @@ exports.getDashboardStatistics = async function (req, res) {
         }
       }
 
-      allVehicles.push({
-        name: vehicleName || '未命名',
-        value: parseFloat(tonnage.toFixed(3)),
-        total_price: parseFloat(price.toFixed(2)),
+      vehicleMap.set(vehicleName, {
+        name: vehicleName,
+        value: tonnage,
+        to_customer: (info && info.veh_type === '车') ? tonnage : 0,
+        to_ship: 0,
+        total_price: price,
         veh_type: info ? info.veh_type : '',
-        veh_category: info ? info.veh_category : '',
-        dest_type: (info && info.veh_type === '车') ? '到客户' : ''
+        veh_category: info ? info.veh_category : ''
       });
     });
 
-    // 内部车辆（装船的车）— dest_type: '到船'
+    // 内部车辆（装船的车）— 合并到船吨数
     data.byInnerVehicle.forEach(v => {
       const vehicleName = v._id;
       if (!vehicleName) return;
@@ -583,20 +744,75 @@ exports.getDashboardStatistics = async function (req, res) {
       const price = v.total_price || 0;
       const info = vehicleInfoMap[vehicleName];
 
-      allVehicles.push({
-        name: vehicleName,
-        value: parseFloat(tonnage.toFixed(3)),
-        total_price: parseFloat(price.toFixed(2)),
-        veh_type: '车',
-        veh_category: info ? info.veh_category : '',
-        dest_type: '到船'
-      });
+      const existing = vehicleMap.get(vehicleName);
+      if (existing) {
+        // 同一辆车既有到客户又有到船
+        existing.to_ship += tonnage;
+        existing.value += tonnage;
+        existing.total_price += price;
+      } else {
+        // 仅作为内部车辆出现（只到船）
+        vehicleMap.set(vehicleName, {
+          name: vehicleName,
+          value: tonnage,
+          to_customer: 0,
+          to_ship: tonnage,
+          total_price: price,
+          veh_type: '车',
+          veh_category: info ? info.veh_category : ''
+        });
+      }
     });
+
+    // 构建每个车辆的月度趋势
+    const vehicleMonthlyMap = new Map(); // vehicleName -> Map(YYYY-MM -> weight)
+
+    const addMonthlyWeight = (vehicleName, year, month, weight) => {
+      if (!vehicleName) return;
+      if (!vehicleMonthlyMap.has(vehicleName)) {
+        vehicleMonthlyMap.set(vehicleName, new Map());
+      }
+      const dateKey = `${year}-${String(month).padStart(2, '0')}`;
+      const monthMap = vehicleMonthlyMap.get(vehicleName);
+      monthMap.set(dateKey, (monthMap.get(dateKey) || 0) + weight);
+    };
+
+    data.byVehicleMonthly.forEach(item => {
+      addMonthlyWeight(item._id.vehicle, item._id.year, item._id.month, item.weight);
+    });
+
+    data.byInnerVehicleMonthly.forEach(item => {
+      addMonthlyWeight(item._id.vehicle, item._id.year, item._id.month, item.weight);
+    });
+
+    const allVehicles = Array.from(vehicleMap.values()).map(v => {
+      const monthMap = vehicleMonthlyMap.get(v.name);
+      const monthlyTrend = monthMap
+        ? Array.from(monthMap.entries())
+            .map(([date, weight]) => ({ date, weight: parseFloat(weight.toFixed(3)) }))
+            .sort((a, b) => a.date.localeCompare(b.date))
+        : [];
+
+      return {
+        name: v.name,
+        value: parseFloat(v.value.toFixed(3)),
+        to_customer: parseFloat(v.to_customer.toFixed(3)),
+        to_ship: parseFloat(v.to_ship.toFixed(3)),
+        total_price: parseFloat(v.total_price.toFixed(2)),
+        veh_type: v.veh_type,
+        veh_category: v.veh_category,
+        monthlyTrend
+      };
+    }).sort((a, b) => b.value - a.value);
 
     res.json({
       ok: true,
       data: {
         totalTonnage: parseFloat(totalTonnage.toFixed(3)),
+        truckToShipUnsettledTonnage: parseFloat(truckToShipUnsettledTonnage.toFixed(3)),
+        customerUnsettledTonnage: parseFloat(customerUnsettledTonnage.toFixed(3)),
+        collectionUnsettledTonnage: parseFloat(collectionUnsettledTonnage.toFixed(3)),
+        totalSettledTonnage: parseFloat(totalSettledTonnage.toFixed(3)),
         totalInvoiceTonnage: parseFloat(totalInvoiceTonnage.toFixed(3)),
         totalPaymentTonnage: parseFloat(totalPaymentTonnage.toFixed(3)),
         billingNameCount,
@@ -630,15 +846,10 @@ exports.getDashboardInvoiceDetails = async function (req, res) {
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
-      startDate = utils.parseLocalDate(req.query.startDate + "-01");
-      const endParts = req.query.endDate.split('-');
-      const endYear = parseInt(endParts[0]);
-      const endMonth = parseInt(endParts[1]);
-      endDate = new Date(endYear, endMonth, 0, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalDateRange(req.query.startDate, req.query.endDate));
     } else {
       const year = parseInt(req.query.year) || new Date().getFullYear();
-      startDate = new Date(year, 0, 1);
-      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalYearRange(year));
     }
 
     const matchStage = {
@@ -745,80 +956,119 @@ exports.getDashboardBillingNamesStats = async function (req, res) {
 
     let startDate, endDate;
     if (req.query.startDate && req.query.endDate) {
-      startDate = utils.parseLocalDate(req.query.startDate + "-01");
-      const endParts = req.query.endDate.split('-');
-      const endYear = parseInt(endParts[0]);
-      const endMonth = parseInt(endParts[1]);
-      endDate = new Date(endYear, endMonth, 0, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalDateRange(req.query.startDate, req.query.endDate));
     } else {
       const year = parseInt(req.query.year) || new Date().getFullYear();
-      startDate = new Date(year, 0, 1);
-      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+      ({ startDate, endDate } = parseFiscalYearRange(year));
     }
 
-    // Get all settle records in date range
+    // 流程：结算 → 开票 → 回款
+    // 所有 Settle 记录都已经过结算，status 标记当前所处阶段
+    // 结算 = ALL, 开票 = 已开票+已回款, 回款 = 已回款
+    // 重量和金额从 Bill 重新计算（定尺：weight=0 时用 num*单重）
+
     const settleMatchStage = {
       settle_date: { $gte: startDate, $lte: endDate }
     };
-
     if (!isAdmin) {
       settleMatchStage.settler = user.userid;
     }
 
-    const settleStatsPipeline = [];
-    if (!isPlatformUser(req)) {
-      settleStatsPipeline.push({ $match: { tenantId: req.tenantId } });
-    }
-    settleStatsPipeline.push(
-      { $match: settleMatchStage },
-      {
-        $group: {
-          _id: '$billing_name',
-          settledWeight: {
-            $sum: {
-              $cond: [{ $eq: ['$status', '已结算'] }, '$ship_weight', 0]
+    const settles = await Settle.find(buildTenantQuery(req, settleMatchStage))
+      .select('billing_name status bills ship_weight price')
+      .lean()
+      .exec();
+
+    // 收集所有 bill_id，批量查询 Bill
+    const allBillIds = new Set();
+    settles.forEach(s => {
+      s.bills?.forEach(b => {
+        if (b.bill_id) allBillIds.add(b.bill_id.toString());
+      });
+    });
+
+    const billDocs = await Bill.find(buildTenantQuery(req, { _id: { $in: Array.from(allBillIds) } }))
+      .select('size_type weight collection_price invoices')
+      .lean()
+      .exec();
+
+    const billMap = {};
+    billDocs.forEach(b => { billMap[b._id.toString()] = b; });
+
+    // 逐条 Settle 计算重量和金额，按 billing_name 汇总
+    const nameStatsMap = {};
+
+    settles.forEach(s => {
+      const name = s.billing_name || '未命名';
+      if (!nameStatsMap[name]) {
+        nameStatsMap[name] = {
+          settledWeight: 0, settledAmount: 0,
+          invoicedWeight: 0, invoicedAmount: 0,
+          paidWeight: 0, paidAmount: 0
+        };
+      }
+
+      let weight = 0;
+      let amount = 0;
+
+      if (s.bills && s.bills.length > 0) {
+        s.bills.forEach(sb => {
+          const bill = sb.bill_id ? billMap[sb.bill_id.toString()] : null;
+
+          // 重量：优先用存储值，定尺且为0时回退到 num*单重
+          let w = sb.weight || 0;
+          if (w === 0 && bill && bill.size_type === '定尺' && bill.weight > 0 && sb.num > 0) {
+            w = sb.num * bill.weight;
+          }
+          weight += w;
+
+          // 金额：从 Bill 的 collection_price 和 invoices[].price 计算
+          if (bill) {
+            if (bill.collection_price > 0) {
+              amount += bill.collection_price * w;
             }
-          },
-          settledAmount: {
-            $sum: {
-              $cond: [{ $eq: ['$status', '已结算'] }, '$price', 0]
-            }
-          },
-          invoicedWeight: {
-            $sum: {
-              $cond: [{ $in: ['$status', ['已开票', '已回款']] }, '$ship_weight', 0]
-            }
-          },
-          invoicedAmount: {
-            $sum: {
-              $cond: [{ $in: ['$status', ['已开票', '已回款']] }, '$price', 0]
-            }
-          },
-          paidWeight: {
-            $sum: {
-              $cond: [{ $eq: ['$status', '已回款'] }, '$ship_weight', 0]
-            }
-          },
-          paidAmount: {
-            $sum: {
-              $cond: [{ $eq: ['$status', '已回款'] }, '$price', 0]
+            const billInv = bill.invoices?.find(i => i.inv_no === sb.inv_no);
+            if (billInv && billInv.price > 0) {
+              amount += billInv.price * w;
             }
           }
-        }
-      },
-      { $sort: { _id: 1 } }
-    );
-    const settleStats = await Settle.aggregate(settleStatsPipeline).exec();
+        });
+      } else {
+        // 无 bills 引用，回退到 Settle 自身数据
+        weight = s.ship_weight || 0;
+        amount = s.price ? s.price * weight : 0;
+      }
 
-    const data = settleStats.map(item => ({
-      name: item._id || '未命名',
-      settledWeight: parseFloat((item.settledWeight || 0).toFixed(3)),
-      settledAmount: parseFloat((item.settledAmount || 0).toFixed(2)),
-      invoicedWeight: parseFloat((item.invoicedWeight || 0).toFixed(3)),
-      invoicedAmount: parseFloat((item.invoicedAmount || 0).toFixed(2)),
-      paidWeight: parseFloat((item.paidWeight || 0).toFixed(3)),
-      paidAmount: parseFloat((item.paidAmount || 0).toFixed(2))
-    }));
+      const stats = nameStatsMap[name];
+
+      // 所有记录都已结算
+      stats.settledWeight += weight;
+      stats.settledAmount += amount;
+
+      // 已开票 = 已开票 + 已回款
+      if (s.status === '已开票' || s.status === '已回款') {
+        stats.invoicedWeight += weight;
+        stats.invoicedAmount += amount;
+      }
+
+      // 已回款
+      if (s.status === '已回款') {
+        stats.paidWeight += weight;
+        stats.paidAmount += amount;
+      }
+    });
+
+    const data = Object.entries(nameStatsMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, stats]) => ({
+        name,
+        settledWeight: parseFloat(stats.settledWeight.toFixed(3)),
+        settledAmount: parseFloat(stats.settledAmount.toFixed(2)),
+        invoicedWeight: parseFloat(stats.invoicedWeight.toFixed(3)),
+        invoicedAmount: parseFloat(stats.invoicedAmount.toFixed(2)),
+        paidWeight: parseFloat(stats.paidWeight.toFixed(3)),
+        paidAmount: parseFloat(stats.paidAmount.toFixed(2))
+      }));
 
     res.json({ ok: true, data });
   } catch (err) {

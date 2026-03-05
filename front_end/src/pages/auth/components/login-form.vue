@@ -13,7 +13,7 @@ const { axiosInstance } = useAxios()
 const isSessionExpired = computed(() => route.query.expired === '1')
 const isStandalone = computed(() => authStore.isStandalone)
 
-// 登录方式：username | phone（默认手机号登录）
+// 登录方式：username | phone
 const loginMethod = ref<'username' | 'phone'>('phone')
 
 const tenantCode = ref('')
@@ -30,6 +30,10 @@ onMounted(async () => {
     }
     if (res.data.standaloneCompany) {
       authStore.setStandaloneCompany(res.data.standaloneCompany)
+    }
+    // standalone模式默认用户名登录，saas模式默认手机号登录
+    if (res.data.deployMode === 'standalone') {
+      loginMethod.value = 'username'
     }
   } catch (e) {
     // Default to saas if fetch fails

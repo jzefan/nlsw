@@ -96,6 +96,7 @@ export async function getInvoiceSettleVessel(params: {
     ok: boolean
     invs: any[]
     vehPersonMap?: Record<string, any>
+    imageWaybills?: string[]
   }>('/get_invoice_settle_vellel', { params })
   return response.data
 }
@@ -207,6 +208,15 @@ export async function uploadReceiptImg(formData: FormData) {
         'Content-Type': 'multipart/form-data',
       },
     },
+  )
+  return response.data
+}
+
+// 车船结算 - 独立切换回执状态
+export async function toggleVesselReceipt(wno: string, receipt: number) {
+  const response = await axiosInstance.post<{ ok: boolean, message?: string }>(
+    '/toggle-vessel-receipt',
+    { wno, receipt },
   )
   return response.data
 }

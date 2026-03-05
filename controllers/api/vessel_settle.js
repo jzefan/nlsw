@@ -208,7 +208,33 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       });
     }
 
-    res.json({ ok: true, invs, vehPersonMap });
+    // 查询哪些运单号有回执图片
+    const allWaybillNos = [];
+    invs.forEach((inv) => {
+      allWaybillNos.push(inv.waybill_no);
+      if (inv.bills) {
+        inv.bills.forEach((bill) => {
+          if (bill.vehicles) {
+            bill.vehicles.forEach((veh) => {
+              if (veh.inner_waybill_no) {
+                allWaybillNos.push(veh.inner_waybill_no);
+              }
+            });
+          }
+        });
+      }
+    });
+
+    let imageWaybills = [];
+    if (allWaybillNos.length > 0) {
+      const imgQuery = { waybill_no: { $in: allWaybillNos } };
+      if (req.tenantId) {
+        imgQuery.tenantId = req.tenantId;
+      }
+      imageWaybills = await ReceiptImage.distinct("waybill_no", imgQuery);
+    }
+
+    res.json({ ok: true, invs, vehPersonMap, imageWaybills });
   } catch (error) {
     console.error("查询失败:", error);
     res.status(500).json({ ok: false, message: "查询失败" });
@@ -773,34 +799,7 @@ exports.deleteReceiptImage = async (req, res) => {
     // 删除数据库记录
     await ReceiptImage.deleteOne(delImgQuery).exec();
 
-    // 检查该运单是否还有其他图片
-    const remainImgQuery = buildTenantQuery(req, {
-      waybill_no: image.waybill_no,
-    });
-    const remainingImages = await ReceiptImage.find(remainImgQuery).exec();
-
-    // 如果没有剩余图片，更新运单的回执状态为0
-    if (remainingImages.length === 0) {
-      const waybillNo = image.waybill_no.substring(0, 17);
-      const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
-      const invoice = await Invoice.findOne(invQ).exec();
-
-      if (invoice) {
-        if (image.waybill_no.length > 17) {
-          // 内部运单
-          const innerSettle = invoice.inner_settle?.find(
-            (is) => is.inner_waybill_no === image.waybill_no,
-          );
-          if (innerSettle) {
-            innerSettle.receipt = 0;
-          }
-        } else {
-          // 主运单
-          invoice.receipt = 0;
-        }
-        await invoice.save();
-      }
-    }
+    // 回执状态与图片解耦，删除图片不再自动重置回执状态
 
     res.json({ ok: true, message: "删除成功" });
   } catch (error) {
@@ -955,5 +954,49 @@ exports.getVesselInitialData = async (req, res) => {
   } catch (error) {
     console.error("获取初始数据失败:", error);
     res.status(500).json({ ok: false, message: "获取初始数据失败" });
+  }
+};
+
+// 独立切换回执状态
+exports.toggleVesselReceipt = async (req, res) => {
+  try {
+    const { wno, receipt } = req.body;
+    if (!wno || (receipt !== 0 && receipt !== 1)) {
+      return res.status(400).json({ ok: false, message: "参数错误" });
+    }
+
+    const waybillNo = wno.substring(0, 17);
+    const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
+    const invoice = await Invoice.findOne(invQ).exec();
+    if (!invoice) {
+      return res.status(404).json({ ok: false, message: "运单不存在" });
+    }
+
+    if (wno.length > 17) {
+      // 内部运单
+      if (!invoice.inner_settle) invoice.inner_settle = [];
+      let innerSettle = invoice.inner_settle.find(
+        (is) => is.inner_waybill_no === wno,
+      );
+      if (!innerSettle) {
+        innerSettle = {
+          inner_waybill_no: wno,
+          state: "未结算",
+          date: null,
+          receipt: 0,
+        };
+        invoice.inner_settle.push(innerSettle);
+      }
+      innerSettle.receipt = receipt;
+    } else {
+      // 主运单
+      invoice.receipt = receipt;
+    }
+
+    await invoice.save();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("切换回执状态失败:", error);
+    res.status(500).json({ ok: false, message: "切换回执状态失败" });
   }
 };

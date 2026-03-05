@@ -10,7 +10,9 @@ import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 const authStore = useAuthStore()
 
 // 状态
-const loading = ref(false)
+const listLoading = ref(false)
+const detailLoading = ref(false)
+const loading = computed(() => listLoading.value || detailLoading.value)
 const searchKeyword = ref('')
 const showMyOnly = ref(false)
 const invoiceList = ref<any[]>([])
@@ -33,7 +35,7 @@ watch(showMyOnly, async () => {
 
 // 加载运单列表
 async function loadInvoiceList() {
-  loading.value = true
+  listLoading.value = true
   try {
     const params: any = {
       keyword: searchKeyword.value,
@@ -59,7 +61,7 @@ async function loadInvoiceList() {
     toast.error(error.message || '加载运单列表失败')
   }
   finally {
-    loading.value = false
+    listLoading.value = false
   }
 }
 
@@ -70,15 +72,18 @@ async function searchInvoices() {
 }
 
 // 选择运单
-async function selectInvoice(invoice: any) {
+async function selectInvoice(invoice: any, event?: MouseEvent) {
   selectedInvoice.value = invoice
-  loading.value = true
+
+  // 滚动选中项到可视区域
+  const target = event?.currentTarget as HTMLElement | undefined
+  target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+
+  detailLoading.value = true
   try {
     const result = await getInvoiceDetail(invoice.waybill_no)
     if (result.ok && result.data) {
       invoiceDetail.value = result.data
-      console.log('Invoice detail:', result.data)
-      console.log('First bill:', result.data.bills?.[0])
     }
     else {
       toast.error(result.message || '加载运单详情失败')
@@ -90,7 +95,7 @@ async function selectInvoice(invoice: any) {
     invoiceDetail.value = null
   }
   finally {
-    loading.value = false
+    detailLoading.value = false
   }
 }
 
@@ -109,7 +114,7 @@ async function handleDelete() {
   if (!confirm(`您确定要删除运单 ${selectedInvoice.value.waybill_no} 吗？\n删除后将恢复所有提单的剩余量。`))
     return
 
-  loading.value = true
+  listLoading.value = true
   try {
     const result = await deleteInvoice(invoiceDetail.value)
     if (result.ok) {
@@ -126,7 +131,7 @@ async function handleDelete() {
     toast.error(error.message || '删除失败')
   }
   finally {
-    loading.value = false
+    listLoading.value = false
   }
 }
 
@@ -272,13 +277,13 @@ onMounted(() => {
             </h3>
           </div>
           <div class="overflow-auto max-h-[600px] relative">
-            <div v-if="!loading && invoiceList.length > 0">
+            <div v-if="!listLoading && invoiceList.length > 0">
               <div
                 v-for="invoice in invoiceList"
                 :key="invoice._id"
                 class="p-3 border-b cursor-pointer hover:bg-muted/50 transition-colors"
                 :class="{ 'bg-primary/10': selectedInvoice?.waybill_no === invoice.waybill_no }"
-                @click="selectInvoice(invoice)"
+                @click="selectInvoice(invoice, $event)"
               >
                 <div class="flex items-center justify-between">
                   <div class="flex-1">
@@ -305,14 +310,14 @@ onMounted(() => {
             </div>
 
             <!-- 加载中 -->
-            <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div v-if="listLoading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
               <div class="text-muted-foreground">
                 加载中...
               </div>
             </div>
 
             <!-- 空状态 -->
-            <div v-if="!loading && invoiceList.length === 0" class="p-12 text-center text-muted-foreground">
+            <div v-if="!listLoading && invoiceList.length === 0" class="p-12 text-center text-muted-foreground">
               没有找到运单
             </div>
           </div>
@@ -360,7 +365,10 @@ onMounted(() => {
             </UiButton>
           </div>
 
-          <div v-if="invoiceDetail" class="p-4 overflow-auto max-h-[600px]">
+          <div v-if="detailLoading" class="p-12 text-center text-muted-foreground">
+            加载详情中...
+          </div>
+          <div v-else-if="invoiceDetail" class="p-4 overflow-auto max-h-[600px]">
             <!-- 基本信息 -->
             <div class="space-y-3 mb-4">
               <div class="grid grid-cols-2 gap-2 text-sm">

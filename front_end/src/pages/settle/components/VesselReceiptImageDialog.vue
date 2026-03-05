@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Image, Loader2, Maximize2, Minimize2, Printer, Trash2, X as XIcon, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { Download, Image, Loader2, Maximize2, Minimize2, Printer, Trash2, Upload as UploadIcon, X as XIcon, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -321,6 +321,108 @@ function printAll() {
   setTimeout(() => { win.print(); win.close() }, 300)
 }
 
+// 上传更多
+const showUploadArea = ref(false)
+const uploading = ref(false)
+const uploadFileInputRef = ref<HTMLInputElement>()
+const uploadPreviewImages = ref<Array<{ file: File, url: string }>>([])
+
+const MAX_FILES = 9
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+
+function toggleUploadArea() {
+  showUploadArea.value = !showUploadArea.value
+  if (!showUploadArea.value) {
+    uploadPreviewImages.value = []
+    if (uploadFileInputRef.value) uploadFileInputRef.value.value = ''
+  }
+}
+
+function handleUploadFileSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  const files = Array.from(target.files || [])
+  if (files.length > 0) processUploadFiles(files)
+}
+
+function handleUploadDrop(event: DragEvent) {
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) processUploadFiles(files)
+}
+
+function processUploadFiles(files: File[]) {
+  const remaining = MAX_FILES - images.value.length - uploadPreviewImages.value.length
+  if (files.length > remaining) {
+    toast.warning(`最多只能上传${MAX_FILES}张图片，当前还可以添加${remaining}张`)
+    files = files.slice(0, remaining)
+  }
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) {
+      toast.warning(`${file.name} 不是图片文件，已跳过`)
+      continue
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast.warning(`${file.name} 超过5MB，已跳过`)
+      continue
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      uploadPreviewImages.value.push({ file, url: e.target?.result as string })
+    }
+    reader.readAsDataURL(file)
+  }
+}
+
+function removeUploadPreview(index: number) {
+  uploadPreviewImages.value.splice(index, 1)
+  if (uploadFileInputRef.value) uploadFileInputRef.value.value = ''
+}
+
+async function handleUploadConfirm() {
+  if (uploadPreviewImages.value.length === 0) {
+    toast.warning('请先选择要上传的图片')
+    return
+  }
+  uploading.value = true
+  try {
+    const formData = new FormData()
+    uploadPreviewImages.value.forEach(p => formData.append('images', p.file))
+    formData.append('inv_no', currentWno.value)
+    await settleApi.uploadReceiptImg(formData)
+    toast.success(`成功上传 ${uploadPreviewImages.value.length} 张图片`)
+
+    // 重置上传区域并重新加载图片列表
+    showUploadArea.value = false
+    uploadPreviewImages.value = []
+    if (uploadFileInputRef.value) uploadFileInputRef.value.value = ''
+
+    // 重新加载图片
+    loading.value = true
+    const response = await settleApi.getReceiptImagesList(currentWno.value)
+    if (response.ok && response.images) {
+      images.value = response.images
+      await Promise.all(
+        response.images.map(async (image) => {
+          if (imageCache.value[image.id]) return // 已缓存的跳过
+          try {
+            const imgResponse = await settleApi.getReceiptImageById(image.id)
+            if (imgResponse.ok && imgResponse.data) {
+              imageCache.value[image.id] = `data:${imgResponse.contentType};base64,${imgResponse.data}`
+            }
+          } catch (error) {
+            console.error(`加载图片 ${image.id} 失败:`, error)
+          }
+        }),
+      )
+    }
+    loading.value = false
+    emit('confirm')
+  } catch (error: any) {
+    toast.error(error.message || '上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
 defineExpose({ open })
 </script>
 
@@ -412,20 +514,85 @@ defineExpose({ open })
             暂无回执图片
           </p>
         </div>
+
+        <!-- 上传更多区域 -->
+        <div v-if="showUploadArea" class="mt-4 border-t pt-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium">上传图片（最多{{ MAX_FILES }}张，每张最大5MB）</span>
+          </div>
+
+          <!-- 拖拽上传区域 -->
+          <div
+            v-if="images.length + uploadPreviewImages.length < MAX_FILES"
+            class="border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors hover:border-primary hover:bg-muted/50 border-muted-foreground/25 p-4"
+            @click="() => uploadFileInputRef?.click()"
+            @dragover.prevent
+            @drop.prevent="handleUploadDrop"
+          >
+            <input
+              ref="uploadFileInputRef"
+              type="file"
+              accept="image/*"
+              multiple
+              class="hidden"
+              @change="handleUploadFileSelect"
+            >
+            <UploadIcon class="h-8 w-8 text-primary mb-2" />
+            <p class="text-sm font-medium text-foreground">点击或拖拽上传图片</p>
+            <p class="text-xs text-muted-foreground mt-1">
+              已有 {{ images.length + uploadPreviewImages.length }} / {{ MAX_FILES }} 张
+            </p>
+          </div>
+
+          <!-- 待上传预览 -->
+          <div v-if="uploadPreviewImages.length > 0" class="grid grid-cols-3 gap-2">
+            <div
+              v-for="(preview, index) in uploadPreviewImages"
+              :key="'upload-' + index"
+              class="relative aspect-square border rounded-lg overflow-hidden group"
+            >
+              <img :src="preview.url" :alt="preview.file.name" class="w-full h-full object-cover">
+              <div class="absolute top-1 right-1 bg-blue-500 text-white text-xs px-2 py-0.5 rounded">新</div>
+              <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <Button variant="destructive" size="sm" @click.stop="removeUploadPreview(index)">
+                  <XIcon class="h-3 w-3 mr-1" />
+                  删除
+                </Button>
+              </div>
+              <div class="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-xs p-1 truncate">
+                {{ preview.file.name }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 确认上传按钮 -->
+          <div class="flex justify-end">
+            <Button :disabled="uploading || uploadPreviewImages.length === 0" @click="handleUploadConfirm">
+              <Loader2 v-if="uploading" class="h-4 w-4 mr-2 animate-spin" />
+              {{ uploading ? '上传中...' : `确认上传 (${uploadPreviewImages.length}张)` }}
+            </Button>
+          </div>
+        </div>
       </div>
 
-      <DialogFooter class="gap-2">
-        <Button v-if="images.length > 0" variant="outline" @click="printAll">
-          <Printer class="h-4 w-4 mr-2" />
-          打印全部
+      <DialogFooter class="flex items-center justify-between gap-2 sm:justify-between">
+        <Button @click="toggleUploadArea">
+          <UploadIcon class="h-4 w-4 mr-2" />
+          {{ showUploadArea ? '收起上传' : '上传更多' }}
         </Button>
-        <Button v-if="images.length > 0" variant="outline" @click="downloadAll">
-          <Download class="h-4 w-4 mr-2" />
-          下载全部
-        </Button>
-        <Button @click="visible = false">
-          关闭
-        </Button>
+        <div class="flex items-center gap-2">
+          <Button v-if="images.length > 0" variant="outline" @click="printAll">
+            <Printer class="h-4 w-4 mr-2" />
+            打印全部
+          </Button>
+          <Button v-if="images.length > 0" variant="outline" @click="downloadAll">
+            <Download class="h-4 w-4 mr-2" />
+            下载全部
+          </Button>
+          <Button variant="outline" @click="visible = false">
+            关闭
+          </Button>
+        </div>
       </DialogFooter>
     </DialogContent>
   </Dialog>

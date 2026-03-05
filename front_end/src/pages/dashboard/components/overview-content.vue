@@ -48,6 +48,10 @@ const selectedYear = ref(currentYear.toString())
 const loading = ref(false)
 const stats = ref<DashboardStats>({
   totalTonnage: 0,
+  truckToShipUnsettledTonnage: 0,
+  customerUnsettledTonnage: 0,
+  collectionUnsettledTonnage: 0,
+  totalSettledTonnage: 0,
   totalInvoiceTonnage: 0,
   totalPaymentTonnage: 0,
   billingNameCount: 0,
@@ -104,6 +108,7 @@ const showVehicleDrillDownDialog = ref(false)
 const vehicleDrillDownTitle = ref('')
 const vehicleDrillDownData = ref<VehicleData[]>([])
 const vehicleCategoryFilter = ref<'all' | '自有' | '外挂'>('all')
+const showTruckDestColumns = ref(false)
 
 const filteredVehicleDrillDownData = computed(() => {
   if (vehicleCategoryFilter.value === 'all') return vehicleDrillDownData.value
@@ -152,6 +157,7 @@ function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
   vehicleDrillDownTitle.value = titles[type]
   vehicleDrillDownData.value = stats.value.allVehicles.filter(filters[type])
   vehicleCategoryFilter.value = (type === 'own') ? '自有' : (type === 'outsourced') ? '外挂' : 'all'
+  showTruckDestColumns.value = type !== 'vessel'
   exportType.value = 'vehicle'
   showVehicleDrillDownDialog.value = true
 }
@@ -224,18 +230,17 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
 
     if (exportType.value === 'vehicle') {
       // 车辆导出
-      const hasDestType = vehicleDrillDownData.value.some(v => v.dest_type)
-      const columns = [
+      const baseColumns: Partial<ExcelJS.Column>[] = [
         { header: '车船号', key: 'name', width: 20 },
         { header: '配发吨数', key: 'value', width: 15 },
-        { header: '总价格', key: 'total_price', width: 15 },
-        { header: '车辆类型', key: 'veh_type', width: 12 },
-        { header: '所有权', key: 'veh_category', width: 12 },
       ]
-      if (hasDestType) {
-        columns.push({ header: '目的地', key: 'dest_type', width: 12 })
+      if (showTruckDestColumns.value) {
+        baseColumns.push({ header: '到船吨数', key: 'to_ship', width: 15 })
+        baseColumns.push({ header: '到客户吨数', key: 'to_customer', width: 15 })
       }
-      sheet.columns = columns
+      baseColumns.push({ header: '总价格', key: 'total_price', width: 15 })
+      baseColumns.push({ header: '车船类型', key: 'veh_type_info', width: 15 })
+      sheet.columns = baseColumns
 
       const headerRow = sheet.getRow(1)
       headerRow.font = { bold: true }
@@ -250,10 +255,12 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           name: item.name,
           value: item.value,
           total_price: item.total_price || 0,
-          veh_type: item.veh_type || '-',
-          veh_category: item.veh_category || '-',
+          veh_type_info: [item.veh_type, item.veh_category].filter(Boolean).join(' / ') || '-',
         }
-        if (hasDestType) row.dest_type = item.dest_type || '-'
+        if (showTruckDestColumns.value) {
+          row.to_ship = item.to_ship || 0
+          row.to_customer = item.to_customer || 0
+        }
         sheet.addRow(row)
       })
     } else if (exportType.value === 'invoice') {
@@ -398,20 +405,28 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           </div>
           <div class="mt-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted-foreground">开票</span>
+              <span class="text-muted-foreground">未结算（车运到船）</span>
+              <span class="font-medium text-yellow-700 dark:text-yellow-400">{{ stats.truckToShipUnsettledTonnage.toLocaleString() }} 吨</span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-muted-foreground">未结算（客户/南钢）</span>
+              <span class="font-medium text-yellow-700 dark:text-yellow-400">{{ stats.customerUnsettledTonnage.toLocaleString() }}/{{ stats.collectionUnsettledTonnage.toLocaleString() }} 吨</span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-muted-foreground">未开票</span>
               <div class="flex items-center gap-2">
-                <span class="font-medium">{{ stats.totalInvoiceTonnage.toLocaleString() }} 吨</span>
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                  {{ stats.totalTonnage > 0 ? ((stats.totalInvoiceTonnage / stats.totalTonnage) * 100).toFixed(1) : '0' }}%
+                <span class="font-medium">{{ (stats.totalSettledTonnage - stats.totalInvoiceTonnage).toLocaleString() }} 吨</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                  {{ stats.totalSettledTonnage > 0 ? (((stats.totalSettledTonnage - stats.totalInvoiceTonnage) / stats.totalSettledTonnage) * 100).toFixed(1) : '0' }}%
                 </span>
               </div>
             </div>
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted-foreground">回款</span>
+              <span class="text-muted-foreground">未回款</span>
               <div class="flex items-center gap-2">
-                <span class="font-medium">{{ stats.totalPaymentTonnage.toLocaleString() }} 吨</span>
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  {{ stats.totalTonnage > 0 ? ((stats.totalPaymentTonnage / stats.totalTonnage) * 100).toFixed(1) : '0' }}%
+                <span class="font-medium">{{ (stats.totalInvoiceTonnage - stats.totalPaymentTonnage).toLocaleString() }} 吨</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  {{ stats.totalInvoiceTonnage > 0 ? (((stats.totalInvoiceTonnage - stats.totalPaymentTonnage) / stats.totalInvoiceTonnage) * 100).toFixed(1) : '0' }}%
                 </span>
               </div>
             </div>
@@ -539,28 +554,31 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </div>
 
         <div class="flex-1 overflow-auto border rounded-md">
-          <Table>
-            <TableHeader class="sticky top-0 bg-background z-10">
+          <table class="w-full caption-bottom text-sm">
+            <TableHeader class="sticky top-0 z-10 bg-background shadow-sm">
               <TableRow>
                 <TableHead>车船号</TableHead>
                 <TableHead class="text-right">配发吨数</TableHead>
+                <TableHead v-if="showTruckDestColumns" class="text-right">到船吨数</TableHead>
+                <TableHead v-if="showTruckDestColumns" class="text-right">到客户吨数</TableHead>
                 <TableHead class="text-right">总价格</TableHead>
-                <TableHead>车辆类型</TableHead>
-                <TableHead>所有权</TableHead>
-                <TableHead v-if="vehicleDrillDownData.some(v => v.dest_type)">目的地</TableHead>
+                <TableHead>车船类型</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="(item, idx) in filteredVehicleDrillDownData" :key="item.name + '-' + item.dest_type + '-' + idx">
+              <TableRow v-for="item in filteredVehicleDrillDownData" :key="item.name">
                 <TableCell class="font-medium">{{ item.name }}</TableCell>
                 <TableCell class="text-right">{{ item.value.toLocaleString() }}</TableCell>
+                <TableCell v-if="showTruckDestColumns" class="text-right">{{ (item.to_ship || 0).toLocaleString() }}</TableCell>
+                <TableCell v-if="showTruckDestColumns" class="text-right">{{ (item.to_customer || 0).toLocaleString() }}</TableCell>
                 <TableCell class="text-right">{{ (item.total_price || 0).toLocaleString() }}</TableCell>
-                <TableCell>{{ item.veh_type || '-' }}</TableCell>
-                <TableCell>{{ item.veh_category || '-' }}</TableCell>
-                <TableCell v-if="vehicleDrillDownData.some(v => v.dest_type)">{{ item.dest_type || '-' }}</TableCell>
+                <TableCell>
+                  <span class="mr-1">{{ item.veh_type || '-' }}</span>
+                  <span v-if="item.veh_category" class="text-muted-foreground">/ {{ item.veh_category }}</span>
+                </TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </table>
         </div>
 
         <DialogFooter>
@@ -588,8 +606,8 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </div>
 
         <div v-else class="flex-1 overflow-auto border rounded-md">
-          <Table>
-            <TableHeader class="sticky top-0 bg-background z-10">
+          <table class="w-full caption-bottom text-sm">
+            <TableHeader class="sticky top-0 z-10 bg-background shadow-sm">
               <TableRow>
                 <TableHead>运单号</TableHead>
                 <TableHead>车船</TableHead>
@@ -607,7 +625,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
                 <TableCell class="text-right">{{ item.tonnage.toLocaleString() }}</TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </table>
         </div>
 
         <DialogFooter>
@@ -635,30 +653,30 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </div>
 
         <div v-else class="flex-1 overflow-auto border rounded-md">
-          <Table>
-            <TableHeader class="sticky top-0 bg-background z-10">
+          <table class="w-full caption-bottom text-sm">
+            <TableHeader class="sticky top-0 z-10 bg-background shadow-sm">
               <TableRow>
                 <TableHead>开单名称</TableHead>
-                <TableHead class="text-right">结算吨数</TableHead>
-                <TableHead class="text-right">结算金额</TableHead>
-                <TableHead class="text-right">开票吨数</TableHead>
-                <TableHead class="text-right">开票金额</TableHead>
-                <TableHead class="text-right">回款吨数</TableHead>
-                <TableHead class="text-right">回款金额</TableHead>
+                <TableHead class="text-right text-blue-600 dark:text-blue-400">结算吨数</TableHead>
+                <TableHead class="text-right text-amber-600 dark:text-amber-400">结算金额</TableHead>
+                <TableHead class="text-right text-blue-600 dark:text-blue-400">开票吨数</TableHead>
+                <TableHead class="text-right text-amber-600 dark:text-amber-400">开票金额</TableHead>
+                <TableHead class="text-right text-blue-600 dark:text-blue-400">回款吨数</TableHead>
+                <TableHead class="text-right text-amber-600 dark:text-amber-400">回款金额</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="item in billingNameData" :key="item.name">
                 <TableCell class="font-medium">{{ item.name }}</TableCell>
-                <TableCell class="text-right">{{ item.settledWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.settledAmount.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">{{ item.invoicedWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.invoicedAmount.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">{{ item.paidWeight.toLocaleString() }}</TableCell>
-                <TableCell class="text-right">¥{{ item.paidAmount.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-blue-600 dark:text-blue-400 tabular-nums">{{ item.settledWeight.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-amber-600 dark:text-amber-400 tabular-nums">¥{{ item.settledAmount.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-blue-600 dark:text-blue-400 tabular-nums">{{ item.invoicedWeight.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-amber-600 dark:text-amber-400 tabular-nums">¥{{ item.invoicedAmount.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-blue-600 dark:text-blue-400 tabular-nums">{{ item.paidWeight.toLocaleString() }}</TableCell>
+                <TableCell class="text-right text-amber-600 dark:text-amber-400 tabular-nums">¥{{ item.paidAmount.toLocaleString() }}</TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </table>
         </div>
 
         <DialogFooter>

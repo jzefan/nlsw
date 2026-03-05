@@ -167,9 +167,23 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/data-process/plate-create': RouteRecordInfo<
+      '/data-process/plate-create',
+      '/data-process/plate-create',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/data-process/round-steel': RouteRecordInfo<
       '/data-process/round-steel',
       '/data-process/round-steel',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/data-process/round-steel-create': RouteRecordInfo<
+      '/data-process/round-steel-create',
+      '/data-process/round-steel-create',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -548,9 +562,21 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/data-process/plate-create.vue': {
+      routes:
+        | '/data-process/plate-create'
+      views:
+        | never
+    }
     'src/pages/data-process/round-steel.vue': {
       routes:
         | '/data-process/round-steel'
+      views:
+        | never
+    }
+    'src/pages/data-process/round-steel-create.vue': {
+      routes:
+        | '/data-process/round-steel-create'
       views:
         | never
     }

@@ -46,3 +46,33 @@ export async function getShipmentDetails(params: ShipmentListParams) {
   const response = await axiosInstance.get('/data-process/shipment/list', { params })
   return response.data
 }
+
+export interface ShipmentBatch {
+  batchId: string
+  productType: 'round-steel' | 'plate'
+  createdBy: string
+  createdAt: string
+  rowCount: number
+  totalWeight: number
+  loadingListNos: string[]
+  vehicleNos: string[]
+}
+
+export interface ShipmentBatchListParams {
+  productType?: string
+  page?: number
+  limit?: number
+}
+
+export interface ShipmentBatchListResponse {
+  ok: boolean
+  data: ShipmentBatch[]
+  total: number
+  page: number
+  totalPages: number
+}
+
+export async function getShipmentBatches(params: ShipmentBatchListParams): Promise<ShipmentBatchListResponse> {
+  const response = await axiosInstance.get('/data-process/shipment/batches', { params })
+  return response.data
+}

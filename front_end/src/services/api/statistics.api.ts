@@ -67,14 +67,20 @@ export async function getCustomerDetail(params: StatisticsQueryParams) {
 export interface VehicleData {
   name: string
   value: number
+  to_customer: number
+  to_ship: number
   total_price: number
   veh_type: string
   veh_category: string
-  dest_type: string // '到客户' | '到船' | ''
+  monthlyTrend: { date: string, weight: number }[]
 }
 
 export interface DashboardStats {
   totalTonnage: number
+  truckToShipUnsettledTonnage: number
+  customerUnsettledTonnage: number
+  collectionUnsettledTonnage: number
+  totalSettledTonnage: number
   totalInvoiceTonnage: number
   totalPaymentTonnage: number
   billingNameCount: number

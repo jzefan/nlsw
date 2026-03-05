@@ -113,20 +113,26 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
   }
 
   // 数据与报表
-  if (hasPermission(privilege, PERMISSIONS.STATISTICS) || hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+  {
     const groupItems: NavGroup['items'] = []
 
-    // 报表
+    // 综合查询和运单报表 - 所有用户可见
     const reportItems: NavGroup['items'][0] = {
       title: '报表统计',
       icon: TrendingUp,
       items: [
         { title: '综合查询', url: '/reports/integrated' },
         { title: '运单报表', url: '/reports/invoice' },
+      ],
+    }
+
+    // 以下报表需要统计或会计权限
+    if (hasPermission(privilege, PERMISSIONS.STATISTICS) || hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+      reportItems.items!.push(
         { title: '运输价格报表', url: '/reports/shipping-charge' },
         { title: '短驳叉车应收款', url: '/reports/drayage-forklift' },
         { title: '车船固定费用', url: '/reports/vessel-fixed-cost' },
-      ],
+      )
     }
     if (hasPermission(privilege, PERMISSIONS.CUST_REVENUE)) {
       reportItems.items!.push({ title: '客户营业额', url: '/reports/customer-revenue' })
@@ -150,17 +156,17 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
           { title: '销售部门', url: '/data/sale-deps' },
         ],
       })
-
-      // 数据处理
-      groupItems.push({
-        title: '数据处理',
-        icon: BookOpen,
-        items: [
-          { title: '圆钢', url: '/data-process/round-steel' },
-          { title: '板材', url: '/data-process/plate' },
-        ],
-      })
     }
+
+    // 数据处理 - 所有用户可见
+    groupItems.push({
+      title: '数据处理',
+      icon: BookOpen,
+      items: [
+        { title: '圆钢', url: '/data-process/round-steel' },
+        { title: '板材', url: '/data-process/plate' },
+      ],
+    })
 
     groups.push({
       title: '数据与报表',

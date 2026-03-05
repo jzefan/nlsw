@@ -113,6 +113,7 @@ module.exports = function (app) {
   app.post('/settle_vessel_pay', requireTenant, vesselSettleController.settleVesselPay);
   app.post('/settle_vessel_delay_info', requireTenant, vesselSettleController.updateVesselDelayInfo);
   app.post('/settle_vessel_not_needed', requireTenant, vesselSettleController.settleVesselNotNeeded);
+  app.post('/toggle-vessel-receipt', requireTenant, vesselSettleController.toggleVesselReceipt);
   app.post('/post-carrier-department', requireTenant, vesselSettleController.postCarrierDepartment);
   app.post('/upload-receipt-img', requireTenant, vesselSettleController.uploadReceiptImg);
   app.get('/get-receipt-img', requireTenant, vesselSettleController.getReceiptImg);
@@ -146,6 +147,7 @@ module.exports = function (app) {
 
   // Data Process API (数据处理) (tenant-scoped)
   app.post('/data-process/shipment/save', requireTenant, dataProcessApiController.saveShipmentDetail);
+  app.get('/data-process/shipment/batches', requireTenant, dataProcessApiController.getShipmentBatches);
   app.get('/data-process/shipment/list', requireTenant, dataProcessApiController.getShipmentDetails);
 
   // Platform Admin API (platform-only, SaaS mode only)

@@ -23,10 +23,11 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
 import { getIntegratedQuery } from '@/services/api/report.api'
 import { useAuthStore } from '@/stores/auth'
-import { isAdmin } from '@/constants/permissions'
+import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 
 const authStore = useAuthStore()
 const { user } = storeToRefs(authStore)
+const canSeePrice = computed(() => hasPermission(user.value?.privilege ?? [], PERMISSIONS.SEE_PRICE))
 
 // 设备检测
 const { isMobile } = useDevice()
@@ -286,7 +287,7 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
   ]
 
   // Privilege Check for Price Columns
-  if (isAdmin(user.value?.privilege ?? [])) {
+  if (canSeePrice.value) {
     cols.push(
       { header: '客户单价', accessorKey: 'price' },
       { header: '南钢单价', accessorKey: 'collection_price' },
@@ -407,7 +408,7 @@ async function handleExport() {
         row.push('')
         row.push(0)
         row.push(w)
-        if (isAdmin(user.value?.privilege ?? [])) {
+        if (canSeePrice.value) {
           row.push(getStrValue(bill.price))
           row.push(getStrValue(bill.collection_price))
           row.push(getStrValue(bill.veh_ves_price))
@@ -426,7 +427,7 @@ async function handleExport() {
         row.push(bill.ship_to)
         row.push(bill.send_num)
         row.push(bill.send_weight)
-        if (isAdmin(user.value?.privilege ?? [])) {
+        if (canSeePrice.value) {
           row.push(getStrValue(bill.price))
           row.push(getStrValue(bill.collection_price))
           row.push(getStrValue(bill.veh_ves_price))

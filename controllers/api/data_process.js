@@ -55,6 +55,79 @@ exports.saveShipmentDetail = async (req, res) => {
 };
 
 /**
+ * 查询批次列表（按 batchId 分组聚合）
+ * GET /data-process/shipment/batches
+ * Query: productType, page, limit
+ */
+exports.getShipmentBatches = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const matchStage = buildTenantQuery(req, {});
+    if (req.query.productType) {
+      matchStage.productType = req.query.productType;
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$batchId',
+          productType: { $first: '$productType' },
+          createdBy: { $first: '$createdBy' },
+          createdAt: { $first: '$createdAt' },
+          rowCount: { $sum: 1 },
+          totalWeight: { $sum: '$weight' },
+          loadingListNos: { $addToSet: '$loadingListNo' },
+          vehicleNos: { $addToSet: '$vehicleNo' },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+    ];
+
+    // Get total count
+    const countResult = await ShipmentDetail.aggregate([...pipeline, { $count: 'total' }]);
+    const total = countResult.length > 0 ? countResult[0].total : 0;
+
+    // Get paginated results
+    const items = await ShipmentDetail.aggregate([
+      ...pipeline,
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 0,
+          batchId: '$_id',
+          productType: 1,
+          createdBy: 1,
+          createdAt: 1,
+          rowCount: 1,
+          totalWeight: 1,
+          loadingListNos: {
+            $filter: { input: '$loadingListNos', as: 'v', cond: { $ne: ['$$v', ''] } },
+          },
+          vehicleNos: {
+            $filter: { input: '$vehicleNos', as: 'v', cond: { $ne: ['$$v', ''] } },
+          },
+        },
+      },
+    ]);
+
+    res.json({
+      ok: true,
+      data: items,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    console.error('getShipmentBatches error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
  * 查询发运明细
  * GET /data-process/shipment/list
  * Query: batchId, loadingListNo, orderNo, productType, page, limit

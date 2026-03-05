@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { Loader2, ShoppingCart, Filter, Settings2 } from 'lucide-vue-next'
+import { CheckSquare, Loader2, ShoppingCart, Filter, Settings2, Square } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -49,11 +49,14 @@ const authStore = useAuthStore()
 const isSelfOwnedMode = ref(route.query.selfOwned === 'true')
 
 // 监听路由变化
-watch(() => route.query.selfOwned, (val) => {
-  isSelfOwnedMode.value = val === 'true'
-  // 路由变化时重新加载数据
-  handleSearch(true)
-})
+watch(
+  () => route.query.selfOwned,
+  (val) => {
+    isSelfOwnedMode.value = val === 'true'
+    // 路由变化时重新加载数据
+    handleSearch(true)
+  },
+)
 
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
@@ -100,7 +103,7 @@ const filterForm = ref({
   vehicle: '',
   billName: '',
   destination: '',
-  startDate: dayjs().subtract(6, 'month').format('YYYY-MM-DD'),  // 默认查询6个月
+  startDate: dayjs().subtract(6, 'month').format('YYYY-MM-DD'), // 默认查询6个月
   endDate: dayjs().format('YYYY-MM-DD'),
   settleState: '未结算',
   receiptState: '2',
@@ -120,15 +123,18 @@ const showColQuantity = ref(true)
 const showColWeight = ref(true)
 const showColShipDate = ref(true)
 const showColSettleDate = ref(true)
-const showColUnshipDate = ref(false)  // 默认隐藏
-const showColDelayDays = ref(false)   // 默认隐藏
-const showColWaybillNo = ref(true)
-const showColTicketNo = ref(false)  // 已付款状态下自动显示
+const showColUnshipDate = ref(false) // 默认隐藏
+const showColDelayDays = ref(false) // 默认隐藏
+const showColWaybillNo = ref(false) // 默认隐藏
+const showColTicketNo = ref(false) // 已付款状态下自动显示
 
 // 切换结算状态时自动控制票号列
-watch(() => filterForm.value.settleState, (state) => {
-  showColTicketNo.value = state === '已付款'
-})
+watch(
+  () => filterForm.value.settleState,
+  (state) => {
+    showColTicketNo.value = state === '已付款'
+  },
+)
 
 // 筛选选项
 // 车辆映射
@@ -142,6 +148,7 @@ const billNameFilterOptions = ref<Array<{ value: string; label: string; checked:
 // 表格数据
 const tableData = ref<any[]>([])
 const dbRecords = ref<any[]>([])
+const imageWaybillsSet = ref<Set<string>>(new Set())
 const selectAll = ref(false)
 
 // 分页状态
@@ -301,6 +308,8 @@ async function handleSearch(silent = false) {
       if (response.vehPersonMap) {
         vehPersonMap.value = response.vehPersonMap
       }
+      // 存储有回执图片的运单号集合
+      imageWaybillsSet.value = new Set(response.imageWaybills || [])
       buildTableData()
       updateButtonStates()
       if (!silent) toast.success(`查询成功`, { id: 'search' })
@@ -474,6 +483,7 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
     isSubItem: false,
     selected: false,
     expanded: false,
+    has_receipt_image: imageWaybillsSet.value.has(inv.waybill_no),
     shipName,
     notNeedColor,
     carrierBoss,
@@ -557,6 +567,7 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
     isSubItem: true,
     isVessel: false,
     selected: false,
+    has_receipt_image: imageWaybillsSet.value.has(innerNo),
     parentRow,
     parentExpanded: parentRow.expanded,
     inner_waybill_no: innerNo,
@@ -1329,6 +1340,19 @@ async function handleConfirmBatchNotNeed() {
   }
 }
 
+// 切换回执状态
+async function handleToggleReceipt(row: any) {
+  const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
+  const newReceipt = row.receipt === 1 ? 0 : 1
+  try {
+    await settleApi.toggleVesselReceipt(wno, newReceipt)
+    row.receipt = newReceipt
+    toast.success(newReceipt === 1 ? '已标记回执' : '已取消回执')
+  } catch (error: any) {
+    toast.error(error.message || '操作失败')
+  }
+}
+
 // 上传回执
 function handleUploadReceipt(row: any) {
   const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
@@ -1425,8 +1449,9 @@ function handleUploadReceiptConfirm() {
 <template>
   <BasicPage
     :title="isSelfOwnedMode ? '车船结算(自有车)' : '车船结算'"
-    :description="isSelfOwnedMode ? '自有车船运费结算管理' : '车船运费结算管理'">
-    <div class="settle-vessel-page relative flex flex-col" style="height: calc(100vh - 80px);">
+    :description="isSelfOwnedMode ? '自有车船运费结算管理' : '车船运费结算管理'"
+  >
+    <div class="settle-vessel-page relative flex flex-col" style="height: calc(100vh - 80px)">
       <!-- 操作栏 -->
       <div class="flex items-center justify-between gap-4 mb-4">
         <div class="flex items-center gap-2">
@@ -1602,7 +1627,11 @@ function handleUploadReceiptConfirm() {
       </div>
 
       <!-- 筛选区域 -->
-      <div v-show="showFilter" class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4" :class="{ 'pointer-events-none opacity-50': loading }">
+      <div
+        v-show="showFilter"
+        class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4"
+        :class="{ 'pointer-events-none opacity-50': loading }"
+      >
         <!-- 第一行：车船号 | 开单名称 | 目的地 | 回执状态 -->
         <div class="grid grid-cols-4 gap-2">
           <SearchableCombobox
@@ -1714,7 +1743,10 @@ function handleUploadReceiptConfirm() {
       <!-- 表格 -->
       <div class="flex-1 min-h-0 border rounded-lg overflow-auto relative">
         <!-- 加载遮罩 -->
-        <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-30">
+        <div
+          v-if="loading"
+          class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-30"
+        >
           <div class="flex items-center gap-2 text-muted-foreground">
             <Loader2 class="w-5 h-5 animate-spin" />
             <span>加载中...</span>
@@ -1722,413 +1754,528 @@ function handleUploadReceiptConfirm() {
         </div>
         <table class="w-full caption-bottom text-sm min-w-[1024px]">
           <TableHeader>
-              <TableRow class="border-b">
-                <TableHead class="px-1 py-1.5 text-left flex items-center w-14 sticky top-0 bg-background z-20 shadow-sm" nowrap>
-                  <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll" />
+            <TableRow class="border-b">
+              <TableHead
+                class="px-1 py-1.5 text-left flex items-center w-14 sticky top-0 bg-background z-20 shadow-sm"
+                nowrap
+              >
+                <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll" />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Toggle
+                        :pressed="allNotNeed"
+                        @click="handleBatchNotNeed"
+                        size="sm"
+                        class="ml-2 h-6 w-6 p-0"
+                        :class="allNotNeed ? 'text-gray-400' : 'text-black'"
+                      >
+                        ★
+                      </Toggle>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </TableHead>
+              <TableHead
+                v-if="showColState"
+                class="px-1.5 py-1.5 text-left min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                状态
+              </TableHead>
+              <TableHead
+                v-if="showColVehicle"
+                class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                车船号
+              </TableHead>
+              <TableHead
+                v-if="showColCarrier"
+                class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                承运单位
+              </TableHead>
+              <TableHead
+                v-if="showColBillName"
+                class="px-1.5 py-1.5 text-left relative min-w-[180px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                开单名称/发货单位
+                <span
+                  class="ml-2 cursor-pointer"
+                  :class="shipFilterSelected.length ? 'text-blue-500' : 'text-gray-400'"
+                  @click="toggleBillNameFilter"
+                  >⧩</span
+                >
+
+                <!-- 发货单位筛选面板 -->
+                <div
+                  v-show="showBillNameFilter"
+                  class="absolute z-50 bg-white border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[360px] mt-1 top-full left-0"
+                  @click.stop
+                >
+                  <div class="max-h-60 overflow-auto space-y-1">
+                    <div
+                      v-for="item in billNameFilterOptions"
+                      :key="item.value"
+                      class="flex items-center gap-2 p-1 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <input v-model="item.checked" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                      <span class="text-sm">{{ item.label }}</span>
+                    </div>
+                  </div>
+                  <div class="flex justify-end gap-2 mt-3 pt-2 border-t">
+                    <UiButton variant="outline" size="sm" @click="clearBillNameFilter"> 清除 </UiButton>
+                    <UiButton variant="default" size="sm" @click="applyBillNameFilter"> 确定 </UiButton>
+                  </div>
+                </div>
+              </TableHead>
+              <TableHead
+                v-if="showColDestination"
+                class="px-1.5 py-1.5 text-left min-w-[120px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                起始→目的地
+              </TableHead>
+              <TableHead
+                v-if="showColTotalPrice"
+                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                总价格
+              </TableHead>
+              <TableHead
+                v-if="showColUnitPrice"
+                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                单价
+              </TableHead>
+              <TableHead
+                v-if="showColQuantity"
+                class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                发运数
+              </TableHead>
+              <TableHead
+                v-if="showColWeight"
+                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                发运量
+              </TableHead>
+              <TableHead
+                v-if="showColShipDate"
+                class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                发货日期
+              </TableHead>
+              <TableHead
+                v-if="showColSettleDate"
+                class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                结算日期
+              </TableHead>
+              <TableHead
+                v-if="showColUnshipDate"
+                class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                卸船日期
+              </TableHead>
+              <TableHead
+                v-if="showColDelayDays"
+                class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                滞留天数
+              </TableHead>
+              <TableHead
+                v-if="showColWaybillNo"
+                class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                运单号
+              </TableHead>
+              <TableHead
+                v-if="showColTicketNo"
+                class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                票号
+              </TableHead>
+              <TableHead
+                class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky top-0 right-24 bg-muted border-l border-gray-200 z-30 shadow-sm hover:bg-orange-100 transition-colors"
+                :class="{ 'cursor-pointer': hasPrivilegePrice }"
+                nowrap
+                @click="hasPrivilegePrice && handleBatchCharge()"
+              >
+                <template v-if="hasPrivilegePrice">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <UiButton variant="secondary" size="sm" class="h-6 text-xs"> 预付 </UiButton>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>批量设置预付金额和油卡</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </template>
+                <span v-else class="text-sm font-medium">预付</span>
+              </TableHead>
+              <TableHead
+                class="px-0 py-1.5 text-center w-24 sticky top-0 right-0 min-w-24 bg-muted z-30 shadow-sm"
+                nowrap
+              >
+                <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
+                <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
+                  回执信息
+                </UiButton>
+                <span v-else class="text-sm font-medium">回执信息</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <!-- 空状态 -->
+            <TableRow v-if="pagedData.length === 0">
+              <TableCell colspan="20" class="p-8 text-center text-muted-foreground">
+                暂无数据，请调整筛选条件后重新查询
+              </TableCell>
+            </TableRow>
+
+            <template
+              v-for="(row, index) in pagedData"
+              :key="row.isSubItem ? `sub-${row.inner_waybill_no}` : `main-${row.waybill_no}`"
+            >
+              <!-- 主行 -->
+              <TableRow
+                v-if="!row.isSubItem"
+                class="border-b transition-colors"
+                :class="{
+                  'bg-orange-100 hover:bg-orange-200 cursor-pointer': row.isVessel && !row.selected && !isInBasket(row),
+                  'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
+                  'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
+                  'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
+                }"
+                @click="handleRowClick(row)"
+              >
+                <TableCell class="px-1.5 py-1.5 flex items-center" nowrap>
+                  <input
+                    v-model="row.selected"
+                    type="checkbox"
+                    class="h-4 w-4"
+                    :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                    :disabled="isInBasket(row)"
+                    :checked="row.selected || isInBasket(row)"
+                    @click.stop="handleRowSelect(row)"
+                  />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <Toggle
-                          :pressed="allNotNeed"
-                          @click="handleBatchNotNeed"
+                          :pressed="row.notNeedColor === 'darkgray'"
+                          @click.stop="handleNotNeedSettle(row)"
                           size="sm"
                           class="ml-2 h-6 w-6 p-0"
-                          :class="allNotNeed ? 'text-gray-400' : 'text-black'"
+                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
                         >
                           ★
                         </Toggle>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
+                        <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                </TableHead>
-                <TableHead v-if="showColState" class="px-1.5 py-1.5 text-left min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 状态 </TableHead>
-                <TableHead v-if="showColVehicle" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 车船号 </TableHead>
-                <TableHead v-if="showColCarrier" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 承运单位 </TableHead>
-                <TableHead v-if="showColBillName" class="px-1.5 py-1.5 text-left relative min-w-[180px] sticky top-0 bg-background z-20 shadow-sm">
-                  开单名称/发货单位
                   <span
-                    class="ml-2 cursor-pointer"
-                    :class="shipFilterSelected.length ? 'text-blue-500' : 'text-gray-400'"
-                    @click="toggleBillNameFilter"
-                    >⧩</span
+                    v-if="row.isVessel"
+                    class="ml-1 cursor-pointer text-xl text-gray-500 hover:text-gray-800"
+                    @click.stop="toggleExpand(row)"
                   >
-
-                  <!-- 发货单位筛选面板 -->
-                  <div
-                    v-show="showBillNameFilter"
-                    class="absolute z-50 bg-white border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[360px] mt-1 top-full left-0"
+                    {{ row.expanded ? '▼' : '▶' }}
+                  </span>
+                </TableCell>
+                <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
+                  {{ row.vehicle_vessel_name }}
+                </TableCell>
+                <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
+                  <Select
+                    v-if="row.carrierOptions && row.carrierOptions.length > 1"
+                    v-model="row.selectedCarrier"
+                    @update:model-value="handleCarrierChange(row)"
                     @click.stop
                   >
-                    <div class="max-h-60 overflow-auto space-y-1">
-                      <div
-                        v-for="item in billNameFilterOptions"
-                        :key="item.value"
-                        class="flex items-center gap-2 p-1 rounded hover:bg-muted cursor-pointer"
-                      >
-                        <input v-model="item.checked" type="checkbox" class="h-4 w-4 cursor-pointer" />
-                        <span class="text-sm">{{ item.label }}</span>
-                      </div>
-                    </div>
-                    <div class="flex justify-end gap-2 mt-3 pt-2 border-t">
-                      <UiButton variant="outline" size="sm" @click="clearBillNameFilter"> 清除 </UiButton>
-                      <UiButton variant="default" size="sm" @click="applyBillNameFilter"> 确定 </UiButton>
-                    </div>
+                    <SelectTrigger class="h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                        {{ opt }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span v-else>{{ row.carrierBoss }}</span>
+                </TableCell>
+                <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
+                  {{ row.shipName }}
+                </TableCell>
+                <TableCell v-if="showColDestination" class="px-1.5 py-1.5">
+                  {{ row.ship_from }}→{{ row.ship_to }}
+                </TableCell>
+                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
+                  {{ row.send_num }}
+                </TableCell>
+                <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
+                  {{ formatNumber(row.total_weight) }}
+                </TableCell>
+                <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.ship_date) }}
+                </TableCell>
+                <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.settle_date) }}
+                </TableCell>
+                <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.unship_date, true) }}
+                </TableCell>
+                <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
+                  {{ row.delay_day }}
+                </TableCell>
+                <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <span>{{ row.waybill_no }}</span>
+                    <span
+                      v-if="isInBasket(row)"
+                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
+                    >
+                      <ShoppingCart class="w-2.5 h-2.5" />
+                      已在结算篮
+                    </span>
                   </div>
-                </TableHead>
-                <TableHead v-if="showColDestination" class="px-1.5 py-1.5 text-left min-w-[120px] sticky top-0 bg-background z-20 shadow-sm"> 起始→目的地 </TableHead>
-                <TableHead v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 总价格 </TableHead>
-                <TableHead v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 单价 </TableHead>
-                <TableHead v-if="showColQuantity" class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"> 发运数 </TableHead>
-                <TableHead v-if="showColWeight" class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"> 发运量 </TableHead>
-                <TableHead v-if="showColShipDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 发货日期 </TableHead>
-                <TableHead v-if="showColSettleDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 结算日期 </TableHead>
-                <TableHead v-if="showColUnshipDate" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 卸船日期 </TableHead>
-                <TableHead v-if="showColDelayDays" class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"> 滞留天数 </TableHead>
-                <TableHead v-if="showColWaybillNo" class="px-1.5 py-1.5 text-left min-w-[140px] sticky top-0 bg-background z-20 shadow-sm"> 运单号 </TableHead>
-                <TableHead v-if="showColTicketNo" class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"> 票号 </TableHead>
-                <TableHead
-                  class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky top-0 right-24 bg-muted border-l border-gray-200 z-30 shadow-sm hover:bg-orange-100 transition-colors"
-                  :class="{ 'cursor-pointer': hasPrivilegePrice }"
+                </TableCell>
+                <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
+                  {{ row.ticket_no || '-' }}
+                </TableCell>
+                <TableCell
+                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-20"
+                  :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'"
                   nowrap
-                  @click="hasPrivilegePrice && handleBatchCharge()"
                 >
-                  <template v-if="hasPrivilegePrice">
-                    <TooltipProvider>
+                  {{ row.chargeText }}
+                </TableCell>
+                <TableCell
+                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                  :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'"
+                  nowrap
+                >
+                  <div class="flex items-center justify-center gap-1">
+                    <component
+                      :is="row.receipt === 1 ? CheckSquare : Square"
+                      class="w-4 h-4 cursor-pointer shrink-0"
+                      :class="row.receipt === 1 ? 'text-green-600' : 'text-gray-400'"
+                      @click.stop="handleToggleReceipt(row)"
+                    />
+                    <TooltipProvider v-if="row.has_receipt_image" :delay-duration="1000">
                       <Tooltip>
                         <TooltipTrigger as-child>
-                          <UiButton variant="secondary" size="sm" class="h-6 text-xs"> 预付 </UiButton>
+                          <UiButton
+                            variant="ghost"
+                            size="sm"
+                            class="h-6 text-xs px-1.5 cursor-pointer"
+                            @click.stop="handleViewReceipt(row)"
+                          >
+                            查看
+                          </UiButton>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          <p>批量设置预付金额和油卡</p>
-                        </TooltipContent>
+                        <TooltipContent><p>查看或上传更多回执单</p></TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </template>
-                  <span v-else class="text-sm font-medium">预付</span>
-                </TableHead>
-                <TableHead class="px-0 py-1.5 text-center w-24 sticky top-0 right-0 min-w-24 bg-muted z-30 shadow-sm" nowrap>
-                  <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
-                  <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
-                    <!-- <span :class="allReceiptOk ? 'text-green-600' : 'text-red-500'" class="mr-[2px] text-2xl">{{ allReceiptOk ? '☑' : '☐' }}</span> -->
-                    回执
-                  </UiButton>
-                  <span v-else class="text-sm font-medium">回执</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <!-- 空状态 -->
-              <TableRow v-if="pagedData.length === 0">
-                <TableCell
-                  colspan="20"
-                  class="p-8 text-center text-muted-foreground"
-                >
-                  暂无数据，请调整筛选条件后重新查询
+                    <TooltipProvider v-if="!row.has_receipt_image" :delay-duration="1000">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <UiButton
+                            variant="ghost"
+                            size="sm"
+                            class="h-6 text-xs px-1.5 cursor-pointer"
+                            @click.stop="handleUploadReceipt(row)"
+                          >
+                            上传
+                          </UiButton>
+                        </TooltipTrigger>
+                        <TooltipContent><p>还未上传回执单，点击上传回执</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                  </div>
                 </TableCell>
               </TableRow>
 
-              <template v-for="(row, index) in pagedData" :key="row.isSubItem ? `sub-${row.inner_waybill_no}` : `main-${row.waybill_no}`">
-                <!-- 主行 -->
-                <TableRow
-                  v-if="!row.isSubItem"
-                  class="border-b transition-colors"
-                  :class="{
-                    'bg-orange-100 hover:bg-orange-200 cursor-pointer':
-                      row.isVessel && !row.selected && !isInBasket(row),
-                    'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
-                    'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
-                    'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
-                  }"
-                  @click="handleRowClick(row)"
-                >
-                  <TableCell class="px-1.5 py-1.5 flex items-center" nowrap>
-                    <input
-                      v-model="row.selected"
-                      type="checkbox"
-                      class="h-4 w-4"
-                      :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
-                      :disabled="isInBasket(row)"
-                      :checked="row.selected || isInBasket(row)"
-                      @click.stop="handleRowSelect(row)"
-                    />
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger as-child>
-                          <Toggle
-                            :pressed="row.notNeedColor === 'darkgray'"
-                            @click.stop="handleNotNeedSettle(row)"
-                            size="sm"
-                            class="ml-2 h-6 w-6 p-0"
-                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
-                          >
-                            ★
-                          </Toggle>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+              <!-- 子行（车辆） -->
+              <TableRow
+                v-if="row.isSubItem && row.parentExpanded"
+                class="border-b transition-colors"
+                :class="{
+                  'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
+                  'bg-blue-200 border-l-4 border-l-blue-500': row.selected,
+                  'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
+                }"
+                @click="handleSubRowClick(row)"
+              >
+                <TableCell class="px-1.5 py-1.5 pl-6 flex items-center" nowrap>
+                  <input
+                    v-model="row.selected"
+                    type="checkbox"
+                    class="h-4 w-4"
+                    :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                    :disabled="isInBasket(row)"
+                    :checked="row.selected || isInBasket(row)"
+                    @click.stop="handleSubRowSelect(row)"
+                  />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Toggle
+                          :pressed="row.notNeedColor === 'darkgray'"
+                          @click.stop="handleNotNeedSettle(row)"
+                          size="sm"
+                          class="ml-2 h-6 w-6 p-0"
+                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                        >
+                          ★
+                        </Toggle>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TableCell>
+                <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
+                <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
+                  {{ row.veh_name }}
+                </TableCell>
+                <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
+                  <Select
+                    v-if="row.carrierOptions && row.carrierOptions.length > 1"
+                    v-model="row.selectedCarrier"
+                    @update:model-value="handleCarrierChange(row)"
+                    @click.stop
+                  >
+                    <SelectTrigger class="h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                        {{ opt }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span v-else>{{ row.carrierBoss }}</span>
+                </TableCell>
+                <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
+                  {{ row.shipName }}
+                </TableCell>
+                <TableCell v-if="showColDestination" class="px-1.5 py-1.5">
+                  {{ row.ship_from }}→{{ row.ship_to }}
+                </TableCell>
+                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
+                  {{ row.send_num }}
+                </TableCell>
+                <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
+                  {{ formatNumber(row.send_weight) }}
+                </TableCell>
+                <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.ship_date) }}
+                </TableCell>
+                <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.settle_date) }}
+                </TableCell>
+                <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
+                  {{ formatDate(row.unship_date, true) }}
+                </TableCell>
+                <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
+                  {{ row.delay_day }}
+                </TableCell>
+                <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <span>{{ row.inner_waybill_no }}</span>
                     <span
-                      v-if="row.isVessel"
-                      class="ml-1 cursor-pointer text-xl text-gray-500 hover:text-gray-800"
-                      @click.stop="toggleExpand(row)"
+                      v-if="isInBasket(row)"
+                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
                     >
-                      {{ row.expanded ? '▼' : '▶' }}
+                      <ShoppingCart class="w-2.5 h-2.5" />
+                      已在结算篮
                     </span>
-                  </TableCell>
-                  <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                  <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
-                    {{ row.vehicle_vessel_name }}
-                  </TableCell>
-                  <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
-                    <Select
-                      v-if="row.carrierOptions && row.carrierOptions.length > 1"
-                      v-model="row.selectedCarrier"
-                      @update:model-value="handleCarrierChange(row)"
-                      @click.stop
-                    >
-                      <SelectTrigger class="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
-                          {{ opt }}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span v-else>{{ row.carrierBoss }}</span>
-                  </TableCell>
-                  <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
-                    {{ row.shipName }}
-                  </TableCell>
-                  <TableCell v-if="showColDestination" class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
-                  <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
-                    <span v-else class="blurred-price">***</span>
-                  </TableCell>
-                  <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
-                    <span v-else class="blurred-price">***</span>
-                  </TableCell>
-                  <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
-                    {{ row.send_num }}
-                  </TableCell>
-                  <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
-                    {{ formatNumber(row.total_weight) }}
-                  </TableCell>
-                  <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.ship_date) }}
-                  </TableCell>
-                  <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.settle_date) }}
-                  </TableCell>
-                  <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.unship_date, true) }}
-                  </TableCell>
-                  <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
-                    {{ row.delay_day }}
-                  </TableCell>
-                  <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
-                    <div class="flex items-center gap-1.5">
-                      <span>{{ row.waybill_no }}</span>
-                      <span
-                        v-if="isInBasket(row)"
-                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
-                      >
-                        <ShoppingCart class="w-2.5 h-2.5" />
-                        已在结算篮
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
-                    {{ row.ticket_no || '-' }}
-                  </TableCell>
-                  <TableCell
-                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-20"
-                    :class="
-                      row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'
-                    "
-                    nowrap
-                  >
-                    {{ row.chargeText }}
-                  </TableCell>
-                  <TableCell
-                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                    :class="
-                      row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'
-                    "
-                    nowrap
-                  >
-                    <div class="flex items-center justify-center gap-1">
-                      <UiButton
-                        v-if="row.receipt === 1"
-                        variant="ghost"
-                        size="sm"
-                        class="h-6 text-xs px-2"
-                        @click.stop="handleViewReceipt(row)"
-                      >
-                        查看
-                      </UiButton>
-                      <UiButton
-                        variant="ghost"
-                        size="sm"
-                        class="h-6 text-xs px-2"
-                        @click.stop="handleUploadReceipt(row)"
-                      >
-                        上传
-                      </UiButton>
-                      <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
-                    </div>
-                  </TableCell>
-                </TableRow>
-
-                <!-- 子行（车辆） -->
-                <TableRow
-                  v-if="row.isSubItem && row.parentExpanded"
-                  class="border-b transition-colors"
-                  :class="{
-                    'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
-                    'bg-blue-200 border-l-4 border-l-blue-500': row.selected,
-                    'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
-                  }"
-                  @click="handleSubRowClick(row)"
+                  </div>
+                </TableCell>
+                <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
+                  {{ row.ticket_no || '-' }}
+                </TableCell>
+                <TableCell
+                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-20"
+                  :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
+                  nowrap
                 >
-                  <TableCell class="px-1.5 py-1.5 pl-6 flex items-center" nowrap>
-                    <input
-                      v-model="row.selected"
-                      type="checkbox"
-                      class="h-4 w-4"
-                      :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
-                      :disabled="isInBasket(row)"
-                      :checked="row.selected || isInBasket(row)"
-                      @click.stop="handleSubRowSelect(row)"
+                  {{ row.chargeText }}
+                </TableCell>
+                <TableCell
+                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                  :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
+                  nowrap
+                >
+                  <div class="flex items-center justify-center gap-0.5">
+                    <component
+                      :is="row.receipt === 1 ? CheckSquare : Square"
+                      class="w-4 h-4 cursor-pointer shrink-0"
+                      :class="row.receipt === 1 ? 'text-green-600' : 'text-gray-400'"
+                      @click.stop="handleToggleReceipt(row)"
                     />
-                    <TooltipProvider>
+                    <TooltipProvider v-if="row.has_receipt_image" :delay-duration="300">
                       <Tooltip>
                         <TooltipTrigger as-child>
-                          <Toggle
-                            :pressed="row.notNeedColor === 'darkgray'"
-                            @click.stop="handleNotNeedSettle(row)"
+                          <UiButton
+                            variant="ghost"
                             size="sm"
-                            class="ml-2 h-6 w-6 p-0"
-                            :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                            class="h-6 text-xs px-1.5 cursor-pointer"
+                            @click.stop="handleViewReceipt(row)"
                           >
-                            ★
-                          </Toggle>
+                            查看
+                          </UiButton>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{{ row.notNeedColor === 'darkgray' ? '取消不需要结算' : '不需要结算' }}</p>
-                        </TooltipContent>
+                        <TooltipContent><p>查看或上传更多回执单</p></TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </TableCell>
-                  <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
-                  <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
-                    {{ row.veh_name }}
-                  </TableCell>
-                  <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
-                    <Select
-                      v-if="row.carrierOptions && row.carrierOptions.length > 1"
-                      v-model="row.selectedCarrier"
-                      @update:model-value="handleCarrierChange(row)"
-                      @click.stop
-                    >
-                      <SelectTrigger class="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
-                          {{ opt }}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span v-else>{{ row.carrierBoss }}</span>
-                  </TableCell>
-                  <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
-                    {{ row.shipName }}
-                  </TableCell>
-                  <TableCell v-if="showColDestination" class="px-1.5 py-1.5"> {{ row.ship_from }}→{{ row.ship_to }} </TableCell>
-                  <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
-                    <span v-else class="blurred-price">***</span>
-                  </TableCell>
-                  <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
-                    <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
-                    <span v-else class="blurred-price">***</span>
-                  </TableCell>
-                  <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
-                    {{ row.send_num }}
-                  </TableCell>
-                  <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
-                    {{ formatNumber(row.send_weight) }}
-                  </TableCell>
-                  <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.ship_date) }}
-                  </TableCell>
-                  <TableCell v-if="showColSettleDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.settle_date) }}
-                  </TableCell>
-                  <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
-                    {{ formatDate(row.unship_date, true) }}
-                  </TableCell>
-                  <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
-                    {{ row.delay_day }}
-                  </TableCell>
-                  <TableCell v-if="showColWaybillNo" class="px-1.5 py-1.5">
-                    <div class="flex items-center gap-1.5">
-                      <span>{{ row.inner_waybill_no }}</span>
-                      <span
-                        v-if="isInBasket(row)"
-                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
-                      >
-                        <ShoppingCart class="w-2.5 h-2.5" />
-                        已在结算篮
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
-                    {{ row.ticket_no || '-' }}
-                  </TableCell>
-                  <TableCell
-                    class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-20"
-                    :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
-                    nowrap
-                  >
-                    {{ row.chargeText }}
-                  </TableCell>
-                  <TableCell
-                    class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                    :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
-                    nowrap
-                  >
-                    <div class="flex items-center justify-center gap-1">
-                      <UiButton
-                        v-if="row.receipt === 1"
-                        variant="ghost"
-                        size="sm"
-                        class="h-6 text-xs px-2"
-                        @click.stop="handleViewReceipt(row)"
-                      >
-                        查看
-                      </UiButton>
-                      <UiButton
-                        variant="ghost"
-                        size="sm"
-                        class="h-6 text-xs px-2"
-                        @click.stop="handleUploadReceipt(row)"
-                      >
-                        上传
-                      </UiButton>
-                      <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              </template>
-            </TableBody>
+                    <TooltipProvider v-if="!row.has_receipt_image" :delay-duration="300">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <UiButton
+                            variant="ghost"
+                            size="sm"
+                            class="h-6 text-xs px-1.5 cursor-pointer"
+                            @click.stop="handleUploadReceipt(row)"
+                          >
+                            上传
+                          </UiButton>
+                        </TooltipTrigger>
+                        <TooltipContent><p>还未上传回执单，点击上传回执</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span v-if="row.remark" class="text-red-500 cursor-pointer" :title="row.remark">ⓘ</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </template>
+          </TableBody>
         </table>
       </div>
 

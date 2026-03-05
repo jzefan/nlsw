@@ -4,7 +4,7 @@ const OrderPlan = require('../../models/OrderPlan');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
 const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
-const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
+const { isAdmin: isAdminPrivilege, hasPermission, PERMISSIONS } = require('../../utils/permissions');
 
 const EPSILON = 0.0001;
 
@@ -140,14 +140,16 @@ exports.getInvoiceList = async (req, res) => {
     } = req.query;
     const user = req.user || { userid: 'admin', privilege: ['admin'] };
     const userId = user.userid;
-    const isAdmin = isAdminPrivilege(user.privilege) || userId === 'admin';
+    // 管理员、统计、会计权限可查看所有运单；业务权限只能查看自己的
+    const canViewAll = isAdminPrivilege(user.privilege)
+      || hasPermission(user.privilege, PERMISSIONS.STATISTICS)
+      || hasPermission(user.privilege, PERMISSIONS.ACCOUNT);
 
     // 构建查询条件
     const query = {};
 
-    // 如果不是管理员，强制只显示自己的运单
-    // 如果是管理员，只有当myOnly参数存在且为true时才过滤
-    if (!isAdmin) {
+    // 无全局查看权限的用户（如仅有业务权限），强制只显示自己的运单
+    if (!canViewAll) {
       query.shipper = userId;
     } else if (myOnly === 'true' || myOnly === true) {
       query.shipper = userId;
