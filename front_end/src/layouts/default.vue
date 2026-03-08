@@ -19,9 +19,12 @@ import {
 } from '@/components/ui/breadcrumb'
 import { SIDEBAR_COOKIE_NAME } from '@/components/ui/sidebar/utils'
 import { useSubscriptionReminder } from '@/composables/use-subscription-reminder'
+import { useKeyboardSafe } from '@/composables/use-keyboard-safe'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+
+useKeyboardSafe()
 
 const defaultOpen = useCookies([SIDEBAR_COOKIE_NAME])
 const themeStore = useThemeStore()
@@ -121,11 +124,11 @@ const breadcrumbs = computed(() => {
         <!-- 面包屑 -->
         <Breadcrumb>
           <BreadcrumbList>
-            <BreadcrumbItem>
+            <BreadcrumbItem class="hidden sm:inline-flex">
               <BreadcrumbLink href="/dashboard"> 首页 </BreadcrumbLink>
             </BreadcrumbItem>
             <template v-for="(item, index) in breadcrumbs" :key="index">
-              <BreadcrumbSeparator />
+              <BreadcrumbSeparator :class="index === 0 ? 'hidden sm:inline-flex' : ''" />
               <BreadcrumbItem>
                 <BreadcrumbPage v-if="index === breadcrumbs.length - 1">
                   {{ item.title }}
@@ -141,18 +144,18 @@ const breadcrumbs = computed(() => {
         <div class="flex-1" />
         <div class="ml-auto flex items-center space-x-2">
           <template v-if="!authStore.isStandalone">
-            <!-- 租户信息 (standalone 模式下隐藏) -->
-            <div v-if="tenant" class="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <!-- 租户信息 (standalone 模式下隐藏, 移动端隐藏) -->
+            <div v-if="tenant" class="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground">
               <span class="font-medium text-foreground">{{ tenant.name }}</span>
               <span class="text-xs">[{{ tenant.code }}]</span>
             </div>
             <span
               v-if="roleBadgeText"
-              class="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+              class="hidden sm:inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
             >
               {{ roleBadgeText }}
             </span>
-            <UiSeparator v-if="tenant" orientation="vertical" class="h-4" />
+            <UiSeparator v-if="tenant" orientation="vertical" class="hidden sm:block h-4" />
           </template>
           <ToggleTheme />
           <ThemePopover />

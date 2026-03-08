@@ -67,6 +67,8 @@ const permissionOptions = [
   { id: 'vesselRevenue', label: '车船营业额' },
   { id: 'selfVehicle', label: '自有车管理' },
   { id: 'seePrice', label: '查看价格' },
+  { id: 'custSettle', label: '客户结算' },
+  { id: 'vesselSettle', label: '车船结算' },
 ]
 
 // 权限状态
@@ -79,6 +81,8 @@ const permissions = ref({
   vesselRevenue: false,
   selfVehicle: false,
   seePrice: false,
+  custSettle: false,
+  vesselSettle: false,
 })
 
 // 用户名重复检查
@@ -189,6 +193,8 @@ function resetPermissions() {
     vesselRevenue: false,
     selfVehicle: false,
     seePrice: false,
+    custSettle: false,
+    vesselSettle: false,
   }
 }
 
@@ -209,6 +215,8 @@ function parsePrivilege(privilege: string[]) {
   permissions.value.vesselRevenue = privilege.includes('vesselRevenue')
   permissions.value.selfVehicle = privilege.includes('selfVehicle')
   permissions.value.seePrice = privilege.includes('seePrice')
+  permissions.value.custSettle = privilege.includes('custSettle')
+  permissions.value.vesselSettle = privilege.includes('vesselSettle')
 }
 
 // 生成权限数组
@@ -225,6 +233,8 @@ function generatePrivilege(): string[] {
   if (permissions.value.vesselRevenue) result.push('vesselRevenue')
   if (permissions.value.selfVehicle) result.push('selfVehicle')
   if (permissions.value.seePrice) result.push('seePrice')
+  if (permissions.value.custSettle) result.push('custSettle')
+  if (permissions.value.vesselSettle) result.push('vesselSettle')
 
   return result
 }
@@ -240,6 +250,8 @@ function onAdminChange(checked: boolean) {
     permissions.value.vesselRevenue = false
     permissions.value.selfVehicle = false
     permissions.value.seePrice = false
+    permissions.value.custSettle = false
+    permissions.value.vesselSettle = false
   } else {
     permissions.value.admin = false
   }
@@ -752,6 +764,44 @@ onMounted(() => {
                 />
                 <span class="text-sm">查看价格</span>
               </label>
+
+              <!-- 结算价格��作 -->
+              <label
+                class="flex items-center gap-2 p-2 border rounded-lg transition-all"
+                :class="{
+                  'bg-primary/10 border-primary': permissions.custSettle,
+                  'hover:border-primary/50 cursor-pointer': !permissions.admin,
+                  'opacity-50 cursor-not-allowed': permissions.admin,
+                }"
+              >
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  :checked="permissions.custSettle"
+                  :disabled="permissions.admin"
+                  @change="permissions.custSettle = ($event.target as HTMLInputElement).checked"
+                />
+                <span class="text-sm">客户结算</span>
+              </label>
+
+              <!-- 车船结算 -->
+              <label
+                class="flex items-center gap-2 p-2 border rounded-lg transition-all"
+                :class="{
+                  'bg-primary/10 border-primary': permissions.vesselSettle,
+                  'hover:border-primary/50 cursor-pointer': !permissions.admin,
+                  'opacity-50 cursor-not-allowed': permissions.admin,
+                }"
+              >
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  :checked="permissions.vesselSettle"
+                  :disabled="permissions.admin"
+                  @change="permissions.vesselSettle = ($event.target as HTMLInputElement).checked"
+                />
+                <span class="text-sm">车船结算</span>
+              </label>
             </div>
           </div>
         </div>
@@ -768,5 +818,4 @@ onMounted(() => {
 <route lang="yaml">
 meta:
   auth: true
-  requiresOwner: true
 </route>

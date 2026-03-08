@@ -81,6 +81,7 @@ const roundSteelHeaderMap: Record<string, string> = {
   '客户名称': 'customerName',
   '客户': 'customerName',
   '现有货主': 'customerName',
+  '发货单位': 'customerName',
   '合同号': 'contractNo',
   '合同': 'contractNo',
   '客户采购案号': 'contractNo',
@@ -977,7 +978,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
  * 展平所有组的 rawRows，注入 vehicleNo 和 contractNo
  */
 export function buildSavePayload(groups: LoadingListGroup[]): {
-  productType: string
+  productType: 'round-steel' | 'plate'
   rows: {
     bundleNo: string
     orderNo: string

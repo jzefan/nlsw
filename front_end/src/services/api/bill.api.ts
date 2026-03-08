@@ -48,12 +48,14 @@ export interface BillCreateData {
   shipWarehouse?: string
   contractNo?: string
   productType?: string
+  shippingAddress?: string
   thickness?: number
   width?: number
   len?: number
   weight?: number
   blockNum?: number
   totalWeight: number
+  carrier?: string
 }
 
 export interface BillListResponse {
@@ -75,8 +77,9 @@ export async function getBills(params: {
   contractNo?: string
   status?: string
   leftNumOnly?: boolean
-  startDate?: string
-  endDate?: string
+  startTime?: string
+  endTime?: string
+  creater?: string
 }) {
   const response = await axiosInstance.get<BillListResponse>('/bills', { params })
   return response.data

@@ -30,6 +30,7 @@ import {
 
 import DrayageForkliftDialog from './components/drayage-forklift-dialog.vue'
 import { deleteDrayageForklift, getDrayageForklifts, type DrayageForklift } from '@/services/api/financial.api'
+import { formatNumber } from '@/utils/format'
 
 const data = ref<DrayageForklift[]>([])
 const loading = ref(false)
@@ -141,10 +142,6 @@ function handleExport() {
   })
 }
 
-function formatNumber(value: number) {
-  return value?.toFixed(2) || '0.00'
-}
-
 onMounted(() => {
   loadData()
 })
@@ -224,10 +221,10 @@ onMounted(() => {
                 {{ row.month }}
               </TableCell>
               <TableCell class="text-right font-mono">
-                {{ formatNumber(row.drayage) }}
+                {{ formatNumber(row.drayage, 2) }}
               </TableCell>
               <TableCell class="text-right font-mono">
-                {{ formatNumber(row.forklift) }}
+                {{ formatNumber(row.forklift, 2) }}
               </TableCell>
             </TableRow>
           </TableBody>

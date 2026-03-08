@@ -35,6 +35,7 @@ import SearchableCombobox from '@/components/searchable-combobox.vue'
 import VesselFixedCostDialog from './components/vessel-fixed-cost-dialog.vue'
 import { deleteVesselFixedCost, getVesselFixedCosts, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
 import { getVehicles } from '@/services/api/data-dict.api'
+import { formatNumber } from '@/utils/format'
 
 const data = ref<VesselFixedCost[]>([])
 const loading = ref(false)
@@ -196,10 +197,6 @@ function handleExport() {
   })
 }
 
-function formatNumber(value: number) {
-  return value?.toFixed(2) || '0.00'
-}
-
 onMounted(() => {
   loadData()
 })
@@ -323,15 +320,15 @@ onMounted(() => {
               </TableCell>
               <TableCell class="font-medium">{{ row.month }}</TableCell>
               <TableCell>{{ row.name }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.fittings) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.repair) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.annual_survey) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.salary) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.oil) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.toll) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.fine) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
-              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.fittings, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.repair, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.annual_survey, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.salary, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.oil, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.toll, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.fine, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.other, 2) }}</TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total, 2) }}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -381,12 +378,12 @@ onMounted(() => {
                 />
               </TableCell>
               <TableCell class="font-medium">{{ row.month }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.ic) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.hc) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.pcc) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.aux) }}</TableCell>
-              <TableCell class="text-right font-mono">{{ formatNumber(row.other) }}</TableCell>
-              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.ic, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.hc, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.pcc, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.aux, 2) }}</TableCell>
+              <TableCell class="text-right font-mono">{{ formatNumber(row.other, 2) }}</TableCell>
+              <TableCell class="text-right font-mono font-bold text-red-500">{{ formatNumber(row.total, 2) }}</TableCell>
             </TableRow>
           </TableBody>
         </Table>

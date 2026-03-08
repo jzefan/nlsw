@@ -143,6 +143,11 @@ function requireOwnerOrPlatform(req, res, next) {
     return next();
   }
 
+  // 拥有 admin 权限的 member 用户也可以管理用户
+  if (req.user && Array.isArray(req.user.privilege) && req.user.privilege.includes('admin')) {
+    return next();
+  }
+
   return res.status(403).json({
     success: false,
     error: '需要公司管理员或平台管理员权限'

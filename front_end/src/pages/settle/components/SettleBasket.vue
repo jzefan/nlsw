@@ -100,7 +100,7 @@ defineSlots<{
     <Transition name="basket-slide">
       <div
         v-if="isOpen"
-        class="fixed right-0 top-0 h-full w-[500px] max-w-[90vw] bg-background shadow-xl z-50 flex flex-col"
+        class="fixed top-0 right-0 bottom-0 w-[500px] max-w-[90vw] bg-background shadow-xl z-50 flex flex-col"
       >
         <!-- 头部 -->
         <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
@@ -123,6 +123,31 @@ defineSlots<{
             <span class="text-muted-foreground">块数: <strong class="text-foreground">{{ stats.totalNum }}</strong></span>
             <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ stats.totalWeight.toFixed(3) }}</strong> 吨</span>
             <span class="text-muted-foreground">金额: <strong class="text-primary">¥{{ stats.totalAmount.toFixed(2) }}</strong></span>
+          </div>
+        </div>
+
+        <!-- 移动端顶部操作按钮 -->
+        <div class="md:hidden px-4 py-2 border-b bg-muted/30">
+          <div class="flex items-center gap-2">
+            <UiButton
+              variant="outline"
+              size="sm"
+              class="flex-1"
+              :disabled="items.length === 0"
+              @click="handleClear"
+            >
+              <Trash2 class="w-4 h-4 mr-1" />
+              清空
+            </UiButton>
+            <UiButton
+              variant="default"
+              size="sm"
+              class="flex-1"
+              :disabled="items.length === 0"
+              @click="handleSettle"
+            >
+              结算 ({{ items.length }})
+            </UiButton>
           </div>
         </div>
 
@@ -172,8 +197,8 @@ defineSlots<{
           </div>
         </div>
 
-        <!-- 底部操作 -->
-        <div class="px-4 py-3 border-t bg-muted/30 space-y-2">
+        <!-- 底部操作（桌面端） -->
+        <div class="hidden md:block px-4 py-3 border-t bg-muted/30 space-y-2">
           <div class="flex items-center gap-2">
             <UiButton
               variant="outline"

@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { formatNumber } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -189,13 +190,6 @@ function handleClose(open: boolean) {
   if (!open) {
     visible.value = false
   }
-}
-
-function formatNumber(num: number | string | undefined): string {
-  if (num === null || num === undefined || num === '')
-    return '0.000'
-  const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 function formatDate(date: any): string {

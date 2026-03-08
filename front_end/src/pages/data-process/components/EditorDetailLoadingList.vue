@@ -5,6 +5,7 @@ import { nextTick, ref, watch } from 'vue'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { getVehicles } from '@/services/api/data-dict.api'
 import type { LoadingListGroup } from '@/utils/excel-transform'
+import { formatNumber } from '@/utils/format'
 
 const props = defineProps<{
   group: LoadingListGroup
@@ -108,10 +109,6 @@ function handleKeydown(e: KeyboardEvent) {
 
 function isEditing(rowIndex: number, field: string): boolean {
   return editingCell.value?.rowIndex === rowIndex && editingCell.value?.field === field
-}
-
-function formatNumber(value: number, decimals: number = 3): string {
-  return value.toFixed(decimals)
 }
 
 // ContractNo inline input handlers

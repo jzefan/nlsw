@@ -90,7 +90,7 @@ const form = ref({
   vesselName: '', // 船号
   billingName: '', // 开单名称
   shipCustomer: '',
-  shipFrom: '',
+  shipFrom: '南钢',
   shipTo: '',
   shipDate: '',
 })
@@ -233,7 +233,7 @@ function resetForm() {
     vesselName: '',
     billingName: '',
     shipCustomer: '',
-    shipFrom: '',
+    shipFrom: '南钢',
     shipTo: '',
     shipDate: '',
   }
@@ -326,10 +326,12 @@ async function handleBillingNameChange(name: string) {
 
   // 获取该公司的客户列表
   try {
-    const result = await searchCompanies(name, 1, 1)
+    const result = await searchCompanies(name, 20, 1)
     if (result.ok && result.data && result.data.length > 0) {
+      // 优先精确匹配，其次模糊匹配（Company名称可能带编号前缀）
       const company = result.data.find((c: any) => c.name === name)
-      if (company && company.customers) {
+        || result.data.find((c: any) => c.name.includes(name) || name.includes(c.name))
+      if (company && company.customers?.length) {
         shipCustomers.value = company.customers
       } else {
         shipCustomers.value = []
@@ -363,11 +365,34 @@ async function searchOrders(search: string, limit: number, page: number) {
         availableOrdersData.value = [...availableOrdersData.value, ...newOrders]
       }
 
-      // 返回订单号列表给下拉框显示
-      const data = result.data.map((order: any) => ({
-        name: order.order_no,
-      }))
-      return { ok: true, data, total: result.total }
+      // 返回订单号列表给下拉框显示，同时合并本地已有但API未返回的订单（如 left_num=0 的提单所属订单）
+      const apiOrderNos = new Set(result.data.map((order: any) => order.order_no))
+      const localOnlyOrders = availableOrdersData.value
+        .filter((o: any) => {
+          if (apiOrderNos.has(o.order_no)) return false
+          if (!search) return true
+          return o.order_no.toLowerCase().includes(search.toLowerCase())
+        })
+        .map((o: any) => ({ name: o.order_no }))
+
+      const data = [
+        ...result.data.map((order: any) => ({ name: order.order_no })),
+        ...localOnlyOrders,
+      ].sort((a, b) => {
+        // 有搜索词时，匹配的优先
+        if (search) {
+          const s = search.toLowerCase()
+          const aMatch = a.name.toLowerCase().includes(s)
+          const bMatch = b.name.toLowerCase().includes(s)
+          if (aMatch !== bMatch) return aMatch ? -1 : 1
+        }
+        // 按订单号第4-7位（YYMM年月）降序，同年月按序号降序
+        const aDate = a.name.substring(3, 7)
+        const bDate = b.name.substring(3, 7)
+        if (aDate !== bDate) return bDate.localeCompare(aDate)
+        return b.name.localeCompare(a.name)
+      })
+      return { ok: true, data, total: result.total + localOnlyOrders.length }
     }
     return { ok: true, data: [], total: 0 }
   } catch (error) {
@@ -376,7 +401,7 @@ async function searchOrders(search: string, limit: number, page: number) {
   }
 }
 
-// 本地搜索提单号（用于 SearchableCombobox）
+// 本地搜索提单号（用于 SearchableCombobox，按 bill_no 去重展示）
 async function searchBills(search: string, limit: number, page: number) {
   let filtered = currentOrderBills.value
   if (search) {
@@ -386,15 +411,25 @@ async function searchBills(search: string, limit: number, page: number) {
         (b.order_item_no && b.order_item_no.toString().includes(search)),
     )
   }
+  // 按 bill_no 去重，显示每个 bill_no 下的项次数量
+  const billNoMap = new Map<string, { count: number; first: any }>()
+  for (const b of filtered) {
+    const existing = billNoMap.get(b.bill_no)
+    if (existing) {
+      existing.count++
+    } else {
+      billNoMap.set(b.bill_no, { count: 1, first: b })
+    }
+  }
+  const uniqueBills = Array.from(billNoMap.entries())
   const start = (page - 1) * limit
-  const data = filtered.slice(start, start + limit).map((b: any) => ({
-    value: b._id,
-    name: b.bill_no,
-    order_item_no: b.order_item_no,
-    left_num: b.left_num,
-    _raw: b,
+  const data = uniqueBills.slice(start, start + limit).map(([billNo, { count, first }]) => ({
+    value: billNo,
+    name: count > 1 ? `${billNo} (${count}个项次)` : billNo,
+    left_num: first.left_num,
+    _raw: first,
   }))
-  return { ok: true, data, total: filtered.length }
+  return { ok: true, data, total: uniqueBills.length }
 }
 
 // 订单号改变时更新可选提单
@@ -449,11 +484,11 @@ function handleOrderChange(orderNo: string) {
   })
 }
 
-// 选择提单后添加到待确认列表（接收 _id 作为唯一标识）
-function handleBillSelect(billId: string) {
-  if (!billId) return
-  const bill = currentOrderBills.value.find((b: any) => b._id === billId)
-  if (bill) {
+// 选择提单后批量添加同 bill_no 的所有项次到待确认列表
+function handleBillSelect(billNo: string) {
+  if (!billNo) return
+  const matchingBills = currentOrderBills.value.filter((b: any) => b.bill_no === billNo)
+  for (const bill of matchingBills) {
     addBillToPending(bill)
   }
 }
@@ -1118,6 +1153,41 @@ async function loadInvoiceDetail(invoice: any) {
             inner_waybill_no: vehicle.inner_waybill_no || '',
             ship_from: vehicle.veh_ship_from || inv.ship_from,
             _originalLeft: originalLeft,
+          })
+        }
+      }
+
+      // 将运单中的提单注入到 availableOrdersData，确保 left_num=0 的提单也能在下拉列表中找到
+      // 按提单去重（船运同一提单可能有多个车辆记录）
+      const seenBillIds = new Set<string>()
+      for (const bill of confirmedBills.value) {
+        const orderNo = bill.order_no
+        if (!orderNo || !bill._id || seenBillIds.has(bill._id)) continue
+        seenBillIds.add(bill._id)
+
+        let orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
+        if (!orderData) {
+          orderData = { order_no: orderNo, bills: [] }
+          availableOrdersData.value.push(orderData)
+        }
+
+        const existingBill = orderData.bills.find((b: any) => b._id === bill._id)
+        if (!existingBill) {
+          orderData.bills.push({
+            _id: bill._id,
+            bill_no: bill.bill_no,
+            order_no: bill.order_no,
+            order_item_no: bill.order_item_no,
+            brand_no: bill.brand_no,
+            thickness: bill.thickness,
+            width: bill.width,
+            len: bill.len,
+            weight: bill.weight,
+            block_num: (bill as any).block_num,
+            total_weight: (bill as any).total_weight,
+            left_num: (bill as any)._originalLeft,
+            ship_warehouse: (bill as any).ship_warehouse,
+            contract_no: (bill as any).contract_no,
           })
         }
       }

@@ -19,6 +19,8 @@ import {
   updateBillsBatch,
 } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
+import { getUserNames } from '@/services/api/user.api'
+import { formatNumber } from '@/utils/format'
 
 // 状态
 const loading = ref(false)
@@ -43,10 +45,11 @@ const filters = ref<BillFilterValues>({
   leftNumOnly: false,
   startDate: '',
   endDate: '',
+  creater: '',
 })
 
 // 状态选项（用于高级查询）
-const statusOptions = ['新建', '待配发', '部分配发', '已配发', '已结算', '已开票', '已回款']
+const statusOptions = ['新建', '待配发', '部分配发', '已配发', '已结算']
 
 // 编辑对话框
 const showEditDialog = ref(false)
@@ -141,8 +144,9 @@ async function loadData() {
       contractNo: filters.value.contractNo || undefined,
       status: filters.value.status || undefined,
       leftNumOnly: filters.value.leftNumOnly || undefined,
-      startDate: filters.value.startDate || undefined,
-      endDate: filters.value.endDate || undefined,
+      startTime: filters.value.startDate || undefined,
+      endTime: filters.value.endDate || undefined,
+      creater: filters.value.creater || undefined,
     })
     if (result.ok) {
       bills.value = result.data
@@ -491,13 +495,6 @@ function getFieldOptions(fieldValue: string) {
   return field?.options || []
 }
 
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return ''
-  return num.toFixed(2)
-}
-
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
   if (!date)
@@ -518,6 +515,7 @@ function resetFilters() {
     leftNumOnly: false,
     startDate: '',
     endDate: '',
+    creater: '',
   }
   page.value = 1
   loadData()
@@ -534,9 +532,25 @@ function getStatusVariant(status: string) {
   return 'secondary'
 }
 
+// 用户名列表（创建人筛选用）
+const userNames = ref<string[]>([])
+
+async function loadUserNames() {
+  try {
+    const result = await getUserNames()
+    if (result.ok) {
+      userNames.value = result.data
+    }
+  }
+  catch {
+    // ignore
+  }
+}
+
 // 初始化
 onMounted(() => {
   loadData()
+  loadUserNames()
 })
 </script>
 
@@ -572,6 +586,7 @@ onMounted(() => {
       v-if="showFilter"
       v-model="filters"
       class="mb-3"
+      :creater-options="userNames"
       @search="activeQuery = null; loadData()"
       @reset="resetFilters"
     />
@@ -684,6 +699,9 @@ onMounted(() => {
             <th class="p-2 text-left min-w-[100px] whitespace-nowrap">
               创建日期
             </th>
+            <th class="p-2 text-left whitespace-nowrap">
+              创建人
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -721,23 +739,23 @@ onMounted(() => {
               {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness) }}
+              {{ formatNumber(bill.thickness, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width) }}
+              {{ formatNumber(bill.width, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len) }}
+              {{ formatNumber(bill.len, 2) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.block_num }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.total_weight) }}
+              {{ formatNumber(bill.total_weight, 2) }}
             </td>
             <td class="p-2 text-right">
               <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
-                {{ formatNumber(bill.left_num) }}
+                {{ formatNumber(bill.left_num, 2) }}
               </span>
             </td>
             <td class="p-2">
@@ -749,9 +767,12 @@ onMounted(() => {
             <td class="p-2 min-w-[100px]">
               {{ formatDate(bill.create_date) }}
             </td>
+            <td class="p-2">
+              {{ bill.creater }}
+            </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
-            <td colspan="16" class="p-8 text-center text-muted-foreground">
+            <td colspan="17" class="p-8 text-center text-muted-foreground">
               暂无数据
             </td>
           </tr>
@@ -794,9 +815,9 @@ onMounted(() => {
               <div>提单号: {{ bill.bill_no }}</div>
               <div>牌号: {{ bill.brand_no }}</div>
               <div class="flex items-center justify-between">
-                <span>总重量: {{ formatNumber(bill.total_weight) }}</span>
+                <span>总重量: {{ formatNumber(bill.total_weight, 2) }}</span>
                 <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
-                  余量: {{ formatNumber(bill.left_num) }}
+                  余量: {{ formatNumber(bill.left_num, 2) }}
                 </span>
               </div>
             </div>
@@ -816,15 +837,15 @@ onMounted(() => {
             </div>
             <div>
               <span class="text-muted-foreground">厚度:</span>
-              <span class="ml-1">{{ formatNumber(bill.thickness) }}</span>
+              <span class="ml-1">{{ formatNumber(bill.thickness, 2) }}</span>
             </div>
             <div>
               <span class="text-muted-foreground">宽度:</span>
-              <span class="ml-1">{{ formatNumber(bill.width) }}</span>
+              <span class="ml-1">{{ formatNumber(bill.width, 2) }}</span>
             </div>
             <div>
               <span class="text-muted-foreground">长度:</span>
-              <span class="ml-1">{{ formatNumber(bill.len) }}</span>
+              <span class="ml-1">{{ formatNumber(bill.len, 2) }}</span>
             </div>
             <div>
               <span class="text-muted-foreground">块数:</span>
@@ -834,9 +855,13 @@ onMounted(() => {
               <span class="text-muted-foreground">合同号:</span>
               <span class="ml-1">{{ bill.contract_no }}</span>
             </div>
-            <div class="col-span-2">
+            <div>
               <span class="text-muted-foreground">创建日期:</span>
               <span class="ml-1">{{ formatDate(bill.create_date) }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">创建人:</span>
+              <span class="ml-1">{{ bill.creater }}</span>
             </div>
           </div>
           <div class="pt-2 border-t">

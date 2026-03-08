@@ -37,11 +37,11 @@ const invNos = ref('')
 const startDate = ref('')
 const endDate = ref('')
 
-// 初始化日期范围：默认3个月
+// 初始化日期范围：默认1个月
 onMounted(() => {
   const now = new Date()
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-  const start = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate(), 0, 0, 0)
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0)
 
   endDate.value = end.toISOString().split('T')[0]
   startDate.value = start.toISOString().split('T')[0]
@@ -193,70 +193,53 @@ watch(() => props.showNonSettle, () => {
 
 <template>
   <div class="p-3 border rounded-lg bg-muted/50">
-    <!-- 第一行：开单名称、订单号、提单号 -->
     <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
       <SearchableCombobox
         v-model="billingName"
         :search-fn="searchBillingNames"
         placeholder="开单名称"
       />
-
       <SearchableCombobox
         v-model="orderNos"
         :search-fn="searchOrders"
         placeholder="订单号"
       />
-
       <SearchableCombobox
         v-model="billNos"
         :search-fn="searchBillNos"
         placeholder="提单号"
       />
-    </div>
-
-    <!-- 第二行：车船号、起始地、目的地 -->
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
       <SearchableCombobox
         v-model="vehicles"
         :search-fn="searchVehicles"
         placeholder="车船号"
       />
-
       <SearchableCombobox
         v-model="shipFrom"
         :search-fn="searchShipFroms"
         placeholder="起始地"
       />
-
       <SearchableCombobox
         v-model="destinations"
         :search-fn="searchDestinations"
         placeholder="目的地"
       />
-    </div>
-
-    <!-- 第三行：运单号、发货起始日期、发货结束日期 -->
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
       <SearchableCombobox
         v-model="invNos"
         :search-fn="searchInvNos"
         placeholder="运单号"
       />
-
-      <DatePicker 
-        v-model="startDate" 
-        placeholder="发货起始日期" 
+      <DatePicker
+        v-model="startDate"
+        placeholder="发货起始日期"
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
-        class="w-full" 
       />
-
-      <DatePicker 
-        v-model="endDate" 
-        placeholder="发货结束日期" 
+      <DatePicker
+        v-model="endDate"
+        placeholder="发货结束日期"
         :disabled-date="disableEndDate"
         disabled-hint="结束日期不能早于开始日期"
-        class="w-full" 
       />
     </div>
   </div>

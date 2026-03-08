@@ -43,6 +43,7 @@ import {
 import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
 import { useAuthStore } from '@/stores/auth'
 import { COMPANY_FULL_NAME } from '@/config/constants'
+import { formatDim, formatNumber } from '@/utils/format'
 
 const companyName = computed(() => {
   // 优先使用运单的开单名称（发货单抬头应属于运单所属公司）
@@ -306,12 +307,6 @@ function formatDate(date: string | Date | undefined) {
   return new Date(date).toLocaleDateString('zh-CN')
 }
 
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return ''
-  return Number(num).toFixed(3)
-}
-
 function getOrderDisplay(bill: any) {
   if (bill.order_item_no != null) {
     const itemNo = String(bill.order_item_no).padStart(3, '0')
@@ -406,9 +401,9 @@ function handlePrint() {
                    <td>${billInfo.bill_no || ''}</td>
                    <td>${getOrderDisplay(billInfo)}</td>
                    <td>${billInfo.brand_no || ''}</td>
-                   <td class="text-right">${formatNumber(billInfo.thickness)}</td>
-                   <td class="text-right">${formatNumber(billInfo.width)}</td>
-                   <td class="text-right">${formatNumber(billInfo.len)}</td>
+                   <td class="text-right">${formatDim(billInfo.thickness)}</td>
+                   <td class="text-right">${formatDim(billInfo.width)}</td>
+                   <td class="text-right">${formatDim(billInfo.len)}</td>
                    <td class="text-right">${formatNumber(billInfo.weight)}</td>
                    <td class="text-right">${veh.send_num}</td>
                    <td class="text-right">${formatNumber(getVehSendWeight(veh, billInfo))}</td>
@@ -425,9 +420,9 @@ function handlePrint() {
                  <td>${billInfo.bill_no || ''}</td>
                  <td>${getOrderDisplay(billInfo)}</td>
                  <td>${billInfo.brand_no || ''}</td>
-                 <td class="text-right">${formatNumber(billInfo.thickness)}</td>
-                 <td class="text-right">${formatNumber(billInfo.width)}</td>
-                 <td class="text-right">${formatNumber(billInfo.len)}</td>
+                 <td class="text-right">${formatDim(billInfo.thickness)}</td>
+                 <td class="text-right">${formatDim(billInfo.width)}</td>
+                 <td class="text-right">${formatDim(billInfo.len)}</td>
                  <td class="text-right">${formatNumber(billInfo.weight)}</td>
                  <td class="text-right">${bill.num || 0}</td>
                  <td class="text-right">${formatNumber(getBillSendWeight(bill))}</td>
@@ -698,9 +693,9 @@ async function handleExport() {
           billInfo.bill_no || '',
           getOrderDisplay(billInfo),
           billInfo.brand_no || '',
-          formatNumber(billInfo.thickness),
-          formatNumber(billInfo.width),
-          formatNumber(billInfo.len),
+          formatDim(billInfo.thickness),
+          formatDim(billInfo.width),
+          formatDim(billInfo.len),
           formatNumber(billInfo.weight),
           veh.send_num,
           formatNumber(getVehSendWeight(veh, billInfo)),
@@ -715,9 +710,9 @@ async function handleExport() {
         billInfo.bill_no || '',
         getOrderDisplay(billInfo),
         billInfo.brand_no || '',
-        formatNumber(billInfo.thickness),
-        formatNumber(billInfo.width),
-        formatNumber(billInfo.len),
+        formatDim(billInfo.thickness),
+        formatDim(billInfo.width),
+        formatDim(billInfo.len),
         formatNumber(billInfo.weight),
         bill.num || 0,
         formatNumber(getBillSendWeight(bill)),
@@ -965,13 +960,13 @@ const calculateTotals = computed(() => {
                   <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
                   <TableCell>{{ bill.bill_id?.brand_no }}</TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.thickness) }}
+                    {{ formatDim(bill.bill_id?.thickness) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.width) }}
+                    {{ formatDim(bill.bill_id?.width) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.len) }}
+                    {{ formatDim(bill.bill_id?.len) }}
                   </TableCell>
                   <TableCell class="text-right">
                     {{ formatNumber(bill.bill_id?.weight) }}
@@ -993,13 +988,13 @@ const calculateTotals = computed(() => {
                   <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
                   <TableCell>{{ bill.bill_id?.brand_no }}</TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.thickness) }}
+                    {{ formatDim(bill.bill_id?.thickness) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.width) }}
+                    {{ formatDim(bill.bill_id?.width) }}
                   </TableCell>
                   <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.len) }}
+                    {{ formatDim(bill.bill_id?.len) }}
                   </TableCell>
                   <TableCell class="text-right">
                     {{ formatNumber(bill.bill_id?.weight) }}

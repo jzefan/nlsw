@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import dayjs from 'dayjs'
 import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, Plus, RefreshCw, Square, Trash2, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { OrderPlan } from '@/services/api/plan.api'
 
 import { BasicPage } from '@/components/global-layout'
+import { formatNumber } from '@/utils/format'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
+import { DatePicker } from '@/components/ui/date-picker'
 import {
   closePlans,
   deletePlans,
@@ -32,8 +35,8 @@ const filters = ref({
   customerName: '',
   transportMode: '',
   status: '',
-  startDate: '',
-  endDate: '',
+  startDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
+  endDate: dayjs().format('YYYY-MM-DD'),
 })
 
 // 下拉选项
@@ -265,13 +268,6 @@ async function handleUnclose() {
   }
 }
 
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return '0.00'
-  return num.toFixed(2)
-}
-
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
   if (!date)
@@ -292,8 +288,8 @@ function resetFilters() {
     customerName: '',
     transportMode: '',
     status: '',
-    startDate: '',
-    endDate: '',
+    startDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
+    endDate: dayjs().format('YYYY-MM-DD'),
   }
   page.value = 1
   loadData()
@@ -368,8 +364,8 @@ onMounted(() => {
             </UiSelectItem>
           </UiSelectContent>
         </UiSelect>
-        <UiInput v-model="filters.startDate" type="date" placeholder="开始日期" class="lg:w-36" />
-        <UiInput v-model="filters.endDate" type="date" placeholder="结束日期" class="lg:w-36" />
+        <DatePicker v-model="filters.startDate" placeholder="开始日期" class="lg:w-40" />
+        <DatePicker v-model="filters.endDate" placeholder="结束日期" class="lg:w-40" />
         <div class="col-span-2 sm:col-span-3 lg:col-span-1 flex gap-2">
           <UiButton size="sm" class="flex-1 lg:flex-none" @click="loadData">
             查询
@@ -425,9 +421,9 @@ onMounted(() => {
         </span>
       </div>
       <div class="text-xs sm:text-sm text-muted-foreground hidden sm:block">
-        选中: 订单量 <span class="font-medium">{{ formatNumber(selectedSummary.totalWeight) }}</span> |
-        已发量 <span class="font-medium">{{ formatNumber(selectedSummary.sentWeight) }}</span> |
-        未发量 <span class="font-medium">{{ formatNumber(selectedSummary.leftWeight) }}</span>
+        选中: 订单量 <span class="font-medium">{{ formatNumber(selectedSummary.totalWeight, 2) }}</span> |
+        已发量 <span class="font-medium">{{ formatNumber(selectedSummary.sentWeight, 2) }}</span> |
+        未发量 <span class="font-medium">{{ formatNumber(selectedSummary.leftWeight, 2) }}</span>
       </div>
     </div>
 
@@ -510,14 +506,14 @@ onMounted(() => {
               {{ plan.order_no }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(plan.order_weight) }}
+              {{ formatNumber(plan.order_weight, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(plan.order_weight - plan.left_weight) }}
+              {{ formatNumber(plan.order_weight - plan.left_weight, 2) }}
             </td>
             <td class="p-2 text-right">
               <span :class="plan.left_weight > 0.001 ? 'text-blue-600' : 'text-green-600'">
-                {{ formatNumber(plan.left_weight) }}
+                {{ formatNumber(plan.left_weight, 2) }}
               </span>
             </td>
             <td class="p-2 min-w-[120px]">
@@ -548,7 +544,7 @@ onMounted(() => {
               {{ plan.contract_no }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(plan.receiving_charge) }}
+              {{ formatNumber(plan.receiving_charge, 2) }}
             </td>
             <td class="p-2">
               {{ formatDate(plan.entry_time) }}
@@ -610,16 +606,16 @@ onMounted(() => {
             <div class="flex items-center gap-4 mt-2 text-sm">
               <div>
                 <span class="text-muted-foreground">订单:</span>
-                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight) }}</span>
+                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight, 2) }}</span>
               </div>
               <div>
                 <span class="text-muted-foreground">已发:</span>
-                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight - plan.left_weight) }}</span>
+                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight - plan.left_weight, 2) }}</span>
               </div>
               <div>
                 <span class="text-muted-foreground">未发:</span>
                 <span class="font-medium ml-1" :class="plan.left_weight > 0.001 ? 'text-blue-600' : 'text-green-600'">
-                  {{ formatNumber(plan.left_weight) }}
+                  {{ formatNumber(plan.left_weight, 2) }}
                 </span>
               </div>
             </div>
@@ -670,7 +666,7 @@ onMounted(() => {
             </div>
             <div>
               <span class="text-muted-foreground">接单价:</span>
-              <span class="ml-1">{{ formatNumber(plan.receiving_charge) }}</span>
+              <span class="ml-1">{{ formatNumber(plan.receiving_charge, 2) }}</span>
             </div>
             <div>
               <span class="text-muted-foreground">录单时间:</span>
@@ -696,9 +692,9 @@ onMounted(() => {
     <div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
       <div class="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
         共 {{ total }} 条 |
-        订单量 <span class="font-medium">{{ formatNumber(summary.totalWeight) }}</span> |
-        已发 <span class="font-medium">{{ formatNumber(summary.sentWeight) }}</span> |
-        未发 <span class="font-medium">{{ formatNumber(summary.leftWeight) }}</span>
+        订单量 <span class="font-medium">{{ formatNumber(summary.totalWeight, 2) }}</span> |
+        已发 <span class="font-medium">{{ formatNumber(summary.sentWeight, 2) }}</span> |
+        未发 <span class="font-medium">{{ formatNumber(summary.leftWeight, 2) }}</span>
       </div>
       <div class="flex items-center justify-center gap-2">
         <UiButton
@@ -733,7 +729,7 @@ onMounted(() => {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
           <div>
             <label class="text-sm font-medium">已发量（吨）</label>
-            <UiInput :model-value="formatNumber(sentWeight)" disabled class="bg-muted" />
+            <UiInput :model-value="formatNumber(sentWeight, 2)" disabled class="bg-muted" />
           </div>
           <div>
             <label class="text-sm font-medium">订单量（吨）<span class="text-destructive ml-1">*</span></label>
@@ -745,7 +741,7 @@ onMounted(() => {
               placeholder="不能小于已发量"
             />
             <p v-if="editForm.orderWeight < sentWeight" class="text-xs text-destructive mt-1">
-              订单量不能小于已发量 {{ formatNumber(sentWeight) }}
+              订单量不能小于已发量 {{ formatNumber(sentWeight, 2) }}
             </p>
           </div>
           <div>

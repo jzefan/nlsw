@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { CheckSquare, Loader2, ShoppingCart, Filter, Settings2, Square } from 'lucide-vue-next'
+import { Ban, CheckCircle, CheckSquare, Clock, Download, Eye, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Wallet, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -29,8 +29,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import * as settleApi from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
+import { formatNumber } from '@/utils/format'
 
 import SettleBasket from './components/SettleBasket.vue'
+import VesselCardContent from './components/VesselCardContent.vue'
 import VesselBatchPriceInputDialog from './components/VesselBatchPriceInputDialog.vue'
 import VesselDelayInfoDialog from './components/VesselDelayInfoDialog.vue'
 import VesselDetailDialog from './components/VesselDetailDialog.vue'
@@ -60,8 +62,11 @@ watch(
 
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
-// 权限
-const hasPrivilegePrice = computed(() => hasPermission(authStore.user?.privilege ?? [], PERMISSIONS.SEE_PRICE))
+// 权限：有 seePrice 或 vesselSettle 都可以看到价格
+const hasPrivilegePrice = computed(() =>
+  hasPermission(authStore.user?.privilege ?? [], PERMISSIONS.SEE_PRICE) ||
+  hasPermission(authStore.user?.privilege ?? [], PERMISSIONS.VESSEL_SETTLE),
+)
 
 // 对话框引用
 const priceInputDialog = ref<InstanceType<typeof VesselPriceInputDialog>>()
@@ -98,12 +103,12 @@ const {
 })
 
 // 筛选表单
-const showFilter = ref(false)
+const showFilter = ref(true)
 const filterForm = ref({
   vehicle: '',
   billName: '',
   destination: '',
-  startDate: dayjs().subtract(6, 'month').format('YYYY-MM-DD'), // 默认查询6个月
+  startDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'), // 默认查询1个月
   endDate: dayjs().format('YYYY-MM-DD'),
   settleState: '未结算',
   receiptState: '2',
@@ -702,11 +707,41 @@ function getStatusHtml(state: string) {
   return `<span style="color: ${color}">${state}</span>`
 }
 
+// 移动端卡片状态标签样式
+function getStatusTagClass(state: string): string {
+  const map: Record<string, string> = {
+    未结算: 'bg-orange-100 text-orange-700 border-orange-200',
+    已结算: 'bg-blue-100 text-blue-700 border-blue-200',
+    已付款: 'bg-green-100 text-green-700 border-green-200',
+    不需要结算: 'bg-gray-100 text-gray-500 border-gray-200',
+  }
+  return map[state] || 'bg-gray-100 text-gray-700 border-gray-200'
+}
+
+function getRowState(row: any): string {
+  return row.isSubItem ? (row.state || '') : (row.vessel_settle_state || '')
+}
+
 // 格式化数字
-function formatNumber(num: number | string): string {
-  if (num === null || num === undefined || num === '') return '0'
-  const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0' : n.toFixed(3)
+
+// 智能格式化：大数值自动转为"万"单位（移动端汇总用）
+function formatSmart(value: number | string, unit: string): string {
+  const n = typeof value === 'string' ? Number.parseFloat(value) : value
+  if (isNaN(n)) return `0${unit}`
+  if (Math.abs(n) >= 1000000) {
+    return `${(n / 10000).toFixed(3).replace(/\.?0+$/, '')}万${unit}`
+  }
+  return `${n.toFixed(3).replace(/\.?0+$/, '')}${unit}`
+}
+
+// 移动端卡片展开状态
+const expandedCards = ref<Set<string>>(new Set())
+function toggleCardExpand(key: string) {
+  if (expandedCards.value.has(key)) {
+    expandedCards.value.delete(key)
+  } else {
+    expandedCards.value.add(key)
+  }
 }
 
 // 格式化日期（显示到秒）
@@ -1452,8 +1487,155 @@ function handleUploadReceiptConfirm() {
     :description="isSelfOwnedMode ? '自有车船运费结算管理' : '车船运费结算管理'"
   >
     <div class="settle-vessel-page relative flex flex-col" style="height: calc(100vh - 80px)">
-      <!-- 操作栏 -->
-      <div class="flex items-center justify-between gap-4 mb-4">
+      <!-- 操作栏：移动端 -->
+      <div class="md:hidden space-y-2 mb-4">
+        <!-- 第一层：状态 Tabs 横向滚动 -->
+        <div class="overflow-x-auto" :class="{ 'pointer-events-none opacity-50': loading }">
+          <Tabs v-model="filterForm.settleState" @update:model-value="() => handleSearch(true)">
+            <TabsList class="h-9 w-max">
+              <TabsTrigger
+                value="未结算"
+                class="text-xs data-[state=active]:text-orange-600 dark:data-[state=active]:text-orange-400"
+              >
+                未结算
+              </TabsTrigger>
+              <TabsTrigger
+                value="已结算"
+                class="text-xs data-[state=active]:text-blue-600 dark:data-[state=active]:text-blue-400"
+              >
+                已结算
+              </TabsTrigger>
+              <TabsTrigger
+                value="已付款"
+                class="text-xs data-[state=active]:text-green-600 dark:data-[state=active]:text-green-400"
+              >
+                已付款
+              </TabsTrigger>
+              <TabsTrigger value="不需要结算" class="text-xs data-[state=active]:text-muted-foreground">
+                不需要结算
+              </TabsTrigger>
+              <TabsTrigger value="全部" class="text-xs"> 全部 </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+        <!-- 第二层：操作按钮横向滚动（icon模式） -->
+        <div class="flex items-center gap-1.5 overflow-x-auto">
+          <TooltipProvider :delay-duration="300">
+            <template v-if="hasPrivilegePrice">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <UiButton
+                    variant="outline"
+                    size="icon"
+                    class="shrink-0 h-8 w-8 relative"
+                    :disabled="selectedRecords.length + selectedInnerNo.length === 0"
+                    @click="handlePriceInput"
+                  >
+                    <span class="font-bold text-sm">¥</span>
+                    <span
+                      v-if="selectedRecords.length + selectedInnerNo.length > 0"
+                      class="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[10px] rounded-full w-4 h-4 flex items-center justify-center"
+                    >{{ selectedRecords.length + selectedInnerNo.length }}</span>
+                  </UiButton>
+                </TooltipTrigger>
+                <TooltipContent><p>价格输入</p></TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" @click="handleDelayInfo">
+                    <Clock class="w-4 h-4" />
+                  </UiButton>
+                </TooltipTrigger>
+                <TooltipContent><p>回执滞留</p></TooltipContent>
+              </Tooltip>
+            </template>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" @click="handleExport">
+                  <Download class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>导出</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" :disabled="!canShowDetail" @click="handleShowDetail">
+                  <Eye class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>显示明细</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip v-if="canShowBasket">
+              <TooltipTrigger as-child>
+                <UiButton
+                  ref="basketButtonRef"
+                  variant="default"
+                  size="icon"
+                  class="relative shrink-0 h-8 w-8"
+                  @click="showBasket = true"
+                >
+                  <ShoppingCart class="w-4 h-4" />
+                  <span
+                    v-if="basketItems.length > 0"
+                    class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center animate-pulse"
+                  >{{ basketItems.length > 99 ? '99+' : basketItems.length }}</span>
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>结算篮</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip v-if="showSettleBtn">
+              <TooltipTrigger as-child>
+                <UiButton variant="default" size="icon" class="shrink-0 h-8 w-8" @click="handleSettle">
+                  <CheckCircle class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>结算</p></TooltipContent>
+            </Tooltip>
+            <Tooltip v-if="showSettleCancelBtn">
+              <TooltipTrigger as-child>
+                <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" @click="handleSettleCancel">
+                  <Ban class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>结算取消</p></TooltipContent>
+            </Tooltip>
+            <Tooltip v-if="showPrintBtn">
+              <TooltipTrigger as-child>
+                <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" @click="handlePrintDetail">
+                  <Printer class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>车船清单打印</p></TooltipContent>
+            </Tooltip>
+            <Tooltip v-if="showPayBtn">
+              <TooltipTrigger as-child>
+                <UiButton variant="default" size="icon" class="shrink-0 h-8 w-8" @click="handlePay">
+                  <Wallet class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>付款</p></TooltipContent>
+            </Tooltip>
+            <Tooltip v-if="showPayCancelBtn">
+              <TooltipTrigger as-child>
+                <UiButton variant="outline" size="icon" class="shrink-0 h-8 w-8" @click="handlePayCancel">
+                  <Ban class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>付款取消</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <div class="ml-auto shrink-0">
+            <UiButton variant="outline" size="icon" class="h-8 w-8" @click="showFilter = !showFilter">
+              <Filter class="w-4 h-4" />
+            </UiButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作栏：桌面端 -->
+      <div class="hidden md:flex items-center justify-between gap-4 mb-4">
         <div class="flex items-center gap-2">
           <!-- 价格输入按钮组 -->
           <template v-if="hasPrivilegePrice">
@@ -1633,7 +1815,7 @@ function handleUploadReceiptConfirm() {
         :class="{ 'pointer-events-none opacity-50': loading }"
       >
         <!-- 第一行：车船号 | 开单名称 | 目的地 | 回执状态 -->
-        <div class="grid grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <SearchableCombobox
             v-model="filterForm.vehicle"
             :search-fn="searchVehicles"
@@ -1665,7 +1847,7 @@ function handleUploadReceiptConfirm() {
         </div>
 
         <!-- 第二行：[开始日期] | [结束日期] | [单价 吨位 查询] -->
-        <div class="grid grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <!-- 开始日期 -->
           <DatePicker
             v-model="filterForm.startDate"
@@ -1685,7 +1867,7 @@ function handleUploadReceiptConfirm() {
           />
 
           <!-- 查询组 -->
-          <div class="col-span-2 flex gap-2">
+          <div class="col-span-2 flex gap-2 flex-wrap md:flex-nowrap">
             <Input
               v-model="filterForm.amount"
               placeholder="单价"
@@ -1706,8 +1888,8 @@ function handleUploadReceiptConfirm() {
         </div>
       </div>
 
-      <!-- 统计信息行 -->
-      <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
+      <!-- 统计信息行：桌面端 -->
+      <div class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
         <span class="text-muted-foreground">
           记录数: <strong class="text-foreground">{{ tableData.length }}</strong>
         </span>
@@ -1740,8 +1922,43 @@ function handleUploadReceiptConfirm() {
         </UiButton>
       </div>
 
-      <!-- 表格 -->
-      <div class="flex-1 min-h-0 border rounded-lg overflow-auto relative">
+      <!-- 统计信息行：移动端 -->
+      <div class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4 space-y-2">
+        <div class="grid grid-cols-2 gap-1">
+          <span class="text-muted-foreground">
+            记录数: <strong class="text-foreground">{{ tableData.length }}</strong>
+          </span>
+          <span class="text-muted-foreground">
+            重量: <strong class="text-foreground">{{ formatSmart(totalWeight, '吨') }}</strong>
+          </span>
+          <span v-if="hasPrivilegePrice" class="text-muted-foreground">
+            合计: <strong class="text-foreground">¥{{ formatSmart(totalAmount, '元') }}</strong>
+          </span>
+          <span v-if="selectedTotalWeight > 0" class="text-primary font-medium">
+            已选: {{ formatSmart(selectedTotalWeight, '吨') }}
+          </span>
+          <span v-if="selectedTotalWeight > 0 && hasPrivilegePrice" class="text-primary font-medium">
+            已选: ¥{{ formatSmart(selectedTotalAmount, '元') }}
+          </span>
+          <span v-if="showUnpayBlock" class="text-orange-600 font-medium">
+            未付: ¥{{ formatSmart(totalAmount - prePayment, '元') }}
+          </span>
+        </div>
+        <!-- 加入结算篮按钮 -->
+        <UiButton
+          v-if="canShowBasket && selectedRecords.length > 0"
+          variant="default"
+          size="sm"
+          class="bg-orange-500 hover:bg-orange-600 text-white w-full"
+          @click="handleAddToBasket"
+        >
+          <ShoppingCart class="w-4 h-4 mr-1" />
+          加入结算篮 ({{ selectedRecords.length }})
+        </UiButton>
+      </div>
+
+      <!-- 表格：桌面端 -->
+      <div class="hidden lg:block flex-1 min-h-0 border rounded-lg overflow-auto relative">
         <!-- 加载遮罩 -->
         <div
           v-if="loading"
@@ -2279,8 +2496,191 @@ function handleUploadReceiptConfirm() {
         </table>
       </div>
 
+      <!-- 移动端卡片视图 -->
+      <div class="lg:hidden space-y-2 flex-1 min-h-0 overflow-auto relative">
+        <!-- 加载遮罩 -->
+        <div
+          v-if="loading"
+          class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-30"
+        >
+          <div class="flex items-center gap-2 text-muted-foreground">
+            <Loader2 class="w-5 h-5 animate-spin" />
+            <span>加载中...</span>
+          </div>
+        </div>
+
+        <!-- 无数据 -->
+        <div v-if="pagedData.length === 0 && !loading" class="border rounded-lg p-8 text-center text-muted-foreground">
+          暂无数据，请调整筛选条件后重新查询
+        </div>
+
+        <template v-for="(row, index) in pagedData" :key="row.isSubItem ? `m-sub-${row.inner_waybill_no}` : `m-main-${row.waybill_no}`">
+          <!-- 主行卡片 -->
+          <div
+            v-if="!row.isSubItem"
+            class="relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
+            :class="{
+              'bg-orange-50/60 border-l-4 border-l-orange-400': row.isVessel && !row.selected && !isInBasket(row),
+              'bg-muted/30 hover:border-primary/30': !row.isVessel && !row.selected && !isInBasket(row),
+              'bg-blue-50 border-l-4 border-l-blue-500': row.selected && !isInBasket(row),
+              'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(row),
+            }"
+            @click="handleRowClick(row)"
+          >
+            <!-- 右上角绝对定位：查看/上传 -->
+            <span
+              v-if="!isInBasket(row) && row.has_receipt_image"
+              class="absolute top-2 right-2 text-sm text-primary font-medium cursor-pointer"
+              @click.stop="handleViewReceipt(row)"
+            >查看</span>
+            <span
+              v-if="!isInBasket(row) && !row.has_receipt_image"
+              class="absolute top-2 right-2 text-sm text-primary font-medium cursor-pointer"
+              @click.stop="handleUploadReceipt(row)"
+            >上传</span>
+
+            <!-- 已在结算篮：只显示购物车icon -->
+            <template v-if="isInBasket(row)">
+              <ShoppingCart class="w-5 h-5 text-orange-500 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <span class="font-medium text-sm truncate">{{ row.vehicle_vessel_name }}</span>
+                <span class="ml-2 text-xs text-orange-500">已在结算篮</span>
+              </div>
+              <button
+                class="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
+                title="从结算篮移除"
+                @click.stop="removeFromBasket(row)"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </template>
+
+            <!-- 正常状态 -->
+            <template v-else>
+              <input
+                v-model="row.selected"
+                type="checkbox"
+                class="h-4 w-4 shrink-0 cursor-pointer"
+                @click.stop="handleRowSelect(row)"
+              />
+              <span
+                class="shrink-0 cursor-pointer"
+                :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                @click.stop="handleNotNeedSettle(row)"
+              >★</span>
+
+              <VesselCardContent
+                :name="row.vehicle_vessel_name"
+                :status="getRowState(row)"
+                :status-class="getStatusTagClass(getRowState(row))"
+                :charge-text="row.chargeText"
+                :remark="row.remark"
+                :ship-name="row.shipName"
+                :ship-from="row.ship_from"
+                :ship-to="row.ship_to"
+                :ship-date="formatDate(row.ship_date)"
+                :weight="`${formatNumber(row.total_weight)}吨`"
+                :price="hasPrivilegePrice ? `${row.unitPrice}/${row.priceText}` : undefined"
+                :price-class="row.priceColor"
+                :show-expand="row.isVessel"
+                :expanded="row.expanded"
+                @toggle-expand="toggleExpand(row)"
+              />
+
+              <!-- 右侧：回执checkbox -->
+              <div class="flex items-center shrink-0" @click.stop="handleToggleReceipt(row)">
+                <component
+                  :is="row.receipt === 1 ? CheckSquare : Square"
+                  class="w-5 h-5 cursor-pointer"
+                  :class="row.receipt === 1 ? 'text-green-600' : 'text-gray-400'"
+                />
+              </div>
+            </template>
+          </div>
+
+          <!-- 子行卡片（车辆） -->
+          <div
+            v-if="row.isSubItem && row.parentExpanded"
+            class="ml-4 relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
+            :class="{
+              'bg-green-50/60 border-l-4 border-l-green-400': !row.selected && !isInBasket(row),
+              'bg-blue-50 border-l-4 border-l-blue-500': row.selected && !isInBasket(row),
+              'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(row),
+            }"
+            @click="handleSubRowClick(row)"
+          >
+            <!-- 右上角绝对定位：查看/上传 -->
+            <span
+              v-if="!isInBasket(row) && row.has_receipt_image"
+              class="absolute top-2 right-2 text-sm text-primary font-medium cursor-pointer"
+              @click.stop="handleViewReceipt(row)"
+            >查看</span>
+            <span
+              v-if="!isInBasket(row) && !row.has_receipt_image"
+              class="absolute top-2 right-2 text-sm text-primary font-medium cursor-pointer"
+              @click.stop="handleUploadReceipt(row)"
+            >上传</span>
+
+            <!-- 已在结算篮：只显示购物车icon -->
+            <template v-if="isInBasket(row)">
+              <ShoppingCart class="w-5 h-5 text-orange-500 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <span class="font-medium text-sm truncate">{{ row.veh_name }}</span>
+                <span class="ml-2 text-xs text-orange-500">已在结算篮</span>
+              </div>
+              <button
+                class="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
+                title="从结算篮移除"
+                @click.stop="removeFromBasket(row)"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </template>
+
+            <!-- 正常状态 -->
+            <template v-else>
+              <input
+                v-model="row.selected"
+                type="checkbox"
+                class="h-4 w-4 shrink-0 cursor-pointer"
+                @click.stop="handleSubRowSelect(row)"
+              />
+              <span
+                class="shrink-0 cursor-pointer"
+                :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                @click.stop="handleNotNeedSettle(row)"
+              >★</span>
+
+              <VesselCardContent
+                :name="row.veh_name"
+                :status="getRowState(row)"
+                :status-class="getStatusTagClass(getRowState(row))"
+                :charge-text="row.chargeText"
+                :remark="row.remark"
+                :ship-name="row.shipName"
+                :ship-from="row.ship_from"
+                :ship-to="row.ship_to"
+                :ship-date="formatDate(row.ship_date)"
+                :weight="`${formatNumber(row.send_weight)}吨`"
+                :price="hasPrivilegePrice ? `${row.unitPrice}/${row.priceText}` : undefined"
+                :price-class="row.priceColor"
+              />
+
+              <!-- 右侧：回执checkbox -->
+              <div class="flex items-center shrink-0" @click.stop="handleToggleReceipt(row)">
+                <component
+                  :is="row.receipt === 1 ? CheckSquare : Square"
+                  class="w-5 h-5 cursor-pointer"
+                  :class="row.receipt === 1 ? 'text-green-600' : 'text-gray-400'"
+                />
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
       <!-- 分页 -->
-      <div v-if="tableData.length > pageSize" class="flex items-center justify-between mt-4 px-2">
+      <div v-if="tableData.length > pageSize" class="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 px-2">
         <div class="text-sm text-muted-foreground">
           显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, tableData.length) }} 条，共
           {{ tableData.length }} 条
@@ -2407,26 +2807,20 @@ function handleUploadReceiptConfirm() {
         @remove="removeFromBasket"
         @clear="clearBasket"
       >
-        <template #item-title="{ item }">
-          <span class="font-medium truncate">{{ item.veh_name || item.vehicle_vessel_name }}</span>
-        </template>
-        <template #item-subtitle="{ item }">
-          <div class="text-sm text-muted-foreground truncate">
-            {{ item.shipName || item.ship_name }}{{ item.ship_customer ? `/${item.ship_customer}` : '' }}
-          </div>
-          <div class="text-xs text-muted-foreground mt-0.5">{{ item.ship_from }} → {{ item.ship_to }}</div>
-        </template>
-        <template #item-details="{ item }">
-          <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-            <span>{{ item.send_num }}块</span>
-            <span>{{ formatNumber(item.send_weight) }}吨</span>
-            <span v-if="hasPrivilegePrice" class="text-muted-foreground">
-              单价: ¥{{ formatNumber(item.vessel_price || 0) }}
-            </span>
-            <span v-if="hasPrivilegePrice" class="text-primary font-medium">
-              ¥{{ formatNumber((item.vessel_price || 0) * item.send_weight) }}
-            </span>
-          </div>
+        <template #item="{ item }">
+          <VesselCardContent
+            :name="item.veh_name || item.vehicle_vessel_name"
+            :status="item.isSubItem ? (item.state || '') : (item.vessel_settle_state || '')"
+            :status-class="getStatusTagClass(item.isSubItem ? (item.state || '') : (item.vessel_settle_state || ''))"
+            :charge-text="item.chargeText"
+            :ship-name="item.shipName || item.ship_name"
+            :ship-from="item.ship_from"
+            :ship-to="item.ship_to"
+            :ship-date="formatDate(item.ship_date)"
+            :weight="`${formatNumber(item.send_weight)}吨`"
+            :price="hasPrivilegePrice ? `${formatNumber(item.vessel_price || 0)}/${formatNumber((item.vessel_price || 0) * item.send_weight)}` : undefined"
+            price-class="text-blue-600"
+          />
         </template>
       </SettleBasket>
 

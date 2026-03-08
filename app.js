@@ -103,6 +103,7 @@ app.use(
   connectAssets({
     paths: ["public/css", "public/js"],
     helperContext: app.locals,
+    compress: false,
   }),
 );
 app.use(compress());

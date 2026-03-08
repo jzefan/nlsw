@@ -777,6 +777,33 @@ exports.getReceiptImageById = async (req, res) => {
   }
 };
 
+// 流式返回回执图片（浏览器直接加载，支持 HTTP 缓存）
+exports.streamReceiptImage = async (req, res) => {
+  try {
+    const imageId = req.params.id;
+    if (!imageId) {
+      return res.status(400).json({ ok: false, message: "缺少图片ID" });
+    }
+
+    const imgQuery = buildTenantQuery(req, { _id: imageId });
+    const image = await ReceiptImage.findOne(imgQuery).lean().exec();
+    if (!image) {
+      return res.status(404).json({ ok: false, message: "图片记录不存在" });
+    }
+
+    if (!fs.existsSync(image.file_path)) {
+      return res.status(404).json({ ok: false, message: "图片文件不存在" });
+    }
+
+    res.set("Content-Type", image.mime_type || "image/jpeg");
+    res.set("Cache-Control", "private, max-age=86400");
+    res.sendFile(path.resolve(image.file_path));
+  } catch (error) {
+    console.error("获取图片失败:", error);
+    res.status(500).json({ ok: false, message: "获取图片失败" });
+  }
+};
+
 // 删除回执图片
 exports.deleteReceiptImage = async (req, res) => {
   try {

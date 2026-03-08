@@ -85,7 +85,7 @@ export interface DashboardStats {
   totalPaymentTonnage: number
   billingNameCount: number
   monthlyTrend: { date: string, weight: number }[]
-  top8BillingNames: { name: string, value: number }[]
+  top10BillingNames: { name: string, value: number }[]
   top5Vehicles: { name: string, value: number }[]
   allVehicles: VehicleData[]
   // 车辆分类统计

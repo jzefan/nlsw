@@ -197,7 +197,7 @@ function clearValue(e: Event) {
             <span class="flex-1 flex items-center justify-between gap-2">
               <span>{{ item.name }}</span>
               <span v-if="item.shipper" class="text-xs text-muted-foreground">{{ item.shipper }}</span>
-              <span v-else-if="item.order_item_no" class="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{{ item.order_item_no }}</span>
+              <span v-else-if="item.order_item_no" class="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">项次{{ item.order_item_no }}</span>
             </span>
           </div>
 

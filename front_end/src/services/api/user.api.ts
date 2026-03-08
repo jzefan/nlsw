@@ -44,7 +44,13 @@ export function getTitleCode(label: string): string {
 // Re-export from permissions constants
 export { getPrivilegeDisplay }
 
-// 获取用户列表
+// 获取用户名称列表（所有用户可用，排除平台管理员）
+export async function getUserNames() {
+  const response = await axiosInstance.get<{ ok: boolean; data: string[] }>('/users')
+  return response.data
+}
+
+// 获取用户管理列表（需要管理权限）
 export async function getUsers() {
   const response = await axiosInstance.get<{ ok: boolean; data: User[] }>('/user_mgr')
   return response.data

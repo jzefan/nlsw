@@ -141,3 +141,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * 移动端键盘安全：dialog 定位和限高到可视区域
+ * --visual-vh / --visual-vt 由 useKeyboardSafe composable 动态设置
+ *
+ * 原理：
+ *   - iOS: position:fixed 相对 layout viewport，键盘弹出后 visualViewport 缩小且 offsetTop 偏移
+ *          需要用 --visual-vt + --visual-vh/2 重新居中
+ *   - Android: layout viewport 随键盘缩小，fixed 元素自动重定位
+ *          --visual-vt 为 0, --visual-vh 为缩小后的高度，公式同样成立
+ */
+@media (max-width: 767px) {
+  [data-slot="dialog-content"] {
+    top: calc(var(--visual-vt, 0px) + var(--visual-vh, 100dvh) / 2) !important;
+    max-height: calc(var(--visual-vh, 100dvh) - 2rem) !important;
+    overflow-y: auto;
+  }
+}

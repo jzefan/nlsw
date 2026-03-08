@@ -249,7 +249,7 @@ exports.getInvoiceDetail = async (req, res) => {
     const invoice = await Invoice.findOne(buildTenantQuery(req, { waybill_no: waybillNo }))
       .populate({
         path: 'bills.bill_id',
-        select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status'
+        select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status warehouse brand_no ship_warehouse'
       })
       .lean()
       .exec();

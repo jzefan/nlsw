@@ -49,6 +49,9 @@ exports.getBills = async (req, res) => {
     if (req.query.leftNumOnly === 'true') {
       baseQuery.left_num = { $gt: 0 };
     }
+    if (req.query.creater) {
+      baseQuery.creater = req.query.creater;
+    }
 
     if (req.query.startTime || req.query.endTime) {
       baseQuery.create_date = {};
@@ -283,6 +286,7 @@ exports.createBills = async (req, res) => {
           contract_no: row_data.contractNo || row_data.contract_no,
           shipping_address: row_data.shippingAddress || row_data.shipping_address,
           product_type: row_data.productType || row_data.product_type,
+          carrier: row_data.carrier,
           creater: req.user ? req.user.userid : 'admin',
           invoices: [],
           customer_price: 0,
@@ -319,9 +323,9 @@ exports.createBills = async (req, res) => {
           bill.thickness = utils.getFloatValue(row_data.thickness, 0);
         }
 
-        // Size Type
+        // Size Type: 保留原始值（定尺、双定尺、单定、非定尺等）
         let sizeType = row_data.sizeType || row_data.size_type;
-        if (isEmpty(sizeType) || sizeType == '双定尺') {
+        if (isEmpty(sizeType)) {
           bill.size_type = '定尺';
         } else if (sizeType === '单定尺') {
           bill.size_type = '单定';

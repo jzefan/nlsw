@@ -13,6 +13,8 @@ import {
   getBills,
   searchBills,
 } from '@/services/api/bill.api'
+import { getUserNames } from '@/services/api/user.api'
+import { formatNumber } from '@/utils/format'
 
 // 状态
 const loading = ref(false)
@@ -37,6 +39,7 @@ const filters = ref<BillFilterValues>({
   leftNumOnly: false,
   startDate: '',
   endDate: '',
+  creater: '',
 })
 
 // 高级查询对话框
@@ -83,8 +86,9 @@ async function loadData() {
       brandNo: filters.value.brandNo || undefined,
       contractNo: filters.value.contractNo || undefined,
       status: '新建', // 只能删除新建状态的提单
-      startDate: filters.value.startDate || undefined,
-      endDate: filters.value.endDate || undefined,
+      startTime: filters.value.startDate || undefined,
+      endTime: filters.value.endDate || undefined,
+      creater: filters.value.creater || undefined,
     })
     if (result.ok) {
       bills.value = result.data
@@ -159,13 +163,6 @@ async function handleDelete() {
   }
 }
 
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return ''
-  return num.toFixed(2)
-}
-
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
   if (!date)
@@ -186,6 +183,7 @@ function resetFilters() {
     leftNumOnly: false,
     startDate: '',
     endDate: '',
+    creater: '',
   }
   page.value = 1
   loadData()
@@ -324,9 +322,25 @@ function getFieldOptions(fieldValue: string) {
   return field?.options || []
 }
 
+// 用户名列表（创建人筛选用）
+const userNames = ref<string[]>([])
+
+async function loadUserNames() {
+  try {
+    const result = await getUserNames()
+    if (result.ok) {
+      userNames.value = result.data
+    }
+  }
+  catch {
+    // ignore
+  }
+}
+
 // 初始化
 onMounted(() => {
   loadData()
+  loadUserNames()
 })
 </script>
 
@@ -364,6 +378,7 @@ onMounted(() => {
       v-model="filters"
       :show-status="false"
       :show-left-num-only="false"
+      :creater-options="userNames"
       class="mb-3"
       @search="activeQuery = null; loadData()"
       @reset="resetFilters"
@@ -454,6 +469,9 @@ onMounted(() => {
             <th class="p-2 text-left whitespace-nowrap">
               创建日期
             </th>
+            <th class="p-2 text-left whitespace-nowrap">
+              创建人
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -491,19 +509,19 @@ onMounted(() => {
               {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness) }}
+              {{ formatNumber(bill.thickness, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width) }}
+              {{ formatNumber(bill.width, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len) }}
+              {{ formatNumber(bill.len, 2) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.block_num }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.total_weight) }}
+              {{ formatNumber(bill.total_weight, 2) }}
             </td>
             <td class="p-2">
               {{ bill.ship_warehouse }}
@@ -514,9 +532,12 @@ onMounted(() => {
             <td class="p-2">
               {{ formatDate(bill.create_date) }}
             </td>
+            <td class="p-2">
+              {{ bill.creater }}
+            </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
-            <td colspan="15" class="p-8 text-center text-muted-foreground">
+            <td colspan="16" class="p-8 text-center text-muted-foreground">
               暂无可删除的提单
             </td>
           </tr>

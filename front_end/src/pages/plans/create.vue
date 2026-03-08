@@ -5,6 +5,8 @@ import * as XLSX from 'xlsx'
 
 import type { PlanCreateData } from '@/services/api/plan.api'
 
+import { formatNumber } from '@/utils/format'
+
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
@@ -299,12 +301,6 @@ const totalWeight = computed(() => {
   return orders.value.reduce((sum, o) => sum + (o.orderWeight || 0), 0)
 })
 
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return ''
-  return num.toFixed(2)
-}
 </script>
 
 <template>
@@ -429,7 +425,7 @@ function formatNumber(num: number | undefined) {
               {{ order.orderNo }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(order.orderWeight) }}
+              {{ formatNumber(order.orderWeight, 2) }}
             </td>
             <td class="p-2">
               {{ order.customerName }}
@@ -459,7 +455,7 @@ function formatNumber(num: number | undefined) {
               {{ order.contractNo }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(order.receivingCharge) }}
+              {{ formatNumber(order.receivingCharge, 2) }}
             </td>
           </tr>
           <tr v-if="orders.length === 0">
@@ -474,7 +470,7 @@ function formatNumber(num: number | undefined) {
               合计: {{ orders.length }} 条
             </td>
             <td class="p-2 text-right font-medium">
-              {{ formatNumber(totalWeight) }}
+              {{ formatNumber(totalWeight, 2) }}
             </td>
             <td colspan="10" />
           </tr>

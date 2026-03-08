@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { formatNumber } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -266,12 +267,6 @@ function getInvoiceByInnerNo(innerNo: string, records: any[]) {
 // 生成唯一ID（替换特殊字符）
 function generateId(name: string): string {
   return name.replace(/[\s()#]+/g, '_')
-}
-
-function formatNumber(num: number | string | undefined): string {
-  if (num === null || num === undefined || num === '') return '0.000'
-  const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 defineExpose({ open })

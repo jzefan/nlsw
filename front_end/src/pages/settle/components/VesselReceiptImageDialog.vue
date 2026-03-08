@@ -35,9 +35,6 @@ const currentWno = ref('')
 const fullImageUrl = ref('')
 const fullImageFilename = ref('')
 
-// 缓存已加载的图片数据
-const imageCache = ref<Record<string, string>>({})
-
 // 缩放状态
 const zoomLevel = ref(1)
 const imageNaturalWidth = ref(0)
@@ -75,7 +72,6 @@ async function open(wno: string) {
 
   currentWno.value = wno
   images.value = []
-  imageCache.value = {}
   visible.value = true
   loading.value = true
 
@@ -84,22 +80,6 @@ async function open(wno: string) {
 
     if (response.ok && response.images && response.images.length > 0) {
       images.value = response.images
-
-      // 并发加载所有图片
-      await Promise.all(
-        response.images.map(async (image) => {
-          try {
-            const imgResponse = await settleApi.getReceiptImageById(image.id)
-            if (imgResponse.ok && imgResponse.data) {
-              const dataUrl = `data:${imgResponse.contentType};base64,${imgResponse.data}`
-              imageCache.value[image.id] = dataUrl
-            }
-          }
-          catch (error) {
-            console.error(`加载图片 ${image.id} 失败:`, error)
-          }
-        }),
-      )
     }
     else {
       toast.warning('该运单暂无回执图片')
@@ -121,31 +101,21 @@ async function open(wno: string) {
 }
 
 function handleImageClick(image: ReceiptImage) {
-  // 图片已经在打开对话框时加载到缓存中
-  if (imageCache.value[image.id]) {
-    const url = imageCache.value[image.id]
-    fullImageUrl.value = url
-    fullImageFilename.value = image.original_filename
-    zoomLevel.value = 1
-    isMaximized.value = false
+  const url = settleApi.getReceiptImageUrl(image.id)
+  fullImageUrl.value = url
+  fullImageFilename.value = image.original_filename
+  zoomLevel.value = 1
+  isMaximized.value = false
 
-    // 用临时 Image 对象读取原始尺寸（不依赖 DOM，data URL 同步可用）
-    const tempImg = new window.Image()
-    tempImg.src = url
-    if (tempImg.naturalWidth > 0) {
-      imageNaturalWidth.value = tempImg.naturalWidth
-    } else {
-      imageNaturalWidth.value = 0
-      tempImg.onload = () => {
-        imageNaturalWidth.value = tempImg.naturalWidth
-      }
-    }
+  // 用临时 Image 对象读取原始尺寸
+  const tempImg = new window.Image()
+  tempImg.src = url
+  imageNaturalWidth.value = 0
+  tempImg.onload = () => {
+    imageNaturalWidth.value = tempImg.naturalWidth
+  }
 
-    showFullImage.value = true
-  }
-  else {
-    toast.warning('图片加载中，请稍后再试')
-  }
+  showFullImage.value = true
 }
 
 function zoomIn() {
@@ -216,21 +186,17 @@ async function confirmDelete() {
     // 从列表中移除
     images.value = images.value.filter(img => img.id !== imageToDelete.id)
 
-    // 从缓存中移除
-    delete imageCache.value[imageToDelete.id]
-
     // 如果全部删除完了，关闭对话框并通知父组件
     if (images.value.length === 0) {
       visible.value = false
-      emit('confirm')
-    } else {
-      // 否则只通知父组件刷新
-      emit('confirm')
     }
-  } catch (error: any) {
+    emit('confirm')
+  }
+  catch (error: any) {
     console.error('删除回执图片失败:', error)
     toast.error(error.message || '删除失败')
-  } finally {
+  }
+  finally {
     deleting.value = false
     showDeleteDialog.value = false
     pendingDeleteImage.value = null
@@ -238,41 +204,51 @@ async function confirmDelete() {
 }
 
 // 下载单张图片
-function downloadImage(event: MouseEvent, image: ReceiptImage) {
+async function downloadImage(event: MouseEvent, image: ReceiptImage) {
   event.stopPropagation()
-  const url = imageCache.value[image.id]
-  if (!url) {
-    toast.warning('图片尚未加载完成')
-    return
+  try {
+    const url = settleApi.getReceiptImageUrl(image.id)
+    const response = await fetch(url, { credentials: 'include' })
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = image.original_filename
+    a.click()
+    URL.revokeObjectURL(blobUrl)
   }
-  const a = document.createElement('a')
-  a.href = url
-  a.download = image.original_filename
-  a.click()
+  catch {
+    toast.error('下载失败')
+  }
 }
 
 // 下载当前全屏图片
-function downloadCurrentImage() {
+async function downloadCurrentImage() {
   if (!fullImageUrl.value) return
-  const a = document.createElement('a')
-  a.href = fullImageUrl.value
-  a.download = fullImageFilename.value
-  a.click()
+  try {
+    const response = await fetch(fullImageUrl.value, { credentials: 'include' })
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = fullImageFilename.value
+    a.click()
+    URL.revokeObjectURL(blobUrl)
+  }
+  catch {
+    toast.error('下载失败')
+  }
 }
 
 // 下载全部图片
 function downloadAll() {
-  const loaded = images.value.filter(img => imageCache.value[img.id])
-  if (loaded.length === 0) {
+  if (images.value.length === 0) {
     toast.warning('没有可下载的图片')
     return
   }
-  loaded.forEach((image, index) => {
+  images.value.forEach((image, index) => {
     setTimeout(() => {
-      const a = document.createElement('a')
-      a.href = imageCache.value[image.id]
-      a.download = image.original_filename
-      a.click()
+      downloadImage(new MouseEvent('click'), image)
     }, index * 300)
   })
 }
@@ -296,13 +272,12 @@ function printCurrentImage() {
 
 // 打印全部图片（每张一页）
 function printAll() {
-  const loaded = images.value.filter(img => imageCache.value[img.id])
-  if (loaded.length === 0) {
+  if (images.value.length === 0) {
     toast.warning('没有可打印的图片')
     return
   }
-  const imgsHtml = loaded.map(img =>
-    `<div class="page"><img src="${imageCache.value[img.id]}" /><p class="name">${img.original_filename}</p></div>`,
+  const imgsHtml = images.value.map(img =>
+    `<div class="page"><img src="${settleApi.getReceiptImageUrl(img.id)}" /><p class="name">${img.original_filename}</p></div>`,
   ).join('')
   const win = window.open('', '_blank')
   if (!win) {
@@ -395,30 +370,19 @@ async function handleUploadConfirm() {
     uploadPreviewImages.value = []
     if (uploadFileInputRef.value) uploadFileInputRef.value.value = ''
 
-    // 重新加载图片
+    // 重新加载图片列表（只需获取元数据，图片由浏览器直接加载）
     loading.value = true
     const response = await settleApi.getReceiptImagesList(currentWno.value)
     if (response.ok && response.images) {
       images.value = response.images
-      await Promise.all(
-        response.images.map(async (image) => {
-          if (imageCache.value[image.id]) return // 已缓存的跳过
-          try {
-            const imgResponse = await settleApi.getReceiptImageById(image.id)
-            if (imgResponse.ok && imgResponse.data) {
-              imageCache.value[image.id] = `data:${imgResponse.contentType};base64,${imgResponse.data}`
-            }
-          } catch (error) {
-            console.error(`加载图片 ${image.id} 失败:`, error)
-          }
-        }),
-      )
     }
     loading.value = false
     emit('confirm')
-  } catch (error: any) {
+  }
+  catch (error: any) {
     toast.error(error.message || '上传失败')
-  } finally {
+  }
+  finally {
     uploading.value = false
   }
 }
@@ -474,16 +438,11 @@ defineExpose({ open })
 
             <!-- 图片预览 -->
             <div class="aspect-square bg-muted/50 flex items-center justify-center relative overflow-hidden">
-              <!-- 实际图片或占位符 -->
               <img
-                v-if="imageCache[image.id]"
-                :src="imageCache[image.id]"
+                :src="settleApi.getReceiptImageUrl(image.id)"
                 :alt="image.original_filename"
                 class="w-full h-full object-cover"
               >
-              <div v-else class="flex items-center justify-center">
-                <Loader2 class="h-8 w-8 animate-spin text-muted-foreground/50" />
-              </div>
 
               <!-- 点击提示覆盖层 -->
               <div

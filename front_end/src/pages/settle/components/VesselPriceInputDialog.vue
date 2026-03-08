@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { formatNumber } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -189,13 +190,6 @@ function makeVehInfo(inv: any) {
   })
 
   return vehObj
-}
-
-function formatNumber(num: number | string | undefined): string {
-  if (num === null || num === undefined || num === '')
-    return '0.000'
-  const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '0.000' : n.toFixed(3)
 }
 
 defineExpose({ open })

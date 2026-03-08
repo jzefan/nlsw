@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 import type { AggregatedRow, ContractGroup } from '@/utils/excel-transform'
+import { formatNumber } from '@/utils/format'
 
 const props = defineProps<{
   modelValue: ContractGroup[]
@@ -76,10 +77,6 @@ function isEditing(groupIndex: number, rowIndex: number, field: string): boolean
   return editingCell.value?.groupIndex === groupIndex
     && editingCell.value?.rowIndex === rowIndex
     && editingCell.value?.field === field
-}
-
-function formatNumber(value: number, decimals: number = 3): string {
-  return value.toFixed(decimals)
 }
 
 function updateRow(groupIndex: number, rowIndex: number, field: keyof AggregatedRow, value: any) {

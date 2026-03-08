@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import * as settleApi from '@/services/api/settle.api'
+import { formatNumber } from '@/utils/format'
 
 const visible = ref(false)
 const detailData = ref<any[]>([])
@@ -91,13 +92,6 @@ function getSendWeight(row: any): number {
     return row.weight * row.send_num
   }
   return 0
-}
-
-function formatNumber(num: number | string | undefined): string {
-  if (num === null || num === undefined || num === '')
-    return ''
-  const n = typeof num === 'string' ? Number.parseFloat(num) : num
-  return isNaN(n) ? '' : n.toFixed(3)
 }
 
 defineExpose({ open })

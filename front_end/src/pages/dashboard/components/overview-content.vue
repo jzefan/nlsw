@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { toast } from 'vue-sonner'
-import { Calendar, Download } from 'lucide-vue-next'
+import { Calendar, Download, RefreshCw, Loader2 } from 'lucide-vue-next'
 import ExcelJS from 'exceljs'
 import {
   Select,
@@ -46,6 +46,8 @@ const endDate = ref(`${currentYear}-12`)
 const selectedYear = ref(currentYear.toString())
 
 const loading = ref(false)
+const hasLoaded = ref(false)
+const initialLoading = computed(() => loading.value && !hasLoaded.value)
 const stats = ref<DashboardStats>({
   totalTonnage: 0,
   truckToShipUnsettledTonnage: 0,
@@ -56,7 +58,7 @@ const stats = ref<DashboardStats>({
   totalPaymentTonnage: 0,
   billingNameCount: 0,
   monthlyTrend: [],
-  top8BillingNames: [],
+  top10BillingNames: [],
   top5Vehicles: [],
   allVehicles: [],
   ownVehicleCount: 0,
@@ -86,6 +88,7 @@ async function loadData() {
     toast.error('获取统计数据出错')
   } finally {
     loading.value = false
+    hasLoaded.value = true
   }
 }
 
@@ -109,6 +112,87 @@ const vehicleDrillDownTitle = ref('')
 const vehicleDrillDownData = ref<VehicleData[]>([])
 const vehicleCategoryFilter = ref<'all' | '自有' | '外挂'>('all')
 const showTruckDestColumns = ref(false)
+const vehicleDrillDownMonth = ref('all')
+const vehicleDrillDownType = ref<'own' | 'outsourced' | 'truck' | 'vessel'>('truck')
+const vehicleMonthlyCache = ref(new Map<string, VehicleData[]>())
+const vehicleMonthLoading = ref(false)
+const vehicleExportLoading = ref(false)
+
+// 从 startDate~endDate 生成月份列表（不超过当前月份）
+const vehicleMonthOptions = computed(() => {
+  const months: { label: string; value: string }[] = [{ label: '全部', value: 'all' }]
+  const [startY, startM] = startDate.value.split('-').map(Number)
+  const [endY, endM] = endDate.value.split('-').map(Number)
+  const today = new Date()
+  const curY = today.getFullYear()
+  const curM = today.getMonth() + 1
+  let y = startY, m = startM
+  while (y < endY || (y === endY && m <= endM)) {
+    // 跳过未来月份
+    if (y > curY || (y === curY && m > curM)) break
+    const val = `${y}-${String(m).padStart(2, '0')}`
+    months.push({ label: val, value: val })
+    m++
+    if (m > 12) { m = 1; y++ }
+  }
+  return months
+})
+
+const vehicleTypeFilter: Record<string, (v: VehicleData) => boolean> = {
+  own: (v) => v.veh_category === '自有',
+  outsourced: (v) => v.veh_category === '外挂',
+  truck: (v) => v.veh_type === '车',
+  vessel: (v) => v.veh_type === '船'
+}
+
+// 按月获取车辆数据
+async function loadVehicleMonthData(month: string) {
+  if (month === 'all') {
+    vehicleDrillDownData.value = stats.value.allVehicles.filter(vehicleTypeFilter[vehicleDrillDownType.value])
+    return
+  }
+
+  const cacheKey = `${month}_${vehicleDrillDownType.value}`
+  if (vehicleMonthlyCache.value.has(cacheKey)) {
+    vehicleDrillDownData.value = vehicleMonthlyCache.value.get(cacheKey)!
+    return
+  }
+
+  vehicleMonthLoading.value = true
+  try {
+    const res = await getDashboardStatistics(month, month)
+    if (res.ok) {
+      const filtered = res.data.allVehicles.filter(vehicleTypeFilter[vehicleDrillDownType.value])
+      vehicleMonthlyCache.value.set(cacheKey, filtered)
+      vehicleDrillDownData.value = filtered
+    } else {
+      toast.error('获取月度数据失败')
+    }
+  } catch (error) {
+    console.error(error)
+    toast.error('获取月度数据出错')
+  } finally {
+    vehicleMonthLoading.value = false
+  }
+}
+
+// 刷新当前月数据
+async function refreshVehicleMonth() {
+  const month = vehicleDrillDownMonth.value
+  if (month === 'all') {
+    await loadData()
+    vehicleDrillDownData.value = stats.value.allVehicles.filter(vehicleTypeFilter[vehicleDrillDownType.value])
+    return
+  }
+  const cacheKey = `${month}_${vehicleDrillDownType.value}`
+  vehicleMonthlyCache.value.delete(cacheKey)
+  await loadVehicleMonthData(month)
+}
+
+// 监听月份切换
+watch(vehicleDrillDownMonth, (month) => {
+  loadVehicleMonthData(month)
+})
 
 const filteredVehicleDrillDownData = computed(() => {
   if (vehicleCategoryFilter.value === 'all') return vehicleDrillDownData.value
@@ -147,15 +231,11 @@ function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
     vessel: '船运明细'
   }
 
-  const filters = {
-    own: (v: VehicleData) => v.veh_category === '自有',
-    outsourced: (v: VehicleData) => v.veh_category === '外挂',
-    truck: (v: VehicleData) => v.veh_type === '车',
-    vessel: (v: VehicleData) => v.veh_type === '船'
-  }
-
   vehicleDrillDownTitle.value = titles[type]
-  vehicleDrillDownData.value = stats.value.allVehicles.filter(filters[type])
+  vehicleDrillDownType.value = type
+  vehicleDrillDownMonth.value = 'all'
+  vehicleMonthlyCache.value.clear()
+  vehicleDrillDownData.value = stats.value.allVehicles.filter(vehicleTypeFilter[type])
   vehicleCategoryFilter.value = (type === 'own') ? '自有' : (type === 'outsourced') ? '外挂' : 'all'
   showTruckDestColumns.value = type !== 'vessel'
   exportType.value = 'vehicle'
@@ -223,47 +303,90 @@ function openExport() {
   showExportDialog.value = true
 }
 
+// 填充车辆sheet的列、表头和数据
+function fillVehicleSheet(sheet: ExcelJS.Worksheet, data: VehicleData[], showDest: boolean) {
+  const baseColumns: Partial<ExcelJS.Column>[] = [
+    { header: '车船号', key: 'name', width: 20 },
+    { header: '配发吨数', key: 'value', width: 15 },
+  ]
+  if (showDest) {
+    baseColumns.push({ header: '到船吨数', key: 'to_ship', width: 15 })
+    baseColumns.push({ header: '到客户吨数', key: 'to_customer', width: 15 })
+  }
+  baseColumns.push({ header: '总价格', key: 'total_price', width: 15 })
+  baseColumns.push({ header: '车船类型', key: 'veh_type_info', width: 15 })
+  sheet.columns = baseColumns
+
+  const headerRow = sheet.getRow(1)
+  headerRow.font = { bold: true }
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE5E7EB' }
+  }
+
+  data.forEach(item => {
+    const row: Record<string, unknown> = {
+      name: item.name,
+      value: item.value,
+      total_price: item.total_price || 0,
+      veh_type_info: [item.veh_type, item.veh_category].filter(Boolean).join(' / ') || '-',
+    }
+    if (showDest) {
+      row.to_ship = item.to_ship || 0
+      row.to_customer = item.to_customer || 0
+    }
+    sheet.addRow(row)
+  })
+}
+
 async function handleExport(fileName: string, directoryHandle: FileSystemDirectoryHandle | null) {
   try {
     const workbook = new ExcelJS.Workbook()
-    const sheet = workbook.addWorksheet('明细')
 
     if (exportType.value === 'vehicle') {
-      // 车辆导出
-      const baseColumns: Partial<ExcelJS.Column>[] = [
-        { header: '车船号', key: 'name', width: 20 },
-        { header: '配发吨数', key: 'value', width: 15 },
-      ]
-      if (showTruckDestColumns.value) {
-        baseColumns.push({ header: '到船吨数', key: 'to_ship', width: 15 })
-        baseColumns.push({ header: '到客户吨数', key: 'to_customer', width: 15 })
-      }
-      baseColumns.push({ header: '总价格', key: 'total_price', width: 15 })
-      baseColumns.push({ header: '车船类型', key: 'veh_type_info', width: 15 })
-      sheet.columns = baseColumns
+      vehicleExportLoading.value = true
 
-      const headerRow = sheet.getRow(1)
-      headerRow.font = { bold: true }
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE5E7EB' }
+      // 总计sheet
+      const totalSheet = workbook.addWorksheet('总计')
+      fillVehicleSheet(totalSheet, filteredVehicleDrillDownData.value, showTruckDestColumns.value)
+
+      // 每月sheet
+      const months = vehicleMonthOptions.value.filter(o => o.value !== 'all')
+      const filter = vehicleTypeFilter[vehicleDrillDownType.value]
+
+      for (const { value: month } of months) {
+        let monthData: VehicleData[]
+        const cacheKey = `${month}_${vehicleDrillDownType.value}`
+
+        if (vehicleMonthlyCache.value.has(cacheKey)) {
+          monthData = vehicleMonthlyCache.value.get(cacheKey)!
+        } else {
+          try {
+            const res = await getDashboardStatistics(month, month)
+            if (res.ok) {
+              monthData = res.data.allVehicles.filter(filter)
+              vehicleMonthlyCache.value.set(cacheKey, monthData)
+            } else {
+              monthData = []
+            }
+          } catch {
+            monthData = []
+          }
+        }
+
+        // 按当前筛选条件过滤
+        const filtered = vehicleCategoryFilter.value === 'all'
+          ? monthData
+          : monthData.filter(v => v.veh_category === vehicleCategoryFilter.value)
+
+        const monthSheet = workbook.addWorksheet(month)
+        fillVehicleSheet(monthSheet, filtered, showTruckDestColumns.value)
       }
 
-      filteredVehicleDrillDownData.value.forEach(item => {
-        const row: Record<string, unknown> = {
-          name: item.name,
-          value: item.value,
-          total_price: item.total_price || 0,
-          veh_type_info: [item.veh_type, item.veh_category].filter(Boolean).join(' / ') || '-',
-        }
-        if (showTruckDestColumns.value) {
-          row.to_ship = item.to_ship || 0
-          row.to_customer = item.to_customer || 0
-        }
-        sheet.addRow(row)
-      })
+      vehicleExportLoading.value = false
     } else if (exportType.value === 'invoice') {
+      const sheet = workbook.addWorksheet('明细')
       // 运单明细导出
       sheet.columns = [
         { header: '运单号', key: 'waybill_no', width: 18 },
@@ -291,6 +414,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         })
       })
     } else if (exportType.value === 'billingName') {
+      const sheet = workbook.addWorksheet('明细')
       // 开单名称导出
       sheet.columns = [
         { header: '开单名称', key: 'name', width: 25 },
@@ -323,15 +447,17 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       })
     }
 
-    // 添加边框
-    sheet.eachRow((row) => {
-      row.eachCell((cell) => {
-        cell.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
-        }
+    // 添加边框（所有sheet）
+    workbook.eachSheet((sheet) => {
+      sheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          }
+        })
       })
     })
 
@@ -359,12 +485,21 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
   } catch (error) {
     console.error('导出失败:', error)
     toast.error('导出失败')
+  } finally {
+    vehicleExportLoading.value = false
   }
 }
 </script>
 
 <template>
   <div class="space-y-6">
+    <!-- 首次加载 loading -->
+    <div v-if="initialLoading" class="flex flex-col items-center justify-center py-32 text-muted-foreground">
+      <Loader2 class="h-10 w-10 animate-spin mb-4 text-primary" />
+      <span class="text-sm">正在加载数据...</span>
+    </div>
+
+    <template v-else>
     <!-- Header with Year Selector -->
     <div class="flex items-center justify-between">
       <div>
@@ -509,9 +644,9 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
       <!-- Top Billing Names -->
       <div class="col-span-1 lg:col-span-3 h-[500px]">
         <TopList
-          title="开单名称排名 (Top 8)"
+          title="开单名称排名 (Top 10)"
           description="按配发吨数排名"
-          :data="stats.top8BillingNames"
+          :data="stats.top10BillingNames"
         />
       </div>
     </div>
@@ -520,6 +655,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
     <div class="h-[500px]">
       <AllVehiclesTable :data="stats.allVehicles" />
     </div>
+    </template>
 
     <!-- 车辆下钻明细对话框 -->
     <Dialog v-model:open="showVehicleDrillDownDialog">
@@ -528,32 +664,56 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           <DialogTitle>{{ vehicleDrillDownTitle }}</DialogTitle>
           <DialogDescription>
             共 {{ filteredVehicleDrillDownData.length }} 条记录，合计 {{ vehicleDrillDownTotalTonnage.toLocaleString() }} 吨，总价 {{ vehicleDrillDownTotalPrice.toLocaleString() }} 元
+            <span v-if="vehicleDrillDownMonth !== 'all'" class="ml-2 text-xs text-muted-foreground">（财务月：上月26日 ~ 本月25日）</span>
           </DialogDescription>
         </DialogHeader>
 
-        <!-- 自有/外挂筛选 -->
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-muted-foreground">筛选：</span>
-          <div class="flex gap-1">
-            <Button
-              size="sm" variant="outline"
-              :class="vehicleCategoryFilter === 'all' ? 'bg-primary text-primary-foreground' : ''"
-              @click="vehicleCategoryFilter = 'all'"
-            >全部</Button>
-            <Button
-              size="sm" variant="outline"
-              :class="vehicleCategoryFilter === '自有' ? 'bg-primary text-primary-foreground' : ''"
-              @click="vehicleCategoryFilter = '自有'"
-            >自有</Button>
-            <Button
-              size="sm" variant="outline"
-              :class="vehicleCategoryFilter === '外挂' ? 'bg-primary text-primary-foreground' : ''"
-              @click="vehicleCategoryFilter = '外挂'"
-            >外挂</Button>
+        <!-- 筛选栏：自有/外挂 + 月份选择 + 刷新 -->
+        <div class="flex items-center gap-4 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-muted-foreground">筛选：</span>
+            <div class="flex gap-1">
+              <Button
+                size="sm" variant="outline"
+                :class="vehicleCategoryFilter === 'all' ? 'bg-primary text-primary-foreground' : ''"
+                @click="vehicleCategoryFilter = 'all'"
+              >全部</Button>
+              <Button
+                size="sm" variant="outline"
+                :class="vehicleCategoryFilter === '自有' ? 'bg-primary text-primary-foreground' : ''"
+                @click="vehicleCategoryFilter = '自有'"
+              >自有</Button>
+              <Button
+                size="sm" variant="outline"
+                :class="vehicleCategoryFilter === '外挂' ? 'bg-primary text-primary-foreground' : ''"
+                @click="vehicleCategoryFilter = '外挂'"
+              >外挂</Button>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-muted-foreground">月份：</span>
+            <Select v-model="vehicleDrillDownMonth">
+              <SelectTrigger class="w-[120px] h-8">
+                <SelectValue placeholder="选择月份" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="opt in vehicleMonthOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="icon" variant="ghost" class="h-8 w-8" @click="refreshVehicleMonth" :disabled="vehicleMonthLoading">
+              <Loader2 v-if="vehicleMonthLoading" class="h-4 w-4 animate-spin" />
+              <RefreshCw v-else class="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
-        <div class="flex-1 overflow-auto border rounded-md">
+        <div v-if="vehicleMonthLoading" class="flex-1 flex items-center justify-center">
+          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        </div>
+
+        <div v-else class="flex-1 overflow-auto border rounded-md">
           <table class="w-full caption-bottom text-sm">
             <TableHeader class="sticky top-0 z-10 bg-background shadow-sm">
               <TableRow>
@@ -582,9 +742,10 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="openExport">
-            <Download class="w-4 h-4 mr-2" />
-            导出
+          <Button variant="outline" @click="openExport" :disabled="vehicleExportLoading || vehicleMonthLoading">
+            <Loader2 v-if="vehicleExportLoading" class="w-4 h-4 mr-2 animate-spin" />
+            <Download v-else class="w-4 h-4 mr-2" />
+            {{ vehicleExportLoading ? '导出中...' : '导出' }}
           </Button>
           <Button @click="showVehicleDrillDownDialog = false">关闭</Button>
         </DialogFooter>

@@ -22,7 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, TrendingUp } from 'lucide-vue-next'
+import { VisAxis, VisStackedBar, VisXYContainer, VisTooltip, VisCrosshair } from '@unovis/vue'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 
 interface VehicleData {
   name: string
@@ -42,6 +50,35 @@ const props = defineProps<{
 const currentPage = ref(1)
 const pageSize = 10
 const vehicleTypeFilter = ref('all')
+
+// Trend Dialog State
+const showTrendDialog = ref(false)
+const selectedVehicle = ref<VehicleData | null>(null)
+
+const chartColors = [
+  '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#d97706',
+  '#ca8a04', '#65a30d', '#16a34a', '#059669', '#0891b2', '#0284c7'
+]
+
+const trendChartData = computed(() => {
+  if (!selectedVehicle.value || !selectedVehicle.value.monthlyTrend) return []
+  return selectedVehicle.value.monthlyTrend.map((item, index) => ({
+    ...item,
+    index,
+    label: item.date.split('-')[1] + '月'
+  }))
+})
+
+const x = (d: any) => d.index
+const y = (d: any) => d.weight
+const color = (d: any, i: number) => chartColors[i % chartColors.length]
+const tickFormat = (i: number) => trendChartData.value[i]?.label || ''
+const xDomain = computed(() => [-0.5, trendChartData.value.length - 0.5])
+
+function openTrendDialog(item: VehicleData) {
+  selectedVehicle.value = item
+  showTrendDialog.value = true
+}
 
 const filteredData = computed(() => {
   if (vehicleTypeFilter.value === 'all') {
@@ -184,13 +221,14 @@ function getTrendBarHeights(trend: { date: string, weight: number }[]) {
               <TableCell>
                 <div
                   v-if="item.monthlyTrend && item.monthlyTrend.length > 0"
-                  class="flex items-end gap-px h-6 min-w-[60px]"
+                  class="flex items-end gap-px h-6 min-w-[60px] cursor-pointer hover:bg-cyan-100/50 dark:hover:bg-cyan-900/30 rounded px-1 transition-colors group"
                   :title="item.monthlyTrend.map(t => `${t.date}: ${formatTonnage(t.weight)}吨`).join('\n')"
+                  @click="openTrendDialog(item)"
                 >
                   <div
                     v-for="bar in getTrendBarHeights(item.monthlyTrend)"
                     :key="bar.date"
-                    class="flex-1 min-w-[3px] max-w-[8px] rounded-t-sm bg-cyan-400 dark:bg-cyan-500 transition-all"
+                    class="flex-1 min-w-[3px] max-w-[8px] rounded-t-sm bg-cyan-400 dark:bg-cyan-500 group-hover:bg-cyan-600 dark:group-hover:bg-cyan-400 transition-all"
                     :style="{ height: `${Math.max(bar.height, 2)}%` }"
                   />
                 </div>
@@ -206,5 +244,63 @@ function getTrendBarHeights(trend: { date: string, weight: number }[]) {
         </Table>
       </div>
     </CardContent>
+
+    <!-- Monthly Trend Dialog -->
+    <Dialog v-model:open="showTrendDialog">
+      <DialogContent class="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <TrendingUp class="w-5 h-5 text-cyan-600" />
+            {{ selectedVehicle?.name }} - 月度配发趋势
+          </DialogTitle>
+          <DialogDescription>
+            展示该{{ selectedVehicle?.veh_type === '车' ? '车辆' : '船只' }}在选定时间段内的每月配发吨数变化
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div class="h-64 mt-4">
+          <VisXYContainer v-if="trendChartData.length > 0" :data="trendChartData" :height="'100%'" :xDomain="xDomain" :yDomain="[0, undefined]">
+            <VisStackedBar
+              :x="x"
+              :y="y"
+              :color="color"
+              :barPadding="0.4"
+              :roundedCorners="4"
+            />
+            <VisAxis
+              type="x"
+              :tickFormat="tickFormat"
+              :tickValues="trendChartData.map(d => d.index)"
+            />
+            <VisAxis type="y" />
+            <VisTooltip />
+            <VisCrosshair />
+          </VisXYContainer>
+          <div v-else class="h-full flex items-center justify-center text-muted-foreground">
+            暂无趋势数据
+          </div>
+        </div>
+
+        <!-- Detailed Data Table -->
+        <div v-if="trendChartData.length > 0" class="mt-6 border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader class="bg-muted/50">
+              <TableRow>
+                <TableHead class="h-9">月份</TableHead>
+                <TableHead class="h-9 text-right">配发吨数</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="item in trendChartData" :key="item.date" class="h-9">
+                <TableCell class="py-2">{{ item.date }}</TableCell>
+                <TableCell class="py-2 text-right font-medium tabular-nums">
+                  {{ formatTonnage(item.weight) }} <span class="text-xs text-muted-foreground ml-1">吨</span>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
   </Card>
 </template>

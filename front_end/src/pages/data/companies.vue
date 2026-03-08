@@ -79,7 +79,7 @@ const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '开单名称' },
   {
     accessorKey: 'customers',
-    header: '现有货主',
+    header: '发货单位',
     meta: { width: '40%' },
     cell: ({ row }) => {
       const customers = row.original.customers as string[] | undefined

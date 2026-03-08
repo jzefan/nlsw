@@ -436,7 +436,15 @@ exports.getDashboardStatistics = async function (req, res) {
               $group: {
                 _id: '$vehicle_vessel_name',
                 weight: { $sum: '$total_weight' },
-                total_price: { $sum: { $ifNull: ['$vessel_price', 0] } }
+                total_price: {
+                  $sum: {
+                    $cond: {
+                      if: { $eq: [{ $ifNull: ['$price_mode', 0] }, 1] },
+                      then: { $ifNull: ['$vessel_price', 0] }, // 打包价：直接取价格
+                      else: { $multiply: [{ $ifNull: ['$vessel_price', 0] }, { $ifNull: ['$total_weight', 0] }] } // 每吨价：单价×重量
+                    }
+                  }
+                }
               }
             },
             { $sort: { weight: -1 } }
@@ -449,7 +457,15 @@ exports.getDashboardStatistics = async function (req, res) {
               $group: {
                 _id: '$bills.vehicles.veh_name',
                 weight: { $sum: '$bills.vehicles.send_weight' },
-                total_price: { $sum: { $ifNull: ['$bills.vehicles.veh_price', 0] } }
+                total_price: {
+                  $sum: {
+                    $cond: {
+                      if: { $eq: [{ $ifNull: ['$bills.vehicles.price_mode', 0] }, 1] },
+                      then: { $ifNull: ['$bills.vehicles.veh_price', 0] },
+                      else: { $multiply: [{ $ifNull: ['$bills.vehicles.veh_price', 0] }, { $ifNull: ['$bills.vehicles.send_weight', 0] }] }
+                    }
+                  }
+                }
               }
             },
             { $sort: { weight: -1 } }
@@ -501,7 +517,7 @@ exports.getDashboardStatistics = async function (req, res) {
     // Helper to format list
     const formatList = (list) => list.map(i => ({ name: i._id || '未命名', value: parseFloat(i.weight.toFixed(3)) }));
 
-    const top8BillingNames = formatList(data.byBillingName.slice(0, 8));
+    const top10BillingNames = formatList(data.byBillingName.slice(0, 10));
     const top5Vehicles = formatList(data.byVehicle.slice(0, 5));
 
     // 已开票吨数: 从Settle获取，status = '已开票' OR status = '已回款' (两种状态之和)
@@ -817,7 +833,7 @@ exports.getDashboardStatistics = async function (req, res) {
         totalPaymentTonnage: parseFloat(totalPaymentTonnage.toFixed(3)),
         billingNameCount,
         monthlyTrend,
-        top8BillingNames,
+        top10BillingNames,
         top5Vehicles,
         allVehicles,
         // 车辆分类统计

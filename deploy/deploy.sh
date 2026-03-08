@@ -8,7 +8,55 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
+
+# 帮助信息
+show_help() {
+    echo ""
+    echo -e "${BOLD}NLSW 项目部署脚本${NC}"
+    echo ""
+    echo -e "${BOLD}用法:${NC}"
+    echo "  bash deploy/deploy.sh          交互式部署（默认）"
+    echo "  bash deploy/deploy.sh -h       显示帮助信息"
+    echo ""
+    echo -e "${BOLD}预设公司:${NC}"
+    echo -e "  ${CYAN}lianren${NC}  江苏联润      1.13.249.95      ubuntu"
+    echo -e "  ${CYAN}xht${NC}      鑫鸿图物流    218.244.152.142  xht2020"
+    echo ""
+    echo -e "${BOLD}部署模式:${NC}"
+    echo "  standalone  独立部署，单公司，无平台概念"
+    echo "  saas        SaaS 多租户部署，平台管理多公司"
+    echo ""
+    echo -e "${BOLD}部署类型:${NC}"
+    echo "  全量部署    前端 + 后端一起打包上传并重启"
+    echo "  仅前端      只构建并部署前端（Vue）"
+    echo "  仅后端      只打包并部署后端（Node.js）"
+    echo ""
+    echo -e "${BOLD}部署流程:${NC}"
+    echo "  1. 选择目标公司（或手动输入服务器信息）"
+    echo "  2. 选择部署模式（standalone / saas）"
+    echo "  3. 选择部署类型（全量 / 仅前端 / 仅后端）"
+    echo "  4. 本地构建前端 → 打包项目 → 上传服务器 → 远程部署"
+    echo ""
+    echo -e "${BOLD}首次部署额外步骤:${NC}"
+    echo "  - 安装 PM2、serve 等服务器依赖"
+    echo "  - 导出本地 MongoDB 数据并恢复到服务器"
+    echo "  - 创建 .env 配置文件"
+    echo "  - 配置 Nginx 反向代理"
+    echo ""
+    echo -e "${BOLD}依赖:${NC}"
+    echo "  本地: pnpm, node, sshpass, mongodump（首次部署）"
+    echo "  服务器: node, npm, nginx, mongodb"
+    echo ""
+    exit 0
+}
+
+# 解析参数
+if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ]; then
+    show_help
+fi
 
 # 获取项目根目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,21 +66,42 @@ echo "======================================"
 echo "  NLSW 项目部署脚本"
 echo "======================================"
 
-# 交互式获取配置
+# 选择公司或手动输入
 echo ""
-echo -e "${YELLOW}请输入部署配置:${NC}"
+echo -e "${YELLOW}选择部署目标:${NC}"
+echo "  1) lianren — 江苏联润 (1.13.249.95)"
+echo "  2) xht     — 鑫鸿图物流 (218.244.152.142)"
+echo "  3) 手动输入"
+read -p "请选择 [1]: " COMPANY_CHOICE
+COMPANY_CHOICE=${COMPANY_CHOICE:-"1"}
 
-# 服务器IP
-read -p "服务器IP地址 [1.13.249.95]: " SERVER_IP
-SERVER_IP=${SERVER_IP:-"1.13.249.95"}
+case $COMPANY_CHOICE in
+    1)
+        SERVER_IP="1.13.249.95"
+        SERVER_USER="ubuntu"
+        SERVER_PASSWORD="123123Lr@"
+        DEFAULT_COMPANY_NAME="江苏联润"
+        ;;
+    2)
+        SERVER_IP="218.244.152.142"
+        SERVER_USER="xht2020"
+        SERVER_PASSWORD="Hello2020xht"
+        DEFAULT_COMPANY_NAME="鑫鸿图物流"
+        ;;
+    *)
+        echo ""
+        echo -e "${YELLOW}请输入部署配置:${NC}"
+        read -p "服务器IP地址: " SERVER_IP
+        read -p "服务器用户名: " SERVER_USER
+        read -s -p "服务器密码: " SERVER_PASSWORD
+        echo ""
+        DEFAULT_COMPANY_NAME=""
+        ;;
+esac
 
-# 服务器用户名
-read -p "服务器用户名 [ubuntu]: " SERVER_USER
-SERVER_USER=${SERVER_USER:-"ubuntu"}
-
-# 服务器密码
-read -s -p "服务器密码: " SERVER_PASSWORD
-echo ""
+if [ -n "$DEFAULT_COMPANY_NAME" ]; then
+    echo -e "${GREEN}已选择: ${DEFAULT_COMPANY_NAME} (${SERVER_IP})${NC}"
+fi
 
 # 是否首次部署
 read -p "是否首次部署? (y/n) [n]: " FIRST_DEPLOY
@@ -51,16 +120,16 @@ if [ "$DEPLOY_MODE_CHOICE" = "2" ]; then
     STANDALONE_COMPANY=""
 else
     DEPLOY_MODE="standalone"
-    read -p "公司名称 (STANDALONE_COMPANY) [江苏联润]: " STANDALONE_COMPANY
-    STANDALONE_COMPANY=${STANDALONE_COMPANY:-"江苏联润"}
+    read -p "公司名称 (STANDALONE_COMPANY) [${DEFAULT_COMPANY_NAME:-江苏联润}]: " STANDALONE_COMPANY
+    STANDALONE_COMPANY=${STANDALONE_COMPANY:-"${DEFAULT_COMPANY_NAME:-江苏联润}"}
 fi
 
 # 应用配置（首次部署时需要）
 if [ "$FIRST_DEPLOY" = "y" ]; then
     echo ""
     echo -e "${YELLOW}应用配置:${NC}"
-    read -p "公司名称 [江苏联润]: " COMPANY_NAME
-    COMPANY_NAME=${COMPANY_NAME:-"江苏联润"}
+    read -p "公司名称 [${DEFAULT_COMPANY_NAME:-江苏联润}]: " COMPANY_NAME
+    COMPANY_NAME=${COMPANY_NAME:-"${DEFAULT_COMPANY_NAME:-江苏联润}"}
     read -p "系统名称 [${COMPANY_NAME}物流系统]: " SYSTEM_NAME
     SYSTEM_NAME=${SYSTEM_NAME:-"${COMPANY_NAME}物流系统"}
 
@@ -152,8 +221,8 @@ if [ "$FIRST_DEPLOY" != "y" ]; then
     if [ "$UPDATE_ENV" = "y" ]; then
         echo ""
         echo -e "${YELLOW}应用配置:${NC}"
-        read -p "公司名称 [江苏联润]: " COMPANY_NAME
-        COMPANY_NAME=${COMPANY_NAME:-"江苏联润"}
+        read -p "公司名称 [${DEFAULT_COMPANY_NAME:-江苏联润}]: " COMPANY_NAME
+        COMPANY_NAME=${COMPANY_NAME:-"${DEFAULT_COMPANY_NAME:-江苏联润}"}
 
         # 生成 Session Secret
         SESSION_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
@@ -252,12 +321,12 @@ if [ "$DEPLOY_FRONTEND" = "y" ]; then
         LOCAL_COMPANY_FULL_NAME=$(grep "^VITE_COMPANY_FULL_NAME=" .env | cut -d'=' -f2)
     fi
     # 使用首次部署的配置或本地配置
-    PROD_COMPANY_NAME="${COMPANY_NAME:-${LOCAL_COMPANY_NAME:-江苏联润}}"
+    PROD_COMPANY_NAME="${COMPANY_NAME:-${LOCAL_COMPANY_NAME:-${DEFAULT_COMPANY_NAME:-江苏联润}}}"
     # standalone 模式下，系统名称使用 STANDALONE_COMPANY + 物流系统
     if [ "$DEPLOY_MODE" = "standalone" ] && [ -n "$STANDALONE_COMPANY" ]; then
         PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-${STANDALONE_COMPANY}物流系统}}"
     else
-        PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-江苏联润物流系统}}"
+        PROD_SYSTEM_NAME="${SYSTEM_NAME:-${LOCAL_SYSTEM_NAME:-${PROD_COMPANY_NAME}物流系统}}"
     fi
     PROD_COMPANY_FULL_NAME="${LOCAL_COMPANY_FULL_NAME:-${PROD_COMPANY_NAME}有限公司}"
 
@@ -552,6 +621,7 @@ else
         cp -rf nlsw-deploy/package-lock.json \$DEPLOY_PATH/ 2>/dev/null || true
         cp -rf nlsw-deploy/public \$DEPLOY_PATH/ 2>/dev/null || true
         cp -rf nlsw-deploy/views \$DEPLOY_PATH/ 2>/dev/null || true
+        cp -rf nlsw-deploy/middleware \$DEPLOY_PATH/ 2>/dev/null || true
         # 更新 keys 和 utils 目录（如果存在）
         if [ -d "nlsw-deploy/keys" ]; then
             cp -rf nlsw-deploy/keys \$DEPLOY_PATH/ 2>/dev/null || true

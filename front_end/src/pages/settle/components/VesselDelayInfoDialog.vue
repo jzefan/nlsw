@@ -24,7 +24,6 @@ interface ExistingImage {
   mime_type: string
   uploader: string
   upload_time: string
-  url?: string
 }
 
 const invoiceData = ref<any>(null)
@@ -96,7 +95,7 @@ async function open(invoice: any, forVessel: boolean, inner?: string) {
   await loadExistingImages()
 }
 
-// 加载已上传的图片
+// 加载已上传的图片（只获取元数据，图片由浏览器直接加载）
 async function loadExistingImages() {
   const wno = innerNo.value || invoiceData.value?.waybill_no
   if (!wno) {
@@ -108,25 +107,6 @@ async function loadExistingImages() {
     const response = await settleApi.getReceiptImagesList(wno)
     if (response.ok && response.images && response.images.length > 0) {
       existingImages.value = response.images
-
-      // 并发加载所有图片的实际数据
-      await Promise.all(
-        response.images.map(async (image) => {
-          try {
-            const imgResponse = await settleApi.getReceiptImageById(image.id)
-            if (imgResponse.ok && imgResponse.data) {
-              const dataUrl = `data:${imgResponse.contentType};base64,${imgResponse.data}`
-              const existingImage = existingImages.value.find(img => img.id === image.id)
-              if (existingImage) {
-                existingImage.url = dataUrl
-              }
-            }
-          }
-          catch (error) {
-            console.error(`加载图片 ${image.id} 失败:`, error)
-          }
-        }),
-      )
     }
   }
   catch (error: any) {
@@ -536,14 +516,10 @@ defineExpose({ open, openBatch })
                 class="relative aspect-square border rounded-lg overflow-hidden group"
               >
                 <img
-                  v-if="existing.url"
-                  :src="existing.url"
+                  :src="settleApi.getReceiptImageUrl(existing.id)"
                   :alt="existing.original_filename"
                   class="w-full h-full object-cover"
                 >
-                <div v-else class="w-full h-full flex items-center justify-center bg-muted">
-                  <div class="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-                </div>
 
                 <!-- 已上传标记 -->
                 <div class="absolute top-1 right-1 bg-green-500 text-white text-xs px-2 py-0.5 rounded">

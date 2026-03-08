@@ -30,8 +30,8 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
     items: [{ title: '首页', url: '/dashboard', icon: LayoutDashboard }],
   })
 
-  // 业务管理 - 业务员或会计或管理员
-  if (hasPermission(privilege, PERMISSIONS.OPERATOR) || hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
+  // 业务管理 - 业务员或客户结算或车船结算或管理员
+  if (hasPermission(privilege, PERMISSIONS.OPERATOR) || hasPermission(privilege, PERMISSIONS.CUST_SETTLE) || hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {
     const bizItems: NavGroup['items'] = []
 
     if (hasPermission(privilege, PERMISSIONS.OPERATOR)) {
@@ -66,16 +66,24 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
       )
     }
 
-    if (hasPermission(privilege, PERMISSIONS.ACCOUNT)) {
-      bizItems.push({
-        title: '结算管理',
-        icon: Receipt,
-        items: [
+    if (hasPermission(privilege, PERMISSIONS.CUST_SETTLE) || hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {
+      const settleItems: { title: string; url: string; icon?: any }[] = []
+
+      if (hasPermission(privilege, PERMISSIONS.CUST_SETTLE)) {
+        settleItems.push(
           { title: '结算', url: '/settle/bill', icon: Receipt },
           { title: '开票', url: '/settle/ticket', icon: CreditCard },
           { title: '回款', url: '/settle/money', icon: CreditCard },
-          { title: '车船结算', url: '/settle/vessel', icon: Ship },
-        ],
+        )
+      }
+      if (hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {
+        settleItems.push({ title: '车船结算', url: '/settle/vessel', icon: Ship })
+      }
+
+      bizItems.push({
+        title: '结算管理',
+        icon: Receipt,
+        items: settleItems,
       })
     }
 
@@ -87,28 +95,39 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
 
   // 自有车管理 - 仅在功能开关启用 + 有权限时显示
   if (features?.selfVehicle && hasPermission(privilege, PERMISSIONS.SELF_VEHICLE)) {
+    const selfVehicleItems: NavGroup['items'] = [
+      {
+        title: '运单管理',
+        icon: Truck,
+        items: [
+          { title: '配发货-车运', url: '/invoices/create-truck?selfOwned=true' },
+          { title: '配发货-船运', url: '/invoices/create-ship?selfOwned=true' },
+        ],
+      },
+    ]
+
+    const selfSettleItems: { title: string; url: string; icon?: any }[] = []
+    if (hasPermission(privilege, PERMISSIONS.CUST_SETTLE)) {
+      selfSettleItems.push(
+        { title: '结算', url: '/settle/bill?selfOwned=true', icon: Receipt },
+        { title: '开票', url: '/settle/ticket?selfOwned=true', icon: CreditCard },
+        { title: '回款', url: '/settle/money?selfOwned=true', icon: CreditCard },
+      )
+    }
+    if (hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {
+      selfSettleItems.push({ title: '车船结算', url: '/settle/vessel?selfOwned=true', icon: Ship })
+    }
+    if (selfSettleItems.length > 0) {
+      selfVehicleItems.push({
+        title: '结算管理',
+        icon: Receipt,
+        items: selfSettleItems,
+      })
+    }
+
     groups.push({
       title: '自有车管理',
-      items: [
-        {
-          title: '运单管理',
-          icon: Truck,
-          items: [
-            { title: '配发货-车运', url: '/invoices/create-truck?selfOwned=true' },
-            { title: '配发货-船运', url: '/invoices/create-ship?selfOwned=true' },
-          ],
-        },
-        {
-          title: '结算管理',
-          icon: Receipt,
-          items: [
-            { title: '结算', url: '/settle/bill?selfOwned=true', icon: Receipt },
-            { title: '开票', url: '/settle/ticket?selfOwned=true', icon: CreditCard },
-            { title: '回款', url: '/settle/money?selfOwned=true', icon: CreditCard },
-            { title: '车船结算', url: '/settle/vessel?selfOwned=true', icon: Ship },
-          ],
-        },
-      ],
+      items: selfVehicleItems,
     })
   }
 
@@ -142,21 +161,19 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
     }
     groupItems.push(reportItems)
 
-    // 数据字典 - 管理员
-    if (isAdmin(privilege)) {
-      groupItems.push({
-        title: '基础数据',
-        icon: Database,
-        items: [
-          { title: '车船号', url: '/data/vehicles' },
-          { title: '发货单位', url: '/data/companies' },
-          { title: '仓库', url: '/data/warehouses' },
-          { title: '目的地', url: '/data/destinations' },
-          { title: '牌号', url: '/data/brands' },
-          { title: '销售部门', url: '/data/sale-deps' },
-        ],
-      })
-    }
+    // 基础数据 - 所有用户可见
+    groupItems.push({
+      title: '基础数据',
+      icon: Database,
+      items: [
+        { title: '车船号', url: '/data/vehicles' },
+        { title: '发货单位', url: '/data/companies' },
+        { title: '仓库', url: '/data/warehouses' },
+        { title: '目的地', url: '/data/destinations' },
+        { title: '牌号', url: '/data/brands' },
+        { title: '销售部门', url: '/data/sale-deps' },
+      ],
+    })
 
     // 数据处理 - 所有用户可见
     groupItems.push({

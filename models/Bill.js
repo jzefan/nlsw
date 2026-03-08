@@ -75,7 +75,8 @@ var billSchema = new Schema({
   settle_flag: { type: Number, default: 0 }, // 0000: no settle, 0001: customer settle, 0010: collection settle, 0100: vessel settle
 
   remark: String,
-  product_type: String // 产品型态
+  product_type: String, // 产品型态
+  carrier: String // 承运单位
 });
 
 // 索引 (包含 tenantId 以支持多租户查询)

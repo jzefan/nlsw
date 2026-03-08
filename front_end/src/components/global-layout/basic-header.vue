@@ -13,7 +13,7 @@ defineProps<LayoutHeaderProps>()
       sticky ? 'sticky top-0 z-40 bg-background' : '',
     )"
   >
-    <main class="flex items-baseline gap-3">
+    <main class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3">
       <h1 class="text-lg font-bold">
         {{ title }}
       </h1>

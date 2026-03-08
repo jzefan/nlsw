@@ -7,14 +7,9 @@ import type { BillCreateData } from '@/services/api/bill.api'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
-import {
-
-  createBills,
-  searchBrands,
-  searchSaleDeps,
-  searchWarehouses,
-} from '@/services/api/bill.api'
+import { createBills, searchBrands, searchSaleDeps, searchWarehouses } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
+import { formatNumber } from '@/utils/format'
 
 // 模式: 'import' 或 'manual'
 const mode = ref<'import' | 'manual'>('import')
@@ -61,8 +56,7 @@ const weightDisabled = computed(() => useFormula.value)
 
 // 计算单块重量
 function calculateWeight() {
-  if (!useFormula.value)
-    return
+  if (!useFormula.value) return
 
   const t = Number.parseFloat(form.value.thickness) || 0
   const w = Number.parseFloat(form.value.width) || 0
@@ -87,13 +81,19 @@ function calculateTotalWeight() {
 }
 
 // 监听尺寸变化
-watch(() => [form.value.thickness, form.value.width, form.value.len], () => {
-  calculateWeight()
-})
+watch(
+  () => [form.value.thickness, form.value.width, form.value.len],
+  () => {
+    calculateWeight()
+  },
+)
 
-watch(() => form.value.blockNum, () => {
-  calculateTotalWeight()
-})
+watch(
+  () => form.value.blockNum,
+  () => {
+    calculateTotalWeight()
+  },
+)
 
 // 验证订单号
 function validateOrderNo() {
@@ -107,18 +107,12 @@ function validateOrderNo() {
 
 // 验证单条数据
 function validateBill(bill: BillCreateData): string | null {
-  if (!bill.billNo)
-    return '缺少提单号'
-  if (!bill.orderNo)
-    return '缺少订单号'
-  if (bill.orderNo.length !== 11)
-    return `订单号长度必须为11位，当前${bill.orderNo.length}位`
-  if (!bill.orderItemNo)
-    return '缺少项次号'
-  if (!bill.billingName)
-    return '缺少开单名称'
-  if (!bill.totalWeight || bill.totalWeight <= 0)
-    return '总重量必须大于0'
+  if (!bill.billNo) return '缺少提单号'
+  if (!bill.orderNo) return '缺少订单号'
+  if (bill.orderNo.length !== 11) return `订单号长度必须为11位，当前${bill.orderNo.length}位`
+  if (!bill.orderItemNo) return '缺少项次号'
+  if (!bill.billingName) return '缺少开单名称'
+  if (!bill.totalWeight || bill.totalWeight <= 0) return '总重量必须大于0'
   return null
 }
 
@@ -156,7 +150,7 @@ function addOne() {
   }
 
   // 检查是否已添加
-  if (bills.value.some(b => b.orderNo === orderNo && b.orderItemNo === orderItemNo && b.billNo === billNo)) {
+  if (bills.value.some((b) => b.orderNo === orderNo && b.orderItemNo === orderItemNo && b.billNo === billNo)) {
     toast.warning('该提单已添加')
     return
   }
@@ -216,17 +210,20 @@ function triggerSwitchImport() {
 async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
-  if (!file)
-    return
+  if (!file) return
 
   loading.value = true
   try {
     const data = await readExcelFile(file)
     if (data.length > 0) {
-      // 如果是转外库模式，合并相同订单
-      let processedData = data
+      // 合并相同提单号+订单号+项次号的记录（累加数量和重量）
+      let processedData = mergeDuplicates(data)
+      // 转外库模式：没有仓库信息的默认设为"转外库"
       if (importType.value === 'switch_warehouse') {
-        processedData = mergeAndSetWarehouse(data)
+        processedData = processedData.map((row) => ({
+          ...row,
+          shipWarehouse: row.shipWarehouse || '转外库',
+        }))
       }
 
       // 验证数据并标记错误
@@ -235,46 +232,38 @@ async function handleFileChange(event: Event) {
         return { ...bill, _error: error || undefined }
       })
 
-      const errorCount = bills.value.filter(b => b._error).length
+      const errorCount = bills.value.filter((b) => b._error).length
       if (errorCount > 0) {
         toast.warning(`导入 ${data.length} 条记录，其中 ${errorCount} 条有问题`)
-      }
-      else {
+      } else {
         toast.success(`导入 ${data.length} 条记录，数据验证通过`)
       }
-    }
-    else {
+    } else {
       toast.warning('未找到有效数据')
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('导入失败', { description: e.message })
-  }
-  finally {
+  } finally {
     loading.value = false
     target.value = ''
   }
 }
 
-// 合并相同订单并设置转外库
-function mergeAndSetWarehouse(data: BillCreateData[]): BillCreateData[] {
+// 合并相同提单号+订单号+项次号的记录
+function mergeDuplicates(data: BillCreateData[]): BillCreateData[] {
   const merged: BillCreateData[] = []
 
   for (const row of data) {
     const existing = merged.find(
-      m => m.billNo === row.billNo && m.orderNo === row.orderNo && m.orderItemNo === row.orderItemNo,
+      (m) => m.billNo === row.billNo && m.orderNo === row.orderNo && m.orderItemNo === row.orderItemNo,
     )
 
     if (existing) {
-      // 合并数量和重量
+      // 累加数量和重量
       existing.blockNum = (existing.blockNum || 0) + (row.blockNum || 0)
       existing.totalWeight = (existing.totalWeight || 0) + (row.totalWeight || 0)
-    }
-    else {
-      merged.push({
-        ...row,
-        shipWarehouse: '转外库',
-      })
+    } else {
+      merged.push({ ...row })
     }
   }
 
@@ -293,74 +282,92 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         const worksheet = workbook.Sheets[sheetName]
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
 
-        // 表头映射
+        // 表头映射（与旧系统 bill_import_create_01.js 保持一致）
         const headerMap: Record<string, string> = {
-          '提单号': 'billNo',
-          '移拨码单号': 'billNo',
-          '入库单号': 'billNo',
-          '发货通知单号': 'billNo',
-          '订单号': 'orderNo',
-          '订单': 'orderNo',
-          '订单编号': 'orderNo',
-          '订单项次号': 'orderItemNo',
-          '项次号': 'orderItemNo',
-          '项次': 'orderItemNo',
+          提单号: 'billNo',
+          移拨码单号: 'billNo',
+          入库单号: 'billNo',
+          发货通知单号: 'billNo',
+          订单项次号: 'orderWithItem',
           '订单编号-项次': 'orderWithItem',
+          订单编号: 'orderWithItem',
           '订单号-项次': 'orderWithItem',
-          '客户名称': 'billingName',
-          '开单名称': 'billingName',
-          '客户': 'billingName',
-          '现有货主': 'billingName',
-          '牌号': 'brandNo',
-          '标准全名': 'brandNo',
-          '标准号': 'brandNo',
-          '钢号': 'brandNo',
-          '销售部门': 'salesDep',
-          '销售组别': 'salesDep',
-          '发货库别': 'shipWarehouse',
-          '发货仓库': 'shipWarehouse',
-          '仓库': 'shipWarehouse',
-          '始发库': 'shipWarehouse',
-          '合同号': 'contractNo',
-          '合同': 'contractNo',
-          '客户采购案号': 'contractNo',
-          '产品型态': 'productType',
-          '产品类型': 'productType',
-          '厚度': 'thickness',
-          '厚': 'thickness',
-          '宽度': 'width',
-          '宽': 'width',
-          '长度': 'len',
-          '长': 'len',
-          '单重': 'weight',
-          '单块重': 'weight',
-          '块数': 'blockNum',
-          '发运数': 'blockNum',
+          订单号: 'orderWithItem',
+          牌号: 'brandNo',
+          标准全名: 'brandNo',
+          标准号: 'brandNo',
+          标准名: 'brandNo',
+          钢号: 'brandNo',
+          长度: 'len',
+          长: 'len',
+          宽度: 'width',
+          宽: 'width',
+          厚度: 'thickness',
+          厚: 'thickness',
+          尺寸: 'sizeType',
+          单重: 'weight',
+          发运数: 'blockNum',
+          块数: 'blockNum',
           '数量(块)': 'blockNum',
           '数量（块）': 'blockNum',
-          '支数': 'blockNum',
-          '总重': 'totalWeight',
-          '总重量': 'totalWeight',
-          '计划出货重量': 'totalWeight',
-          '发货重量': 'totalWeight',
-          '可发货重量': 'totalWeight',
-          '重量': 'totalWeight',
+          支数: 'blockNum',
+          计划出货重量: 'totalWeight',
+          发货重量: 'totalWeight',
+          可发货重量: 'totalWeight',
+          计划重量: 'totalWeight',
           '重量（T）': 'totalWeight',
           '重量(T)': 'totalWeight',
-          '尺寸': 'sizeType',
-          '尺寸信息': 'sizeType',
-          '规格': 'dimensions',
+          重量: 'totalWeight',
+          发货库别: 'shipWarehouse',
+          发货仓库: 'shipWarehouse',
+          仓库: 'shipWarehouse',
+          始发库: 'shipWarehouse',
+          销售部门: 'salesDep',
+          销售组别: 'salesDep',
+          客户名称: 'billingName',
+          客户: 'billingName',
+          客户信息: 'billingName',
+          客户编号: 'billingName',
+          现有货主: 'billingName',
+          现在货主: 'billingName',
+          开单名称: 'billingName',
+          发货单位: 'billingName',
+          合同号: 'contractNo',
+          合同: 'contractNo',
+          客户采购案号: 'contractNo',
+          收货地址: 'shippingAddress',
+          订单项次: 'orderItemNo',
+          项次: 'orderItemNo',
+          项次号: 'orderItemNo',
+          规格: 'dimensions',
+          产品型态: 'productType',
+          货物来源: 'sources',
+          '尺寸信息（订单）': 'sizeTypeOrder',
+          '尺寸信息（提单）': 'sizeTypeBill',
+          '定尺信息（订单）': 'sizeTypeOrder',
+          定尺信息: 'sizeTypeFallback',
+          尺寸信息: 'sizeTypeFallback',
+          承运单位: 'carrier',
+          一级承运单位: 'carrier1',
+          一级承运: 'carrier1',
+          二级承运单位: 'carrier2',
+          二级承运: 'carrier2',
+          承运: 'carrier',
         }
 
         let headerRow = -1
         let headers: string[] = []
 
         // 查找表头行
-        for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
+        for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
           const row = jsonData[i]
-          if (row && row.some((cell: any) => cell && (cell.toString().includes('订单') || cell.toString().includes('提单')))) {
+          if (
+            row &&
+            row.some((cell: any) => cell && (cell.toString().includes('订单') || cell.toString().includes('提单')))
+          ) {
             headerRow = i
             headers = row.map((cell: any) => cell?.toString().trim() || '')
+            console.log(row)
             break
           }
         }
@@ -373,31 +380,53 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         const result: BillCreateData[] = []
         for (let i = headerRow + 1; i < jsonData.length; i++) {
           const row = jsonData[i]
-          if (!row || row.every((cell: any) => !cell))
-            continue
+          if (!row || row.every((cell: any) => !cell)) continue
 
           const item: any = {}
+          console.log(headers)
           headers.forEach((header, idx) => {
-            const key = headerMap[header]
+            let key = headerMap[header]
+            console.log('>>>key=', key)
+            // 模糊匹配：如果精确匹配不到，尝试 includes 匹配
+            if (!key && header) {
+              if (header.includes('一级承运')) key = 'carrier1'
+              else if (header.includes('二级承运')) key = 'carrier2'
+              else if (header.includes('承运')) key = 'carrier' // 通用承运单位
+              else if (header.includes('尺寸信息') && header.includes('订单')) key = 'sizeTypeOrder'
+              else if (header.includes('尺寸信息') && header.includes('提单')) key = 'sizeTypeBill'
+              else if (header.includes('定尺信息') && header.includes('订单')) key = 'sizeTypeOrder'
+              else if (header.includes('定尺信息')) key = 'sizeTypeFallback'
+              else if (header.includes('尺寸信息')) key = 'sizeTypeFallback'
+            }
             if (key && row[idx] !== undefined && row[idx] !== null && row[idx] !== '') {
               item[key] = row[idx]?.toString().trim()
             }
           })
 
-          // 处理订单号-项次合并字段
-          if (item.orderWithItem && !item.orderNo) {
-            const parts = item.orderWithItem.split('-')
+          // 处理订单号/项次号字段（所有订单相关列都映射到 orderWithItem）
+          if (item.orderWithItem) {
+            const val = item.orderWithItem
+            const parts = val.split('-')
             if (parts.length === 2) {
+              // 格式: 订单号-项次号
               item.orderNo = parts[0]
-              item.orderItemNo = parts[1]
+              if (!item.orderItemNo) item.orderItemNo = parts[1]
+            } else if (val.length > 11) {
+              // 格式: 订单号+项次号（无分隔符）
+              item.orderNo = val.substring(0, 11)
+              if (!item.orderItemNo) item.orderItemNo = val.substring(11)
+            } else {
+              // 纯订单号
+              item.orderNo = val
             }
-            else if (item.orderWithItem.length >= 11) {
-              item.orderNo = item.orderWithItem.substring(0, 11)
-              const sub = item.orderWithItem.substring(11)
-              if (sub) {
-                item.orderItemNo = sub
-              }
-            }
+          }
+
+          // 如果有规格字段，解析出厚度/宽度/长度
+          if (item.dimensions && !item.thickness && !item.width && !item.len) {
+            const dims = item.dimensions.replace(/≠/, '').split('*')
+            if (dims.length >= 1) item.thickness = dims[0]
+            if (dims.length >= 2) item.width = dims[1]
+            if (dims.length >= 3) item.len = dims[2]
           }
 
           // 验证必填字段
@@ -406,7 +435,7 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
             const width = Number.parseFloat(item.width) || 0
             const len = Number.parseFloat(item.len) || 0
             let weight = Number.parseFloat(item.weight) || 0
-            const blockNum = Number.parseInt(item.blockNum) || 0
+            let blockNum = Number.parseInt(item.blockNum) || 0
             let totalWeight = Number.parseFloat(item.totalWeight) || 0
 
             // 如果没有单重但有尺寸，计算单重
@@ -419,17 +448,32 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
               totalWeight = weight * blockNum
             }
 
+            // 尺寸信息：优先 sizeType（尺寸列）> 订单 > 提单 > 通用 > 根据尺寸推断
+            const sizeType = item.sizeType || item.sizeTypeOrder || item.sizeTypeBill || item.sizeTypeFallback || ''
+            // 如果都没有但有完整尺寸和重量，默认定尺
+            const finalSizeType =
+              sizeType || (thickness > 0 && width > 0 && len > 0 && totalWeight > 0 ? '定尺' : '定尺')
+
+            // 定尺类型（定尺/单定尺/双定尺）：需要根据尺寸计算单重，并由总重推算块数
+            const isFixedSize = finalSizeType.includes('定尺')
+            // 如果没有块数但有总重和单重，计算块数（定尺类型：总重÷单重=块数）
+            if (!blockNum && isFixedSize && totalWeight > 0 && weight > 0) {
+              blockNum = Math.round(totalWeight / weight)
+            }
+
             result.push({
               billNo: item.billNo,
               orderNo: item.orderNo,
               orderItemNo: item.orderItemNo || '10',
               billingName: item.billingName,
-              sizeType: item.sizeType || '定尺',
+              sizeType: finalSizeType,
               brandNo: item.brandNo,
               salesDep: item.salesDep,
               shipWarehouse: item.shipWarehouse,
               contractNo: item.contractNo,
               productType: item.productType,
+              shippingAddress: item.shippingAddress,
+              carrier: item.carrier || item.carrier2 || item.carrier1 || undefined,
               thickness: thickness || undefined,
               width: width || undefined,
               len: len || undefined,
@@ -441,8 +485,7 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         }
 
         resolve(result)
-      }
-      catch (err) {
+      } catch (err) {
         reject(err)
       }
     }
@@ -453,38 +496,36 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
 
 // 保存
 async function save() {
-  if (bills.value.length === 0) {
-    toast.warning('请先添加或导入数据')
-    return
-  }
-
-  // 检查是否有错误
-  const errorCount = bills.value.filter(b => b._error).length
-  if (errorCount > 0) {
-    toast.warning(`还有 ${errorCount} 条数据有问题，请先修正`)
+  const validBills = bills.value.filter((b) => !b._error)
+  if (validBills.length === 0) {
+    toast.warning('没有可保存的正确数据')
     return
   }
 
   loading.value = true
   try {
-    // 移除 _error 字段
-    const dataToSave = bills.value.map(({ _error, ...rest }) => rest)
+    // 移除 _error 字段，只保存正确的数据
+    const dataToSave = validBills.map(({ _error, ...rest }) => rest)
     const result = await createBills(dataToSave)
     if (result.ok) {
-      const msg = result.noUpdatedData?.length > 0
-        ? `保存成功，新建 ${result.count} 条，${result.noUpdatedData.length} 条已存在未更新`
-        : `保存成功，共 ${result.count} 条`
+      const msg =
+        result.noUpdatedData?.length > 0
+          ? `保存成功，新建 ${result.count} 条，${result.noUpdatedData.length} 条已存在未更新`
+          : `保存成功，共 ${result.count} 条`
       toast.success(msg)
-      clearAll()
-    }
-    else {
+      // 保留错误数据供用户查看，清除已保存的正确数据
+      const errorBills = bills.value.filter((b) => b._error)
+      if (errorBills.length > 0) {
+        bills.value = errorBills
+      } else {
+        clearAll()
+      }
+    } else {
       toast.error('保存失败', { description: result.response })
     }
-  }
-  catch (e: any) {
+  } catch (e: any) {
     toast.error('保存失败', { description: e.message })
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -495,19 +536,12 @@ const totalWeight = computed(() => {
 })
 
 const errorCount = computed(() => {
-  return bills.value.filter(b => b._error).length
+  return bills.value.filter((b) => b._error).length
 })
 
 const validCount = computed(() => {
-  return bills.value.filter(b => !b._error).length
+  return bills.value.filter((b) => !b._error).length
 })
-
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (num === undefined || num === null)
-    return ''
-  return num.toFixed(2)
-}
 
 // 切换到手工录入模式
 function switchToManual() {
@@ -536,28 +570,16 @@ function switchToImport() {
             返回导入
           </UiButton>
         </template>
-        <UiButton size="sm" :disabled="bills.length === 0 || errorCount > 0 || loading" @click="save">
+        <UiButton size="sm" :disabled="validCount === 0 || loading" @click="save">
           <Save class="w-4 h-4 mr-1" />
-          保存
+          {{ errorCount > 0 ? `保存正确数据 (${validCount})` : '保存' }}
         </UiButton>
       </div>
     </template>
 
     <!-- 隐藏的文件输入 -->
-    <input
-      ref="fileInputNormal"
-      type="file"
-      accept=".xlsx,.xls"
-      class="hidden"
-      @change="handleFileChange"
-    >
-    <input
-      ref="fileInputSwitch"
-      type="file"
-      accept=".xlsx,.xls"
-      class="hidden"
-      @change="handleFileChange"
-    >
+    <input ref="fileInputNormal" type="file" accept=".xlsx,.xls" class="hidden" @change="handleFileChange" />
+    <input ref="fileInputSwitch" type="file" accept=".xlsx,.xls" class="hidden" @change="handleFileChange" />
 
     <!-- 导入模式 -->
     <template v-if="mode === 'import'">
@@ -565,24 +587,20 @@ function switchToImport() {
       <div v-if="bills.length === 0" class="mb-4 p-6 border-2 border-dashed rounded-lg bg-muted/30">
         <div class="text-center">
           <FileSpreadsheet class="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <h3 class="text-lg font-medium mb-2">
-            导入 Excel 文件
-          </h3>
-          <p class="text-sm text-muted-foreground mb-4">
-            选择导入方式，支持 .xlsx 和 .xls 格式
-          </p>
+          <h3 class="text-lg font-medium mb-2">导入 Excel 文件</h3>
+          <p class="text-sm text-muted-foreground mb-4">选择导入方式，支持 .xlsx 和 .xls 格式</p>
           <div class="flex justify-center gap-4">
             <UiButton variant="default" @click="triggerNormalImport">
               <Upload class="w-4 h-4 mr-2" />
-              普通导入
+              发货/异储文件
             </UiButton>
             <UiButton variant="outline" @click="triggerSwitchImport">
               <Upload class="w-4 h-4 mr-2" />
-              转外库导入
+              厂内/转外库文件
             </UiButton>
           </div>
           <p class="text-xs text-muted-foreground mt-4">
-            转外库导入：自动合并相同订单，发货仓库设为"转外库"
+            自动合并相同订单，如果转外库导入：excel中的发货仓库如果为空，则默认设为"转外库"
           </p>
         </div>
       </div>
@@ -609,11 +627,7 @@ function switchToImport() {
       <div class="mb-4 p-3 border rounded-lg bg-muted/50">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <UiInput v-model="form.billNo" placeholder="提单号 *" />
-          <UiInput
-            v-model="form.orderNo"
-            placeholder="订单号 (11位) *"
-            @blur="validateOrderNo"
-          />
+          <UiInput v-model="form.orderNo" placeholder="订单号 (11位) *" @blur="validateOrderNo" />
           <UiInput v-model="form.orderItemNo" placeholder="项次号 *" />
           <SearchableCombobox v-model="form.billingName" :search-fn="searchCompanies" placeholder="开单名称 *" />
           <SearchableCombobox v-model="form.brandNo" :search-fn="searchBrands" placeholder="牌号" />
@@ -650,13 +664,9 @@ function switchToImport() {
             placeholder="单重"
             :disabled="weightDisabled"
             class="w-32 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          />
           <label class="flex items-center gap-1.5 text-sm whitespace-nowrap cursor-pointer select-none">
-            <input
-              v-model="useFormula"
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300"
-            >
+            <input v-model="useFormula" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
             自动计算
           </label>
         </div>
@@ -675,11 +685,21 @@ function switchToImport() {
 
     <!-- 数据验证状态 -->
     <div v-if="bills.length > 0" class="mb-3">
-      <div v-if="errorCount > 0" class="p-3 border rounded-lg bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-200 flex items-center gap-2">
+      <div
+        v-if="errorCount > 0"
+        class="p-3 border rounded-lg bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-200 flex items-center gap-2"
+      >
         <AlertCircle class="w-5 h-5" />
-        <span>{{ errorCount }} 条数据有问题，请检查下方标红的行</span>
+        <span
+          >{{ errorCount }} 条数据有问题（标红行），{{
+            validCount > 0 ? `${validCount} 条正确数据可以保存` : '无可保存数据'
+          }}</span
+        >
       </div>
-      <div v-else class="p-3 border rounded-lg bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-200 flex items-center gap-2">
+      <div
+        v-else
+        class="p-3 border rounded-lg bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-200 flex items-center gap-2"
+      >
         <CheckCircle class="w-5 h-5" />
         <span>共 {{ validCount }} 条数据，验证通过，可以保存</span>
       </div>
@@ -690,51 +710,23 @@ function switchToImport() {
       <table class="w-full text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left w-10 whitespace-nowrap">
-              操作
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              状态
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              提单号
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              订单号
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              项次
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              开单名称
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              牌号
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              销售部门
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              仓库
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              厚
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              宽
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              长
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              单重
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              块数
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              总重量
-            </th>
+            <th class="p-2 text-left w-10 whitespace-nowrap">操作</th>
+            <th class="p-2 text-left whitespace-nowrap">状态</th>
+            <th class="p-2 text-left whitespace-nowrap">提单号</th>
+            <th class="p-2 text-left whitespace-nowrap">订单号</th>
+            <th class="p-2 text-left whitespace-nowrap">项次</th>
+            <th class="p-2 text-left whitespace-nowrap">开单名称</th>
+            <th class="p-2 text-left whitespace-nowrap">牌号</th>
+            <th class="p-2 text-left whitespace-nowrap">销售部门</th>
+            <th class="p-2 text-left whitespace-nowrap">仓库</th>
+            <th class="p-2 text-right whitespace-nowrap">厚</th>
+            <th class="p-2 text-right whitespace-nowrap">宽</th>
+            <th class="p-2 text-right whitespace-nowrap">长</th>
+            <th class="p-2 text-right whitespace-nowrap">单重</th>
+            <th class="p-2 text-right whitespace-nowrap">块数</th>
+            <th class="p-2 text-right whitespace-nowrap">总重量</th>
+            <th class="p-2 text-left whitespace-nowrap">尺寸类型</th>
+            <th class="p-2 text-left whitespace-nowrap">承运单位</th>
           </tr>
         </thead>
         <tbody>
@@ -779,13 +771,13 @@ function switchToImport() {
               {{ bill.shipWarehouse }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness) }}
+              {{ formatNumber(bill.thickness, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width) }}
+              {{ formatNumber(bill.width, 2) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len) }}
+              {{ formatNumber(bill.len, 2) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.weight?.toFixed(4) }}
@@ -794,17 +786,21 @@ function switchToImport() {
               {{ bill.blockNum }}
             </td>
             <td class="p-2 text-right font-medium">
-              {{ formatNumber(bill.totalWeight) }}
+              {{ formatNumber(bill.totalWeight, 2) }}
+            </td>
+            <td class="p-2">
+              {{ bill.sizeType }}
+            </td>
+            <td class="p-2">
+              {{ bill.carrier }}
             </td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">
           <tr>
-            <td colspan="14" class="p-2 font-medium">
-              合计: {{ bills.length }} 条
-            </td>
+            <td colspan="16" class="p-2 font-medium">合计: {{ bills.length }} 条</td>
             <td class="p-2 text-right font-medium">
-              {{ formatNumber(totalWeight) }}
+              {{ formatNumber(totalWeight, 2) }}
             </td>
           </tr>
         </tfoot>

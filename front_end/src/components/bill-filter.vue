@@ -16,6 +16,7 @@ export interface BillFilterValues {
   leftNumOnly: boolean
   startDate: string
   endDate: string
+  creater: string
 }
 
 const props = withDefaults(defineProps<{
@@ -23,10 +24,12 @@ const props = withDefaults(defineProps<{
   showStatus?: boolean
   showLeftNumOnly?: boolean
   statusOptions?: string[]
+  createrOptions?: string[]
 }>(), {
   showStatus: true,
   showLeftNumOnly: true,
-  statusOptions: () => ['新建', '待配发', '部分配发', '已配发', '已结算', '已开票', '已回款'],
+  statusOptions: () => ['新建', '待配发', '部分配发', '已配发', '已结算'],
+  createrOptions: () => [],
 })
 
 const emit = defineEmits<{
@@ -59,6 +62,7 @@ function handleReset() {
     leftNumOnly: false,
     startDate: '',
     endDate: '',
+    creater: '',
   })
   emit('reset')
 }
@@ -93,12 +97,22 @@ function handleSearch() {
 
 <template>
   <div class="p-3 border rounded-lg bg-muted/50">
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
       <UiInput :model-value="filters.billNo" placeholder="提单号" @update:model-value="updateField('billNo', $event)" />
       <UiInput :model-value="filters.orderNo" placeholder="订单号" @update:model-value="updateField('orderNo', $event)" />
       <SearchableCombobox :model-value="filters.billingName" :search-fn="searchCompanies" placeholder="开单名称" @update:model-value="updateField('billingName', $event)" />
       <UiInput :model-value="filters.brandNo" placeholder="牌号" @update:model-value="updateField('brandNo', $event)" />
       <UiInput :model-value="filters.contractNo" placeholder="合同号" @update:model-value="updateField('contractNo', $event)" />
+      <UiSelect :model-value="filters.creater" @update:model-value="updateField('creater', $event)">
+        <UiSelectTrigger class="w-full">
+          <UiSelectValue placeholder="创建人" />
+        </UiSelectTrigger>
+        <UiSelectContent>
+          <UiSelectItem v-for="name in createrOptions" :key="name" :value="name">
+            {{ name }}
+          </UiSelectItem>
+        </UiSelectContent>
+      </UiSelect>
       <UiSelect v-if="showStatus" :model-value="filters.status" @update:model-value="updateField('status', $event)">
         <UiSelectTrigger class="w-full">
           <UiSelectValue placeholder="状态" />

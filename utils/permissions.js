@@ -14,6 +14,8 @@ const PERMISSIONS = {
   VESSEL_REVENUE: 'vesselRevenue',
   SELF_VEHICLE: 'selfVehicle',
   SEE_PRICE: 'seePrice',
+  CUST_SETTLE: 'custSettle',
+  VESSEL_SETTLE: 'vesselSettle',
 };
 
 function isAdmin(privilege) {

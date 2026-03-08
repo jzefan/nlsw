@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-vue-next'
 import { computed, nextTick, ref } from 'vue'
 
 import type { AggregatedRow } from '@/utils/excel-transform'
+import { formatNumber } from '@/utils/format'
 
 const props = defineProps<{
   modelValue: AggregatedRow[]
@@ -99,10 +100,6 @@ function deleteRow(index: number) {
 
 function isEditing(rowIndex: number, field: string): boolean {
   return editingCell.value?.rowIndex === rowIndex && editingCell.value?.field === field
-}
-
-function formatNumber(value: number, decimals: number = 3): string {
-  return value.toFixed(decimals)
 }
 
 // Mouse enter/leave for hover state

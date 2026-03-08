@@ -51,7 +51,7 @@ const filter = reactive({
   customer: '',
   orderNo: '',
   billNo: '',
-  startDate: dayjs().subtract(2, 'year').format('YYYY-MM-DD'),
+  startDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
   endDate: dayjs().format('YYYY-MM-DD'),
 })
 
@@ -67,9 +67,12 @@ watch(
     filter.customer = ''
     if (newVal) {
       try {
-        const res = await getCompanies({ search: newVal, limit: 1 })
-        if (res.ok && res.data.length > 0 && res.data[0].name === newVal) {
-          customers.value = res.data[0].customers || []
+        const res = await getCompanies({ search: newVal, limit: 20 })
+        if (res.ok && res.data.length > 0) {
+          // 优先精确匹配，其次模糊匹配（Company名称可能带编号前缀）
+          const company = res.data.find((c: any) => c.name === newVal)
+            || res.data.find((c: any) => c.name.includes(newVal) || newVal.includes(c.name))
+          customers.value = company?.customers || []
         }
       } catch (e) {
         console.error(e)
@@ -88,7 +91,7 @@ function handleReset() {
   filter.customer = ''
   filter.orderNo = ''
   filter.billNo = ''
-  filter.startDate = dayjs().subtract(2, 'year').format('YYYY-MM-DD')
+  filter.startDate = dayjs().subtract(1, 'month').format('YYYY-MM-DD')
   filter.endDate = dayjs().format('YYYY-MM-DD')
   showNotSent.value = false
   showDestForVessel.value = false
@@ -670,7 +673,7 @@ watch(showNotSent, (val) => {
     filter.vehicleMode = ''
   } else {
     // Restore default date range
-    filter.startDate = dayjs().subtract(2, 'year').format('YYYY-MM-DD')
+    filter.startDate = dayjs().subtract(1, 'month').format('YYYY-MM-DD')
     filter.endDate = dayjs().format('YYYY-MM-DD')
   }
 })
@@ -713,6 +716,7 @@ function handlePageChange(p: number) {
     :search-billing-names="searchBillingNames"
     :search-vehicles-fn="searchVehiclesFn"
     :search-destinations-fn="searchDestinationsFn"
+    :search-origins-fn="searchOriginsFn"
     @update:filter="updateFilter"
     @update:show-not-sent="updateShowNotSent"
     @update:show-dest-for-vessel="updateShowDestForVessel"

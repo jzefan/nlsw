@@ -84,7 +84,7 @@ const onSubmit = handleSubmit(async (values) => {
 
     <FormField v-slot="{ value, setValue }" name="customers">
       <UiFormItem>
-        <UiFormLabel>现有货主</UiFormLabel>
+        <UiFormLabel>发货单位</UiFormLabel>
         <UiFormControl>
           <TagsInput :model-value="value" class="min-h-10" @update:model-value="setValue">
             <TagsInputItem

@@ -36,27 +36,32 @@ exports.searchCompanies = async (req, res) => {
     const search = (req.query.search || '').trim();
     const limit = parseInt(req.query.limit) || 20;
 
-    const matchStage = {};
-    if (req.tenantId) {
-      matchStage.tenantId = req.tenantId;
+    const query = buildTenantQuery(req, {});
+    const allCompanies = await Company.find(query).sort({ name: 1 }).lean();
+
+    // 按 name 去重，保留第一条完整文档
+    const seen = new Set();
+    let unique = [];
+    for (const c of allCompanies) {
+      if (!seen.has(c.name)) {
+        seen.add(c.name);
+        unique.push(c);
+      }
     }
-
-    // Get all distinct names (small set)
-    const allNames = await Company.aggregate([
-      { $match: matchStage },
-      { $group: { _id: '$name' } },
-      { $sort: { _id: 1 } }
-    ]);
-
-    let filtered = allNames.map(r => r._id);
 
     if (search) {
       const searchLower = search.toLowerCase();
       const cache = getCache(req.tenantId);
-      filtered = filtered.filter(name => matchWithPinyin(name, searchLower, cache));
+      unique = unique.filter(c => matchWithPinyin(c.name, searchLower, cache));
     }
 
-    const data = filtered.slice(0, limit).map(name => ({ name }));
+    const data = unique.slice(0, limit).map(c => ({
+      name: c.name,
+      customers: c.customers || [],
+      contact_name: c.contact_name || '',
+      phone: c.phone || '',
+      address: c.address || '',
+    }));
 
     res.json({ ok: true, data });
   } catch (error) {
@@ -72,28 +77,33 @@ exports.getCompanies = async (req, res) => {
     const search = (req.query.search || '').trim();
     const skipCount = req.query.skipCount === 'true';
 
-    const matchStage = {};
-    if (req.tenantId) {
-      matchStage.tenantId = req.tenantId;
+    const query = buildTenantQuery(req, {});
+    const allCompanies = await Company.find(query).sort({ name: 1 }).lean();
+
+    // 按 name 去重，保留第一条完整文档
+    const seen = new Set();
+    let unique = [];
+    for (const c of allCompanies) {
+      if (!seen.has(c.name)) {
+        seen.add(c.name);
+        unique.push(c);
+      }
     }
-
-    // Get all distinct names (small set)
-    const allNames = await Company.aggregate([
-      { $match: matchStage },
-      { $group: { _id: '$name' } },
-      { $sort: { _id: 1 } }
-    ]);
-
-    let filtered = allNames.map(r => r._id);
 
     if (search) {
       const searchLower = search.toLowerCase();
       const cache = getCache(req.tenantId);
-      filtered = filtered.filter(name => matchWithPinyin(name, searchLower, cache));
+      unique = unique.filter(c => matchWithPinyin(c.name, searchLower, cache));
     }
 
-    const total = filtered.length;
-    const data = filtered.slice((page - 1) * limit, page * limit).map(name => ({ name }));
+    const total = unique.length;
+    const data = unique.slice((page - 1) * limit, page * limit).map(c => ({
+      name: c.name,
+      customers: c.customers || [],
+      contact_name: c.contact_name || '',
+      phone: c.phone || '',
+      address: c.address || '',
+    }));
 
     res.json({
       ok: true,

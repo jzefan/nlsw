@@ -29,7 +29,6 @@ interface ExistingImage {
   upload_time: string
 }
 const existingImages = ref<ExistingImage[]>([])
-const existingImageCache = ref<Record<string, string>>({})
 const loadingExisting = ref(false)
 
 async function open(wno: string) {
@@ -42,25 +41,13 @@ async function open(wno: string) {
   resetForm()
   visible.value = true
 
-  // 加载已有回执图片
+  // 加载已有回执图片（只获取元数据，图片由浏览器直接加载）
   loadingExisting.value = true
   existingImages.value = []
-  existingImageCache.value = {}
   try {
     const response = await settleApi.getReceiptImagesList(wno)
     if (response.ok && response.images && response.images.length > 0) {
       existingImages.value = response.images
-      // 并发加载缩略图
-      await Promise.all(
-        response.images.map(async (image: any) => {
-          try {
-            const imgRes = await settleApi.getReceiptImageById(image.id)
-            if (imgRes.ok && imgRes.data) {
-              existingImageCache.value[image.id] = `data:${imgRes.contentType};base64,${imgRes.data}`
-            }
-          } catch { /* 忽略单张加载失败 */ }
-        }),
-      )
     }
   } catch { /* 已有图片加载失败不阻塞上传 */ }
   finally {
@@ -241,15 +228,11 @@ defineExpose({ open })
               class="aspect-square border rounded-md overflow-hidden bg-muted/30"
             >
               <img
-                v-if="existingImageCache[img.id]"
-                :src="existingImageCache[img.id]"
+                :src="settleApi.getReceiptImageUrl(img.id)"
                 :alt="img.original_filename"
                 :title="img.original_filename"
                 class="w-full h-full object-cover"
               >
-              <div v-else class="w-full h-full flex items-center justify-center">
-                <Loader2 class="h-4 w-4 animate-spin text-muted-foreground/50" />
-              </div>
             </div>
           </div>
         </div>

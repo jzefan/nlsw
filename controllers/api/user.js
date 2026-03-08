@@ -2,7 +2,7 @@ const User = require('../../models/User');
 const { getPublicKey } = require('../../utils/crypto');
 const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
-const { getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
+const { isStandalone, getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const secrets = require('../../config/secrets');
 
@@ -90,9 +90,12 @@ exports.getMe = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const query = buildTenantQuery(req, {});
-    const users = await User.find(query).select('userid profile.name').lean().exec();
-    res.json({ ok: true, data: users });
+    const query = buildTenantQuery(req, { role: { $ne: 'platform' } });
+    const users = await User.find(query).select('userid profile.name role').lean().exec();
+    const names = users
+      .map(u => u.profile?.name || u.userid)
+      .filter(Boolean);
+    res.json({ ok: true, data: names });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -106,6 +109,11 @@ exports.getUserMgr = async (req, res) => {
     }
 
     const query = buildTenantQuery(req, {});
+    // 独立部署：始终隐藏 saas-admin；SaaS 模式：仅平台用户可见 saas-admin
+    const hideSaasAdmin = isStandalone() || !isPlatformUser(req);
+    if (hideSaasAdmin) {
+      query.userid = { ...query.userid, $ne: 'saas-admin' };
+    }
     const users = await User.find(query).exec();
     const uData = users.map(u => ({
       userid: u.userid,

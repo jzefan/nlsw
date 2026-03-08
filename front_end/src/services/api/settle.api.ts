@@ -249,6 +249,11 @@ export async function getReceiptImagesList(wno: string) {
   return response.data
 }
 
+// 车船结算 - 获取回执图片的直接 URL（用于 <img src>，利用浏览器原生缓存）
+export function getReceiptImageUrl(imageId: string): string {
+  return `${axiosInstance.defaults.baseURL}/receipt-image/${imageId}`
+}
+
 // 车船结算 - 根据ID获取单张回执图片
 export async function getReceiptImageById(imageId: string) {
   const response = await axiosInstance.get<{
