@@ -4,70 +4,90 @@
  */
 "use strict";
 
-let OrderPlan = require('../models/OrderPlan');
-let Company = require('../models/Company');
-let Bill = require('../models/Bill');
-let Destination = require('../models/Destination');
-let utils = require('./utils');
-const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../utils/tenant');
-const { hasPermission, PERMISSIONS } = require('../utils/permissions');
+let OrderPlan = require("../models/OrderPlan");
+let Company = require("../models/Company");
+let Bill = require("../models/Bill");
+let Destination = require("../models/Destination");
+let utils = require("./utils");
+const {
+  buildTenantQuery,
+  injectTenantId,
+  isPlatformUser,
+} = require("../utils/tenant");
+const { hasPermission, PERMISSIONS } = require("../utils/permissions");
 
-let bunyan = require('bunyan');
+let bunyan = require("bunyan");
 let logger = bunyan.createLogger({
-  name: 'XHT',
-  streams: [ { level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' } ]
+  name: "XHT",
+  streams: [
+    { level: "info", stream: process.stdout },
+    { level: "error", path: "app.log" },
+  ],
 });
 const DELTA = 1e-6; // 定义精度精确到0.00001
 
 exports.getCreateOrderPlan = async function (req, res) {
   if (!req.user || !req.user.privilege) {
-    return res.status(403).render('404');
+    return res.status(403).render("404");
   }
 
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
-    res.status(404).render('404');
-  }
-  else {
-    let customer_name = await Company.distinct('name', buildTenantQuery(req, {})).exec();
-    let destination = await Destination.distinct('name', buildTenantQuery(req, {})).exec();
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)
+  ) {
+    res.status(404).render("404");
+  } else {
+    let customer_name = await Company.distinct(
+      "name",
+      buildTenantQuery(req, {}),
+    ).exec();
+    let destination = await Destination.distinct(
+      "name",
+      buildTenantQuery(req, {}),
+    ).exec();
 
-    res.render('plan/create_plan', {
-      title: '订单计划管理',
-      curr_page: '新建订单计划',
-      curr_page_name: '新建',
+    res.render("plan/create_plan", {
+      title: "订单计划管理",
+      curr_page: "新建订单计划",
+      curr_page_name: "新建",
       dDataDict: {
         customer_name,
-        destination
+        destination,
       },
       scripts: [
-        '/js/plugins/sheetJS/shim.js',
-        '/js/plugins/sheetJS/XLSX/jszip.js',
-        '/js/plugins/sheetJS/XLSX/xlsx.core.min.js',
-        '/js/plugins/sheetJS/XLS/xls.min.js',
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/lib/bootstrap-multiselect.js',
-        '/js/create_order_plan.js'
-      ]
+        "/js/plugins/sheetJS/shim.js",
+        "/js/plugins/sheetJS/XLSX/jszip.js",
+        "/js/plugins/sheetJS/XLSX/xlsx.core.min.js",
+        "/js/plugins/sheetJS/XLS/xls.min.js",
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/lib/bootstrap-multiselect.js",
+        "/js/create_order_plan.js",
+      ],
     });
   }
 };
 
-exports.orderPlanExist = async function(req, res) {
-  let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: req.query.q})).exec();
+exports.orderPlanExist = async function (req, res) {
+  let plan = await OrderPlan.findOne(
+    buildTenantQuery(req, { order_no: req.query.q }),
+  ).exec();
   if (plan) {
-    res.end(JSON.stringify({exist: true}));
+    res.end(JSON.stringify({ exist: true }));
   } else {
-    res.end(JSON.stringify({exist: false}));
+    res.end(JSON.stringify({ exist: false }));
   }
 };
 
 exports.postCreateOrderPlan = async function (req, res) {
   if (!req.user) {
-    return res.end(JSON.stringify({ok: false, response: 'User not authenticated'}));
+    return res.end(
+      JSON.stringify({ ok: false, response: "User not authenticated" }),
+    );
   }
 
-  let currentOrderNo = '';
+  let currentOrderNo = "";
   try {
     for (let row_data of req.body) {
       currentOrderNo = row_data.orderNo;
@@ -76,48 +96,55 @@ exports.postCreateOrderPlan = async function (req, res) {
       let price = utils.getFloatValue(row_data.receivingCharge, 3);
       let exist = false;
 
-      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: orderNo})).exec();
+      let plan = await OrderPlan.findOne(
+        buildTenantQuery(req, { order_no: orderNo }),
+      ).exec();
       if (!plan) {
-        plan = new OrderPlan(injectTenantId(req, {
-          order_no: orderNo,
-          order_weight: weight,
-          left_weight:  weight,
-          destination:  row_data.destination,
-          consignee:    row_data.consignee,
-          customer_name:row_data.customerName,
-          customer_code:row_data.customerCode,
-          ds_client:    row_data.dsClient,
-          transport_mode:  row_data.transportMode,
-          customer_saleman:row_data.salesman,
-          consigner:       row_data.consigner,
-          contract_no:     row_data.contractNo,
-          receiving_charge:price,
-          entry_time:      new Date(),
-          creator: req.user.userid
-        }));
+        plan = new OrderPlan(
+          injectTenantId(req, {
+            order_no: orderNo,
+            order_weight: weight,
+            left_weight: weight,
+            destination: row_data.destination,
+            consignee: row_data.consignee,
+            customer_name: row_data.customerName,
+            customer_code: row_data.customerCode,
+            ds_client: row_data.dsClient,
+            transport_mode: row_data.transportMode,
+            customer_saleman: row_data.salesman,
+            consigner: row_data.consigner,
+            contract_no: row_data.contractNo,
+            receiving_charge: price,
+            entry_time: new Date(),
+            creator: req.user.userid,
+          }),
+        );
       } else {
         exist = true;
         console.log("Order exist. " + orderNo);
-        plan.left_weight  = weight - (plan.order_weight - plan.left_weight);
+        plan.left_weight = weight - (plan.order_weight - plan.left_weight);
         plan.order_weight = weight;
-        plan.destination  = row_data.destination;
-        plan.consignee    = row_data.consignee;
-        plan.customer_name=row_data.customerName;
-        plan.customer_code=row_data.customerCode;
-        plan.ds_client    = row_data.dsClient;
-        plan.transport_mode   = row_data.transportMode;
+        plan.destination = row_data.destination;
+        plan.consignee = row_data.consignee;
+        plan.customer_name = row_data.customerName;
+        plan.customer_code = row_data.customerCode;
+        plan.ds_client = row_data.dsClient;
+        plan.transport_mode = row_data.transportMode;
         plan.customer_saleman = row_data.salesman;
-        plan.consigner        = row_data.consigner;
-        plan.contract_no      = row_data.contractNo;
+        plan.consigner = row_data.consigner;
+        plan.contract_no = row_data.contractNo;
         plan.receiving_charge = price;
-        plan.entry_time       = new Date();
-        plan.creator = req.user.userid
+        plan.entry_time = new Date();
+        plan.creator = req.user.userid;
       }
 
-      let bills = await Bill.find(buildTenantQuery(req, {order_no: orderNo})).exec();
+      let bills = await Bill.find(
+        buildTenantQuery(req, { order_no: orderNo }),
+      ).exec();
       if (bills.length > 0) {
-        let w = 0, left = 0;
-        bills.forEach(b => {
+        let w = 0,
+          left = 0;
+        bills.forEach((b) => {
           w += b.total_weight;
           if (b.block_num > 0) {
             left += b.block_num * b.weight;
@@ -137,13 +164,23 @@ exports.postCreateOrderPlan = async function (req, res) {
             plan.left_weight = weight - w + left;
             plan.status = 0;
           } else {
-            let str = plan.order_no + ":  存在的总重量大于要保存的计划订单量, " + w.toFixed(3) + " > " + weight;
-            return res.end(JSON.stringify({ok: false, response: str}));
+            let str =
+              plan.order_no +
+              ":  存在的总重量大于要保存的计划订单量, " +
+              w.toFixed(3) +
+              " > " +
+              weight;
+            return res.end(JSON.stringify({ ok: false, response: str }));
           }
         } else {
           if (w > weight) {
-            let str = plan.order_no + ":  存在的总重量大于要保存的计划订单量, " + w.toFixed(3) + " > " + weight;
-            return res.end(JSON.stringify({ok: false, response: str}));
+            let str =
+              plan.order_no +
+              ":  存在的总重量大于要保存的计划订单量, " +
+              w.toFixed(3) +
+              " > " +
+              weight;
+            return res.end(JSON.stringify({ ok: false, response: str }));
           } else if (weight - w < DELTA) {
           } else {
             plan.status = 0;
@@ -152,33 +189,44 @@ exports.postCreateOrderPlan = async function (req, res) {
       }
 
       await plan.save();
-      // console.log("save successful. " + orderNo);
     }
 
-    res.end(JSON.stringify({ok: true}));
+    res.end(JSON.stringify({ ok: true }));
   } catch (err) {
-    logger.error('保存出错！(订单号:' + currentOrderNo + ', 原因:' + err);
-    res.end(JSON.stringify({ok: false, response: err.toString()}));
+    logger.error("保存出错！(订单号:" + currentOrderNo + ", 原因:" + err);
+    res.end(JSON.stringify({ ok: false, response: err.toString() }));
   }
 };
 
 exports.getPlanList = async function (req, res) {
   if (!req.user || !req.user.privilege) {
-    return res.status(403).render('404');
+    return res.status(403).render("404");
   }
 
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
-    res.status(404).render('404');
-  }
-  else {
-    let customer_name = await Company.distinct('name', buildTenantQuery(req, {})).exec();
-    let destination = await Destination.distinct('name', buildTenantQuery(req, {})).exec();
-    let plans = await OrderPlan.find(buildTenantQuery(req, {status: 0})).lean().sort({order_no: 1}).exec();
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)
+  ) {
+    res.status(404).render("404");
+  } else {
+    let customer_name = await Company.distinct(
+      "name",
+      buildTenantQuery(req, {}),
+    ).exec();
+    let destination = await Destination.distinct(
+      "name",
+      buildTenantQuery(req, {}),
+    ).exec();
+    let plans = await OrderPlan.find(buildTenantQuery(req, { status: 0 }))
+      .lean()
+      .sort({ order_no: 1 })
+      .exec();
 
-    res.render('plan/plan_list', {
-      title: '订单计划管理',
-      curr_page: '订单列表',
-      curr_page_name: '订单操作',
+    res.render("plan/plan_list", {
+      title: "订单计划管理",
+      curr_page: "订单列表",
+      curr_page_name: "订单操作",
       bTableSort: true,
       dData: {
         customer_name,
@@ -186,29 +234,43 @@ exports.getPlanList = async function (req, res) {
         plans,
       },
       scripts: [
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/lib/bootstrap-multiselect.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-        '/js/plan_list.js'
-      ]
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/lib/bootstrap-multiselect.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+        "/js/plan_list.js",
+      ],
     });
   }
 };
 
-exports.postUpdatePlan = async function(req, res) {
+exports.postUpdatePlan = async function (req, res) {
   let data = req.body;
-  let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data.orderNo})).exec();
+  let plan = await OrderPlan.findOne(
+    buildTenantQuery(req, { order_no: data.orderNo }),
+  ).exec();
   if (plan) {
-
     if (Math.abs(plan.order_weight - data.orderWeight) > DELTA) {
       // 已发量 = 原订单量 - 原未发量（保持不变）
       let sentWeight = plan.order_weight - plan.left_weight;
 
       // 验证：新订单量不能小于已发量
-      if (data.orderWeight < sentWeight && Math.abs(data.orderWeight - sentWeight) > DELTA) {
-        return res.end(JSON.stringify({ok: false, response: '修改失败: 修改的订单量(' + data.orderWeight.toFixed(3) + ')不能小于已发量(' + sentWeight.toFixed(3) + ')'}));
+      if (
+        data.orderWeight < sentWeight &&
+        Math.abs(data.orderWeight - sentWeight) > DELTA
+      ) {
+        return res.end(
+          JSON.stringify({
+            ok: false,
+            response:
+              "修改失败: 修改的订单量(" +
+              data.orderWeight.toFixed(3) +
+              ")不能小于已发量(" +
+              sentWeight.toFixed(3) +
+              ")",
+          }),
+        );
       }
 
       // 新未发量 = 新订单量 - 已发量
@@ -235,99 +297,124 @@ exports.postUpdatePlan = async function(req, res) {
     plan.entry_time = data.entryTime;
     await plan.save();
 
-    res.end(JSON.stringify({ok: true}));
+    res.end(JSON.stringify({ ok: true }));
   } else {
-    res.end(JSON.stringify({ok: false, response: '修改失败: 未找到对应的订单号'} + data.orderNo));
+    res.end(
+      JSON.stringify(
+        { ok: false, response: "修改失败: 未找到对应的订单号" } + data.orderNo,
+      ),
+    );
   }
 };
 
-exports.postDeletePlan = async function(req, res) {
+exports.postDeletePlan = async function (req, res) {
   let data = req.body;
 
   try {
     for (let i = 0; i < data.length; ++i) {
-      let res = await OrderPlan.deleteOne(buildTenantQuery(req, {order_no: data[i].order_no})).exec();
+      let res = await OrderPlan.deleteOne(
+        buildTenantQuery(req, { order_no: data[i].order_no }),
+      ).exec();
     }
 
-    res.end(JSON.stringify({ok: true}));
+    res.end(JSON.stringify({ ok: true }));
   } catch (e) {
-    res.end(JSON.stringify({ok: false, response: e.toString()}));
+    res.end(JSON.stringify({ ok: false, response: e.toString() }));
   }
 };
 
-exports.postPlanStatusClosed = async function(req, res) {
+exports.postPlanStatusClosed = async function (req, res) {
   let data = req.body;
 
   try {
     for (let i = 0; i < data.length; ++i) {
-      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data[i]})).exec();
+      let plan = await OrderPlan.findOne(
+        buildTenantQuery(req, { order_no: data[i] }),
+      ).exec();
       if (plan) {
         plan.status = 1;
         await plan.save();
       }
     }
 
-    res.end(JSON.stringify({ok: true}));
+    res.end(JSON.stringify({ ok: true }));
   } catch (e) {
-    res.end(JSON.stringify({ok: false, response: e.toString()}));
+    res.end(JSON.stringify({ ok: false, response: e.toString() }));
   }
 };
 
-exports.postPlanStatusUnClosed = async function(req, res) {
+exports.postPlanStatusUnClosed = async function (req, res) {
   let data = req.body;
   try {
     let plans = [];
     for (let i = 0; i < data.length; ++i) {
-      let plan = await OrderPlan.findOne(buildTenantQuery(req, {order_no: data[i], status: 1})).exec();
+      let plan = await OrderPlan.findOne(
+        buildTenantQuery(req, { order_no: data[i], status: 1 }),
+      ).exec();
       if (plan) {
         plan.status = 0;
         plans.push(plan);
       } else {
-        return res.end(JSON.stringify({ok: false, response: '订单未找到' + data[i]}));
+        return res.end(
+          JSON.stringify({ ok: false, response: "订单未找到" + data[i] }),
+        );
       }
     }
 
     for (let i = 0; i < plans.length; ++i) {
       await plans[i].save();
     }
-    res.end(JSON.stringify({ok: true}));
+    res.end(JSON.stringify({ ok: true }));
   } catch (e) {
-    res.end(JSON.stringify({ok: false, response: e.toString()}));
+    res.end(JSON.stringify({ ok: false, response: e.toString() }));
   }
 };
 
-exports.searchPlans = async function(req, res) {
+exports.searchPlans = async function (req, res) {
   let query = req.query;
-  let obj = { $and: [  ] };
+  let obj = { $and: [] };
 
   if (!utils.isEmpty(query.fOrder)) {
-    const reg = new RegExp(query.fOrder, 'i');
-    obj["$and"].push({ order_no: { $regex: reg }});
+    const reg = new RegExp(query.fOrder, "i");
+    obj["$and"].push({ order_no: { $regex: reg } });
   }
 
-  if (!utils.isEmpty(query.fName)) obj["$and"].push({ customer_name: query.fName });
+  if (!utils.isEmpty(query.fName))
+    obj["$and"].push({ customer_name: query.fName });
   if (!utils.isEmpty(query.fDate1) && !utils.isEmpty(query.fDate2)) {
     let qDate = getStartEndDate(query.fDate1, query.fDate2, true);
     obj["$and"].push({ entry_time: { $gte: qDate.s, $lte: qDate.e } });
   }
 
-  if (!utils.isEmpty(query.fTransportMode)) obj["$and"].push({ transport_mode: query.fTransportMode });
+  if (!utils.isEmpty(query.fTransportMode))
+    obj["$and"].push({ transport_mode: query.fTransportMode });
   if (!utils.isEmpty(query.fStatus)) {
-    let st = (query.fStatus == '生效') ? 0 : 1;
+    let st = query.fStatus == "生效" ? 0 : 1;
     obj["$and"].push({ status: st });
   }
 
-  let plans = await OrderPlan.find(buildTenantQuery(req, obj)).lean().sort({order_no: 1}).exec();
+  let plans = await OrderPlan.find(buildTenantQuery(req, obj))
+    .lean()
+    .sort({ order_no: 1 })
+    .exec();
   if (plans.length > 0) {
-    let w = 0, left = 0;
-    plans.forEach(p => {
+    let w = 0,
+      left = 0;
+    plans.forEach((p) => {
       w += p.order_weight;
       left += p.left_weight;
     });
 
-    res.json(JSON.stringify({ok: true, plans: plans, totalWeight: w, leftWeight: left}));
+    res.json(
+      JSON.stringify({
+        ok: true,
+        plans: plans,
+        totalWeight: w,
+        leftWeight: left,
+      }),
+    );
   } else {
-    res.json(JSON.stringify({ok: false}));
+    res.json(JSON.stringify({ ok: false }));
   }
 };
 

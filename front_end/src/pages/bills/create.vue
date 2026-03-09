@@ -9,7 +9,7 @@ import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { createBills, searchBrands, searchSaleDeps, searchWarehouses } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
-import { formatNumber } from '@/utils/format'
+import { formatDim, formatNumber } from '@/utils/format'
 
 // 模式: 'import' 或 'manual'
 const mode = ref<'import' | 'manual'>('import')
@@ -367,7 +367,6 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
           ) {
             headerRow = i
             headers = row.map((cell: any) => cell?.toString().trim() || '')
-            console.log(row)
             break
           }
         }
@@ -383,15 +382,14 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
           if (!row || row.every((cell: any) => !cell)) continue
 
           const item: any = {}
-          console.log(headers)
           headers.forEach((header, idx) => {
             let key = headerMap[header]
-            console.log('>>>key=', key)
             // 模糊匹配：如果精确匹配不到，尝试 includes 匹配
             if (!key && header) {
               if (header.includes('一级承运')) key = 'carrier1'
               else if (header.includes('二级承运')) key = 'carrier2'
-              else if (header.includes('承运')) key = 'carrier' // 通用承运单位
+              else if (header.includes('承运'))
+                key = 'carrier' // 通用承运单位
               else if (header.includes('尺寸信息') && header.includes('订单')) key = 'sizeTypeOrder'
               else if (header.includes('尺寸信息') && header.includes('提单')) key = 'sizeTypeBill'
               else if (header.includes('定尺信息') && header.includes('订单')) key = 'sizeTypeOrder'
@@ -771,13 +769,13 @@ function switchToImport() {
               {{ bill.shipWarehouse }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness, 2) }}
+              {{ formatDim(bill.thickness) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width, 2) }}
+              {{ formatDim(bill.width) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len, 2) }}
+              {{ formatDim(bill.len) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.weight?.toFixed(4) }}

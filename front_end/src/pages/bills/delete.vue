@@ -14,7 +14,8 @@ import {
   searchBills,
 } from '@/services/api/bill.api'
 import { getUserNames } from '@/services/api/user.api'
-import { formatNumber } from '@/utils/format'
+import { formatDim, formatNumber } from '@/utils/format'
+import BillCardList from './components/BillCardList.vue'
 
 // 状态
 const loading = ref(false)
@@ -23,6 +24,9 @@ const selectedBills = ref<Bill[]>([])
 const total = ref(0)
 const page = ref(1)
 const limit = ref(20)
+
+// 移动端卡片选中ID集合
+const selectedBillIds = computed(() => new Set(selectedBills.value.map(b => b._id!)))
 
 // 当前激活的特殊查询
 const activeQuery = ref<{ type: string, label: string } | null>(null)
@@ -416,8 +420,8 @@ onMounted(() => {
       </span>
     </div>
 
-    <!-- 数据表格 -->
-    <div class="border rounded-lg overflow-auto">
+    <!-- 数据表格（桌面端） -->
+    <div class="hidden md:block border rounded-lg overflow-auto">
       <table class="w-full text-sm min-w-[1024px]">
         <thead class="bg-muted/50">
           <tr>
@@ -509,13 +513,13 @@ onMounted(() => {
               {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness, 2) }}
+              {{ formatDim(bill.thickness) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width, 2) }}
+              {{ formatDim(bill.width) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len, 2) }}
+              {{ formatDim(bill.len) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.block_num }}
@@ -545,8 +549,18 @@ onMounted(() => {
       </table>
     </div>
 
+    <!-- 移动端卡片列表 -->
+    <BillCardList
+      class="md:hidden"
+      :bills="bills"
+      :loading="loading"
+      :selected-ids="selectedBillIds"
+      empty-text="暂无可删除的提单"
+      @select="toggleSelect"
+    />
+
     <!-- 分页 -->
-    <div class="mt-4 flex items-center justify-between">
+    <div class="mt-4 flex flex-col md:flex-row items-center justify-between gap-2">
       <div class="text-sm text-muted-foreground">
         共 {{ total }} 条
       </div>
@@ -559,7 +573,7 @@ onMounted(() => {
         >
           上一页
         </UiButton>
-        <span class="text-sm">{{ page }} / {{ Math.ceil(total / limit) || 1 }}</span>
+        <span class="text-sm">{{ page }}/{{ Math.ceil(total / limit) || 1 }}</span>
         <UiButton
           variant="outline"
           size="sm"

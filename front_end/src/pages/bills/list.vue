@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, RefreshCw, Search, SearchX, Square, X, Zap } from 'lucide-vue-next'
+import { CheckSquare, Filter, Pencil, Search, SearchX, Square, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { BillFilterValues } from '@/components/bill-filter.vue'
@@ -9,7 +9,6 @@ import BillFilter from '@/components/bill-filter.vue'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
-
   getBills,
   searchBills,
   searchBrands,
@@ -17,10 +16,12 @@ import {
   searchWarehouses,
   updateBill,
   updateBillsBatch,
+  updateBillRaw,
 } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
 import { getUserNames } from '@/services/api/user.api'
-import { formatNumber } from '@/utils/format'
+import { formatDim, formatNumber } from '@/utils/format'
+import BillCardList from './components/BillCardList.vue'
 
 // 状态
 const loading = ref(false)
@@ -84,17 +85,8 @@ const batchFields = [
 const showLeftSearchDialog = ref(false)
 const leftSearchThreshold = ref('')
 
-// 移动端展开的卡片
-const expandedCards = ref<Set<string>>(new Set())
-
-function toggleCardExpand(billId: string) {
-  if (expandedCards.value.has(billId)) {
-    expandedCards.value.delete(billId)
-  }
-  else {
-    expandedCards.value.add(billId)
-  }
-}
+// 移动端卡片选中ID集合
+const selectedBillIds = computed(() => new Set(selectedBills.value.map(b => b._id!)))
 
 // 高级查询对话框
 const showAdvancedSearchDialog = ref(false)
@@ -495,6 +487,66 @@ function getFieldOptions(fieldValue: string) {
   return field?.options || []
 }
 
+// 定尺类型
+const fixedSizeTypes = ['定尺', '单定', '双定尺']
+
+// 计算单重：长 × 宽 × 厚 × 7.85 × 10⁻⁹ (吨)
+function calcWeight(bill: Bill) {
+  const t = bill.thickness || 0
+  const w = bill.width || 0
+  const l = bill.len || 0
+  if (t > 0 && w > 0 && l > 0) {
+    return l * w * t * 7.85 * 1e-9
+  }
+  return 0
+}
+
+// 当前编辑提单是否需要修正（定尺且单重为0）
+const needsWeightFix = computed(() => {
+  const bill = editingBill.value
+  if (!bill) return false
+  return fixedSizeTypes.includes(bill.size_type || '') && !bill.weight && calcWeight(bill) > 0
+})
+
+// 修正后的单重、块数、剩余量
+const fixedWeight = computed(() => {
+  const bill = editingBill.value
+  if (!bill) return { weight: 0, blockNum: 0, leftNum: 0 }
+  const w = calcWeight(bill)
+  const blockNum = w > 0 ? Math.round(bill.total_weight / w) : 0
+  // 已发运块数 = 各运单 num 之和
+  const shippedNum = (bill.invoices || []).reduce((sum: number, inv: any) => sum + (inv.num || 0), 0)
+  const leftNum = Math.max(blockNum - shippedNum, 0)
+  return { weight: w, blockNum, leftNum }
+})
+
+// 修正单重、块数、剩余量
+async function fixWeightAndBlockNum() {
+  if (!editingBill.value) return
+  const { weight, blockNum, leftNum } = fixedWeight.value
+  if (weight <= 0) return
+
+  try {
+    const result = await updateBillRaw({
+      _id: editingBill.value._id!,
+      weight,
+      block_num: blockNum,
+      left_num: leftNum,
+    })
+    if (result.ok) {
+      toast.success(`修正成功：单重 ${formatNumber(weight, 4)}，块数 ${blockNum}，剩余量 ${formatNumber(leftNum)}`)
+      editingBill.value.weight = weight
+      editingBill.value.block_num = blockNum
+      editingBill.value.left_num = leftNum
+      editForm.value.blockNum = blockNum
+    } else {
+      toast.error('修正失败', { description: result.response })
+    }
+  } catch (e: any) {
+    toast.error('修正失败', { description: e.message })
+  }
+}
+
 // 格式化日期
 function formatDate(date: Date | string | undefined) {
   if (!date)
@@ -563,20 +615,16 @@ onMounted(() => {
           size="sm"
           @click="showFilter = !showFilter"
         >
-          <Filter class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">{{ showFilter ? '收起' : '筛选' }}</span>
+          <Filter class="w-4 h-4 mr-1" />
+          {{ showFilter ? '收起' : '筛选' }}
         </UiButton>
         <UiButton variant="outline" size="sm" @click="openAdvancedSearch">
-          <SearchX class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">高级查询</span>
+          <SearchX class="w-4 h-4 mr-1" />
+          高级查询
         </UiButton>
         <UiButton variant="outline" size="sm" @click="showLeftSearchDialog = true">
-          <Search class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">剩余量查询</span>
-        </UiButton>
-        <UiButton variant="outline" size="sm" @click="loadData">
-          <RefreshCw class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">刷新</span>
+          <Search class="w-4 h-4 mr-1" />
+          剩余量查询
         </UiButton>
       </div>
     </template>
@@ -586,6 +634,7 @@ onMounted(() => {
       v-if="showFilter"
       v-model="filters"
       class="mb-3"
+      :loading="loading"
       :creater-options="userNames"
       @search="activeQuery = null; loadData()"
       @reset="resetFilters"
@@ -615,8 +664,8 @@ onMounted(() => {
           :disabled="selectedBills.length !== 1"
           @click="selectedBills.length === 1 && openEditDialog(selectedBills[0])"
         >
-          <Pencil class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">单条修改</span>
+          <Pencil class="w-4 h-4 mr-1" />
+          单条修改
         </UiButton>
         <UiButton
           variant="outline"
@@ -624,8 +673,7 @@ onMounted(() => {
           :disabled="selectedBills.length === 0"
           @click="openBatchDialog"
         >
-          <span class="hidden sm:inline">批量修改</span>
-          <span class="sm:hidden">批量</span>
+          批量修改
         </UiButton>
         <UiButton
           variant="outline"
@@ -633,8 +681,8 @@ onMounted(() => {
           :disabled="selectedBills.length === 0"
           @click="zeroLeftNum"
         >
-          <Zap class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">剩余量清零</span>
+          <Zap class="w-4 h-4 mr-1" />
+          剩余量清零
         </UiButton>
       </div>
       <div class="flex-1" />
@@ -739,13 +787,13 @@ onMounted(() => {
               {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.thickness, 2) }}
+              {{ formatDim(bill.thickness) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.width, 2) }}
+              {{ formatDim(bill.width) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.len, 2) }}
+              {{ formatDim(bill.len) }}
             </td>
             <td class="p-2 text-right">
               {{ bill.block_num }}
@@ -781,108 +829,28 @@ onMounted(() => {
     </div>
 
     <!-- 移动端卡片视图 -->
-    <div class="lg:hidden space-y-2">
-      <div
-        v-for="bill in bills"
-        :key="bill._id"
-        class="border rounded-lg overflow-hidden"
-        :class="{ 'border-primary bg-primary/5': isSelected(bill) }"
-      >
-        <!-- 卡片头部 - 关键信息 -->
-        <div class="p-3 flex items-start gap-3" @click="toggleSelect(bill)">
-          <button class="mt-0.5 flex items-center shrink-0 focus:outline-none" @click.stop="toggleSelect(bill)">
-            <CheckSquare v-if="isSelected(bill)" class="w-4 h-4 text-primary" />
-            <Square v-else class="w-4 h-4 text-muted-foreground" />
-          </button>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center justify-between gap-2 mb-1">
-              <span class="font-medium text-sm truncate">{{ bill.billing_name }}</span>
-              <UiBadge :variant="getStatusVariant(bill.status)" class="shrink-0">
-                {{ bill.status }}
-              </UiBadge>
-            </div>
-            <div class="text-sm text-muted-foreground space-y-0.5">
-              <div class="flex items-center justify-between">
-                <span>订单: {{ bill.order_no }}-{{ bill.order_item_no }}</span>
-                <button
-                  class="text-primary hover:text-primary/80 p-1"
-                  @click.stop="toggleCardExpand(bill._id!)"
-                >
-                  <ChevronDown v-if="!expandedCards.has(bill._id!)" class="w-4 h-4" />
-                  <ChevronUp v-else class="w-4 h-4" />
-                </button>
-              </div>
-              <div>提单号: {{ bill.bill_no }}</div>
-              <div>牌号: {{ bill.brand_no }}</div>
-              <div class="flex items-center justify-between">
-                <span>总重量: {{ formatNumber(bill.total_weight, 2) }}</span>
-                <span :class="bill.left_num > 0 ? 'text-blue-600 font-medium' : 'text-green-600'">
-                  余量: {{ formatNumber(bill.left_num, 2) }}
-                </span>
-              </div>
-            </div>
-          </div>
+    <BillCardList
+      class="lg:hidden"
+      :bills="bills"
+      :loading="loading"
+      :selected-ids="selectedBillIds"
+      :get-status-variant="getStatusVariant"
+      @select="toggleSelect"
+    >
+      <template #expandActions="{ bill }">
+        <div class="pt-2 border-t">
+          <UiButton
+            size="sm"
+            variant="outline"
+            class="w-full"
+            @click="openEditDialog(bill)"
+          >
+            <Pencil class="w-4 h-4 mr-1" />
+            编辑
+          </UiButton>
         </div>
-
-        <!-- 展开的详细信息 -->
-        <div v-if="expandedCards.has(bill._id!)" class="border-t bg-muted/30 p-3 text-sm space-y-2">
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <span class="text-muted-foreground">销售部门:</span>
-              <span class="ml-1">{{ bill.sales_dep }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">仓库:</span>
-              <span class="ml-1">{{ bill.ship_warehouse }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">厚度:</span>
-              <span class="ml-1">{{ formatNumber(bill.thickness, 2) }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">宽度:</span>
-              <span class="ml-1">{{ formatNumber(bill.width, 2) }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">长度:</span>
-              <span class="ml-1">{{ formatNumber(bill.len, 2) }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">块数:</span>
-              <span class="ml-1">{{ bill.block_num }}</span>
-            </div>
-            <div class="col-span-2">
-              <span class="text-muted-foreground">合同号:</span>
-              <span class="ml-1">{{ bill.contract_no }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">创建日期:</span>
-              <span class="ml-1">{{ formatDate(bill.create_date) }}</span>
-            </div>
-            <div>
-              <span class="text-muted-foreground">创建人:</span>
-              <span class="ml-1">{{ bill.creater }}</span>
-            </div>
-          </div>
-          <div class="pt-2 border-t">
-            <UiButton
-              size="sm"
-              variant="outline"
-              class="w-full"
-              @click="openEditDialog(bill)"
-            >
-              <Pencil class="w-4 h-4 mr-1" />
-              编辑
-            </UiButton>
-          </div>
-        </div>
-      </div>
-
-      <!-- 无数据提示 -->
-      <div v-if="bills.length === 0 && !loading" class="border rounded-lg p-8 text-center text-muted-foreground">
-        暂无数据
-      </div>
-    </div>
+      </template>
+    </BillCardList>
 
     <!-- 分页 -->
     <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
@@ -919,6 +887,20 @@ onMounted(() => {
             订单: {{ editingBill?.order_no }}-{{ editingBill?.order_item_no }}
           </UiDialogDescription>
         </UiDialogHeader>
+        <div v-if="editingBill" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground py-2 border-b">
+          <span>厚: <strong class="text-foreground">{{ formatDim(editingBill.thickness) }}</strong></span>
+          <span>宽: <strong class="text-foreground">{{ formatDim(editingBill.width) }}</strong></span>
+          <span>长: <strong class="text-foreground">{{ formatDim(editingBill.len) }}</strong></span>
+          <span v-if="!needsWeightFix">单重: <strong class="text-foreground">{{ formatNumber(editingBill.weight, 2) }}</strong></span>
+          <span v-else class="text-orange-600">
+            单重: <strong>{{ formatNumber(fixedWeight.weight, 4) }}</strong>
+            <span class="ml-1 text-[10px]">(计算值)</span>
+          </span>
+          <span v-if="editingBill.size_type">尺寸: <strong class="text-foreground">{{ editingBill.size_type }}</strong></span>
+          <UiButton v-if="needsWeightFix" variant="outline" size="sm" class="h-6 px-2 text-xs text-orange-600 border-orange-300" @click="fixWeightAndBlockNum">
+            修正单重和块数
+          </UiButton>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
           <div>
             <label class="text-sm font-medium">提单号</label>

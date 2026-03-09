@@ -104,9 +104,16 @@ export async function updateBill(data: {
   thickness?: number
   width?: number
   length?: number
+  weight?: number
   blockNum?: number
   totalWeight?: number
 }) {
+  const response = await axiosInstance.post('/bills/update', data)
+  return response.data
+}
+
+// 更新提单（snake_case 字段，直接匹配 DB schema）
+export async function updateBillRaw(data: Record<string, any> & { _id: string }) {
   const response = await axiosInstance.post('/bills/update', data)
   return response.data
 }

@@ -1,82 +1,26 @@
 <script setup lang="ts">
 import type { ColumnDef } from '@tanstack/vue-table'
 
-import { watchDebounced } from '@vueuse/core'
 import { Pencil, Trash2 } from 'lucide-vue-next'
-import { h, onMounted, ref } from 'vue'
-import { toast } from 'vue-sonner'
+import { h } from 'vue'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useModal } from '@/composables/use-modal'
-import { addDestination, deleteDestination, getDestinations, updateDestination, type DataDictItem } from '@/services/api/data-dict.api'
+import { Item, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item'
+import { addDestination, deleteDestination, getDestinations, updateDestination } from '@/services/api/data-dict.api'
 
 import BaseContactDialog from './components/BaseContactDialog.vue'
 import DataDictPage from './components/DataDictPage.vue'
+import { useDataDict } from './composables/use-data-dict'
 
-const data = ref<DataDictItem[]>([])
-const loading = ref(false)
-const total = ref(0)
-const page = ref(1)
-const limit = ref(20)
-const searchTerm = ref('')
-
-async function loadData() {
-  loading.value = true
-  try {
-    const res = await getDestinations({ page: page.value, limit: limit.value, search: searchTerm.value })
-    if (res.ok) {
-      data.value = res.data
-      total.value = res.total
-    }
-  }
-  finally {
-    loading.value = false
-  }
-}
-
-watchDebounced(
-  searchTerm,
-  () => {
-    page.value = 1
-    loadData()
-  },
-  { debounce: 500, maxWait: 1000 },
-)
-
-onMounted(loadData)
-
-const { Modal } = useModal()
-const dialogOpen = ref(false)
-const editingItem = ref(null)
-
-function openAdd() {
-  editingItem.value = null
-  dialogOpen.value = true
-}
-
-function openEdit(item: any) {
-  editingItem.value = item
-  dialogOpen.value = true
-}
-
-async function handleDelete(item: any) {
-  if (!confirm(`确定要删除 ${item.name} 吗？`))
-    return
-  try {
-    const result = await deleteDestination(item.name)
-    if (result.ok) {
-      toast.success('删除成功')
-      loadData()
-    }
-    else {
-      toast.error(result.response || '删除失败')
-    }
-  }
-  catch (e: any) {
-    toast.error(e.message)
-  }
-}
+const {
+  data, loading, total, page, limit, searchTerm,
+  Modal, dialogOpen, editingItem,
+  loadData, openAdd, openEdit, handleDelete, onPageChange,
+} = useDataDict({
+  getList: getDestinations,
+  delete: deleteDestination,
+})
 
 const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '目的地' },
@@ -122,14 +66,34 @@ const columns: ColumnDef<any>[] = [
     :total="total"
     :page="page"
     :limit="limit"
-    @update:page="(p) => { page = p; loadData() }"
+    @update:page="onPageChange"
     @refresh="loadData"
     @add="openAdd"
   >
     <template #filter>
       <div class="flex items-center gap-2 mr-2">
-        <Input v-model="searchTerm" placeholder="搜索..." class="w-64" />
+        <Input v-model="searchTerm" placeholder="搜索目的地..." class="flex-1 min-w-0 sm:w-64 sm:flex-initial" />
       </div>
+    </template>
+
+    <template #mobile-card="{ item }">
+      <Item variant="outline" size="sm">
+        <ItemContent>
+          <ItemTitle>{{ item.name }}</ItemTitle>
+          <ItemDescription v-if="item.contact_name || item.phone || item.address">
+            <span v-if="item.contact_name || item.phone">{{ item.contact_name }}<span v-if="item.phone" class="ml-1">{{ item.phone }}</span></span>
+            <span v-if="item.address" class="block">{{ item.address }}</span>
+          </ItemDescription>
+        </ItemContent>
+        <div class="flex items-center gap-1 shrink-0 self-start">
+          <Button variant="ghost" size="icon" class="size-7" @click="openEdit(item)">
+            <Pencil class="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" class="size-7 text-destructive" @click="handleDelete(item)">
+            <Trash2 class="size-3.5" />
+          </Button>
+        </div>
+      </Item>
     </template>
 
     <template #dialog>
@@ -138,7 +102,7 @@ const columns: ColumnDef<any>[] = [
           <BaseContactDialog
             v-if="dialogOpen"
             :item="editingItem"
-            title="Destination"
+            title="目的地"
             :api-add="addDestination"
             :api-update="updateDestination"
             @close="dialogOpen = false"

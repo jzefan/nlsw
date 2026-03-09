@@ -19,7 +19,7 @@ const emit = defineEmits(['close', 'refresh'])
 const { Modal } = useModal()
 
 const formSchema = toTypedSchema(z.object({
-  name: z.string().min(1, 'Name is required'),
+  name: z.string().min(1, '请输入名称'),
 }))
 
 const { handleSubmit, isSubmitting } = useForm({

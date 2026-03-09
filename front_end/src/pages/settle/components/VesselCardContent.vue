@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 
 interface Props {
   name: string
+  category?: string
   status: string
   statusClass: string
   chargeText?: string
@@ -30,6 +31,11 @@ defineEmits<{
     <!-- 行1：名称 + 状态 + 预付 + 备注 + 展开箭头 -->
     <div class="flex items-center gap-2 pr-10">
       <span class="font-medium text-sm truncate">{{ name }}</span>
+      <span
+        v-if="category"
+        class="shrink-0 inline-flex items-center px-1 py-0 rounded border text-[10px] font-medium leading-tight"
+        :class="category === '自有' ? 'bg-blue-100 text-blue-700 border-transparent' : 'bg-orange-100 text-orange-700 border-transparent'"
+      >{{ category === '自有' ? '自' : '外' }}</span>
       <span
         class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium"
         :class="statusClass"

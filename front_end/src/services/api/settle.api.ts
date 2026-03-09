@@ -74,6 +74,7 @@ export async function getVesselSettleData(params: any) {
       nameList: string[]
       destList: string[]
       vehPersonMap: Record<string, any>
+      vehCategoryMap?: Record<string, string>
     }
   }>('/settle/vessel_initial_data', { params })
   return response.data
@@ -96,6 +97,7 @@ export async function getInvoiceSettleVessel(params: {
     ok: boolean
     invs: any[]
     vehPersonMap?: Record<string, any>
+    vehCategoryMap?: Record<string, string>
     imageWaybills?: string[]
   }>('/get_invoice_settle_vellel', { params })
   return response.data

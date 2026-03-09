@@ -1,78 +1,27 @@
 <script setup lang="ts">
 import type { ColumnDef } from '@tanstack/vue-table'
 
-import { watchDebounced } from '@vueuse/core'
 import { Pencil, Trash2 } from 'lucide-vue-next'
-import { h, onMounted, ref } from 'vue'
-import { toast } from 'vue-sonner'
+import { h } from 'vue'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useModal } from '@/composables/use-modal'
-import { deleteVehicle, getVehicles, type DataDictItem } from '@/services/api/data-dict.api'
+import { Item, ItemContent, ItemDescription, ItemFooter, ItemTitle } from '@/components/ui/item'
+import { deleteVehicle, getVehicles } from '@/services/api/data-dict.api'
 
 import DataDictPage from './components/DataDictPage.vue'
 import VehicleDialog from './components/VehicleDialog.vue'
+import { useDataDict } from './composables/use-data-dict'
 
-const data = ref<DataDictItem[]>([])
-const loading = ref(false)
-const total = ref(0)
-const page = ref(1)
-const limit = ref(20)
-const searchTerm = ref('')
-
-async function loadData() {
-  loading.value = true
-  try {
-    const res = await getVehicles({ page: page.value, limit: limit.value, search: searchTerm.value })
-    if (res.ok) {
-      data.value = res.data
-      total.value = res.total
-    }
-  }
-  finally {
-    loading.value = false
-  }
-}
-
-watchDebounced(
-  searchTerm,
-  () => {
-    page.value = 1
-    loadData()
-  },
-  { debounce: 500, maxWait: 1000 },
-)
-
-onMounted(loadData)
-
-const { Modal } = useModal()
-const dialogOpen = ref(false)
-const editingItem = ref(null)
-
-function openAdd() {
-  editingItem.value = null
-  dialogOpen.value = true
-}
-
-function openEdit(item: any) {
-  editingItem.value = item
-  dialogOpen.value = true
-}
-
-async function handleDelete(item: any) {
-  if (!confirm(`确定要删除 ${item.name} 吗？`))
-    return
-  try {
-    await deleteVehicle(item.name)
-    toast.success('删除成功')
-    loadData()
-  }
-  catch (e: any) {
-    toast.error(e.message)
-  }
-}
+const {
+  data, loading, total, page, limit, searchTerm,
+  Modal, dialogOpen, editingItem,
+  loadData, openAdd, openEdit, handleDelete, onPageChange,
+} = useDataDict({
+  getList: getVehicles,
+  delete: deleteVehicle,
+})
 
 const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '车船号' },
@@ -130,14 +79,42 @@ const columns: ColumnDef<any>[] = [
     :total="total"
     :page="page"
     :limit="limit"
-    @update:page="(p) => { page = p; loadData() }"
+    @update:page="onPageChange"
     @refresh="loadData"
     @add="openAdd"
   >
     <template #filter>
       <div class="flex items-center gap-2 mr-2">
-        <Input v-model="searchTerm" placeholder="搜索..." class="w-64" />
+        <Input v-model="searchTerm" placeholder="搜索车船号..." class="flex-1 min-w-0 sm:w-64 sm:flex-initial" />
       </div>
+    </template>
+
+    <template #mobile-card="{ item }">
+      <Item variant="outline" size="sm">
+        <ItemContent>
+          <ItemTitle>
+            {{ item.name }}
+            <Badge v-if="item.veh_type" variant="outline" class="text-[10px]">{{ item.veh_type }}</Badge>
+            <Badge v-if="item.veh_category" variant="secondary" class="text-[10px]">{{ item.veh_category }}</Badge>
+          </ItemTitle>
+          <ItemDescription v-if="item.contact_name || item.phone">
+            {{ item.contact_name }}<span v-if="item.phone" class="ml-1">{{ item.phone }}</span>
+          </ItemDescription>
+          <ItemFooter v-if="item.boss" class="pt-1">
+            <div class="flex flex-wrap gap-1">
+              <Badge v-for="tag in item.boss.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)" :key="tag" variant="outline" class="bg-muted text-[10px]">{{ tag }}</Badge>
+            </div>
+          </ItemFooter>
+        </ItemContent>
+        <div class="flex items-center gap-1 shrink-0 self-start">
+          <Button variant="ghost" size="icon" class="size-7" @click="openEdit(item)">
+            <Pencil class="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" class="size-7 text-destructive" @click="handleDelete(item)">
+            <Trash2 class="size-3.5" />
+          </Button>
+        </div>
+      </Item>
     </template>
 
     <template #dialog>

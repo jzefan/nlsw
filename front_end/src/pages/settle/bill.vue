@@ -8,34 +8,18 @@ import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  getSettleBills,
-  markNotRequireSettle,
-  settleBills,
-} from '@/services/api/settle.api'
-import {
-  deleteSettle,
-  getSettleList,
-} from '@/services/api/ticket.api'
+import { getSettleBills, markNotRequireSettle, settleBills } from '@/services/api/settle.api'
+import { deleteSettle, getSettleList } from '@/services/api/ticket.api'
 
 import type { SettleRecord } from './ticket-types'
-import type {
-  PriceInputData,
-  SettleBill,
-  SettleFilterParams,
-  SettleMode,
-  SettleObject,
-} from './types'
+import type { PriceInputData, SettleBill, SettleFilterParams, SettleMode, SettleObject } from './types'
 
 import BatchPriceInputDialog from './components/BatchPriceInputDialog.vue'
 import PriceInputDialog from './components/PriceInputDialog.vue'
 import SettleCardContent from './components/SettleCardContent.vue'
 import SettleFilter from './components/SettleFilter.vue'
 import SettleTable from './components/SettleTable.vue'
-import {
-  COLLECTION_SETTLE_FLAG,
-  CUSTOMER_SETTLE_FLAG,
-} from './types'
+import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
 const route = useRoute()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
@@ -49,7 +33,7 @@ const viewTab = ref<'unsettled' | 'settled'>('unsettled') // 视图标签：未�
 const allBills = ref<SettleBill[]>([])
 const displayBills = ref<SettleBill[]>([])
 const selectedBills = ref<SettleBill[]>([])
-const loading = ref(true)  // 初始显示loading，数据加载完成后自动关闭
+const loading = ref(true) // 初始显示loading，数据加载完成后自动关闭
 const showFilter = ref(true) // 默认显示过滤器
 const showNonSettle = ref(false)
 
@@ -59,7 +43,7 @@ const showBasket = ref(false)
 
 // 动画状态
 const basketButtonRef = ref<any>(null)
-const flyingItems = ref<{ id: string, x: number, y: number, targetX: number, targetY: number }[]>([])
+const flyingItems = ref<{ id: string; x: number; y: number; targetX: number; targetY: number }[]>([])
 
 // 分页状态
 const currentPage = ref(1)
@@ -90,30 +74,26 @@ onMounted(() => {
 })
 
 // 监听 tab 切换，实时获取数据
-watch(viewTab, (newTab) => {
-  console.log('viewTab changed to:', newTab)
-  if (newTab === 'settled') {
-    console.log('Loading settled records...')
-    loadSettledRecords()
-  }
-  else if (newTab === 'unsettled') {
-    console.log('Reloading unsettled bills...')
-    // 重新加载未结算数据
-    if (filterParams.value.fDate1 && filterParams.value.fDate2) {
-      loadData(filterParams.value.fDate1, filterParams.value.fDate2)
+watch(
+  viewTab,
+  (newTab) => {
+    if (newTab === 'settled') {
+      loadSettledRecords()
+    } else if (newTab === 'unsettled') {
+      // 重新加载未结算数据
+      if (filterParams.value.fDate1 && filterParams.value.fDate2) {
+        loadData(filterParams.value.fDate1, filterParams.value.fDate2)
+      }
     }
-  }
-}, { immediate: true })
+  },
+  { immediate: true },
+)
 
 // 监听结算模式切换，重新加载当前 tab 的数据
 watch(settleMode, () => {
-  console.log('settleMode changed to:', settleMode.value)
   if (viewTab.value === 'settled') {
-    console.log('Reloading settled records due to mode change...')
     loadSettledRecords()
-  }
-  else {
-    console.log('Reloading unsettled bills due to mode change...')
+  } else {
     applyFrontendFilter()
   }
 })
@@ -129,28 +109,24 @@ const filterOptions = computed(() => {
   const invNosMap = new Map<string, string>() // inv_no -> shipper
 
   allBills.value.forEach((bill) => {
-    if (bill.billing_name)
-      billingNames.add(bill.billing_name)
-    if (bill.veh_ves_name)
-      vehicleNames.add(bill.veh_ves_name)
-    if (bill.ship_from)
-      shipFroms.add(bill.ship_from)
-    if (bill.ship_to)
-      destinations.add(bill.ship_to)
-    if (bill.order_no)
-      orderNos.add(bill.order_no)
-    if (bill.bill_no)
-      billNos.add(bill.bill_no)
+    if (bill.billing_name) billingNames.add(bill.billing_name)
+    if (bill.veh_ves_name) vehicleNames.add(bill.veh_ves_name)
+    if (bill.ship_from) shipFroms.add(bill.ship_from)
+    if (bill.ship_to) destinations.add(bill.ship_to)
+    if (bill.order_no) orderNos.add(bill.order_no)
+    if (bill.bill_no) billNos.add(bill.bill_no)
     if (bill.inv_no && !invNosMap.has(bill.inv_no)) {
       invNosMap.set(bill.inv_no, bill.inv_shipper || '')
     }
   })
 
   // 将运单号转换为对象数组，包含运单号和创建人
-  const invNos = Array.from(invNosMap.entries()).map(([invNo, shipper]) => ({
-    inv_no: invNo,
-    shipper,
-  })).sort((a, b) => a.inv_no.localeCompare(b.inv_no))
+  const invNos = Array.from(invNosMap.entries())
+    .map(([invNo, shipper]) => ({
+      inv_no: invNo,
+      shipper,
+    }))
+    .sort((a, b) => a.inv_no.localeCompare(b.inv_no))
 
   return {
     billingNames: Array.from(billingNames).sort(),
@@ -244,8 +220,7 @@ const basketStatistics = computed(() => {
 
 // 检查另一个结算模式下是否有数据
 const otherModeHasData = computed(() => {
-  if (allBills.value.length === 0)
-    return false
+  if (allBills.value.length === 0) return false
 
   const otherMode = settleMode.value === 'CUSTOMER' ? 'COLLECTION' : 'CUSTOMER'
   const flag = otherMode === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG
@@ -255,25 +230,25 @@ const otherModeHasData = computed(() => {
   let filtered = allBills.value
 
   if (filterParams.value.fName && filterParams.value.fName.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fName!.includes(bill.billing_name))
+    filtered = filtered.filter((bill) => filterParams.value.fName!.includes(bill.billing_name))
   }
   if (filterParams.value.fVeh && filterParams.value.fVeh.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fVeh!.includes(bill.veh_ves_name))
+    filtered = filtered.filter((bill) => filterParams.value.fVeh!.includes(bill.veh_ves_name))
   }
   if (filterParams.value.fShipFrom && filterParams.value.fShipFrom.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fShipFrom!.includes(bill.ship_from))
+    filtered = filtered.filter((bill) => filterParams.value.fShipFrom!.includes(bill.ship_from))
   }
   if (filterParams.value.fDest && filterParams.value.fDest.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fDest!.includes(bill.ship_to))
+    filtered = filtered.filter((bill) => filterParams.value.fDest!.includes(bill.ship_to))
   }
   if (filterParams.value.fOrder && filterParams.value.fOrder.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fOrder!.includes(bill.order_no))
+    filtered = filtered.filter((bill) => filterParams.value.fOrder!.includes(bill.order_no))
   }
   if (filterParams.value.fBno && filterParams.value.fBno.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fBno!.includes(bill.bill_no))
+    filtered = filtered.filter((bill) => filterParams.value.fBno!.includes(bill.bill_no))
   }
   if (filterParams.value.fInvNo && filterParams.value.fInvNo.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fInvNo!.includes(bill.inv_no))
+    filtered = filtered.filter((bill) => filterParams.value.fInvNo!.includes(bill.inv_no))
   }
 
   // 检查另一个模式下是否有未结算的数据
@@ -281,8 +256,7 @@ const otherModeHasData = computed(() => {
     const price = bill[priceField]
     if (showNonSettle.value) {
       return price === -1
-    }
-    else {
+    } else {
       return (bill.inv_settle_flag & flag) !== flag && price >= 0
     }
   })
@@ -303,8 +277,7 @@ function switchMode(mode: SettleMode) {
     settleMode.value = mode
     if (viewTab.value === 'unsettled') {
       applyFrontendFilter()
-    }
-    else {
+    } else {
       loadSettledRecords()
     }
   }
@@ -337,15 +310,12 @@ async function loadData(startDate?: string, endDate?: string) {
         return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
       })
       applyFrontendFilter()
-    }
-    else {
+    } else {
       toast.error('获取数据失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '获取数据失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -356,37 +326,37 @@ function applyFrontendFilter() {
 
   // 开单名称过滤
   if (filterParams.value.fName && filterParams.value.fName.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fName!.includes(bill.billing_name))
+    filtered = filtered.filter((bill) => filterParams.value.fName!.includes(bill.billing_name))
   }
 
   // 车船过滤
   if (filterParams.value.fVeh && filterParams.value.fVeh.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fVeh!.includes(bill.veh_ves_name))
+    filtered = filtered.filter((bill) => filterParams.value.fVeh!.includes(bill.veh_ves_name))
   }
 
   // 起始地过滤
   if (filterParams.value.fShipFrom && filterParams.value.fShipFrom.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fShipFrom!.includes(bill.ship_from))
+    filtered = filtered.filter((bill) => filterParams.value.fShipFrom!.includes(bill.ship_from))
   }
 
   // 目的地过滤
   if (filterParams.value.fDest && filterParams.value.fDest.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fDest!.includes(bill.ship_to))
+    filtered = filtered.filter((bill) => filterParams.value.fDest!.includes(bill.ship_to))
   }
 
   // 订单号过滤
   if (filterParams.value.fOrder && filterParams.value.fOrder.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fOrder!.includes(bill.order_no))
+    filtered = filtered.filter((bill) => filterParams.value.fOrder!.includes(bill.order_no))
   }
 
   // 提单号过滤
   if (filterParams.value.fBno && filterParams.value.fBno.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fBno!.includes(bill.bill_no))
+    filtered = filtered.filter((bill) => filterParams.value.fBno!.includes(bill.bill_no))
   }
 
   // 运单号过滤
   if (filterParams.value.fInvNo && filterParams.value.fInvNo.length > 0) {
-    filtered = filtered.filter(bill => filterParams.value.fInvNo!.includes(bill.inv_no))
+    filtered = filtered.filter((bill) => filterParams.value.fInvNo!.includes(bill.inv_no))
   }
 
   // 根据结算模式和状态过滤
@@ -399,8 +369,7 @@ function applyFrontendFilter() {
     if (showNonSettle.value) {
       // 只显示不需要结算的记录
       return price === -1
-    }
-    else {
+    } else {
       // 显示未结算的记录（排除已结算和不需要结算的）
       return (bill.inv_settle_flag & flag) !== flag && price >= 0
     }
@@ -419,8 +388,7 @@ function applyFilter(params: SettleFilterParams) {
   if (dateChanged) {
     // 日期变化，重新加载数据
     loadData(params.fDate1, params.fDate2)
-  }
-  else {
+  } else {
     // 其他条件变化，只做前端过滤
     applyFrontendFilter()
   }
@@ -467,8 +435,7 @@ function openPriceDialog() {
   if (selectedBills.value.length === 1) {
     currentBill.value = selectedBills.value[0]
     showPriceDialog.value = true
-  }
-  else {
+  } else {
     showBatchPriceDialog.value = true
   }
 }
@@ -486,7 +453,7 @@ async function handleSettle() {
   }
 
   // 验证：同一批次只能选择相同开单名称
-  const billingNames = [...new Set(selectedBills.value.map(b => b.billing_name))]
+  const billingNames = [...new Set(selectedBills.value.map((b) => b.billing_name))]
   if (billingNames.length > 1) {
     toast.error('您选择的提单中存在多个开单名称，一次只能结算一个开单名称的提单')
     return
@@ -507,8 +474,7 @@ async function handleSettle() {
   }
 
   const confirmed = window.confirm('确定要结算选中的提单吗？')
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
@@ -522,8 +488,7 @@ async function handleSettle() {
       if (settleMode.value === 'COLLECTION') {
         bill.inv_settle_flag |= COLLECTION_SETTLE_FLAG
         bill.settle_flag = (bill.settle_flag || 0) | COLLECTION_SETTLE_FLAG
-      }
-      else {
+      } else {
         bill.inv_settle_flag |= CUSTOMER_SETTLE_FLAG
       }
 
@@ -536,7 +501,7 @@ async function handleSettle() {
       })
     })
 
-    const shipToList = [...new Set(selectedBills.value.map(b => b.ship_to))]
+    const shipToList = [...new Set(selectedBills.value.map((b) => b.ship_to))]
     const firstBill = selectedBills.value[0]
     const billName = firstBill.ship_customer
       ? `${firstBill.billing_name}/${firstBill.ship_customer}`
@@ -553,15 +518,12 @@ async function handleSettle() {
     if (result.ok) {
       toast.success('结算成功')
       updateDisplayBills()
-    }
-    else {
+    } else {
       toast.error(result.message || '结算失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '结算失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -575,18 +537,16 @@ async function handleMarkNotRequireSettle() {
 
   // 检查是否已输入价格
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
-  const hasPrice = selectedBills.value.some(b => b[priceField] > 0)
+  const hasPrice = selectedBills.value.some((b) => b[priceField] > 0)
 
   let confirmed = true
   if (hasPrice) {
     confirmed = window.confirm('您选择的提单中已经输入过价格，不结算后这些价格都会清除为0，确认吗？')
-  }
-  else {
+  } else {
     confirmed = window.confirm('确定标记选中的提单为不需要结算吗？')
   }
 
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
@@ -595,8 +555,7 @@ async function handleMarkNotRequireSettle() {
         bill.inv_settle_flag &= ~CUSTOMER_SETTLE_FLAG
         bill.price = -1
         return { bid: bill._id, inv_no: bill.inv_no }
-      }
-      else {
+      } else {
         bill.inv_settle_flag &= ~COLLECTION_SETTLE_FLAG
         bill.collection_price = -1
         return { bid: bill._id, inv_no: bill.inv_no, settle_flag: bill.inv_settle_flag }
@@ -611,15 +570,12 @@ async function handleMarkNotRequireSettle() {
     if (result.ok) {
       toast.success('标记成功')
       updateDisplayBills()
-    }
-    else {
+    } else {
       toast.error(result.message || '标记失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '标记失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -641,9 +597,7 @@ function addToBasket() {
   }
 
   // 检查是否有已在结算篮中的提单
-  const newBills = selectedBills.value.filter(
-    bill => !basketBills.value.some(b => isSameBill(b, bill)),
-  )
+  const newBills = selectedBills.value.filter((bill) => !basketBills.value.some((b) => isSameBill(b, bill)))
 
   if (newBills.length === 0) {
     toast.info('选中的提单已在结算篮中')
@@ -662,8 +616,7 @@ function addToBasket() {
     const maxAnimations = Math.min(selectedRows.length, 5) // 最多显示5个动画
 
     selectedRows.forEach((row, index) => {
-      if (index >= maxAnimations)
-        return
+      if (index >= maxAnimations) return
       const rowRect = row.getBoundingClientRect()
       const startX = rowRect.left + rowRect.width / 2
       const startY = rowRect.top + rowRect.height / 2
@@ -690,13 +643,12 @@ function addToBasket() {
 
 // 从结算篮移除单个提单
 function removeFromBasket(bill: SettleBill) {
-  basketBills.value = basketBills.value.filter(b => b._id !== bill._id)
+  basketBills.value = basketBills.value.filter((b) => b._id !== bill._id)
 }
 
 // 清空结算篮
 function clearBasket() {
-  if (basketBills.value.length === 0)
-    return
+  if (basketBills.value.length === 0) return
 
   const confirmed = window.confirm('确定要清空结算篮吗？')
   if (confirmed) {
@@ -707,26 +659,27 @@ function clearBasket() {
 
 // 判断两个提单是否相同（使用更精确的条件）
 function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
-  return bill1._id === bill2._id
-    && bill1.inv_no === bill2.inv_no
-    && bill1.veh_ves_name === bill2.veh_ves_name
-    && bill1.send_num === bill2.send_num
-    && bill1.send_weight === bill2.send_weight
+  return (
+    bill1._id === bill2._id &&
+    bill1.inv_no === bill2.inv_no &&
+    bill1.veh_ves_name === bill2.veh_ves_name &&
+    bill1.send_num === bill2.send_num &&
+    bill1.send_weight === bill2.send_weight
+  )
 }
 
 // 检查提单是否在结算篮中
 function isInBasket(bill: SettleBill): boolean {
-  return basketBills.value.some(b => isSameBill(b, bill))
+  return basketBills.value.some((b) => isSameBill(b, bill))
 }
 
 // 刷新结算篮中的提单数据（从 allBills 中更新）
 function refreshBasketBills() {
-  if (basketBills.value.length === 0)
-    return
+  if (basketBills.value.length === 0) return
 
   // 根据精确匹配从 allBills 中查找并更新
   basketBills.value = basketBills.value.map((basketBill) => {
-    const updatedBill = allBills.value.find(b => isSameBill(b, basketBill))
+    const updatedBill = allBills.value.find((b) => isSameBill(b, basketBill))
     return updatedBill || basketBill
   })
 }
@@ -739,7 +692,7 @@ async function handleSettleFromBasket() {
   }
 
   // 验证：同一批次只能选择相同开单名称
-  const billingNames = [...new Set(basketBills.value.map(b => b.billing_name))]
+  const billingNames = [...new Set(basketBills.value.map((b) => b.billing_name))]
   if (billingNames.length > 1) {
     toast.error('结算篮中存在多个开单名称，一次只能结算一个开单名称的提单')
     return
@@ -747,8 +700,8 @@ async function handleSettleFromBasket() {
 
   // 检查价格输入情况
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
-  const billsWithoutPrice = basketBills.value.filter(bill => bill[priceField] === 0)
-  const billsNotRequireSettle = basketBills.value.filter(bill => bill[priceField] === -1)
+  const billsWithoutPrice = basketBills.value.filter((bill) => bill[priceField] === 0)
+  const billsNotRequireSettle = basketBills.value.filter((bill) => bill[priceField] === -1)
 
   // 如果有标记为不需要结算的提单
   if (billsNotRequireSettle.length > 0) {
@@ -768,8 +721,7 @@ async function handleSettleFromBasket() {
       if (billsWithoutPrice.length === 1) {
         currentBill.value = billsWithoutPrice[0]
         showPriceDialog.value = true
-      }
-      else {
+      } else {
         showBatchPriceDialog.value = true
       }
     }
@@ -777,8 +729,7 @@ async function handleSettleFromBasket() {
   }
 
   const confirmed = window.confirm(`确定要结算结算篮中的 ${basketBills.value.length} 条提单吗？`)
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
@@ -792,8 +743,7 @@ async function handleSettleFromBasket() {
       if (settleMode.value === 'COLLECTION') {
         bill.inv_settle_flag |= COLLECTION_SETTLE_FLAG
         bill.settle_flag = (bill.settle_flag || 0) | COLLECTION_SETTLE_FLAG
-      }
-      else {
+      } else {
         bill.inv_settle_flag |= CUSTOMER_SETTLE_FLAG
       }
 
@@ -806,7 +756,7 @@ async function handleSettleFromBasket() {
       })
     })
 
-    const shipToList = [...new Set(basketBills.value.map(b => b.ship_to))]
+    const shipToList = [...new Set(basketBills.value.map((b) => b.ship_to))]
     const firstBill = basketBills.value[0]
     const billName = firstBill.ship_customer
       ? `${firstBill.billing_name}/${firstBill.ship_customer}`
@@ -825,15 +775,12 @@ async function handleSettleFromBasket() {
       basketBills.value = [] // 清空结算篮
       showBasket.value = false
       updateDisplayBills()
-    }
-    else {
+    } else {
       toast.error(result.message || '结算失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '结算失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -910,33 +857,25 @@ function handleExport() {
 
 // 获取价格显示文本
 function getPriceText(price: number): string {
-  if (price > 0)
-    return price.toString()
-  if (price < 0)
-    return '不需要结算'
+  if (price > 0) return price.toString()
+  if (price < 0) return '不需要结算'
   return '0'
 }
 
 // 获取规格大小
 function getSpecSize(width: number, len: number): string {
-  if (width < 3000 && len < 13500)
-    return '正常'
-  if ((width >= 3000 && width < 3300) || (len >= 13500 && len < 16500))
-    return '超长宽'
-  if (width >= 3300 || len >= 16500)
-    return '特长宽'
+  if (width < 3000 && len < 13500) return '正常'
+  if ((width >= 3000 && width < 3300) || (len >= 13500 && len < 16500)) return '超长宽'
+  if (width >= 3300 || len >= 16500) return '特长宽'
   return ''
 }
 
 // 获取结算状态
 function getSettleStatus(bill: SettleBill): string {
   if (!bill.inv_settle_flag || bill.inv_settle_flag === 0) {
-    if (bill.price === -1 && bill.collection_price === -1)
-      return '客户,代收不需结算'
-    if (bill.price === -1)
-      return '客户不需结算'
-    if (bill.collection_price === -1)
-      return '代收不需结算'
+    if (bill.price === -1 && bill.collection_price === -1) return '客户,代收不需结算'
+    if (bill.price === -1) return '客户不需结算'
+    if (bill.collection_price === -1) return '代收不需结算'
     return '未结算'
   }
 
@@ -952,7 +891,6 @@ function getSettleStatus(bill: SettleBill): string {
 
 // 加载已结算记录
 async function loadSettledRecords() {
-  console.log('loadSettledRecords called, settleMode:', settleMode.value)
   loading.value = true
   try {
     const result = await getSettleList({
@@ -960,20 +898,15 @@ async function loadSettledRecords() {
       display_mode: 'settle',
       selfOwned: isSelfOwnedMode.value ? '1' : '0',
     })
-    console.log('getSettleList result:', result)
     if (result.ok) {
       settledRecords.value = result.settles
-      console.log('settledRecords:', result.settles.length)
-    }
-    else {
+    } else {
       toast.error('获取已结算记录失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     console.error('loadSettledRecords error:', error)
     toast.error(error.message || '获取已结算记录失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -988,13 +921,12 @@ async function handleDeleteSettle() {
   const confirmed = window.confirm(
     `确定要删除选中的 ${selectedSettles.value.length} 条结算记录吗？删除后提单将恢复到已配发状态！`,
   )
-  if (!confirmed)
-    return
+  if (!confirmed) return
 
   loading.value = true
   try {
     const result = await deleteSettle({
-      settle_ids: selectedSettles.value.map(s => s._id),
+      settle_ids: selectedSettles.value.map((s) => s._id),
       settle_type: settleMode.value,
     })
 
@@ -1002,43 +934,38 @@ async function handleDeleteSettle() {
       toast.success('删除成功')
       selectedSettles.value = []
       loadSettledRecords()
-    }
-    else {
+    } else {
       toast.error(result.message || '删除失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '删除失败')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
 // 切换已结算记录选择
 function toggleSettle(settle: SettleRecord) {
-  const index = selectedSettles.value.findIndex(s => s._id === settle._id)
+  const index = selectedSettles.value.findIndex((s) => s._id === settle._id)
   if (index >= 0) {
     const newSelected = [...selectedSettles.value]
     newSelected.splice(index, 1)
     selectedSettles.value = newSelected
-  }
-  else {
+  } else {
     selectedSettles.value = [...selectedSettles.value, settle]
   }
 }
 
 // 判断已结算记录是否选中
 function isSettleSelected(settle: SettleRecord) {
-  return selectedSettles.value.some(s => s._id === settle._id)
+  return selectedSettles.value.some((s) => s._id === settle._id)
 }
 
 // 切换全选已结算记录
 function toggleAllSettles() {
   if (selectedSettles.value.length === settledRecords.value.length) {
     selectedSettles.value = []
-  }
-  else {
+  } else {
     selectedSettles.value = [...settledRecords.value]
   }
 }
@@ -1055,18 +982,15 @@ function getOrderDisplay(bill: SettleBill) {
 // 获取结算状态样式类
 function getStatusClass(bill: SettleBill): string {
   const status = getSettleStatus(bill)
-  if (status.includes('已结算'))
-    return 'bg-blue-50 text-blue-700 border-blue-200'
-  if (status.includes('不需'))
-    return 'bg-gray-50 text-gray-500 border-gray-200'
+  if (status.includes('已结算')) return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (status.includes('不需')) return 'bg-gray-50 text-gray-500 border-gray-200'
   return 'bg-orange-50 text-orange-700 border-orange-200'
 }
 
 // 获取卡片价格显示
 function getCardPrice(bill: SettleBill): string {
   const price = settleMode.value === 'CUSTOMER' ? bill.price : bill.collection_price
-  if (price <= 0)
-    return getPriceText(price)
+  if (price <= 0) return getPriceText(price)
   const total = (price * bill.send_weight).toFixed(2)
   return `¥${price} → ¥${total}`
 }
@@ -1074,31 +998,27 @@ function getCardPrice(bill: SettleBill): string {
 // 获取卡片价格样式类
 function getCardPriceClass(bill: SettleBill): string {
   const price = settleMode.value === 'CUSTOMER' ? bill.price : bill.collection_price
-  if (price > 0)
-    return 'text-primary font-medium'
-  if (price < 0)
-    return 'text-gray-400'
+  if (price > 0) return 'text-primary font-medium'
+  if (price < 0) return 'text-gray-400'
   return 'text-orange-500'
 }
 
 // 切换单个提单选择（移动端卡片用）
 function toggleBill(bill: SettleBill) {
-  if (isInBasket(bill))
-    return
-  const index = selectedBills.value.findIndex(b => b._id === bill._id)
+  if (isInBasket(bill)) return
+  const index = selectedBills.value.findIndex((b) => b._id === bill._id)
   if (index >= 0) {
     const newSelected = [...selectedBills.value]
     newSelected.splice(index, 1)
     selectedBills.value = newSelected
-  }
-  else {
+  } else {
     selectedBills.value = [...selectedBills.value, bill]
   }
 }
 
 // 判断提单是否选中
 function isBillSelected(bill: SettleBill): boolean {
-  return selectedBills.value.some(b => b._id === bill._id)
+  return selectedBills.value.some((b) => b._id === bill._id)
 }
 </script>
 
@@ -1139,12 +1059,8 @@ function isBillSelected(bill: SettleBill): boolean {
             </button>
           </div>
           <TabsList :class="{ 'pointer-events-none opacity-50': loading }">
-            <TabsTrigger value="unsettled" class="w-[80px]">
-              未结算
-            </TabsTrigger>
-            <TabsTrigger value="settled" class="w-[80px]">
-              已结算
-            </TabsTrigger>
+            <TabsTrigger value="unsettled" class="w-[80px]"> 未结算 </TabsTrigger>
+            <TabsTrigger value="settled" class="w-[80px]"> 已结算 </TabsTrigger>
           </TabsList>
         </div>
         <!-- 第二行：图标按钮横向排列 -->
@@ -1162,7 +1078,8 @@ function isBillSelected(bill: SettleBill): boolean {
               <span
                 v-if="selectedBills.length > 0"
                 class="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[10px] rounded-full w-4 h-4 flex items-center justify-center"
-              >{{ selectedBills.length }}</span>
+                >{{ selectedBills.length }}</span
+              >
             </UiButton>
             <UiButton
               variant="outline"
@@ -1195,27 +1112,24 @@ function isBillSelected(bill: SettleBill): boolean {
               <span
                 v-if="basketBills.length > 0"
                 class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center animate-pulse"
-              >{{ basketBills.length > 99 ? '99+' : basketBills.length }}</span>
+                >{{ basketBills.length > 99 ? '99+' : basketBills.length }}</span
+              >
             </UiButton>
             <UiButton
               variant="default"
-              size="icon"
-              class="shrink-0 h-8 w-8"
-              title="直接结算"
+              size="sm"
               :disabled="selectedBills.length === 0 || loading"
               @click="handleSettle"
             >
-              <CheckCircle class="w-4 h-4" />
+              直接结算
             </UiButton>
             <UiButton
               variant="outline"
-              size="icon"
-              class="shrink-0 h-8 w-8"
-              title="不需要结算"
+              size="sm"
               :disabled="selectedBills.length === 0 || loading"
               @click="handleMarkNotRequireSettle"
             >
-              <XCircle class="w-4 h-4" />
+              不需要结算
             </UiButton>
           </template>
           <template v-else>
@@ -1268,12 +1182,7 @@ function isBillSelected(bill: SettleBill): boolean {
           <!-- 未结算操作按钮 -->
           <template v-if="viewTab === 'unsettled'">
             <!-- 价格输入（智能） -->
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="selectedBills.length === 0"
-              @click="openPriceDialog"
-            >
+            <UiButton variant="outline" size="sm" :disabled="selectedBills.length === 0" @click="openPriceDialog">
               <span class="mr-1 font-semibold">¥</span>
               价格输入
               <span v-if="selectedBills.length > 0" class="ml-1 text-xs opacity-70">
@@ -1286,24 +1195,13 @@ function isBillSelected(bill: SettleBill): boolean {
               <Filter class="w-4 h-4 mr-1" />
               过滤
             </UiButton>
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="displayBills.length === 0"
-              @click="handleExport"
-            >
+            <UiButton variant="outline" size="sm" :disabled="displayBills.length === 0" @click="handleExport">
               <Download class="w-4 h-4 mr-1" />
               导出
             </UiButton>
 
             <!-- 结算篮按钮 -->
-            <UiButton
-              ref="basketButtonRef"
-              variant="default"
-              size="sm"
-              class="relative"
-              @click="showBasket = true"
-            >
+            <UiButton ref="basketButtonRef" variant="default" size="sm" class="relative" @click="showBasket = true">
               <ShoppingCart class="w-4 h-4 mr-1" />
               结算篮
               <span
@@ -1347,12 +1245,8 @@ function isBillSelected(bill: SettleBill): boolean {
         </div>
 
         <TabsList :class="{ 'pointer-events-none opacity-50': loading }">
-          <TabsTrigger value="unsettled" class="w-[120px]">
-            未结算
-          </TabsTrigger>
-          <TabsTrigger value="settled" class="w-[120px]">
-            已结算
-          </TabsTrigger>
+          <TabsTrigger value="unsettled" class="w-[120px]"> 未结算 </TabsTrigger>
+          <TabsTrigger value="settled" class="w-[120px]"> 已结算 </TabsTrigger>
         </TabsList>
       </div>
 
@@ -1381,11 +1275,23 @@ function isBillSelected(bill: SettleBill): boolean {
         </div>
 
         <!-- 汇总统计信息：桌面端 -->
-        <div v-if="!isInitialLoading" class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm" :class="{ 'pointer-events-none opacity-50': loading }">
-          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
-          <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
-          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
-          <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
+        <div
+          v-if="!isInitialLoading"
+          class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm"
+          :class="{ 'pointer-events-none opacity-50': loading }"
+        >
+          <span class="text-muted-foreground"
+            >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span
+          >
+          <span class="text-muted-foreground"
+            >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+          >
           <span v-if="selectedBills.length > 0" class="text-primary font-medium">
             已选: {{ selectedStatistics.totalNum }}块 / {{ selectedStatistics.totalWeight.toFixed(3) }}吨
           </span>
@@ -1407,24 +1313,32 @@ function isBillSelected(bill: SettleBill): boolean {
                 v-model="showNonSettle"
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-              >
-              <label for="show-non-settle-main" class="text-sm cursor-pointer whitespace-nowrap">
-                不需要结算
-              </label>
+              />
+              <label for="show-non-settle-main" class="text-sm cursor-pointer whitespace-nowrap"> 不需要结算 </label>
             </div>
-            <UiButton variant="outline" size="sm" @click="handleResetFilter">
-              重置
-            </UiButton>
+            <UiButton variant="outline" size="sm" @click="handleResetFilter"> 重置 </UiButton>
           </div>
         </div>
 
         <!-- 汇总统计信息：移动端 -->
-        <div v-if="!isInitialLoading" class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm space-y-2" :class="{ 'pointer-events-none opacity-50': loading }">
+        <div
+          v-if="!isInitialLoading"
+          class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm space-y-2"
+          :class="{ 'pointer-events-none opacity-50': loading }"
+        >
           <div class="grid grid-cols-2 gap-1">
-            <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
-            <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
-            <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong></span>
-            <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
+            <span class="text-muted-foreground"
+              >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
+            >
+            <span class="text-muted-foreground"
+              >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
+            >
+            <span class="text-muted-foreground"
+              >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong></span
+            >
+            <span class="text-muted-foreground"
+              >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+            >
           </div>
           <div class="flex items-center gap-2">
             <input
@@ -1432,10 +1346,8 @@ function isBillSelected(bill: SettleBill): boolean {
               v-model="showNonSettle"
               type="checkbox"
               class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-            >
-            <label for="show-non-settle-mobile" class="text-sm cursor-pointer whitespace-nowrap">
-              不需要结算
-            </label>
+            />
+            <label for="show-non-settle-mobile" class="text-sm cursor-pointer whitespace-nowrap"> 不需要结算 </label>
             <span v-if="selectedBills.length > 0" class="text-primary font-medium text-xs ml-auto">
               已选: {{ selectedStatistics.totalNum }}块 / {{ selectedStatistics.totalWeight.toFixed(3) }}吨
             </span>
@@ -1468,7 +1380,10 @@ function isBillSelected(bill: SettleBill): boolean {
 
         <!-- 数据卡片：移动端 -->
         <div v-if="!isInitialLoading" class="lg:hidden space-y-2">
-          <div v-if="pagedBills.length === 0 && !loading" class="border rounded-lg p-8 text-center text-muted-foreground">
+          <div
+            v-if="pagedBills.length === 0 && !loading"
+            class="border rounded-lg p-8 text-center text-muted-foreground"
+          >
             暂无数据，请调整筛选条件后重新查询
           </div>
 
@@ -1490,6 +1405,13 @@ function isBillSelected(bill: SettleBill): boolean {
                 <span class="font-medium text-sm truncate">{{ getOrderDisplay(bill) }}</span>
                 <span class="ml-2 text-xs text-orange-500">已在结算篮</span>
               </div>
+              <button
+                class="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
+                title="从结算篮移除"
+                @click.stop="removeFromBasket(bill)"
+              >
+                <X class="w-4 h-4" />
+              </button>
             </template>
 
             <!-- 正常状态 -->
@@ -1499,7 +1421,7 @@ function isBillSelected(bill: SettleBill): boolean {
                 type="checkbox"
                 class="h-4 w-4 shrink-0 cursor-pointer"
                 @click.stop="toggleBill(bill)"
-              >
+              />
               <SettleCardContent
                 :order-no="getOrderDisplay(bill)"
                 :status="getSettleStatus(bill)"
@@ -1518,17 +1440,18 @@ function isBillSelected(bill: SettleBill): boolean {
         </div>
 
         <!-- 分页 -->
-        <div v-if="displayBills.length > pageSize" class="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 px-2">
+        <div
+          v-if="displayBills.length > pageSize"
+          class="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 px-2"
+        >
           <div class="text-sm text-muted-foreground">
-            显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displayBills.length) }} 条，共 {{ displayBills.length }} 条
+            显示 {{ (currentPage - 1) * pageSize + 1 }}-{{
+              Math.min(currentPage * pageSize, displayBills.length)
+            }}
+            条，共 {{ displayBills.length }} 条
           </div>
           <div class="flex items-center gap-2">
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="currentPage === 1"
-              @click="previousPage"
-            >
+            <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage">
               上一页
             </UiButton>
             <div class="flex items-center gap-1">
@@ -1540,15 +1463,10 @@ function isBillSelected(bill: SettleBill): boolean {
                 :max="totalPages"
                 class="w-16 px-2 py-1 text-sm text-center border rounded"
                 @change="goToPage(($event.target as HTMLInputElement).valueAsNumber)"
-              >
+              />
               <span class="text-sm">/ {{ totalPages }} 页</span>
             </div>
-            <UiButton
-              variant="outline"
-              size="sm"
-              :disabled="currentPage === totalPages"
-              @click="nextPage"
-            >
+            <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
               下一页
             </UiButton>
           </div>
@@ -1576,9 +1494,15 @@ function isBillSelected(bill: SettleBill): boolean {
       <TabsContent value="settled" class="space-y-4">
         <!-- 汇总统计：桌面端 -->
         <div class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
-          <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ settledStatistics.count }}</strong></span>
-          <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ settledStatistics.totalWeight.toFixed(3) }}</strong> 吨</span>
-          <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ settledStatistics.totalAmount.toFixed(2) }}</strong></span>
+          <span class="text-muted-foreground"
+            >记录数: <strong class="text-foreground">{{ settledStatistics.count }}</strong></span
+          >
+          <span class="text-muted-foreground"
+            >重量: <strong class="text-foreground">{{ settledStatistics.totalWeight.toFixed(3) }}</strong> 吨</span
+          >
+          <span class="text-muted-foreground"
+            >金额: <strong class="text-foreground">¥{{ settledStatistics.totalAmount.toFixed(2) }}</strong></span
+          >
           <span v-if="selectedSettles.length > 0" class="text-primary font-medium ml-auto">
             已选: {{ selectedSettles.length }} 条
           </span>
@@ -1587,9 +1511,15 @@ function isBillSelected(bill: SettleBill): boolean {
         <!-- 汇总统计：移动端 -->
         <div class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <div class="grid grid-cols-2 gap-1">
-            <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ settledStatistics.count }}</strong></span>
-            <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ settledStatistics.totalWeight.toFixed(3) }}</strong></span>
-            <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ settledStatistics.totalAmount.toFixed(2) }}</strong></span>
+            <span class="text-muted-foreground"
+              >记录数: <strong class="text-foreground">{{ settledStatistics.count }}</strong></span
+            >
+            <span class="text-muted-foreground"
+              >重量: <strong class="text-foreground">{{ settledStatistics.totalWeight.toFixed(3) }}</strong></span
+            >
+            <span class="text-muted-foreground"
+              >金额: <strong class="text-foreground">¥{{ settledStatistics.totalAmount.toFixed(2) }}</strong></span
+            >
             <span v-if="selectedSettles.length > 0" class="text-primary font-medium">
               已选: {{ selectedSettles.length }} 条
             </span>
@@ -1608,47 +1538,25 @@ function isBillSelected(bill: SettleBill): boolean {
                       class="h-4 w-4 cursor-pointer"
                       :checked="selectedSettles.length === settledRecords.length && settledRecords.length > 0"
                       @change="toggleAllSettles"
-                    >
+                    />
                   </th>
-                  <th class="px-2 py-2 text-left">
-                    结算号
-                  </th>
-                  <th class="px-2 py-2 text-left">
-                    开单名称
-                  </th>
-                  <th class="px-2 py-2 text-left">
-                    目的地
-                  </th>
-                  <th class="px-2 py-2 text-right">
-                    块数
-                  </th>
-                  <th class="px-2 py-2 text-right">
-                    重量(吨)
-                  </th>
-                  <th class="px-2 py-2 text-right">
-                    金额(元)
-                  </th>
-                  <th class="px-2 py-2 text-left">
-                    结算日期
-                  </th>
-                  <th class="px-2 py-2 text-left">
-                    结算人
-                  </th>
-                  <th class="px-2 py-2 text-left">
-                    状态
-                  </th>
+                  <th class="px-2 py-2 text-left">结算号</th>
+                  <th class="px-2 py-2 text-left">开单名称</th>
+                  <th class="px-2 py-2 text-left">目的地</th>
+                  <th class="px-2 py-2 text-right">块数</th>
+                  <th class="px-2 py-2 text-right">重量(吨)</th>
+                  <th class="px-2 py-2 text-right">金额(元)</th>
+                  <th class="px-2 py-2 text-left">结算日期</th>
+                  <th class="px-2 py-2 text-left">结算人</th>
+                  <th class="px-2 py-2 text-left">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="10" class="p-8 text-center text-muted-foreground">
-                    加载中...
-                  </td>
+                  <td colspan="10" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="settledRecords.length === 0">
-                  <td colspan="10" class="p-8 text-center text-muted-foreground">
-                    暂无已结算记录
-                  </td>
+                  <td colspan="10" class="p-8 text-center text-muted-foreground">暂无已结算记录</td>
                 </tr>
                 <tr
                   v-for="settle in settledRecords"
@@ -1666,7 +1574,7 @@ function isBillSelected(bill: SettleBill): boolean {
                       class="h-4 w-4 cursor-pointer"
                       :checked="isSettleSelected(settle)"
                       @change="toggleSettle(settle)"
-                    >
+                    />
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.serial_number }}
@@ -1711,9 +1619,7 @@ function isBillSelected(bill: SettleBill): boolean {
 
         <!-- 已结算列表：移动端卡片 -->
         <div class="lg:hidden space-y-2">
-          <div v-if="loading" class="border rounded-lg p-8 text-center text-muted-foreground">
-            加载中...
-          </div>
+          <div v-if="loading" class="border rounded-lg p-8 text-center text-muted-foreground">加载中...</div>
           <div v-else-if="settledRecords.length === 0" class="border rounded-lg p-8 text-center text-muted-foreground">
             暂无已结算记录
           </div>
@@ -1733,7 +1639,7 @@ function isBillSelected(bill: SettleBill): boolean {
               type="checkbox"
               class="h-4 w-4 shrink-0 cursor-pointer"
               @click.stop="toggleSettle(settle)"
-            >
+            />
             <div class="flex-1 min-w-0">
               <!-- 行1：结算号 + 状态 -->
               <div class="flex items-center gap-2">
@@ -1744,7 +1650,8 @@ function isBillSelected(bill: SettleBill): boolean {
                     'bg-blue-50 text-blue-700 border-blue-200': settle.status === '已结算',
                     'bg-green-50 text-green-700 border-green-200': settle.status === '已开票',
                   }"
-                >{{ settle.status }}</span>
+                  >{{ settle.status }}</span
+                >
               </div>
               <!-- 行2：开单名称 -->
               <div class="text-sm text-muted-foreground truncate mt-0.5">{{ settle.billing_name }}</div>
@@ -1767,11 +1674,7 @@ function isBillSelected(bill: SettleBill): boolean {
     <!-- 结算篮滑出面板 -->
     <Teleport to="body">
       <Transition name="basket-fade">
-        <div
-          v-if="showBasket"
-          class="fixed inset-0 bg-black/50 z-50"
-          @click="showBasket = false"
-        />
+        <div v-if="showBasket" class="fixed inset-0 bg-black/50 z-50" @click="showBasket = false" />
       </Transition>
       <Transition name="basket-slide">
         <div
@@ -1785,10 +1688,7 @@ function isBillSelected(bill: SettleBill): boolean {
               <span class="font-semibold text-lg">结算篮</span>
               <span class="text-muted-foreground text-sm">({{ basketBills.length }} 条)</span>
             </div>
-            <button
-              class="p-1 hover:bg-muted rounded-md transition-colors"
-              @click="showBasket = false"
-            >
+            <button class="p-1 hover:bg-muted rounded-md transition-colors" @click="showBasket = false">
               <X class="w-5 h-5" />
             </button>
           </div>
@@ -1796,9 +1696,15 @@ function isBillSelected(bill: SettleBill): boolean {
           <!-- 统计信息 -->
           <div class="px-4 py-2 border-b bg-muted/20 text-sm">
             <div class="flex items-center justify-between">
-              <span class="text-muted-foreground">块数: <strong class="text-foreground">{{ basketStatistics.totalNum }}</strong></span>
-              <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong> 吨</span>
-              <span class="text-muted-foreground">金额: <strong class="text-primary">¥{{ basketStatistics.totalAmount.toFixed(2) }}</strong></span>
+              <span class="text-muted-foreground"
+                >块数: <strong class="text-foreground">{{ basketStatistics.totalNum }}</strong></span
+              >
+              <span class="text-muted-foreground"
+                >重量: <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong> 吨</span
+              >
+              <span class="text-muted-foreground"
+                >金额: <strong class="text-primary">¥{{ basketStatistics.totalAmount.toFixed(2) }}</strong></span
+              >
             </div>
           </div>
 
@@ -1813,8 +1719,8 @@ function isBillSelected(bill: SettleBill): boolean {
               <p class="text-sm">请选择提单后点击"加入结算篮"</p>
             </div>
             <div
-              v-for="bill in basketBills"
               v-else
+              v-for="bill in basketBills"
               :key="bill._id"
               class="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border hover:border-primary/50 transition-colors"
             >
@@ -1830,7 +1736,9 @@ function isBillSelected(bill: SettleBill): boolean {
                   <span>{{ bill.send_num }}块</span>
                   <span>{{ bill.send_weight.toFixed(3) }}吨</span>
                   <span class="text-primary">
-                    ¥{{ ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2) }}
+                    ¥{{
+                      ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2)
+                    }}
                   </span>
                 </div>
               </div>
@@ -1892,11 +1800,7 @@ function isBillSelected(bill: SettleBill): boolean {
     </Teleport>
 
     <!-- 导出对话框 -->
-    <ExportDialog
-      v-model:open="showExportDialog"
-      :default-file-name="exportFileName"
-      @confirm="confirmExport"
-    />
+    <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
   </BasicPage>
 </template>
 

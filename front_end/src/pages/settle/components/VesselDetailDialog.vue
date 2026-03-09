@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import * as settleApi from '@/services/api/settle.api'
-import { formatNumber } from '@/utils/format'
+import { formatDim, formatNumber } from '@/utils/format'
 
 const visible = ref(false)
 const detailData = ref<any[]>([])
@@ -152,13 +152,13 @@ defineExpose({ open })
               <TableCell>{{ getOrderInfo(row) }}</TableCell>
               <TableCell>{{ row.ship_warehouse }}</TableCell>
               <TableCell class="text-right">
-                {{ formatNumber(row.thickness) }}
+                {{ formatDim(row.thickness) }}
               </TableCell>
               <TableCell class="text-right">
-                {{ formatNumber(row.width) }}
+                {{ formatDim(row.width) }}
               </TableCell>
               <TableCell class="text-right">
-                {{ formatNumber(row.len) }}
+                {{ formatDim(row.len) }}
               </TableCell>
               <TableCell class="text-right">
                 {{ formatNumber(row.weight) }}

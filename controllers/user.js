@@ -143,7 +143,6 @@ async function udpateUserNo(user) {
       }
 
       await User.updateOne({ userid: user.userid }, { $set: { no: max } });
-      console.log("更新顺序号成功!");
     } catch (err) {
       console.log("UpdateUserNo: 错误" + err);
     }

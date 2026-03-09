@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, Plus, RefreshCw, Square, Trash2, XCircle } from 'lucide-vue-next'
+import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, Plus, Square, Trash2, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { OrderPlan } from '@/services/api/plan.api'
@@ -325,16 +325,12 @@ onMounted(() => {
           size="sm"
           @click="showFilter = !showFilter"
         >
-          <Filter class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">{{ showFilter ? '收起' : '筛选' }}</span>
-        </UiButton>
-        <UiButton variant="outline" size="sm" @click="loadData">
-          <RefreshCw class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">刷新</span>
+          <Filter class="w-4 h-4 mr-1" />
+          {{ showFilter ? '收起' : '筛选' }}
         </UiButton>
         <UiButton size="sm" @click="$router.push('/plans/create')">
-          <Plus class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">新建计划</span>
+          <Plus class="w-4 h-4 mr-1" />
+          新建计划
         </UiButton>
       </div>
     </template>
@@ -386,8 +382,8 @@ onMounted(() => {
           :disabled="selectedPlans.length !== 1"
           @click="selectedPlans.length === 1 && openEditDialog(selectedPlans[0])"
         >
-          <Pencil class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">修改</span>
+          <Pencil class="w-4 h-4 mr-1" />
+          修改
         </UiButton>
         <UiButton
           variant="outline"
@@ -395,8 +391,8 @@ onMounted(() => {
           :disabled="selectedPlans.length === 0"
           @click="handleDelete"
         >
-          <Trash2 class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">删除</span>
+          <Trash2 class="w-4 h-4 mr-1" />
+          删除
         </UiButton>
         <UiButton
           variant="outline"
@@ -404,8 +400,8 @@ onMounted(() => {
           :disabled="selectedPlans.length === 0"
           @click="handleClose"
         >
-          <CheckCircle class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">结案</span>
+          <CheckCircle class="w-4 h-4 mr-1" />
+          结案
         </UiButton>
         <UiButton
           variant="outline"
@@ -413,8 +409,8 @@ onMounted(() => {
           :disabled="selectedPlans.length === 0"
           @click="handleUnclose"
         >
-          <XCircle class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">取消结案</span>
+          <XCircle class="w-4 h-4 mr-1" />
+          取消结案
         </UiButton>
         <span v-if="selectedPlans.length > 0" class="text-xs text-muted-foreground whitespace-nowrap ml-2">
           已选 {{ selectedPlans.length }}

@@ -96,7 +96,7 @@ const onSubmit = handleSubmit(async (values) => {
         </UiFormItem>
       </FormField>
 
-      <div class="grid grid-cols-2 gap-15">
+      <div class="grid grid-cols-2 gap-4">
         <FormField v-slot="{ componentField }" name="veh_type">
           <UiFormItem>
             <UiFormLabel>类型</UiFormLabel>

@@ -15,7 +15,7 @@ export function formatNumber(num: number | string | null | undefined, decimals: 
   if (num === null || num === undefined || num === '') return ''
   const n = typeof num === 'string' ? Number.parseFloat(num) : num
   if (isNaN(n)) return ''
-  return n.toFixed(decimals)
+  return parseFloat(n.toFixed(decimals)).toString()
 }
 
 /**

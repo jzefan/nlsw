@@ -144,6 +144,7 @@ watch(
 // 筛选选项
 // 车辆映射
 const vehPersonMap = ref<Record<string, any>>({})
+const vehCategoryMap = ref<Record<string, string>>({})
 
 // 发货单位筛选
 const showBillNameFilter = ref(false)
@@ -313,6 +314,9 @@ async function handleSearch(silent = false) {
       if (response.vehPersonMap) {
         vehPersonMap.value = response.vehPersonMap
       }
+      if (response.vehCategoryMap) {
+        vehCategoryMap.value = response.vehCategoryMap
+      }
       // 存储有回执图片的运单号集合
       imageWaybillsSet.value = new Set(response.imageWaybills || [])
       buildTableData()
@@ -466,11 +470,11 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
   // 预付文本
   let chargeText = '无'
   if (inv.charge_cash > 0 && inv.charge_oil > 0) {
-    chargeText = `现金:${inv.charge_cash},油:${inv.charge_oil}`
+    chargeText = `现金:${formatNumber(inv.charge_cash)},油:${formatNumber(inv.charge_oil)}`
   } else if (inv.charge_cash > 0) {
-    chargeText = `现金:${inv.charge_cash}`
+    chargeText = `现金:${formatNumber(inv.charge_cash)}`
   } else if (inv.charge_oil > 0) {
-    chargeText = `油:${inv.charge_oil}`
+    chargeText = `油:${formatNumber(inv.charge_oil)}`
   }
 
   // 状态HTML
@@ -558,11 +562,11 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
   // 预付文本
   let chargeText = '无'
   if (veh.charge_cash > 0 && veh.charge_oil > 0) {
-    chargeText = `现金:${veh.charge_cash},油:${veh.charge_oil}`
+    chargeText = `现金:${formatNumber(veh.charge_cash)},油:${formatNumber(veh.charge_oil)}`
   } else if (veh.charge_cash > 0) {
-    chargeText = `现金:${veh.charge_cash}`
+    chargeText = `现金:${formatNumber(veh.charge_cash)}`
   } else if (veh.charge_oil > 0) {
-    chargeText = `油:${veh.charge_oil}`
+    chargeText = `油:${formatNumber(veh.charge_oil)}`
   }
 
   // 状态HTML
@@ -1440,7 +1444,7 @@ function handleExport() {
         `${row.ship_from || ''}→${row.ship_to || ''}`,
         row.isSubItem ? formatNumber(row.price * row.send_weight) : formatNumber(row.vessel_price * row.total_weight),
         row.isSubItem ? formatNumber(row.price) : formatNumber(row.vessel_price),
-        row.send_num,
+        formatNumber(row.send_num),
         formatNumber(row.isSubItem ? row.send_weight : row.total_weight),
         formatDate(row.ship_date),
         formatDate(row.settle_date),
@@ -2208,7 +2212,14 @@ function handleUploadReceiptConfirm() {
                 </TableCell>
                 <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
                 <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
-                  {{ row.vehicle_vessel_name }}
+                  <span class="inline-flex items-center gap-1">
+                    {{ row.vehicle_vessel_name }}
+                    <span
+                      v-if="vehCategoryMap[row.vehicle_vessel_name]"
+                      class="inline-flex items-center px-1 py-0 rounded border text-[10px] font-medium leading-tight"
+                      :class="vehCategoryMap[row.vehicle_vessel_name] === '自有' ? 'bg-blue-100 text-blue-700 border-transparent' : 'bg-orange-100 text-orange-700 border-transparent'"
+                    >{{ vehCategoryMap[row.vehicle_vessel_name] === '自有' ? '自' : '外' }}</span>
+                  </span>
                 </TableCell>
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                   <Select
@@ -2243,7 +2254,7 @@ function handleUploadReceiptConfirm() {
                   <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
-                  {{ row.send_num }}
+                  {{ formatNumber(row.send_num) }}
                 </TableCell>
                 <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.total_weight) }}
@@ -2406,7 +2417,7 @@ function handleUploadReceiptConfirm() {
                   <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
-                  {{ row.send_num }}
+                  {{ formatNumber(row.send_num) }}
                 </TableCell>
                 <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.send_weight) }}
@@ -2544,6 +2555,11 @@ function handleUploadReceiptConfirm() {
               <ShoppingCart class="w-5 h-5 text-orange-500 shrink-0" />
               <div class="flex-1 min-w-0">
                 <span class="font-medium text-sm truncate">{{ row.vehicle_vessel_name }}</span>
+                <span
+                  v-if="vehCategoryMap[row.vehicle_vessel_name]"
+                  class="inline-flex items-center px-1 py-0 rounded border text-[10px] font-medium leading-tight"
+                  :class="vehCategoryMap[row.vehicle_vessel_name] === '自有' ? 'bg-blue-100 text-blue-700 border-transparent' : 'bg-orange-100 text-orange-700 border-transparent'"
+                >{{ vehCategoryMap[row.vehicle_vessel_name] === '自有' ? '自' : '外' }}</span>
                 <span class="ml-2 text-xs text-orange-500">已在结算篮</span>
               </div>
               <button
@@ -2571,6 +2587,7 @@ function handleUploadReceiptConfirm() {
 
               <VesselCardContent
                 :name="row.vehicle_vessel_name"
+                :category="vehCategoryMap[row.vehicle_vessel_name]"
                 :status="getRowState(row)"
                 :status-class="getStatusTagClass(getRowState(row))"
                 :charge-text="row.chargeText"
@@ -2751,7 +2768,7 @@ function handleUploadReceiptConfirm() {
                   </div>
                   <div>
                     <span class="text-muted-foreground">发运块数：</span>
-                    <span class="font-medium">{{ pendingNotNeedSettleRow.send_num }}</span>
+                    <span class="font-medium">{{ formatNumber(pendingNotNeedSettleRow.send_num) }}</span>
                   </div>
                   <div>
                     <span class="text-muted-foreground">发运重量：</span>
@@ -2810,6 +2827,7 @@ function handleUploadReceiptConfirm() {
         <template #item="{ item }">
           <VesselCardContent
             :name="item.veh_name || item.vehicle_vessel_name"
+            :category="vehCategoryMap[item.veh_name || item.vehicle_vessel_name]"
             :status="item.isSubItem ? (item.state || '') : (item.vessel_settle_state || '')"
             :status-class="getStatusTagClass(item.isSubItem ? (item.state || '') : (item.vessel_settle_state || ''))"
             :charge-text="item.chargeText"

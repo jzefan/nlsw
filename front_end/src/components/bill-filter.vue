@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search } from 'lucide-vue-next'
+import { Loader2, Search } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -25,11 +25,13 @@ const props = withDefaults(defineProps<{
   showLeftNumOnly?: boolean
   statusOptions?: string[]
   createrOptions?: string[]
+  loading?: boolean
 }>(), {
   showStatus: true,
   showLeftNumOnly: true,
   statusOptions: () => ['新建', '待配发', '部分配发', '已配发', '已结算'],
   createrOptions: () => [],
+  loading: false,
 })
 
 const emit = defineEmits<{
@@ -149,9 +151,10 @@ function handleSearch() {
         仅显示有余量
       </label>
       <div class="flex-1" />
-      <UiButton size="sm" @click="handleSearch">
-        <Search class="w-4 h-4 mr-1" />
-        查询
+      <UiButton size="sm" :disabled="loading" @click="handleSearch">
+        <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
+        <Search v-else class="w-4 h-4 mr-1" />
+        {{ loading ? '查询中...' : '查询' }}
       </UiButton>
       <UiButton variant="outline" size="sm" @click="handleReset">
         重置

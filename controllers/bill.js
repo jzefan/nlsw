@@ -3,23 +3,26 @@
  */
 "use strict";
 
-let Vehicle = require('../models/Vehicle');
-let Company = require('../models/Company');
-let Warehouse = require('../models/Warehouse');
-let Destination = require('../models/Destination');
-let Brand = require('../models/Brand');
-let SaleDep = require('../models/SaleDep');
-let Bill = require('../models/Bill');
-let Invoice = require('../models/Invoice');
-let Settle = require('../models/Settle');
-let OrderPlan = require('../models/OrderPlan');
-let utils = require('./utils');
-let bunyan = require('bunyan');
-const { hasPermission, PERMISSIONS } = require('../utils/permissions');
+let Vehicle = require("../models/Vehicle");
+let Company = require("../models/Company");
+let Warehouse = require("../models/Warehouse");
+let Destination = require("../models/Destination");
+let Brand = require("../models/Brand");
+let SaleDep = require("../models/SaleDep");
+let Bill = require("../models/Bill");
+let Invoice = require("../models/Invoice");
+let Settle = require("../models/Settle");
+let OrderPlan = require("../models/OrderPlan");
+let utils = require("./utils");
+let bunyan = require("bunyan");
+const { hasPermission, PERMISSIONS } = require("../utils/permissions");
 
 let logger = bunyan.createLogger({
-  name: 'XHT',
-  streams: [{ level: 'info', stream: process.stdout }, { level: 'error', path: 'app.log' }]
+  name: "XHT",
+  streams: [
+    { level: "info", stream: process.stdout },
+    { level: "error", path: "app.log" },
+  ],
 });
 
 const CUSTOMER_SETTLE_FLAG = 1; // 0001
@@ -31,37 +34,40 @@ function pushArr(arr, elem) {
   if (elem && arr.indexOf(elem) < 0) {
     arr.push(elem);
   }
-};
+}
 
 exports.createBills = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await getDictDataAndRender('bill', false, false, false, function (data) {
+    res.render("404");
+  } else {
+    await getDictDataAndRender("bill", false, false, false, function (data) {
       const tenantCompanyName = req.tenant
-        ? (req.tenant.fullName || req.tenant.name || '')
-        : '';
-      res.render('bill/create_bill', {
-        title: '提单管理',
-        curr_page: '新建提单',
-        curr_page_name: '新建',
+        ? req.tenant.fullName || req.tenant.name || ""
+        : "";
+      res.render("bill/create_bill", {
+        title: "提单管理",
+        curr_page: "新建提单",
+        curr_page_name: "新建",
         bShowDataTable: true,
         tenantCompanyName,
         dDataDict: data,
         scripts: [
-          '/js/plugins/sheetJS/shim.js',
-          '/js/plugins/sheetJS/XLSX/jszip.js',
-          '/js/plugins/sheetJS/XLSX/xlsx.core.min.js',
-          '/js/plugins/sheetJS/XLS/xls.min.js',
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/plugins/datatables/jquery.dataTables.min.js',
-          '/js/bill_import_create_01.js'
-        ]
+          "/js/plugins/sheetJS/shim.js",
+          "/js/plugins/sheetJS/XLSX/jszip.js",
+          "/js/plugins/sheetJS/XLSX/xlsx.core.min.js",
+          "/js/plugins/sheetJS/XLS/xls.min.js",
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/plugins/datatables/jquery.dataTables.min.js",
+          "/js/bill_import_create_01.js",
+        ],
       });
-    })
+    });
   }
 };
 
@@ -70,10 +76,10 @@ function isInteger(n) {
 }
 
 function isExist(variable) {
-  return ((typeof variable != 'undefined') && undefined != variable);
+  return typeof variable != "undefined" && undefined != variable;
 }
 function isEmpty(variable) {
-  return (typeof variable === 'undefined' || !variable || 0 === variable.length);
+  return typeof variable === "undefined" || !variable || 0 === variable.length;
 }
 
 exports.postCreateBills = async function (req, res) {
@@ -90,7 +96,8 @@ exports.postCreateBills = async function (req, res) {
       let bill = await Bill.findOne({ order: order, bill_no: bno }).exec();
       if (!bill) {
         bill = new Bill({
-          order: order, bill_no: bno,
+          order: order,
+          bill_no: bno,
           order_no: row_data.order_no,
           order_item_no: row_data.order_item_no,
           billing_name: row_data.billing_name,
@@ -106,7 +113,7 @@ exports.postCreateBills = async function (req, res) {
           creater: req.user.userid,
           invoices: [],
           customer_price: 0,
-          collection_price: 0
+          collection_price: 0,
         });
 
         if (row_data.brand_no) {
@@ -120,7 +127,7 @@ exports.postCreateBills = async function (req, res) {
         if (!isEmpty(row_data.dimensions)) {
           bill.len = bill.width = bill.thickness = 0;
 
-          let temp = row_data.dimensions.replace(/≠/, "").split('*');
+          let temp = row_data.dimensions.replace(/≠/, "").split("*");
           if (temp.length) {
             bill.thickness = utils.getFloatValue(temp[0], 0);
             if (temp.length === 2) {
@@ -136,10 +143,10 @@ exports.postCreateBills = async function (req, res) {
           bill.thickness = utils.getFloatValue(row_data.thickness, 0);
         }
 
-        if (isEmpty(row_data.size_type) || row_data.size_type == '双定尺') {
-          bill.size_type = '定尺';
-        } else if (row_data.size_type === '单定尺') {
-          bill.size_type = '单定';
+        if (isEmpty(row_data.size_type) || row_data.size_type == "双定尺") {
+          bill.size_type = "定尺";
+        } else if (row_data.size_type === "单定尺") {
+          bill.size_type = "单定";
         } else {
           bill.size_type = row_data.size_type;
         }
@@ -155,7 +162,14 @@ exports.postCreateBills = async function (req, res) {
               weight = utils.getFloatValue(row_data.weight, 3);
             } else {
               if (bill.len > 0 && bill.width > 0 && bill.thickness > 0) {
-                weight = utils.toFixedNumber(bill.len * bill.width * bill.thickness * 7.85 * Math.pow(10, -9), 3);
+                weight = utils.toFixedNumber(
+                  bill.len *
+                    bill.width *
+                    bill.thickness *
+                    7.85 *
+                    Math.pow(10, -9),
+                  3,
+                );
               }
             }
 
@@ -174,17 +188,20 @@ exports.postCreateBills = async function (req, res) {
             bill.weight = bill.block_num > 0 ? weight : 0;
           }
 
-          bill.left_num = (bill.block_num > 0) ? bill.block_num : bill.total_weight;
+          bill.left_num =
+            bill.block_num > 0 ? bill.block_num : bill.total_weight;
 
           await bill.save();
         }
       } else {
-        if (bill.status != '新建') {
+        if (bill.status != "新建") {
           allocatedData.push(bill);
         }
       }
     } catch (err) {
-      logger.error('保存出错！(订单号:' + order + ', 提单号:' + bno + ', 原因:' + err);
+      logger.error(
+        "保存出错！(订单号:" + order + ", 提单号:" + bno + ", 原因:" + err,
+      );
       return res.end(JSON.stringify({ ok: false, response: err }));
     }
 
@@ -233,26 +250,28 @@ exports.postCreateBills = async function (req, res) {
 };
 
 exports.modifyBill = function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    res.render('bill/modify_bill', {
-      title: '提单管理',
-      curr_page: '提单管理-修改订单',
-      curr_page_name: '修改',
+    res.render("404");
+  } else {
+    res.render("bill/modify_bill", {
+      title: "提单管理",
+      curr_page: "提单管理-修改订单",
+      curr_page_name: "修改",
       bUseJstree: true,
       scripts: [
-        '/js/lib/jstree.min.js',
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/bill_mgt.js'
-      ]
-    })
+        "/js/lib/jstree.min.js",
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/bill_mgt.js",
+      ],
+    });
   }
 };
-
 
 const updateInvoiceStatus = async function (res, allInvNo, settle_type) {
   try {
@@ -273,13 +292,13 @@ const updateInvoiceStatus = async function (res, allInvNo, settle_type) {
 
       if (settled) {
         if (!checkFlag(invoice.settle_flag, settle_type)) {
-          invoice.state = '已结算';
+          invoice.state = "已结算";
           invoice.settle_flag = setFlag(invoice.settle_flag, settle_type);
           await invoice.save();
         }
       } else {
         if (checkFlag(invoice.settle_flag, settle_type)) {
-          invoice.state = '已配发';
+          invoice.state = "已配发";
           invoice.settle_flag = clearFlag(invoice.settle_flag, settle_type);
           await invoice.save();
         }
@@ -288,24 +307,26 @@ const updateInvoiceStatus = async function (res, allInvNo, settle_type) {
 
     res.end(JSON.stringify({ ok: true }));
   } catch (e) {
-    res.end(JSON.stringify({ ok: false, response: '更新运单状态错:' + e.toString() }));
+    res.end(
+      JSON.stringify({ ok: false, response: "更新运单状态错:" + e.toString() }),
+    );
   }
-}
+};
 
 exports.postModifySingleBill = async function (req, res) {
   try {
     await Bill.findByIdAndUpdate(req.body._id, req.body, null).exec();
-    
+
     let company = await Company.findOne({ name: req.body.billing_name }).exec();
     if (!company) {
       company = new Company({ name: req.body.billing_name });
       await company.save();
     }
-    
+
     res.end(JSON.stringify({ ok: true }));
   } catch (err) {
     logger.error("postModifySingleBill: error! %s", err);
-    res.end(JSON.stringify({ ok: false, response: '修改失败' }));
+    res.end(JSON.stringify({ ok: false, response: "修改失败" }));
   }
 };
 
@@ -314,7 +335,9 @@ exports.postBatchModifyBill = async function (req, res) {
     for (let bill of req.body.bills) {
       let b = await Bill.findByIdAndUpdate(bill._id, bill, { new: true });
       if (!b) {
-        return res.end(JSON.stringify({ ok: false, error: "No update with the given bill" }));
+        return res.end(
+          JSON.stringify({ ok: false, error: "No update with the given bill" }),
+        );
       }
     }
 
@@ -334,16 +357,21 @@ exports.postBatchModifyBill = async function (req, res) {
 };
 
 exports.getBillsByNo = async function (req, res) {
-  var reg = new RegExp(req.query.q, 'gi');
-  await queryBills({ order_no: { $regex: reg } }, { order_no: 'asc' }, res, function (bills, result) {
-    var list = utils.getAllList(true, bills, "order_no");
-    result.targetData = buildTargetData(list);
-  });
+  var reg = new RegExp(req.query.q, "gi");
+  await queryBills(
+    { order_no: { $regex: reg } },
+    { order_no: "asc" },
+    res,
+    function (bills, result) {
+      var list = utils.getAllList(true, bills, "order_no");
+      result.targetData = buildTargetData(list);
+    },
+  );
 };
 
 exports.getBillsByBillName = async function (req, res) {
   var dt = new Date();
-  if (req.query.q === '南京钢铁集团国际经济贸易有限公司') {
+  if (req.query.q === "南京钢铁集团国际经济贸易有限公司") {
     dt.setMonth(dt.getMonth() - 12);
   } else {
     dt.setMonth(dt.getMonth() - 18);
@@ -356,11 +384,9 @@ exports.getBillsByBillName = async function (req, res) {
       // { status: { $ne: '已结算'} },
       // { status: { $ne: '已开票'} },
       // { status: { $ne: '已回款'} },
-      { create_date: { $gte: dt } }
-    ]
+      { create_date: { $gte: dt } },
+    ],
   };
-
-  // console.log(obj['$and'])
 
   try {
     const count = await Bill.countDocuments(obj).exec();
@@ -368,13 +394,21 @@ exports.getBillsByBillName = async function (req, res) {
       res.end(JSON.stringify({ ok: false, number: 0 }));
     } else {
       let query = Bill.find(obj, {
-        settle_flag: 0, contract_no: 0, product_type: 0, creater: 0,
-        customer_price: 0, collection_price: 0, brand_no: 0, shipper: 0, shipping_date: 0,
-        size_type: 0, warehouse: 0,
+        settle_flag: 0,
+        contract_no: 0,
+        product_type: 0,
+        creater: 0,
+        customer_price: 0,
+        collection_price: 0,
+        brand_no: 0,
+        shipper: 0,
+        shipping_date: 0,
+        size_type: 0,
+        warehouse: 0,
       });
 
       if (count > 20000) {
-        console.log('count = ' + count);
+        console.log("count = " + count);
         // query.limit(20000);
       }
 
@@ -386,31 +420,42 @@ exports.getBillsByBillName = async function (req, res) {
       res.json(result);
     }
   } catch (err) {
-    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
+    res.end(
+      JSON.stringify({
+        ok: false,
+        response: "查询数据库出错" + err,
+        number: 0,
+      }),
+    );
   }
 };
 
 exports.getBillsByOrder = async function (req, res) {
-  await queryBills({ order_no: { $regex: new RegExp(req.query.q, 'gi') } }, { order_no: 'asc' }, res, function (bills, result) {
-    var order_map = {};
-    var order_list = [];
+  await queryBills(
+    { order_no: { $regex: new RegExp(req.query.q, "gi") } },
+    { order_no: "asc" },
+    res,
+    function (bills, result) {
+      var order_map = {};
+      var order_list = [];
 
-    bills.forEach(function (bill) {
-      var order_no = bill.order_no;
-      var order_item_no = bill.order_item_no;
+      bills.forEach(function (bill) {
+        var order_no = bill.order_no;
+        var order_item_no = bill.order_item_no;
 
-      if (order_no && order_list.indexOf(order_no) >= 0) {
-        var o = order_map[order_no];
-        pushArr(o, order_item_no);
-      } else {
-        order_list.push(order_no);
-        order_map[order_no] = [order_item_no];
-      }
-    });
+        if (order_no && order_list.indexOf(order_no) >= 0) {
+          var o = order_map[order_no];
+          pushArr(o, order_item_no);
+        } else {
+          order_list.push(order_no);
+          order_map[order_no] = [order_item_no];
+        }
+      });
 
-    result.targetData = buildTargetData(order_list);
-    result.orderItemNoMap = order_map;
-  });
+      result.targetData = buildTargetData(order_list);
+      result.orderItemNoMap = order_map;
+    },
+  );
 };
 
 async function queryBills(queryObj, sortObj, res, getTargetData) {
@@ -421,7 +466,7 @@ async function queryBills(queryObj, sortObj, res, getTargetData) {
     } else {
       var query = Bill.find(queryObj);
       if (count > 20000) {
-        console.log('count = ' + count);
+        console.log("count = " + count);
         // query.limit(20000);
       }
 
@@ -434,53 +479,66 @@ async function queryBills(queryObj, sortObj, res, getTargetData) {
       res.json(JSON.stringify(result));
     }
   } catch (err) {
-    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err, number: 0 }));
+    res.end(
+      JSON.stringify({
+        ok: false,
+        response: "查询数据库出错" + err,
+        number: 0,
+      }),
+    );
   }
 }
 
 exports.getBillsWithCondition = async function (req, res) {
   var query = req.query;
   if (query.search_left == 1) {
-    await queryBills({
-      $and: [
-        { status: { $regex: new RegExp('已配发', 'gi') } },
-        { block_num: 0 },
-        { left_num: { $gt: 0, $lt: parseFloat(query.left) } }
-      ]
-    }, { order_no: 'asc' }, res);
+    await queryBills(
+      {
+        $and: [
+          { status: { $regex: new RegExp("已配发", "gi") } },
+          { block_num: 0 },
+          { left_num: { $gt: 0, $lt: parseFloat(query.left) } },
+        ],
+      },
+      { order_no: "asc" },
+      res,
+    );
   } else {
     var q = JSON.parse(query.q);
-    if (query.isNeedAnalysis == 'true') {
+    if (query.isNeedAnalysis == "true") {
       var obj = getQueryFromNodes(q, query.field);
       if (Object.keys(obj).length > 0) {
-        await queryBills(obj, { order_no: 'asc' }, res);
+        await queryBills(obj, { order_no: "asc" }, res);
       } else {
-        res.end(JSON.stringify({ ok: false, response: '查询条件为空!' }));
+        res.end(JSON.stringify({ ok: false, response: "查询条件为空!" }));
       }
     } else {
-      await queryBills(q, { order_no: 'asc' }, res);
+      await queryBills(q, { order_no: "asc" }, res);
     }
   }
 };
 
 exports.deleteBill = function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    res.render('bill/delete_bill', {
-      title: '提单管理',
-      curr_page: '提单管理-删除订单',
-      curr_page_name: '删除',
+    res.render("404");
+  } else {
+    res.render("bill/delete_bill", {
+      title: "提单管理",
+      curr_page: "提单管理-删除订单",
+      curr_page_name: "删除",
       bUseJstree: true,
       scripts: [
-        '/js/lib/jstree.min.js',
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/bill_mgt.js'
-      ]
-    })
+        "/js/lib/jstree.min.js",
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/bill_mgt.js",
+      ],
+    });
   }
 };
 
@@ -509,19 +567,34 @@ function pushInvVehs(arr, bills) {
 }
 
 exports.getSettleBill = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
+    res.render("404");
+  } else {
     let bnameList = [];
     let vehList = [];
     let destList = [];
-    let bs = [], vs = [], ds = [];
+    let bs = [],
+      vs = [],
+      ds = [];
     try {
-      let db_invs = await Invoice.find({ state: { $ne: '新建' }, selfOwned: { $ne: 1 } })
-        .select({ "_id": 0, "settle_flag": 1, "ship_name": 1, "vehicle_vessel_name": 1, "ship_to": 1, "bills": 1 })
-        .lean().exec();
+      let db_invs = await Invoice.find({
+        state: { $ne: "新建" },
+        selfOwned: { $ne: 1 },
+      })
+        .select({
+          _id: 0,
+          settle_flag: 1,
+          ship_name: 1,
+          vehicle_vessel_name: 1,
+          ship_to: 1,
+          bills: 1,
+        })
+        .lean()
+        .exec();
 
       for (let inv of db_invs) {
         if ((inv.settle_flag & CUSTOMER_SETTLE_FLAG) !== CUSTOMER_SETTLE_FLAG) {
@@ -532,7 +605,10 @@ exports.getSettleBill = async function (req, res) {
           pushArr(destList, inv.ship_to);
         }
 
-        if ((inv.settle_flag & COLLECTION_SETTLE_FLAG) !== COLLECTION_SETTLE_FLAG) {
+        if (
+          (inv.settle_flag & COLLECTION_SETTLE_FLAG) !==
+          COLLECTION_SETTLE_FLAG
+        ) {
           pushInvVehs(vs, inv.bills);
 
           pushArr(bs, inv.ship_name);
@@ -541,52 +617,64 @@ exports.getSettleBill = async function (req, res) {
         }
       }
 
-      res.render('settle/settle', {
-        title: '结算管理',
-        curr_page: '结算管理-结算',
-        curr_page_name: '结算',
+      res.render("settle/settle", {
+        title: "结算管理",
+        curr_page: "结算管理-结算",
+        curr_page_name: "结算",
         dData: {
           nameList: utils.pinyin_sort(bnameList),
           vehList: utils.pinyin_sort(vehList),
           destList: utils.pinyin_sort(destList),
-          orderList: [], billNoList: [],
-          forSelf: false
+          orderList: [],
+          billNoList: [],
+          forSelf: false,
         },
         dData_2: {
           nameList: utils.pinyin_sort(bs),
           vehList: utils.pinyin_sort(vs),
           destList: utils.pinyin_sort(ds),
-          orderList: [], billNoList: []
+          orderList: [],
+          billNoList: [],
         },
         scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-          '/js/settle_mgt_01.js'
-        ]
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+          "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+          "/js/settle_mgt_01.js",
+        ],
       });
     } catch (e) {
-      res.status(500).render('500');
+      res.status(500).render("500");
     }
   }
 };
 
 exports.getSettleBillSelf = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) { // === ACCOUNT) {
+  if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
+    // === ACCOUNT) {
     res.status(404);
-    res.render('404');
-  }
-  else {
+    res.render("404");
+  } else {
     let bnameList = [];
     let vehList = [];
     let destList = [];
-    let bs = [], vs = [], ds = [];
+    let bs = [],
+      vs = [],
+      ds = [];
     try {
-      let db_invs = await Invoice.find({ state: { $ne: '新建' }, selfOwned: 1 })
-        .select({ "_id": 0, "settle_flag": 1, "ship_name": 1, "vehicle_vessel_name": 1, "ship_to": 1, "bills": 1 })
-        .lean().exec();
+      let db_invs = await Invoice.find({ state: { $ne: "新建" }, selfOwned: 1 })
+        .select({
+          _id: 0,
+          settle_flag: 1,
+          ship_name: 1,
+          vehicle_vessel_name: 1,
+          ship_to: 1,
+          bills: 1,
+        })
+        .lean()
+        .exec();
 
       for (let inv of db_invs) {
         if ((inv.settle_flag & CUSTOMER_SETTLE_FLAG) !== CUSTOMER_SETTLE_FLAG) {
@@ -604,35 +692,36 @@ exports.getSettleBillSelf = async function (req, res) {
         // }
       }
 
-      res.render('settle/settle', {
-        title: '自有车结算管理',
-        curr_page: '自有车结算管理-结算',
-        curr_page_name: '自有车结算',
+      res.render("settle/settle", {
+        title: "自有车结算管理",
+        curr_page: "自有车结算管理-结算",
+        curr_page_name: "自有车结算",
         dData: {
           nameList: utils.pinyin_sort(bnameList),
           vehList: utils.pinyin_sort(vehList),
           destList: utils.pinyin_sort(destList),
-          orderList: [], billNoList: [],
-          forSelf: true
+          orderList: [],
+          billNoList: [],
+          forSelf: true,
         },
         dData_2: {
           nameList: utils.pinyin_sort(bs),
           vehList: utils.pinyin_sort(vs),
           destList: utils.pinyin_sort(ds),
-          orderList: [], billNoList: []
+          orderList: [],
+          billNoList: [],
         },
         scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-          '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-          '/js/settle_mgt_01.js'
-        ]
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+          "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+          "/js/settle_mgt_01.js",
+        ],
       });
     } catch (e) {
-      console.log(e)
-      res.status(500).render('500');
+      res.status(500).render("500");
     }
   }
 };
@@ -653,7 +742,6 @@ exports.postPriceInput = async function (req, res) {
 
       await db_bill.save();
 
-      // console.log(priceObj)
       let db_inv = await Invoice.find({ waybill_no: priceObj.inv_no }).exec();
       if (db_inv.length) {
         db_inv[0].incoming_price_remark = priceObj.remark;
@@ -692,11 +780,11 @@ function setFlag(flag, type) {
 
 function checkFlag(flag, type) {
   if (type === "CUSTOMER" || type === "客户结算") {
-    return ((flag & CUSTOMER_SETTLE_FLAG) === CUSTOMER_SETTLE_FLAG);
+    return (flag & CUSTOMER_SETTLE_FLAG) === CUSTOMER_SETTLE_FLAG;
   } else if (type === "COLLECTION" || type === "代收代付结算") {
-    return ((flag & COLLECTION_SETTLE_FLAG) === COLLECTION_SETTLE_FLAG);
+    return (flag & COLLECTION_SETTLE_FLAG) === COLLECTION_SETTLE_FLAG;
   } else if (type === "VESSEL_VEH" || type === "车船结算") {
-    return ((flag & VESSEL_SETTLE_FLAG) === VESSEL_SETTLE_FLAG);
+    return (flag & VESSEL_SETTLE_FLAG) === VESSEL_SETTLE_FLAG;
   }
 }
 
@@ -713,17 +801,20 @@ function clearFlag(flag, type) {
 exports.postSettleBill = async function (req, res) {
   let uno = utils.leftPad(req.user.no, 4);
   let date_no = new Date().yyyymmdd() + uno;
-  let reg = new RegExp('^JS' + date_no + '.*', 'g');
+  let reg = new RegExp("^JS" + date_no + ".*", "g");
 
   try {
-    let settles = await Settle.find({ serial_number: { $regex: reg } }).sort({ serial_number: 'desc' }).exec();
+    let settles = await Settle.find({ serial_number: { $regex: reg } })
+      .sort({ serial_number: "desc" })
+      .exec();
     let no = utils.leftPad(1, 3);
     if (settles.length > 0) {
       let str = settles[0].serial_number.substring(14);
-      no = utils.leftPad((+str) + 1, 3);
+      no = utils.leftPad(+str + 1, 3);
     }
 
-    let tn = 0, tw = 0;
+    let tn = 0,
+      tw = 0;
     let allIDs = [];
     let allInvNo = [];
     for (let item of req.body.settleObj) {
@@ -732,7 +823,7 @@ exports.postSettleBill = async function (req, res) {
         num: item.num,
         weight: item.weight,
         inv_no: item.inv_no,
-        settle_flag: item.settle_flag
+        settle_flag: item.settle_flag,
       });
 
       tn += item.num;
@@ -742,16 +833,16 @@ exports.postSettleBill = async function (req, res) {
     }
 
     let settle_type = req.body.settle_type;
-    if (settle_type === 'CUSTOMER') {
-      settle_type = '客户结算';
-    } else if (settle_type === 'COLLECTION') {
-      settle_type = '代收代付结算';
+    if (settle_type === "CUSTOMER") {
+      settle_type = "客户结算";
+    } else if (settle_type === "COLLECTION") {
+      settle_type = "代收代付结算";
     } else {
-      settle_type = '车船结算';
+      settle_type = "车船结算";
     }
 
     let settle = new Settle({
-      serial_number: 'JS' + date_no + no,
+      serial_number: "JS" + date_no + no,
       billing_name: req.body.billName,
       price: parseFloat(req.body.price),
       real_price: parseFloat(req.body.price),
@@ -763,13 +854,13 @@ exports.postSettleBill = async function (req, res) {
       settle_date: new Date(),
       settler: req.user.userid,
       selfOwned: req.body.selfOwned,
-      status: '已结算'
+      status: "已结算",
     });
 
     for (let idObj of allIDs) {
       let db_bill = await Bill.findById(idObj.bill_id).exec();
       if (db_bill) {
-        if (db_bill.status === '已配发') {
+        if (db_bill.status === "已配发") {
           db_bill.status = "已结算";
         }
 
@@ -794,7 +885,12 @@ exports.postSettleBill = async function (req, res) {
     updateInvoiceStatus(res, allInvNo, settle_type);
     await settle.save();
   } catch (e) {
-    res.end(JSON.stringify({ ok: false, response: '结算时不能生成流水号, 查询数据库出错' + e.toString() }));
+    res.end(
+      JSON.stringify({
+        ok: false,
+        response: "结算时不能生成流水号, 查询数据库出错" + e.toString(),
+      }),
+    );
   }
 };
 
@@ -865,7 +961,12 @@ exports.postDeleteSettle = async function (req, res) {
     for (let settle of req.body.allSelected) {
       let dbSettle = await Settle.findById(settle._id).exec();
       if (!dbSettle) {
-        return res.end(JSON.stringify({ ok: false, response: '删除结算:' + settle._id + '出错' }));
+        return res.end(
+          JSON.stringify({
+            ok: false,
+            response: "删除结算:" + settle._id + "出错",
+          }),
+        );
       }
 
       let settle_type = settle.settle_type;
@@ -882,38 +983,40 @@ exports.postDeleteSettle = async function (req, res) {
       //   { $lookup: { from: "bills", localField: "bills.bill_id", foreignField: "_id", as: "bill_doc" }},
       //   { $unwind: "$bill_doc" },
       // ])
-      // console.log(docs);
       let dbBills = await Bill.find({ _id: { $in: ids } }).exec();
       for (let bill of dbBills) {
         dbSettle.bills.forEach((sb) => {
           if (String(bill._id) === String(sb.bill_id)) {
             bill.invoices.forEach((inv) => {
               if (inv.inv_no === sb.inv_no) {
-                inv.inv_settle_flag = clearFlag(inv.inv_settle_flag, settle_type);
+                inv.inv_settle_flag = clearFlag(
+                  inv.inv_settle_flag,
+                  settle_type,
+                );
               }
-            })
+            });
           }
         });
 
         if (bill.invoices.length === 1) {
           bill.settle_flag = bill.invoices[0].inv_settle_flag;
         } else {
-          if (isSameSettleFlag(bill, 'CUSTOMER')) {
-            bill.settle_flag = setFlag(bill.settle_flag, 'CUSTOMER');
+          if (isSameSettleFlag(bill, "CUSTOMER")) {
+            bill.settle_flag = setFlag(bill.settle_flag, "CUSTOMER");
           } else {
-            bill.settle_flag = clearFlag(bill.settle_flag, 'CUSTOMER');
+            bill.settle_flag = clearFlag(bill.settle_flag, "CUSTOMER");
           }
 
-          if (isSameSettleFlag(bill, 'COLLECTION')) {
-            bill.settle_flag = setFlag(bill.settle_flag, 'COLLECTION');
+          if (isSameSettleFlag(bill, "COLLECTION")) {
+            bill.settle_flag = setFlag(bill.settle_flag, "COLLECTION");
           } else {
-            bill.settle_flag = clearFlag(bill.settle_flag, 'COLLECTION');
+            bill.settle_flag = clearFlag(bill.settle_flag, "COLLECTION");
           }
         }
 
         if (bill.settle_flag === 0 && bill.left_num < EPSILON) {
           bill.left_num = 0;
-          bill.status = '已配发';
+          bill.status = "已配发";
         }
 
         await bill.save();
@@ -923,7 +1026,9 @@ exports.postDeleteSettle = async function (req, res) {
       for (let invoice of dbInvs) {
         let ids = utils.getAllList(true, invoice.bills, "bill_id");
         // 2. find all Bills for each invoice
-        let dbBills = await Bill.find({ _id: { $in: ids } }).lean().exec();
+        let dbBills = await Bill.find({ _id: { $in: ids } })
+          .lean()
+          .exec();
         let settled = true;
         for (let idx = 0, len = dbBills.length; idx < len && settled; ++idx) {
           for (let binv of dbBills[idx].invoices) {
@@ -936,13 +1041,13 @@ exports.postDeleteSettle = async function (req, res) {
 
         if (settled) {
           if (!checkFlag(invoice.settle_flag, settle_type)) {
-            invoice.state = '已结算';
+            invoice.state = "已结算";
             invoice.settle_flag = setFlag(invoice.settle_flag, settle_type);
             await invoice.save();
           }
         } else {
           if (checkFlag(invoice.settle_flag, settle_type)) {
-            invoice.state = '已配发';
+            invoice.state = "已配发";
             invoice.settle_flag = clearFlag(invoice.settle_flag, settle_type);
             await invoice.save();
           }
@@ -961,72 +1066,97 @@ exports.postDeleteSettle = async function (req, res) {
 exports.getSettleTicket = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
-    res.render('404');
+    res.render("404");
   } else {
-    await ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 0 }, "settle/settle_ticket", "开票", false);
+    await ticket_money_render(
+      res,
+      { status: { $in: ["已结算", "已开票"] }, selfOwned: 0 },
+      "settle/settle_ticket",
+      "开票",
+      false,
+    );
   }
 };
 
 exports.getSettleTicketSelf = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
-    res.render('404');
+    res.render("404");
   } else {
-    await ticket_money_render(res, { status: { $in: ['已结算', '已开票'] }, selfOwned: 1 }, "settle/settle_ticket", "开票", true);
+    await ticket_money_render(
+      res,
+      { status: { $in: ["已结算", "已开票"] }, selfOwned: 1 },
+      "settle/settle_ticket",
+      "开票",
+      true,
+    );
   }
 };
 
 exports.getSettleMoney = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 0 }, "settle/settle_money", "回款", false);
+    res.render("404");
+  } else {
+    await ticket_money_render(
+      res,
+      { status: { $in: ["已回款", "已开票"] }, selfOwned: 0 },
+      "settle/settle_money",
+      "回款",
+      false,
+    );
   }
 };
 
 exports.getSettleMoneySelf = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await ticket_money_render(res, { status: { $in: ['已回款', '已开票'] }, selfOwned: 1 }, "settle/settle_money", "回款", true);
+    res.render("404");
+  } else {
+    await ticket_money_render(
+      res,
+      { status: { $in: ["已回款", "已开票"] }, selfOwned: 1 },
+      "settle/settle_money",
+      "回款",
+      true,
+    );
   }
 };
 
 async function ticket_money_render(res, search_obj, route, title, forSelf) {
-  const tit = forSelf ? '自有车' : '';
+  const tit = forSelf ? "自有车" : "";
   try {
-    const settles = await Settle.find(search_obj, { bills: 0 }).lean().sort({ settle_date: -1 }).exec();
+    const settles = await Settle.find(search_obj, { bills: 0 })
+      .lean()
+      .sort({ settle_date: -1 })
+      .exec();
     res.render(route, {
-      title: tit + '结算管理',
-      curr_page: tit + '结算管理-' + title,
+      title: tit + "结算管理",
+      curr_page: tit + "结算管理-" + title,
       curr_page_name: title,
       dbSettleData: { settles: settles, forSelf: forSelf },
       forSelf: forSelf,
       scripts: [
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-        '/js/ticket_money_03.js'
-      ]
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+        "/js/ticket_money_03.js",
+      ],
     });
   } catch (err) {
     res.render(route, {
-      title: tit + '结算管理',
-      curr_page: tit + '结算管理-' + title,
+      title: tit + "结算管理",
+      curr_page: tit + "结算管理-" + title,
       curr_page_name: title,
       forSelf: forSelf,
       scripts: [
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-        '/js/ticket_money_03.js'
-      ]
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+        "/js/ticket_money_03.js",
+      ],
     });
   }
 }
@@ -1034,16 +1164,24 @@ async function ticket_money_render(res, search_obj, route, title, forSelf) {
 exports.getSettleInvoiceBill = async function (req, res) {
   var query = req.query;
   try {
-    const settle = await Settle.findOne({ serial_number: query.fSerial }).exec();
+    const settle = await Settle.findOne({
+      serial_number: query.fSerial,
+    }).exec();
     if (!settle) {
-        return res.end(JSON.stringify({ ok: false }));
+      return res.end(JSON.stringify({ ok: false }));
     }
-    
+
     var allIds = utils.getAllList(true, settle.bills, "bill_id");
     const billArr = await Bill.find({ _id: { $in: allIds } }).exec();
-    
+
     if (billArr) {
-      res.end(JSON.stringify({ ok: true, bills: billArr, settle_bills: settle.bills }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          bills: billArr,
+          settle_bills: settle.bills,
+        }),
+      );
     } else {
       res.end(JSON.stringify({ ok: false }));
     }
@@ -1081,14 +1219,16 @@ exports.postSettleRealPrice = async function (req, res) {
     await settle.save();
     res.end(JSON.stringify({ ok: true }));
   } catch (e) {
-    res.end(JSON.stringify({ ok: false, response: '查找结算号出错:' + e.toString() }));
+    res.end(
+      JSON.stringify({ ok: false, response: "查找结算号出错:" + e.toString() }),
+    );
   }
 };
 
 /// 车船结算 ------------
 ////////////////////////
 async function getSettleVesselData(selfOwned) {
-  var qObj = { state: { $ne: '新建' }, selfOwned: 1 };
+  var qObj = { state: { $ne: "新建" }, selfOwned: 1 };
   if (!selfOwned) {
     qObj.selfOwned = { $ne: 1 };
   }
@@ -1099,10 +1239,19 @@ async function getSettleVesselData(selfOwned) {
     destList: [],
     contactNameList: [],
     vehPersonMap: {},
-    selfOwned: selfOwned
-  }
+    selfOwned: selfOwned,
+  };
 
-  const invs = await Invoice.find(qObj).select({ "_id": 0, "settle_flag": 1, "ship_name": 1, "vehicle_vessel_name": 1, "ship_to": 1, "bills": 1 }).exec();
+  const invs = await Invoice.find(qObj)
+    .select({
+      _id: 0,
+      settle_flag: 1,
+      ship_name: 1,
+      vehicle_vessel_name: 1,
+      ship_to: 1,
+      bills: 1,
+    })
+    .exec();
   invs.forEach(function (inv) {
     pushArr(data.nameList, inv.ship_name);
     pushArr(data.destList, inv.ship_to);
@@ -1113,37 +1262,42 @@ async function getSettleVesselData(selfOwned) {
         if (bill.vehicles.length) {
           bill.vehicles.forEach(function (veh) {
             pushArr(data.vehList, veh.veh_name);
-          })
+          });
         }
-      })
+      });
     }
   });
 
-
-  const vehs = await Vehicle.find({}).select('name contact_name boss real_boss').lean().exec()
+  const vehs = await Vehicle.find({})
+    .select("name contact_name boss real_boss")
+    .lean()
+    .exec();
   vehs.forEach(function (veh) {
     const isExist = data.vehList.find((item) => item === veh.name);
     if (isExist) {
       // data.vehList.push(veh.name);
       // 检查 boss 字段是否存在且不为空
-      if (veh.boss && typeof veh.boss === 'string') {
-        if (veh.boss.includes(',') || veh.boss.includes('，')) {
+      if (veh.boss && typeof veh.boss === "string") {
+        if (veh.boss.includes(",") || veh.boss.includes("，")) {
           const list = veh.boss.split(/,|，/);
           list.forEach(function (b) {
             pushArr(data.contactNameList, b.trim());
-          })
+          });
 
-          data.vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
+          data.vehPersonMap[veh.name] = {
+            boss: veh.boss,
+            real_boss: veh.real_boss,
+          };
         } else {
           pushArr(data.contactNameList, veh.boss);
           data.vehPersonMap[veh.name] = veh.boss;
         }
       } else {
         // 如果 boss 字段为空，设置为默认值
-        data.vehPersonMap[veh.name] = '-';
+        data.vehPersonMap[veh.name] = "-";
       }
     }
-  })
+  });
 
   data.nameList = utils.pinyin_sort(data.nameList);
   data.vehList = utils.pinyin_sort(data.vehList);
@@ -1155,50 +1309,56 @@ async function getSettleVesselData(selfOwned) {
 exports.getSettleVesselSelf = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
-    res.render('404');
-  }
-  else {
+    res.render("404");
+  } else {
     try {
       const data = await getSettleVesselData(true);
-      res.render('settle/settle_vessel', {
-        title: '自有车结算管理',
-        curr_page: '结算管理-自有车船结算',
-        curr_page_name: '自有车船结算',
+      res.render("settle/settle_vessel", {
+        title: "自有车结算管理",
+        curr_page: "结算管理-自有车船结算",
+        curr_page_name: "自有车船结算",
         dData: data,
         scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/settle_vessel_24.js'
-        ]
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/settle_vessel_24.js",
+        ],
       });
     } catch (e) {
-      res.end(JSON.stringify({ ok: false, response: '系统错！' + e }));
+      res.end(JSON.stringify({ ok: false, response: "系统错！" + e }));
       console.log(e);
     }
   }
 };
 
 exports.getSettleVessel = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) && !hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.ACCOUNT)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
+    res.render("404");
+  } else {
     try {
       const data = await getSettleVesselData(false);
-      res.render('settle/settle_vessel', {
-        title: '结算管理',
-        curr_page: '结算管理-车船结算',
-        curr_page_name: '车船结算',
+      res.render("settle/settle_vessel", {
+        title: "结算管理",
+        curr_page: "结算管理-车船结算",
+        curr_page_name: "车船结算",
         dData: data,
         scripts: [
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/settle_vessel_24.js'
-        ]
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/settle_vessel_24.js",
+        ],
       });
     } catch (err) {
-      res.end(JSON.stringify({ ok: false, response: '获取已配发的运单数据出错' + err }));
+      res.end(
+        JSON.stringify({
+          ok: false,
+          response: "获取已配发的运单数据出错" + err,
+        }),
+      );
     }
   }
 };
@@ -1218,7 +1378,7 @@ function getVesselPrice(prices, wno, inner) {
 exports.postVesselPriceInput = async function (req, res) {
   try {
     let priceData = req.body.priceData;
-    console.log(priceData)
+    console.log(priceData);
 
     for (let wno of req.body.wnoList) {
       let priceObj = getVesselPrice(priceData, wno, 0);
@@ -1245,7 +1405,7 @@ exports.postVesselPriceInput = async function (req, res) {
                   dVeh.veh_price = p.unitPrice;
                 }
               });
-            }   // find same bill in invoice
+            } // find same bill in invoice
           });
 
           if (found) {
@@ -1265,7 +1425,7 @@ exports.postVesselPriceInput = async function (req, res) {
               bveh.veh_price = p.unitPrice;
               bveh.price_remark = priceObj.remark;
             }
-          })
+          });
         });
 
         await db_inv.save();
@@ -1303,7 +1463,7 @@ exports.postVesselNotNeeded = async function (req, res) {
                   }
                 });
                 found = true;
-              }   // find same bill in invoice
+              } // find same bill in invoice
             });
 
             if (found) {
@@ -1316,7 +1476,7 @@ exports.postVesselNotNeeded = async function (req, res) {
               if (wno === bveh.inner_waybill_no) {
                 bveh.veh_price = isNotNeeded ? -1 : 0;
               }
-            })
+            });
           });
 
           buildInnerSettleData(db_inv); // if not exist, create and initialize it.
@@ -1324,10 +1484,10 @@ exports.postVesselNotNeeded = async function (req, res) {
           db_inv.inner_settle.forEach(function (db_inner) {
             if (db_inner.inner_waybill_no === wno) {
               if (isNotNeeded) {
-                db_inner.state = '不需要结算';
+                db_inner.state = "不需要结算";
                 db_inner.date = new Date();
               } else {
-                db_inner.state = '未结算';
+                db_inner.state = "未结算";
                 db_inner.date = null;
               }
             }
@@ -1335,11 +1495,11 @@ exports.postVesselNotNeeded = async function (req, res) {
         } else {
           if (isNotNeeded) {
             db_inv.vessel_price = -1;
-            db_inv.vessel_settle_state = '不需要结算';
+            db_inv.vessel_settle_state = "不需要结算";
             db_inv.vessel_settle_date = new Date();
           } else {
             db_inv.vessel_price = 0;
-            db_inv.vessel_settle_state = '未结算';
+            db_inv.vessel_settle_state = "未结算";
             db_inv.vessel_settle_date = null;
           }
         }
@@ -1400,7 +1560,6 @@ exports.postVesselDelayInfo = async function (req, res) {
           db_inv.delay_day = unshipData.delay_day;
           db_inv.receipt = unshipData.receipt;
           db_inv.remark = unshipData.remark;
-          // console.log("delay day = " + db_inv.delay_day);
         }
       }
 
@@ -1415,7 +1574,7 @@ exports.postVesselDelayInfo = async function (req, res) {
 
 exports.postSettleUploadReceipt = async function (req, res) {
   let wno = req.body.wno;
-  let isInner = wno.length > 17
+  let isInner = wno.length > 17;
   let queryNo = isInner ? wno.substring(0, 17) : wno;
 
   try {
@@ -1445,15 +1604,15 @@ exports.postSettleVessel = async function (req, res) {
   let allSelectedInvNo = req.body.allSelectedInvNo;
   let allInnerNo = req.body.allInnerNo;
   let allInvNo = allSelectedInvNo.slice(0);
-  req.body.allInvNoFromInner.forEach(no => allInvNo.push(no));
+  req.body.allInvNoFromInner.forEach((no) => allInvNo.push(no));
 
   try {
     let db_invs = await Invoice.find({ waybill_no: { $in: allInvNo } }).exec();
 
-    let v_state = '未结算';
+    let v_state = "未结算";
     let v_state_date = null;
     if (req.body.settle) {
-      v_state = '已结算';
+      v_state = "已结算";
       v_state_date = new Date();
     }
 
@@ -1464,8 +1623,11 @@ exports.postSettleVessel = async function (req, res) {
         inv.vessel_settler = req.user.userid;
       }
 
-      inv.inner_settle.forEach(db_inner => {
-        if (db_inner.inner_waybill_no && allInnerNo.includes(db_inner.inner_waybill_no)) {
+      inv.inner_settle.forEach((db_inner) => {
+        if (
+          db_inner.inner_waybill_no &&
+          allInnerNo.includes(db_inner.inner_waybill_no)
+        ) {
           db_inner.state = v_state;
           db_inner.date = v_state_date;
         }
@@ -1484,14 +1646,16 @@ exports.postSettleVesselPay = async function (req, res) {
   let allPayInvNo = req.body.allPayInvNo;
   let allInnerNo = req.body.allInnerNo;
   let allInvNo = allPayInvNo.slice(0);
-  req.body.allInvNoFromInner.forEach(inno => { allInvNo.push(inno) });
+  req.body.allInvNoFromInner.forEach((inno) => {
+    allInvNo.push(inno);
+  });
 
   try {
     let db_invs = await Invoice.find({ waybill_no: { $in: allInvNo } }).exec();
-    let v_state_text = '已结算';
+    let v_state_text = "已结算";
     let v_state_date = null;
     if (req.body.forPay) {
-      v_state_text = '已付款';
+      v_state_text = "已付款";
       v_state_date = new Date();
     }
 
@@ -1518,17 +1682,17 @@ exports.postSettleVesselPay = async function (req, res) {
 };
 
 exports.searchBill = function (req, res) {
-  res.render('bill/search_bill', {
-    title: '提单管理',
-    curr_page: '提单管理-查询订单',
-    curr_page_name: '查询',
+  res.render("bill/search_bill", {
+    title: "提单管理",
+    curr_page: "提单管理-查询订单",
+    curr_page_name: "查询",
     bUseJstree: true,
     scripts: [
-      '/js/lib/jstree.min.js',
-      '/js/plugins/select2/select2.min.js',
-      '/js/plugins/select2/select2_locale_zh-CN.js',
-      '/js/bill_mgt.js'
-    ]
+      "/js/lib/jstree.min.js",
+      "/js/plugins/select2/select2.min.js",
+      "/js/plugins/select2/select2_locale_zh-CN.js",
+      "/js/bill_mgt.js",
+    ],
   });
 };
 
@@ -1540,16 +1704,19 @@ async function getDataAndRender(type, data, forSelf, render) {
   try {
     const result = await Warehouse.find({}).lean().exec();
     data.warehouse = utils.getAllList(false, result, "name");
-    data.warehouse.push('南钢');
+    data.warehouse.push("南钢");
 
-    if (type === 'bill') {
+    if (type === "bill") {
       data.brand = [];
       data.sale_dep = [];
-      
-      const brands = await Brand.find({}).lean().sort({ name: 'asc' }).exec();
+
+      const brands = await Brand.find({}).lean().sort({ name: "asc" }).exec();
       data.brand = utils.getAllList(false, brands, "name");
 
-      const saleDeps = await SaleDep.find({}).lean().sort({ name: 'asc' }).exec();
+      const saleDeps = await SaleDep.find({})
+        .lean()
+        .sort({ name: "asc" })
+        .exec();
       if (saleDeps) {
         data.sale_dep = utils.getAllList(false, saleDeps, "name");
       }
@@ -1562,7 +1729,7 @@ async function getDataAndRender(type, data, forSelf, render) {
       data.vehicles = utils.getAllList(false, vehs, "name");
       data.vehInfo = vehs;
 
-      const dnames = await Destination.distinct('name').exec();
+      const dnames = await Destination.distinct("name").exec();
       data.destination = dnames;
       render(data);
     }
@@ -1572,15 +1739,27 @@ async function getDataAndRender(type, data, forSelf, render) {
   }
 }
 
-async function getDictDataAndRender(type, fromBill, fromInvoice, forSelf, render) {
+async function getDictDataAndRender(
+  type,
+  fromBill,
+  fromInvoice,
+  forSelf,
+  render,
+) {
   var data = { selfOwned: forSelf ? 1 : 0, company: [] };
   try {
     if (fromBill) {
-      const names = await Bill.distinct('billing_name', { left_num: { $gt: 0 } }).lean().exec();
-      const companies = await Company.find({ name: { $in: names } }).lean().exec();
+      const names = await Bill.distinct("billing_name", {
+        left_num: { $gt: 0 },
+      })
+        .lean()
+        .exec();
+      const companies = await Company.find({ name: { $in: names } })
+        .lean()
+        .exec();
       data.company = companies;
     } else if (fromInvoice) {
-      const names = await Invoice.distinct('ship_name').lean().exec();
+      const names = await Invoice.distinct("ship_name").lean().exec();
       const companies = await Company.find({ name: { $in: names } }).exec();
       data.company = companies;
     } else {
@@ -1590,7 +1769,7 @@ async function getDictDataAndRender(type, fromBill, fromInvoice, forSelf, render
   } catch (err) {
     console.error("getDictDataAndRender error:", err);
   }
-  
+
   await getDataAndRender(type, data, forSelf, render);
 }
 
@@ -1598,75 +1777,79 @@ exports.getMaxWaybillNo = async function (req, res) {
   let userNo = req.user.no || 0;
   let uno = utils.leftPad(userNo, 4);
   let date_no = new Date().yyyymmdd() + uno;
-  let reg = new RegExp('^01' + date_no + '.*', 'g');
-  
+  let reg = new RegExp("^01" + date_no + ".*", "g");
+
   try {
-    const inv_wnos = await Invoice.find({ waybill_no: { $regex: reg } }).select('waybill_no').sort({ waybill_no: 'desc' }).exec();
-    
+    const inv_wnos = await Invoice.find({ waybill_no: { $regex: reg } })
+      .select("waybill_no")
+      .sort({ waybill_no: "desc" })
+      .exec();
+
     let no = utils.leftPad(1, 3);
     if (inv_wnos.length) {
       var str = inv_wnos[0].waybill_no.substring(14);
-      no = utils.leftPad((+str) + 1, 3);
+      no = utils.leftPad(+str + 1, 3);
     }
 
-    let max = '01' + date_no + no;
+    let max = "01" + date_no + no;
     res.end(JSON.stringify({ ok: true, max_no: max }));
   } catch (err) {
-    res.end(JSON.stringify({ ok: false, response: '查询数据库出错' + err }));
+    res.end(JSON.stringify({ ok: false, response: "查询数据库出错" + err }));
   }
 };
 
 exports.getBuildInvoice = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await getDictDataAndRender('invoice', true, false, false, function (data) {
-      res.render('bill/build_invoice', {
-        title: '运单管理',
-        curr_page: '运单管理-配发货',
-        curr_page_name: '配发货登记',
+    res.render("404");
+  } else {
+    await getDictDataAndRender("invoice", true, false, false, function (data) {
+      res.render("bill/build_invoice", {
+        title: "运单管理",
+        curr_page: "运单管理-配发货",
+        curr_page_name: "配发货登记",
         bUseJstree: true,
         bAdd: true,
         dDataDict: data,
         scripts: [
-          '/js/lib/jstree.min.js',
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/inv_utils_02.js',
-          '/js/invoice_mgt_01.js'
-        ]
+          "/js/lib/jstree.min.js",
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/inv_utils_02.js",
+          "/js/invoice_mgt_01.js",
+        ],
       });
-    })
+    });
   }
 };
 
 exports.getBuildInvoiceSelf = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.SELF_VEHICLE)) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await getDictDataAndRender('invoice', true, false, true, function (data) {
-      res.render('bill/build_invoice', {
-        title: '运单管理',
-        curr_page: '运单管理-自有车配发货',
-        curr_page_name: '配发货登记（自有车）',
+    res.render("404");
+  } else {
+    await getDictDataAndRender("invoice", true, false, true, function (data) {
+      res.render("bill/build_invoice", {
+        title: "运单管理",
+        curr_page: "运单管理-自有车配发货",
+        curr_page_name: "配发货登记（自有车）",
         bUseJstree: true,
         bAdd: true,
         dDataDict: data,
         scripts: [
-          '/js/lib/jstree.min.js',
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/inv_utils_02.js',
-          '/js/invoice_mgt_01.js'
-        ]
+          "/js/lib/jstree.min.js",
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/inv_utils_02.js",
+          "/js/invoice_mgt_01.js",
+        ],
       });
-    })
+    });
   }
 };
 
@@ -1679,9 +1862,13 @@ function compareVehicles(oldVehicles, newVehicles) {
   for (let vo of newVehicles) {
     let find_veh_obj = false;
     for (let ovo of oldVehicles) {
-      if (vo.veh_name === ovo.veh_name && vo.inner_waybill_no === ovo.inner_waybill_no &&
-        vo.send_num === ovo.send_num && Math.abs(vo.send_weight - ovo.send_weight) < EPSILON &&
-        vo.veh_ship_from === ovo.veh_ship_from) {
+      if (
+        vo.veh_name === ovo.veh_name &&
+        vo.inner_waybill_no === ovo.inner_waybill_no &&
+        vo.send_num === ovo.send_num &&
+        Math.abs(vo.send_weight - ovo.send_weight) < EPSILON &&
+        vo.veh_ship_from === ovo.veh_ship_from
+      ) {
         find_veh_obj = true;
         break;
       }
@@ -1695,7 +1882,7 @@ function compareVehicles(oldVehicles, newVehicles) {
 
 function getChangedBills(old_inv, new_inv) {
   let allBills = [];
-  let invBills = new_inv.bills.map(obj => {
+  let invBills = new_inv.bills.map((obj) => {
     return { ...obj, passed: false };
   });
 
@@ -1703,13 +1890,18 @@ function getChangedBills(old_inv, new_inv) {
     let found = false;
     for (let new_bill of invBills) {
       let isModified = false;
-      if (!new_bill.passed && String(old_bill.bill_id) === String(new_bill.bill_id)) {
-
+      if (
+        !new_bill.passed &&
+        String(old_bill.bill_id) === String(new_bill.bill_id)
+      ) {
         // if (Math.abs(new_bill.weight) === 0 || new_bill.num === 0) {
         //   old_bill.flag = 'remove';
         //   allBills.push(old_bill);
         // } else {
-        if (old_bill.num != new_bill.num || Math.abs(old_bill.weight - new_bill.weight) > EPSILON) {
+        if (
+          old_bill.num != new_bill.num ||
+          Math.abs(old_bill.weight - new_bill.weight) > EPSILON
+        ) {
           isModified = true;
         } else {
           if (!compareVehicles(old_bill.vehicles, new_bill.vehicles)) {
@@ -1718,9 +1910,14 @@ function getChangedBills(old_inv, new_inv) {
         }
 
         if (isModified) {
-          allBills.push({ ...new_bill, flag: 'modify', old_num: old_bill.num, old_weight: old_bill.weight });
+          allBills.push({
+            ...new_bill,
+            flag: "modify",
+            old_num: old_bill.num,
+            old_weight: old_bill.weight,
+          });
         } else {
-          allBills.push({ ...new_bill, flag: 'same' });
+          allBills.push({ ...new_bill, flag: "same" });
         }
         // }
 
@@ -1731,14 +1928,14 @@ function getChangedBills(old_inv, new_inv) {
     }
 
     if (!found) {
-      old_bill.flag = 'remove'
+      old_bill.flag = "remove";
       allBills.push(old_bill);
     }
   }
 
   invBills.forEach(function (bill) {
     if (!bill.passed) {
-      allBills.push({ ...bill, flag: 'add' });
+      allBills.push({ ...bill, flag: "add" });
     }
   });
 
@@ -1755,43 +1952,48 @@ function updateStatus(uname, bill, status, date) {
 function updateBillStatus(uname, bill, inv_status) {
   let updated = false;
 
-  console.log('bill status: ' + bill.status);
-
   let left = 0;
-  if (bill.status != '已结算' && bill.status != '已开票' && bill.status != '已回款') {
-    let state_str = '';
+  if (
+    bill.status != "已结算" &&
+    bill.status != "已开票" &&
+    bill.status != "已回款"
+  ) {
+    let state_str = "";
     if (bill.block_num > 0) {
       left = bill.block_num - bill.left_num;
-      state_str = '已配发' + left + '块';
+      state_str = "已配发" + left + "块";
     } else {
       left = Math.abs(bill.total_weight - bill.left_num);
-      state_str = '已配发重量' + utils.toFixedStr(left, 3);
+      state_str = "已配发重量" + utils.toFixedStr(left, 3);
     }
 
-    if (bill.left_num == 0) { // == 0
-      if (inv_status === '已配发') {
-        updated = updateStatus(uname, bill, '已配发', new Date());
+    if (bill.left_num == 0) {
+      // == 0
+      if (inv_status === "已配发") {
+        updated = updateStatus(uname, bill, "已配发", new Date());
       } else {
-        if (bill.status != '待配发') {
+        if (bill.status != "待配发") {
           updated = true;
-          bill.status = '待配发';
+          bill.status = "待配发";
         }
       }
-    } else if (left < EPSILON) { // left === 0) {
-      if (bill.status != '新建') {
-        updated = updateStatus('', bill, '新建', null);
+    } else if (left < EPSILON) {
+      // left === 0) {
+      if (bill.status != "新建") {
+        updated = updateStatus("", bill, "新建", null);
         bill.collection_price = 0;
       } else {
         console.log("left = " + left + ", status = " + bill.status);
       }
-    } else if (left > 0) { // left > 0) {
+    } else if (left > 0) {
+      // left > 0) {
       if (bill.status != state_str) {
         updated = updateStatus(uname, bill, state_str, new Date());
       }
     } else {
       console.log("something is wrong!!!");
     }
-  } else if (bill.status == '已结算') {
+  } else if (bill.status == "已结算") {
     if (bill.block_num > 0) {
       left = bill.block_num - bill.left_num;
     } else {
@@ -1799,7 +2001,7 @@ function updateBillStatus(uname, bill, inv_status) {
     }
 
     if (left < EPSILON) {
-      updated = updateStatus('', bill, '新建', null);
+      updated = updateStatus("", bill, "新建", null);
       bill.collection_price = 0;
     } else {
       console.log("settled: something is wrong!");
@@ -1819,7 +2021,7 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
     veh_ves_price: 0,
     ship_to: inv.ship_to,
     ship_from: inv.ship_from,
-    vehicles: inv_bill.vehicles.slice(0)
+    vehicles: inv_bill.vehicles.slice(0),
   };
 
   obj.vehicles.forEach(function (vehs) {
@@ -1830,7 +2032,10 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
     var found = false;
     for (var i = 0; i < db_bill.invoices.length; ++i) {
       var db_inv = db_bill.invoices[i];
-      if (db_inv.inv_no === inv.waybill_no && db_inv.veh_ves_name === inv.vehicle_vessel_name) {
+      if (
+        db_inv.inv_no === inv.waybill_no &&
+        db_inv.veh_ves_name === inv.vehicle_vessel_name
+      ) {
         db_inv.num = inv_bill.num;
         db_inv.weight = utils.toFixedNumber(inv_bill.weight, 3);
         db_inv.ship_to = inv.ship_to;
@@ -1854,7 +2059,7 @@ function modifyInvBill(dbBill, bill, waybillNo) {
   if (dbBill.block_num > 0) {
     dbBill.left_num += bill.old_num - bill.num;
   } else {
-    dbBill.left_num += (bill.old_weight - bill.weight);
+    dbBill.left_num += bill.old_weight - bill.weight;
     dbBill.left_num = utils.toFixedNumber(dbBill.left_num, 3);
   }
 
@@ -1864,7 +2069,9 @@ function modifyInvBill(dbBill, bill, waybillNo) {
         dbBill.invoices[i].num = bill.num;
         dbBill.invoices[i].weight = bill.weight;
         dbBill.invoices[i].vehicles = bill.vehicles.slice(0);
-        dbBill.invoices[i].vehicles.forEach(function (veh) { veh.veh_price = 0 });
+        dbBill.invoices[i].vehicles.forEach(function (veh) {
+          veh.veh_price = 0;
+        });
         break;
       }
     }
@@ -1882,7 +2089,7 @@ function removeInvBill(dbBill, bill, waybillNo) {
   }
 
   let invs = [];
-  dbBill.invoices.forEach(inv => {
+  dbBill.invoices.forEach((inv) => {
     if (inv.inv_no !== waybillNo) {
       invs.push(inv);
     }
@@ -1904,7 +2111,7 @@ async function assignInvoice(dbInv, inv, state) {
   dbInv.ship_to = inv.ship_to;
   dbInv.ship_from = inv.ship_from;
   dbInv.state = state;
-  dbInv.bills = [];// inv.bills.slice(0);
+  dbInv.bills = []; // inv.bills.slice(0);
 
   let totalWeight = 0;
   for (let bill of inv.bills) {
@@ -1916,16 +2123,16 @@ async function assignInvoice(dbInv, inv, state) {
       } else {
         w = bill.weight;
       }
-      totalWeight += w
+      totalWeight += w;
 
       if (w > 0) {
-        dbInv.bills.push(bill)
+        dbInv.bills.push(bill);
       }
     }
   }
   if (!areFloatsEqual(totalWeight, dbInv.total_weight)) {
-    console.warn('waybill weight 不一致!', totalWeight, dbInv.total_weight)
-    dbInv.total_weight = totalWeight
+    console.warn("waybill weight 不一致!", totalWeight, dbInv.total_weight);
+    dbInv.total_weight = totalWeight;
   }
 }
 
@@ -1939,10 +2146,9 @@ function getDeltaWeight(leftNum, prevLeftNum, blockNum, weight) {
 
 const updateWaybill = async function (res, dbInv, new_inv, userId) {
   let state = dbInv.state === "已配发" ? "已配发" : new_inv.state;
-  let shipUpdated = (dbInv.ship_to !== new_inv.ship_to) || (dbInv.ship_from !== new_inv.ship_from);
+  let shipUpdated =
+    dbInv.ship_to !== new_inv.ship_to || dbInv.ship_from !== new_inv.ship_from;
   let allBills = getChangedBills(dbInv, new_inv);
-
-  // console.log('all Bills>>>', allBills)
 
   let savedBills = [];
   let savedPlans = [];
@@ -1951,14 +2157,11 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
     if (dbBill) {
       let prevLeftNum = dbBill.left_num;
       let updated = true;
-      if (bill.flag === 'modify') {
-        // console.log('>>>modify>>>', bill);
+      if (bill.flag === "modify") {
         dbBill = modifyInvBill(dbBill, bill, new_inv.waybill_no);
-      } else if (bill.flag === 'remove') {
-        // console.log('>>>remove>>>', bill);
+      } else if (bill.flag === "remove") {
         dbBill = removeInvBill(dbBill, bill, new_inv.waybill_no);
-      } else if (bill.flag === 'add') {
-        // console.log('>>>add>>>', bill);
+      } else if (bill.flag === "add") {
         if (dbBill.block_num > 0) {
           dbBill.left_num -= bill.num;
         } else {
@@ -1967,7 +2170,6 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
         }
         addInvoiceToBill(dbBill, new_inv, bill);
       } else {
-        // console.log('>>>same>>>', bill);
         updated = false;
       }
 
@@ -1984,11 +2186,27 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
 
       if (updated || shipUpdated || ubs) {
         if (Math.abs(prevLeftNum - dbBill.left_num) > EPSILON) {
-          let plan = await OrderPlan.findOne({ order_no: dbBill.order_no }).exec();
+          let plan = await OrderPlan.findOne({
+            order_no: dbBill.order_no,
+          }).exec();
           if (plan) {
-            plan.left_weight += getDeltaWeight(dbBill.left_num, prevLeftNum, dbBill.left_num, dbBill.weight);
+            plan.left_weight += getDeltaWeight(
+              dbBill.left_num,
+              prevLeftNum,
+              dbBill.left_num,
+              dbBill.weight,
+            );
             if (plan.left_weight < 0) {
-              return res.end(JSON.stringify({ ok: false, response: '[' + dbBill.order_no + ']修改运单后，订单计划的剩余量小于零:' + plan.left_weight }));
+              return res.end(
+                JSON.stringify({
+                  ok: false,
+                  response:
+                    "[" +
+                    dbBill.order_no +
+                    "]修改运单后，订单计划的剩余量小于零:" +
+                    plan.left_weight,
+                }),
+              );
             } else {
               if (plan.left_weight > EPSILON) {
                 plan.status = 0;
@@ -2000,7 +2218,7 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
               savedPlans.push(plan);
             }
           } else {
-            console.log('no plan:' + dbBill.order_no);
+            console.log("no plan:" + dbBill.order_no);
           }
         }
 
@@ -2011,7 +2229,12 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
 
   await assignInvoice(dbInv, new_inv, state);
 
-  let allInnerNo = utils.getAllList(true, new_inv.bills, "vehicles", "inner_waybill_no");
+  let allInnerNo = utils.getAllList(
+    true,
+    new_inv.bills,
+    "vehicles",
+    "inner_waybill_no",
+  );
   if (allInnerNo.length) {
     if (isExist(dbInv.inner_settle) && !isEmpty(dbInv.inner_settle)) {
       let len = dbInv.inner_settle.length;
@@ -2033,14 +2256,29 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
         }
       }
       if (!found) {
-        dbInv.inner_settle.push({ inner_waybill_no: innerNo, state: '未结算', price: 0, date: null, unship_date: null, delay_day: 0, charge_cash: 0, charge_oil: 0, receipt: 0, remark: '' });
+        dbInv.inner_settle.push({
+          inner_waybill_no: innerNo,
+          state: "未结算",
+          price: 0,
+          date: null,
+          unship_date: null,
+          delay_day: 0,
+          charge_cash: 0,
+          charge_oil: 0,
+          receipt: 0,
+          remark: "",
+        });
       }
-    })
+    });
   }
 
-  for (let b of savedBills) { await b.save({ optimisticConcurrency: false }) }
+  for (let b of savedBills) {
+    await b.save({ optimisticConcurrency: false });
+  }
 
-  for (let p of savedPlans) { await p.save() }
+  for (let p of savedPlans) {
+    await p.save();
+  }
 
   await dbInv.save({ optimisticConcurrency: false });
 
@@ -2048,23 +2286,29 @@ const updateWaybill = async function (res, dbInv, new_inv, userId) {
 };
 
 function buildInnerSettleData(invoice) {
-  var allInnerNo = utils.getAllList(true, invoice.bills, "vehicles", "inner_waybill_no");
+  var allInnerNo = utils.getAllList(
+    true,
+    invoice.bills,
+    "vehicles",
+    "inner_waybill_no",
+  );
   if (allInnerNo.length) {
     if (!isExist(invoice.inner_settle) || isEmpty(invoice.inner_settle)) {
       invoice.inner_settle = [];
       allInnerNo.forEach(function (innerNo) {
         invoice.inner_settle.push({
           inner_waybill_no: innerNo,
-          state: '未结算',
+          state: "未结算",
           price: 0,
           date: null,
           unship_date: null,
           delay_day: 0,
           charge_cash: 0,
           charge_oil: 0,
-          receipt: 0, remark: ''
+          receipt: 0,
+          remark: "",
         });
-      })
+      });
     }
   }
 }
@@ -2072,7 +2316,7 @@ function buildInnerSettleData(invoice) {
 let saveWaybill = async function (res, invoice, userId) {
   buildInnerSettleData(invoice);
 
-  let totalWeight = 0
+  let totalWeight = 0;
   let order = {};
   let savedBills = [];
   for (let i = 0; i < invoice.bills.length; ++i) {
@@ -2102,7 +2346,7 @@ let saveWaybill = async function (res, invoice, userId) {
 
       savedBills.push(dbBill);
     } else {
-      console.log('cannot find bill: id = ' + bill.bill_id);
+      console.log("cannot find bill: id = " + bill.bill_id);
     }
   }
 
@@ -2114,7 +2358,16 @@ let saveWaybill = async function (res, invoice, userId) {
       let delta = plan.left_weight - order[orderNo];
       if (delta < 0 && Math.abs(delta) > EPSILON) {
         ok = false;
-        res.end(JSON.stringify({ ok: ok, response: '订单计划的剩余量' + plan.left_weight + '小于要配发的重量' + order[orderNo] }));
+        res.end(
+          JSON.stringify({
+            ok: ok,
+            response:
+              "订单计划的剩余量" +
+              plan.left_weight +
+              "小于要配发的重量" +
+              order[orderNo],
+          }),
+        );
         break;
       } else {
         plan.left_weight -= order[orderNo];
@@ -2127,7 +2380,7 @@ let saveWaybill = async function (res, invoice, userId) {
         savedPlans.push(plan);
       }
     } else {
-      console.log('save waybill no plan: ' + orderNo);
+      console.log("save waybill no plan: " + orderNo);
     }
   }
 
@@ -2141,8 +2394,8 @@ let saveWaybill = async function (res, invoice, userId) {
     }
 
     if (!areFloatsEqual(totalWeight, invoice.total_weight)) {
-      console.warn('waybill weight 不一致!', totalWeight, invoice.total_weight)
-      invoice.total_weight = totalWeight
+      console.warn("waybill weight 不一致!", totalWeight, invoice.total_weight);
+      invoice.total_weight = totalWeight;
     }
 
     await invoice.save();
@@ -2169,21 +2422,25 @@ function makeInvoiceData(inv, userId) {
     username: inv.username,
     shipper: userId,
     state: inv.state,
-    selfOwned: inv.selfOwned
+    selfOwned: inv.selfOwned,
   };
 }
 
 exports.postBuildInvoice = async function (req, res) {
   try {
     let data = makeInvoiceData(req.body, req.user.userid);
-    let dbInv = await Invoice.findOne({ waybill_no: req.body.waybill_no }).exec();
+    let dbInv = await Invoice.findOne({
+      waybill_no: req.body.waybill_no,
+    }).exec();
     if (!dbInv) {
       await saveWaybill(res, new Invoice(data), req.user.userid);
     } else {
       await updateWaybill(res, dbInv, data, req.user.userid);
     }
   } catch (e) {
-    res.end(JSON.stringify({ ok: false, response: '数据库操作错!' + e.toString() }));
+    res.end(
+      JSON.stringify({ ok: false, response: "数据库操作错!" + e.toString() }),
+    );
   }
 };
 
@@ -2198,7 +2455,7 @@ async function queryInvoices(queryObj, res) {
         query.limit(2000);
       }
 
-      const invoices = await query.sort({ waybill_no: 'asc' }).lean().exec();
+      const invoices = await query.sort({ waybill_no: "asc" }).lean().exec();
       if (invoices.length) {
         var ids = [];
         var list = [];
@@ -2206,29 +2463,41 @@ async function queryInvoices(queryObj, res) {
           list.push(inv.waybill_no);
           inv.bills.forEach(function (bill) {
             pushArr(ids, bill.bill_id);
-          })
+          });
         });
 
-        const bills = await Bill.find({ _id: { $in: ids } }).lean().exec();
-        res.end(JSON.stringify({ ok: true, bills: bills, invoices: invoices, targetData: buildTargetData(list), number: count }));
+        const bills = await Bill.find({ _id: { $in: ids } })
+          .lean()
+          .exec();
+        res.end(
+          JSON.stringify({
+            ok: true,
+            bills: bills,
+            invoices: invoices,
+            targetData: buildTargetData(list),
+            number: count,
+          }),
+        );
       } else {
         res.end(JSON.stringify({ ok: false, number: 0 }));
       }
     }
   } catch (err) {
-    res.end(JSON.stringify({ ok: false, number: 0, response: 'Error: ' + err }));
+    res.end(
+      JSON.stringify({ ok: false, number: 0, response: "Error: " + err }),
+    );
   }
 }
 
 exports.getInvoicesWithCondition = async function (req, res) {
   var query = req.query;
   var q = JSON.parse(query.q);
-  if (query.isNeedAnalysis == 'true') {
+  if (query.isNeedAnalysis == "true") {
     var obj = getQueryFromNodes(q, query.field);
     if (Object.keys(obj).length > 0) {
       await queryInvoices(obj, res);
     } else {
-      res.end(JSON.stringify({ ok: false, response: '查询条件为空!' }));
+      res.end(JSON.stringify({ ok: false, response: "查询条件为空!" }));
     }
   } else {
     await queryInvoices(q, res);
@@ -2236,7 +2505,7 @@ exports.getInvoicesWithCondition = async function (req, res) {
 };
 
 exports.getWaybillByNo = async function (req, res) {
-  var reg = new RegExp(req.query.q, 'gi');
+  var reg = new RegExp(req.query.q, "gi");
   var obj = { waybill_no: { $regex: reg } };
   await queryInvoices(obj, res);
 };
@@ -2246,7 +2515,7 @@ function buildTargetData(list) {
   list.forEach(function (item, index) {
     target.push({
       id: index,
-      text: item
+      text: item,
     });
   });
 
@@ -2254,38 +2523,42 @@ function buildTargetData(list) {
 }
 
 exports.distributeInvoice = async function (req, res) {
-  if (!hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) && !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
+  if (
+    !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&
+    !hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)
+  ) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await getDictDataAndRender('invoice', false, false, false, function (data) {
-      res.render('bill/distribute_invoice', {
-        title: '运单管理',
-        curr_page: '运单管理-配发货确认或修改',
-        curr_page_name: '修改/确认',
+    res.render("404");
+  } else {
+    await getDictDataAndRender("invoice", false, false, false, function (data) {
+      res.render("bill/distribute_invoice", {
+        title: "运单管理",
+        curr_page: "运单管理-配发货确认或修改",
+        curr_page_name: "修改/确认",
         bUseJstree: true,
         dDataDict: data,
         scripts: [
-          '/js/lib/jstree.min.js',
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/inv_utils_02.js',
-          '/js/invoice_mgt_01.js'
-        ]
+          "/js/lib/jstree.min.js",
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/inv_utils_02.js",
+          "/js/invoice_mgt_01.js",
+        ],
       });
-    })
+    });
   }
 };
 
 exports.postDistributeInvoice = async function (req, res) {
   try {
-    let dbInv = await Invoice.findOne({ waybill_no: req.body.waybill_no }).exec();
+    let dbInv = await Invoice.findOne({
+      waybill_no: req.body.waybill_no,
+    }).exec();
     if (dbInv) {
       await updateWaybill(res, dbInv, req.body, req.user.userid);
     } else {
-      res.end(JSON.stringify({ ok: false, response: 'Not Found!' }));
+      res.end(JSON.stringify({ ok: false, response: "Not Found!" }));
     }
   } catch (e) {
     res.end(JSON.stringify({ ok: false, response: e.toString() }));
@@ -2295,35 +2568,36 @@ exports.postDistributeInvoice = async function (req, res) {
 exports.deleteInvoice = async function (req, res) {
   if (!hasPermission(req.user.privilege, PERMISSIONS.STATISTICS)) {
     res.status(404);
-    res.render('404');
-  }
-  else {
-    await getDictDataAndRender('invoice', false, false, false, function (data) {
-      res.render('bill/delete_invoice', {
-        title: '运单管理',
-        curr_page: '运单管理-运单删除',
-        curr_page_name: '删除',
+    res.render("404");
+  } else {
+    await getDictDataAndRender("invoice", false, false, false, function (data) {
+      res.render("bill/delete_invoice", {
+        title: "运单管理",
+        curr_page: "运单管理-运单删除",
+        curr_page_name: "删除",
         dDataDict: data,
         bUseJstree: true,
         bDeleteInv: true,
         scripts: [
-          '/js/lib/jstree.min.js',
-          '/js/plugins/select2/select2.min.js',
-          '/js/plugins/select2/select2_locale_zh-CN.js',
-          '/js/lib/bootstrap-multiselect.js',
-          '/js/inv_utils_02.js',
-          '/js/invoice_mgt_01.js'
-        ]
+          "/js/lib/jstree.min.js",
+          "/js/plugins/select2/select2.min.js",
+          "/js/plugins/select2/select2_locale_zh-CN.js",
+          "/js/lib/bootstrap-multiselect.js",
+          "/js/inv_utils_02.js",
+          "/js/invoice_mgt_01.js",
+        ],
       });
-    })
+    });
   }
 };
 
 exports.postDeleteInvoice = async function (req, res) {
   let waybill = req.body;
-  let invoice = await Invoice.findOne({ waybill_no: waybill.waybill_no }).exec();
+  let invoice = await Invoice.findOne({
+    waybill_no: waybill.waybill_no,
+  }).exec();
   if (!invoice) {
-    res.end(JSON.stringify({ ok: false, response: 'Not Found!' }));
+    res.end(JSON.stringify({ ok: false, response: "Not Found!" }));
   } else {
     try {
       for (let wbill of waybill.bills) {
@@ -2348,7 +2622,9 @@ exports.postDeleteInvoice = async function (req, res) {
             }
           }
 
-          let plan = await OrderPlan.findOne({ order_no: bill.order_no }).exec();
+          let plan = await OrderPlan.findOne({
+            order_no: bill.order_no,
+          }).exec();
           if (plan) {
             if (plan.status === 1) {
               plan.status = 0;
@@ -2371,63 +2647,63 @@ exports.postDeleteInvoice = async function (req, res) {
   }
 };
 
-
 exports.getInvoiceReport = async function (req, res) {
   let destination = await Destination.find({}).exec();
   let company = await Company.find({}).exec();
   let vehInfo = await Vehicle.find({}).exec();
   const tenantCompanyName = req.tenant
-    ? (req.tenant.fullName || req.tenant.name || '')
-    : '';
-  res.render('statistics/invoice_report', {
-    title: '报表和打印',
-    curr_page: '运单报表',
-    curr_page_name: '报表',
+    ? req.tenant.fullName || req.tenant.name || ""
+    : "";
+  res.render("statistics/invoice_report", {
+    title: "报表和打印",
+    curr_page: "运单报表",
+    curr_page_name: "报表",
     bUseJstree: true,
     bTableSort: true,
     tenantCompanyName,
     dDataDict: {
       company,
       destination,
-      vehInfo
+      vehInfo,
     },
     scripts: [
-      '/js/lib/jstree.min.js',
-      '/js/plugins/select2/select2.min.js',
-      '/js/plugins/select2/select2_locale_zh-CN.js',
-      '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-      '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-      '/js/inv_utils_02.js',
-      '/js/invoice_mgt_01.js']
+      "/js/lib/jstree.min.js",
+      "/js/plugins/select2/select2.min.js",
+      "/js/plugins/select2/select2_locale_zh-CN.js",
+      "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+      "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+      "/js/inv_utils_02.js",
+      "/js/invoice_mgt_01.js",
+    ],
   });
 };
 
 exports.getIntegratedQuery = async function (req, res) {
-  await getDictDataAndRender('invoice', false, false, false, function (data) {
-    res.render('statistics/integ_query', {
-      title: '统计和报表',
-      curr_page: '综合查询',
-      curr_page_name: '查询',
+  await getDictDataAndRender("invoice", false, false, false, function (data) {
+    res.render("statistics/integ_query", {
+      title: "统计和报表",
+      curr_page: "综合查询",
+      curr_page_name: "查询",
       bMultiSelect: true,
       bTableSort: true,
       dData: data,
       scripts: [
-        '/js/lib/bootstrap-multiselect.js',
-        '/js/plugins/select2/select2.min.js',
-        '/js/plugins/select2/select2_locale_zh-CN.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.min.js',
-        '/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js',
-        'js/integ_query.js'
-      ]
+        "/js/lib/bootstrap-multiselect.js",
+        "/js/plugins/select2/select2.min.js",
+        "/js/plugins/select2/select2_locale_zh-CN.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.min.js",
+        "/js/plugins/tablesorter/jquery.tablesorter.widgets.min.js",
+        "js/integ_query.js",
+      ],
     });
-  })
+  });
 };
 
 /////////////////////////////////////////////////////////////////
 exports.postInitSettleFlag = async function (req, res) {
-  let inv = await Invoice.findOne({ waybill_no: '01201810080016002' }).exec();
+  let inv = await Invoice.findOne({ waybill_no: "01201810080016002" }).exec();
   let ids = [];
-  inv.bills.forEach(vb => {
+  inv.bills.forEach((vb) => {
     if (!ids.includes(vb.bill_id)) {
       ids.push(vb.bill_id);
     }
@@ -2435,9 +2711,8 @@ exports.postInitSettleFlag = async function (req, res) {
 
   let bills = await Bill.find({ _id: { $in: ids } }).exec();
   for (let b of bills) {
-    b.invoices.forEach(binv => {
+    b.invoices.forEach((binv) => {
       if (binv.inv_no === v.waybill_no) {
-        console.log(binv.num + ", weight = " + binv.weight > 0 ? binv.weight : binv.num * b.weight);
         binv.inv_settle_flag = 0;
       }
     });
@@ -2452,7 +2727,7 @@ exports.postInvoiceChargeData = async function (req, res) {
   let invs = await Invoice.find({}).exec();
   for (let inv of invs) {
     if (inv.advance_charge > 0) {
-      if (inv.advance_charge_mode === '现金') {
+      if (inv.advance_charge_mode === "现金") {
         inv.charge_cash = inv.advance_charge;
       } else {
         inv.charge_oil = inv.advance_charge;
@@ -2475,8 +2750,9 @@ exports.updateStatus1 = async function (req, res) {
   for (let plan of plans) {
     let bills = await Bill.find({ order_no: plan.order_no }).exec();
     if (bills.length > 0) {
-      let w = 0, left = 0;
-      bills.forEach(b => {
+      let w = 0,
+        left = 0;
+      bills.forEach((b) => {
         w += b.total_weight;
         if (b.block_num > 0) {
           left += b.left_num * b.weight;
@@ -2494,7 +2770,13 @@ exports.updateStatus1 = async function (req, res) {
       }
 
       if (w > plan.order_weight) {
-        console.log(plan.order_no + ": total weight > order weight " + w.toFixed(3) + " > " + plan.order_weight);
+        console.log(
+          plan.order_no +
+            ": total weight > order weight " +
+            w.toFixed(3) +
+            " > " +
+            plan.order_weight,
+        );
       }
     }
 

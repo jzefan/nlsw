@@ -883,16 +883,16 @@ function isBillHighlighted(bill: InvoiceBill) {
     <template #actions>
       <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto">
         <UiButton size="sm" :disabled="loading" @click="createNewInvoice">
-          <Plus class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">新建运单</span>
+          <Plus class="w-4 h-4 mr-1" />
+          新建运单
         </UiButton>
         <UiButton variant="outline" size="sm" :disabled="loading" @click="openInvoiceList">
-          <FolderOpen class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">修改运单</span>
+          <FolderOpen class="w-4 h-4 mr-1" />
+          修改运单
         </UiButton>
         <UiButton variant="outline" size="sm" :disabled="!waybillNo" @click="copyLastOperation">
-          <Copy class="w-4 h-4 sm:mr-1" />
-          <span class="hidden sm:inline">复制上次操作</span>
+          <Copy class="w-4 h-4 mr-1" />
+          复制上次操作
         </UiButton>
         <!-- 状态提示 -->
         <div v-if="waybillNo" class="flex items-center gap-2 sm:gap-3 ml-2">
@@ -909,7 +909,7 @@ function isBillHighlighted(bill: InvoiceBill) {
           </div>
           <div v-if="hasUnsavedChanges" class="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
             <span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-            <span class="hidden sm:inline">未保存</span>
+            未保存
           </div>
         </div>
       </div>
@@ -1171,8 +1171,7 @@ function isBillHighlighted(bill: InvoiceBill) {
           </UiButton>
           <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
             <Send class="w-4 h-4 mr-1" />
-            <span class="hidden sm:inline">保存并确定配发</span>
-            <span class="sm:hidden">确定配发</span>
+            保存并确定配发
           </UiButton>
         </div>
       </div>

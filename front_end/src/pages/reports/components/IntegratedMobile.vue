@@ -1,33 +1,25 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronDown, ChevronUp, Download, Filter, FileSpreadsheet, RefreshCcw, Search, X, ArrowRight } from 'lucide-vue-next'
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Filter,
+  FileSpreadsheet,
+  RefreshCcw,
+  Search,
+  X,
+  ArrowRight,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { DatePicker } from '@/components/ui/date-picker'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import type { IntegratedQueryBill } from '@/services/api/report.api'
 
@@ -221,142 +213,129 @@ function getSendWeight(bill: IntegratedQueryBill) {
       <div class="flex items-center justify-between px-4 py-2.5">
         <h1 class="text-base font-semibold">综合查询</h1>
         <div class="flex items-center gap-1.5">
-          <TooltipProvider :delay-duration="300">
-            <Sheet v-model:open="showFilterSheet">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <SheetTrigger as-child>
-                    <Button size="icon" variant="outline" class="relative h-8 w-8">
-                      <Filter class="h-4 w-4" />
-                      <Badge
-                        v-if="activeFilterCount > 0"
-                        class="absolute -top-1.5 -right-1.5 h-4 min-w-4 p-0 justify-center text-[10px]"
-                      >{{ activeFilterCount }}</Badge>
-                    </Button>
-                  </SheetTrigger>
-                </TooltipTrigger>
-                <TooltipContent>筛选</TooltipContent>
-              </Tooltip>
+          <Sheet v-model:open="showFilterSheet">
+            <SheetTrigger as-child>
+              <Button size="sm" variant="outline" class="relative h-8">
+                <Filter class="h-4 w-4 mr-1" />
+                筛选
+                <Badge
+                  v-if="activeFilterCount > 0"
+                  class="absolute -top-1.5 -right-1.5 h-4 min-w-4 p-0 justify-center text-[10px]"
+                  >{{ activeFilterCount }}</Badge
+                >
+              </Button>
+            </SheetTrigger>
 
-              <SheetContent side="bottom" class="h-[80vh] overflow-y-auto">
-                <SheetHeader class="mb-4">
-                  <SheetTitle>筛选条件</SheetTitle>
-                </SheetHeader>
+            <SheetContent side="bottom" class="h-[80vh] overflow-y-auto">
+              <SheetHeader class="mb-4">
+                <SheetTitle>筛选条件</SheetTitle>
+              </SheetHeader>
 
-                <div class="grid grid-cols-2 gap-3">
-                  <!-- 行1：开单名称 | 发货单位 -->
-                  <SearchableCombobox
-                    v-model="localFilter.billingName"
-                    :search-fn="searchBillingNames"
-                    placeholder="开单名称"
-                  />
-                  <Select v-model="localFilter.customer" :disabled="localShowNotSent || customers.length === 0">
-                    <SelectTrigger class="w-full">
-                      <SelectValue placeholder="发货单位" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="c in customers" :key="c" :value="c">{{ c }}</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div class="grid grid-cols-2 gap-3">
+                <!-- 行1：开单名称 | 发货单位 -->
+                <SearchableCombobox
+                  v-model="localFilter.billingName"
+                  :search-fn="searchBillingNames"
+                  placeholder="开单名称"
+                />
+                <Select v-model="localFilter.customer" :disabled="localShowNotSent || customers.length === 0">
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="发货单位" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="c in customers" :key="c" :value="c">{{ c }}</SelectItem>
+                  </SelectContent>
+                </Select>
 
-                  <!-- 行2：订单号 | 提单号 -->
-                  <Input v-model="localFilter.orderNo" placeholder="订单号" />
-                  <Input v-model="localFilter.billNo" placeholder="提单号" />
+                <!-- 行2：订单号 | 提单号 -->
+                <Input v-model="localFilter.orderNo" placeholder="订单号" />
+                <Input v-model="localFilter.billNo" placeholder="提单号" />
 
-                  <!-- 行3：车船号 | 运输方式 -->
-                  <SearchableCombobox
-                    v-model="localFilter.vehicle"
-                    :search-fn="searchVehiclesFn"
-                    placeholder="车船号"
-                    :disabled="localShowNotSent"
-                  />
-                  <Select v-model="localFilter.vehicleMode" :disabled="localShowNotSent">
-                    <SelectTrigger class="w-full">
-                      <SelectValue placeholder="运输方式" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="m in vehicleModes" :key="m" :value="m">{{ m }}</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <!-- 行3：车船号 | 运输方式 -->
+                <SearchableCombobox
+                  v-model="localFilter.vehicle"
+                  :search-fn="searchVehiclesFn"
+                  placeholder="车船号"
+                  :disabled="localShowNotSent"
+                />
+                <Select v-model="localFilter.vehicleMode" :disabled="localShowNotSent">
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="运输方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="m in vehicleModes" :key="m" :value="m">{{ m }}</SelectItem>
+                  </SelectContent>
+                </Select>
 
-                  <!-- 行4：目的地 | 起始地 -->
-                  <SearchableCombobox
-                    v-model="localFilter.destination"
-                    :search-fn="searchDestinationsFn"
-                    placeholder="目的地"
-                    :disabled="localShowNotSent"
-                  />
-                  <SearchableCombobox
-                    v-model="localFilter.origin"
-                    :search-fn="searchOriginsFn"
-                    placeholder="起始地"
-                    :disabled="localShowNotSent"
-                  />
+                <!-- 行4：目的地 | 起始地 -->
+                <SearchableCombobox
+                  v-model="localFilter.destination"
+                  :search-fn="searchDestinationsFn"
+                  placeholder="目的地"
+                  :disabled="localShowNotSent"
+                />
+                <SearchableCombobox
+                  v-model="localFilter.origin"
+                  :search-fn="searchOriginsFn"
+                  placeholder="起始地"
+                  :disabled="localShowNotSent"
+                />
 
-                  <!-- 行5：开始日期 | 结束日期 -->
-                  <DatePicker v-model="localFilter.startDate" placeholder="开始日期" :disabled="localShowNotSent" />
-                  <DatePicker v-model="localFilter.endDate" placeholder="结束日期" :disabled="localShowNotSent" />
+                <!-- 行5：开始日期 | 结束日期 -->
+                <DatePicker v-model="localFilter.startDate" placeholder="开始日期" :disabled="localShowNotSent" />
+                <DatePicker v-model="localFilter.endDate" placeholder="结束日期" :disabled="localShowNotSent" />
 
-                  <!-- 行6：复选框 -->
-                  <div class="flex items-center gap-2">
-                    <Checkbox id="m-showNotSent" v-model="localShowNotSent" />
-                    <Label for="m-showNotSent" class="text-sm">未配发</Label>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <Checkbox id="m-showDestForVessel" v-model="localShowDestForVessel" :disabled="localShowNotSent" />
-                    <Label for="m-showDestForVessel" class="text-sm">目的地为船</Label>
-                  </div>
-
-                  <!-- 底部操作按钮 -->
-                  <Button variant="outline" @click="resetFilter">
-                    <RefreshCcw class="w-4 h-4 mr-1" />
-                    重置
-                  </Button>
-                  <Button @click="applyFilter" :disabled="loading">
-                    <Search class="w-4 h-4 mr-1" />
-                    查询
-                  </Button>
+                <!-- 行6：复选框 -->
+                <div class="flex items-center gap-2">
+                  <Checkbox id="m-showNotSent" v-model="localShowNotSent" />
+                  <Label for="m-showNotSent" class="text-sm">未配发</Label>
                 </div>
-              </SheetContent>
-            </Sheet>
+                <div class="flex items-center gap-2">
+                  <Checkbox id="m-showDestForVessel" v-model="localShowDestForVessel" :disabled="localShowNotSent" />
+                  <Label for="m-showDestForVessel" class="text-sm">目的地为船</Label>
+                </div>
 
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button size="icon" variant="outline" class="h-8 w-8" @click="emit('exportAccount')">
-                  <FileSpreadsheet class="h-4 w-4" />
+                <!-- 底部操作按钮 -->
+                <Button variant="outline" @click="resetFilter">
+                  <RefreshCcw class="w-4 h-4 mr-1" />
+                  重置
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>对账导出</TooltipContent>
-            </Tooltip>
+                <Button @click="applyFilter" :disabled="loading">
+                  <Search class="w-4 h-4 mr-1" />
+                  查询
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
 
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button size="icon" variant="outline" class="h-8 w-8" @click="emit('export')">
-                  <Download class="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>导出</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <Button size="sm" variant="outline" class="h-8" @click="emit('exportAccount')">
+            <FileSpreadsheet class="h-4 w-4 mr-1" />
+            对账
+          </Button>
+
+          <Button size="sm" variant="outline" class="h-8" @click="emit('export')">
+            <Download class="h-4 w-4 mr-1" />
+            导出
+          </Button>
         </div>
       </div>
 
       <!-- 汇总统计：grid-cols-3 指标卡片 -->
       <div class="grid grid-cols-3 border-t">
         <div class="flex flex-col items-center py-2 border-r">
-          <span class="text-[10px] text-muted-foreground">总条数</span>
+          <span class="text-[12px] text-muted-foreground">总条数</span>
           <span class="text-sm font-bold text-foreground">{{ total }}</span>
         </div>
         <div v-if="!showNotSent" class="flex flex-col items-center py-2 border-r">
-          <span class="text-[10px] text-muted-foreground">块数</span>
+          <span class="text-[12px] text-muted-foreground">块数</span>
           <span class="text-sm font-bold text-foreground">{{ totalNum }}</span>
         </div>
         <div v-else class="flex flex-col items-center py-2 border-r">
-          <span class="text-[10px] text-muted-foreground">块数</span>
+          <span class="text-[12px] text-muted-foreground">块数</span>
           <span class="text-sm font-bold text-muted-foreground">-</span>
         </div>
         <div class="flex flex-col items-center py-2">
-          <span class="text-[10px] text-muted-foreground">重量</span>
+          <span class="text-[12px] text-muted-foreground">重量</span>
           <span class="text-sm font-bold text-foreground">{{ totalWeight.toFixed(3) }}</span>
         </div>
       </div>
@@ -384,10 +363,7 @@ function getSendWeight(bill: IntegratedQueryBill) {
         class="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-slate-700"
       >
         <!-- 卡片摘要 -->
-        <div
-          class="px-3 py-2.5 cursor-pointer active:bg-gray-50 dark:active:bg-slate-700"
-          @click="toggleExpand(index)"
-        >
+        <div class="px-3 py-2.5 cursor-pointer active:bg-gray-50 dark:active:bg-slate-700" @click="toggleExpand(index)">
           <!-- 行1：状态 Badge + 提单号 + 展开箭头 -->
           <div class="flex items-center gap-2 mb-1.5">
             <Badge :class="getStatusStyle(bill.status)" class="text-[10px] shrink-0">{{ bill.status }}</Badge>
@@ -395,7 +371,10 @@ function getSendWeight(bill: IntegratedQueryBill) {
             <span v-if="getSettleStatus(bill)" class="text-[10px] ml-auto mr-1" :class="getSettleStatusColor(bill)">
               {{ bill.inv_settle_flag === 3 ? '已结' : '未结' }}
             </span>
-            <component :is="isExpanded(index) ? ChevronUp : ChevronDown" class="h-4 w-4 text-muted-foreground shrink-0" />
+            <component
+              :is="isExpanded(index) ? ChevronUp : ChevronDown"
+              class="h-4 w-4 text-muted-foreground shrink-0"
+            />
           </div>
 
           <!-- 行2：开单名称 -->

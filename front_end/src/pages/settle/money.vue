@@ -595,9 +595,21 @@ async function handleShowDetail() {
     :description="isSelfOwnedMode ? '自有车结算记录的回款管理' : '结算记录的回款管理'">
     <Tabs v-model="displayMode" class="w-full">
       <!-- Tabs 和操作按钮 -->
-      <div class="flex items-center justify-between mb-4">
-        <!-- 操作按钮组 -->
-        <div class="flex items-center gap-2">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+        <!-- Row 1: Tabs -->
+        <div class="flex items-center justify-between md:justify-start gap-2">
+          <TabsList>
+            <TabsTrigger value="ticket" class="md:w-[140px]">
+              未回款(已开票)
+            </TabsTrigger>
+            <TabsTrigger value="money" class="md:w-[140px]">
+              已回款
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <!-- Row 2: 操作按钮组 -->
+        <div class="flex items-center gap-2 flex-wrap">
           <!-- 未回款tab的操作按钮 -->
           <template v-if="displayMode === 'ticket'">
             <UiButton variant="outline" size="sm" :disabled="selectedSettles.length === 0 || loading" @click="handleReturnMoney">
@@ -631,22 +643,12 @@ async function handleShowDetail() {
             实收价格输入
           </UiButton>
         </div>
-
-        <!-- Tabs -->
-        <TabsList>
-          <TabsTrigger value="ticket" class="w-[140px]">
-            未回款(已开票)
-          </TabsTrigger>
-          <TabsTrigger value="money" class="w-[140px]">
-            已回款
-          </TabsTrigger>
-        </TabsList>
       </div>
 
       <TabsContent value="ticket" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
             <SearchableCombobox
               v-model="filterBillingName"
               :search-fn="searchFilterBillingNames"
@@ -696,15 +698,15 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
           <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
           <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
           <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
         </div>
 
-        <!-- 数据表格 -->
-        <div class="border rounded-lg overflow-hidden">
+        <!-- 数据表格（桌面端） -->
+        <div class="hidden md:block border rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-muted/80">
@@ -754,12 +756,12 @@ async function handleShowDetail() {
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td :colspan="displayMode === 'money' ? 14 : 12" class="p-8 text-center text-muted-foreground">
+                  <td colspan="12" class="p-8 text-center text-muted-foreground">
                     加载中...
                   </td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td :colspan="displayMode === 'money' ? 14 : 12" class="p-8 text-center text-muted-foreground">
+                  <td colspan="12" class="p-8 text-center text-muted-foreground">
                     没有数据
                   </td>
                 </tr>
@@ -823,13 +825,49 @@ async function handleShowDetail() {
             </table>
           </div>
         </div>
+
+        <!-- 移动端卡片列表 -->
+        <div class="md:hidden space-y-2">
+          <div v-if="loading" class="p-8 text-center text-muted-foreground">加载中...</div>
+          <div v-else-if="displaySettles.length === 0" class="p-8 text-center text-muted-foreground">没有数据</div>
+          <div
+            v-for="settle in pagedSettles"
+            v-else
+            :key="settle._id"
+            class="p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="isSelected(settle) ? 'bg-blue-50 border-blue-500' : 'hover:bg-muted/50'"
+            @click="toggleSettle(settle)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-medium text-sm">{{ settle.serial_number }}</span>
+              <span class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                {{ settle.status }}
+              </span>
+            </div>
+            <div class="text-sm text-muted-foreground space-y-0.5">
+              <div>{{ settle.billing_name }}</div>
+              <div class="flex justify-between">
+                <span>{{ settle.ship_to }}</span>
+                <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
+              </div>
+              <div class="flex justify-between font-medium text-foreground">
+                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
+                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span>实收: <span :class="settle.real_price && settle.real_price !== settle.price ? 'text-red-600 font-bold' : 'text-green-600'">¥{{ (settle.real_price || settle.price || 0).toFixed(2) }}</span></span>
+                <span>票号: {{ settle.ticket_no || '-' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </TabsContent>
 
       <!-- 已回款 Tab -->
       <TabsContent value="money" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
             <SearchableCombobox
               v-model="filterBillingName"
               :search-fn="searchFilterBillingNames"
@@ -879,15 +917,15 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground">记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span>
           <span class="text-muted-foreground">合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span>
           <span class="text-muted-foreground">重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span>
           <span class="text-muted-foreground">金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span>
         </div>
 
-        <!-- 数据表格 -->
-        <div class="border rounded-lg overflow-hidden">
+        <!-- 数据表格（桌面端） -->
+        <div class="hidden md:block border rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-muted/80">
@@ -943,12 +981,12 @@ async function handleShowDetail() {
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td :colspan="displayMode === 'money' ? 14 : 12" class="p-8 text-center text-muted-foreground">
+                  <td colspan="14" class="p-8 text-center text-muted-foreground">
                     加载中...
                   </td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td :colspan="displayMode === 'money' ? 14 : 12" class="p-8 text-center text-muted-foreground">
+                  <td colspan="14" class="p-8 text-center text-muted-foreground">
                     没有数据
                   </td>
                 </tr>
@@ -1018,13 +1056,50 @@ async function handleShowDetail() {
             </table>
           </div>
         </div>
+
+        <!-- 移动端卡片列表 -->
+        <div class="md:hidden space-y-2">
+          <div v-if="loading" class="p-8 text-center text-muted-foreground">加载中...</div>
+          <div v-else-if="displaySettles.length === 0" class="p-8 text-center text-muted-foreground">没有数据</div>
+          <div
+            v-for="settle in pagedSettles"
+            v-else
+            :key="settle._id"
+            class="p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="isSelected(settle) ? 'bg-blue-50 border-blue-500' : 'hover:bg-muted/50'"
+            @click="toggleSettle(settle)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-medium text-sm">{{ settle.serial_number }}</span>
+              <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                {{ settle.status }}
+              </span>
+            </div>
+            <div class="text-sm text-muted-foreground space-y-0.5">
+              <div>{{ settle.billing_name }}</div>
+              <div class="flex justify-between">
+                <span>{{ settle.ship_to }}</span>
+                <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
+              </div>
+              <div class="flex justify-between font-medium text-foreground">
+                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
+                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span>实收: <span :class="settle.real_price && settle.real_price !== settle.price ? 'text-red-600 font-bold' : 'text-green-600'">¥{{ (settle.real_price || settle.price || 0).toFixed(2) }}</span></span>
+                <span>回款: {{ settle.return_money_date ? dayjs(settle.return_money_date).format('MM-DD') : '-' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </TabsContent>
     </Tabs>
 
     <!-- 分页 -->
-    <div v-if="displaySettles.length > 0" class="flex items-center justify-between mt-4 px-2">
+    <div v-if="displaySettles.length > 0" class="flex flex-col md:flex-row items-center justify-between gap-2 mt-4 px-2">
       <div class="text-sm text-muted-foreground">
-        显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条
+        <span class="hidden md:inline">显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条</span>
+        <span class="md:hidden">{{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} / {{ displaySettles.length }}条</span>
       </div>
       <div class="flex items-center gap-2">
         <select v-model.number="pageSize" class="h-8 px-2 text-sm border rounded" @change="currentPage = 1">
@@ -1038,7 +1113,7 @@ async function handleShowDetail() {
         <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="currentPage--">
           上一页
         </UiButton>
-        <span class="text-sm">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <span class="text-sm">{{ currentPage }}/{{ totalPages }}</span>
         <UiButton variant="outline" size="sm" :disabled="currentPage >= totalPages" @click="currentPage++">
           下一页
         </UiButton>

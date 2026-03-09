@@ -72,7 +72,7 @@ exports.getPlans = async (req, res) => {
     const sentWeight = totalWeight - leftWeight;
 
     const plans = await OrderPlan.find(query)
-      .sort({ order_no: -1 }) // Default sort
+      .sort({ entry_time: -1 }) // 按录入时间降序
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();

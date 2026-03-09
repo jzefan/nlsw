@@ -25,15 +25,6 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       selfOwned,
     } = req.query;
 
-    // Debug logging
-    // console.log("[getInvoiceSettleVessel] Query params:", {
-    //   fSettledState,
-    //   fDate1,
-    //   fDate2,
-    //   tenantId: req.tenantId,
-    //   selfOwned,
-    // });
-
     // 构建聚合管道
     const pipeline = [];
 
@@ -83,12 +74,6 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     } else if (selfOwned === "0" || selfOwned === 0) {
       matchStage.selfOwned = { $ne: 1 };
     }
-
-    // Debug logging: show final match stage
-    console.log(
-      "[getInvoiceSettleVessel] Final matchStage:",
-      JSON.stringify(matchStage, null, 2),
-    );
 
     pipeline.push({ $match: matchStage });
 
@@ -188,6 +173,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     });
 
     const vehPersonMap = {};
+    const vehCategoryMap = {};
     if (vehSet.size > 0) {
       const vehQuery = { name: { $in: Array.from(vehSet) } };
       if (req.tenantId) {
@@ -195,7 +181,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       }
 
       const vehs = await Vehicle.find(vehQuery)
-        .select("name boss real_boss")
+        .select("name boss real_boss veh_category")
         .lean()
         .exec();
 
@@ -204,6 +190,9 @@ exports.getInvoiceSettleVessel = async (req, res) => {
           vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
         } else if (veh.boss) {
           vehPersonMap[veh.name] = veh.boss;
+        }
+        if (veh.veh_category) {
+          vehCategoryMap[veh.name] = veh.veh_category;
         }
       });
     }
@@ -234,7 +223,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       imageWaybills = await ReceiptImage.distinct("waybill_no", imgQuery);
     }
 
-    res.json({ ok: true, invs, vehPersonMap, imageWaybills });
+    res.json({ ok: true, invs, vehPersonMap, vehCategoryMap, imageWaybills });
   } catch (error) {
     console.error("查询失败:", error);
     res.status(500).json({ ok: false, message: "查询失败" });
@@ -931,6 +920,7 @@ exports.getVesselInitialData = async (req, res) => {
 
     // 查询车辆信息（只查询在运单中出现的车辆）
     const vehPersonMap = {};
+    const vehCategoryMap = {};
     const contactNameSet = new Set();
 
     if (vehList.length > 0) {
@@ -940,7 +930,7 @@ exports.getVesselInitialData = async (req, res) => {
       }
 
       const vehs = await Vehicle.find(vehQuery)
-        .select("name boss real_boss")
+        .select("name boss real_boss veh_category")
         .lean()
         .exec();
 
@@ -955,6 +945,9 @@ exports.getVesselInitialData = async (req, res) => {
         } else if (veh.boss) {
           contactNameSet.add(veh.boss);
           vehPersonMap[veh.name] = veh.boss;
+        }
+        if (veh.veh_category) {
+          vehCategoryMap[veh.name] = veh.veh_category;
         }
       });
     }
@@ -975,6 +968,7 @@ exports.getVesselInitialData = async (req, res) => {
       nameList: sortedNameList,
       destList: destList,
       vehPersonMap: vehPersonMap,
+      vehCategoryMap: vehCategoryMap,
     };
 
     res.json({ ok: true, options });

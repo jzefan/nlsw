@@ -661,7 +661,7 @@ async function handleShowDetail() {
       <TabsContent value="settle" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
             <SearchableCombobox
               v-model="filterBillingName"
               :search-fn="searchFilterBillingNames"
@@ -709,7 +709,7 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground"
             >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
           >
@@ -724,8 +724,8 @@ async function handleShowDetail() {
           >
         </div>
 
-        <!-- 数据表格 -->
-        <div class="border rounded-lg overflow-hidden">
+        <!-- 数据表格（桌面端） -->
+        <div class="hidden md:block border rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-muted/80">
@@ -812,6 +812,48 @@ async function handleShowDetail() {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- 移动端卡片列表 -->
+        <div class="md:hidden space-y-2">
+          <div v-if="loading" class="p-8 text-center text-muted-foreground">加载中...</div>
+          <div v-else-if="displaySettles.length === 0" class="p-8 text-center text-muted-foreground">没有数据</div>
+          <div
+            v-for="settle in pagedSettles"
+            v-else
+            :key="settle._id"
+            class="p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="isSelected(settle) ? 'bg-blue-50 border-blue-500' : 'hover:bg-muted/50'"
+            @click="toggleSettle(settle)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-medium text-sm">{{ settle.serial_number }}</span>
+              <span
+                class="px-2 py-0.5 rounded text-xs font-medium"
+                :class="{
+                  'bg-blue-100 text-blue-700': settle.status === '已结算',
+                  'bg-green-100 text-green-700': settle.status === '已开票',
+                  'bg-purple-100 text-purple-700': settle.status === '已回款',
+                }"
+              >
+                {{ settle.status }}
+              </span>
+            </div>
+            <div class="text-sm text-muted-foreground space-y-0.5">
+              <div>{{ settle.billing_name }}</div>
+              <div class="flex justify-between">
+                <span>{{ settle.ship_to }}</span>
+                <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
+              </div>
+              <div class="flex justify-between font-medium text-foreground">
+                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
+                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+              </div>
+              <div v-if="displayMode === 'ticket'" class="text-xs">
+                票号: {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
+              </div>
+            </div>
           </div>
         </div>
       </TabsContent>
@@ -820,7 +862,7 @@ async function handleShowDetail() {
       <TabsContent value="ticket" class="space-y-4">
         <!-- 过滤器 -->
         <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-[repeat(5,1fr)_80px] gap-2">
+          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
             <SearchableCombobox
               v-model="filterBillingName"
               :search-fn="searchFilterBillingNames"
@@ -868,7 +910,7 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground"
             >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
           >
@@ -883,8 +925,8 @@ async function handleShowDetail() {
           >
         </div>
 
-        <!-- 数据表格 -->
-        <div class="border rounded-lg overflow-hidden">
+        <!-- 数据表格（桌面端） -->
+        <div class="hidden md:block border rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-muted/80">
@@ -973,13 +1015,56 @@ async function handleShowDetail() {
             </table>
           </div>
         </div>
+
+        <!-- 移动端卡片列表 -->
+        <div class="md:hidden space-y-2">
+          <div v-if="loading" class="p-8 text-center text-muted-foreground">加载中...</div>
+          <div v-else-if="displaySettles.length === 0" class="p-8 text-center text-muted-foreground">没有数据</div>
+          <div
+            v-for="settle in pagedSettles"
+            v-else
+            :key="settle._id"
+            class="p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="isSelected(settle) ? 'bg-blue-50 border-blue-500' : 'hover:bg-muted/50'"
+            @click="toggleSettle(settle)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-medium text-sm">{{ settle.serial_number }}</span>
+              <span
+                class="px-2 py-0.5 rounded text-xs font-medium"
+                :class="{
+                  'bg-blue-100 text-blue-700': settle.status === '已结算',
+                  'bg-green-100 text-green-700': settle.status === '已开票',
+                  'bg-purple-100 text-purple-700': settle.status === '已回款',
+                }"
+              >
+                {{ settle.status }}
+              </span>
+            </div>
+            <div class="text-sm text-muted-foreground space-y-0.5">
+              <div>{{ settle.billing_name }}</div>
+              <div class="flex justify-between">
+                <span>{{ settle.ship_to }}</span>
+                <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
+              </div>
+              <div class="flex justify-between font-medium text-foreground">
+                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
+                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+              </div>
+              <div v-if="displayMode === 'ticket'" class="text-xs">
+                票号: {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
+              </div>
+            </div>
+          </div>
+        </div>
       </TabsContent>
     </Tabs>
 
     <!-- 分页 -->
-    <div v-if="displaySettles.length > 0" class="flex items-center justify-between mt-4 px-2">
+    <div v-if="displaySettles.length > 0" class="flex flex-col md:flex-row items-center justify-between gap-2 mt-4 px-2">
       <div class="text-sm text-muted-foreground">
-        显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条
+        <span class="hidden md:inline">显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条</span>
+        <span class="md:hidden">{{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} / {{ displaySettles.length }}条</span>
       </div>
       <div class="flex items-center gap-2">
         <select v-model.number="pageSize" class="h-8 px-2 text-sm border rounded" @change="currentPage = 1">
@@ -993,7 +1078,7 @@ async function handleShowDetail() {
         <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="currentPage--">
           上一页
         </UiButton>
-        <span class="text-sm">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <span class="text-sm">{{ currentPage }}/{{ totalPages }}</span>
         <UiButton variant="outline" size="sm" :disabled="currentPage >= totalPages" @click="currentPage++">
           下一页
         </UiButton>

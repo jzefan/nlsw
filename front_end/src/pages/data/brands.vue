@@ -1,82 +1,26 @@
 <script setup lang="ts">
 import type { ColumnDef } from '@tanstack/vue-table'
 
-import { watchDebounced } from '@vueuse/core'
 import { Pencil, Trash2 } from 'lucide-vue-next'
-import { h, onMounted, ref } from 'vue'
-import { toast } from 'vue-sonner'
+import { h } from 'vue'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useModal } from '@/composables/use-modal'
-import { addBrand, deleteBrand, getBrands, updateBrand, type DataDictItem } from '@/services/api/data-dict.api'
+import { Item, ItemContent, ItemTitle } from '@/components/ui/item'
+import { addBrand, deleteBrand, getBrands, updateBrand } from '@/services/api/data-dict.api'
 
 import DataDictPage from './components/DataDictPage.vue'
 import SimpleNameDialog from './components/SimpleNameDialog.vue'
+import { useDataDict } from './composables/use-data-dict'
 
-const data = ref<DataDictItem[]>([])
-const loading = ref(false)
-const total = ref(0)
-const page = ref(1)
-const limit = ref(20)
-const searchTerm = ref('')
-
-async function loadData() {
-  loading.value = true
-  try {
-    const res = await getBrands({ page: page.value, limit: limit.value, search: searchTerm.value })
-    if (res.ok) {
-      data.value = res.data
-      total.value = res.total
-    }
-  }
-  finally {
-    loading.value = false
-  }
-}
-
-watchDebounced(
-  searchTerm,
-  () => {
-    page.value = 1
-    loadData()
-  },
-  { debounce: 500, maxWait: 1000 },
-)
-
-onMounted(loadData)
-
-const { Modal } = useModal()
-const dialogOpen = ref(false)
-const editingItem = ref(null)
-
-function openAdd() {
-  editingItem.value = null
-  dialogOpen.value = true
-}
-
-function openEdit(item: any) {
-  editingItem.value = item
-  dialogOpen.value = true
-}
-
-async function handleDelete(item: any) {
-  if (!confirm(`确定要删除 ${item.name} 吗？`))
-    return
-  try {
-    const result = await deleteBrand(item.name)
-    if (result.ok) {
-      toast.success('删除成功')
-      loadData()
-    }
-    else {
-      toast.error(result.response || '删除失败')
-    }
-  }
-  catch (e: any) {
-    toast.error(e.message)
-  }
-}
+const {
+  data, loading, total, page, limit, searchTerm,
+  Modal, dialogOpen, editingItem,
+  loadData, openAdd, openEdit, handleDelete, onPageChange,
+} = useDataDict({
+  getList: getBrands,
+  delete: deleteBrand,
+})
 
 const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '牌号' },
@@ -111,14 +55,30 @@ const columns: ColumnDef<any>[] = [
     :total="total"
     :page="page"
     :limit="limit"
-    @update:page="(p) => { page = p; loadData() }"
+    @update:page="onPageChange"
     @refresh="loadData"
     @add="openAdd"
   >
     <template #filter>
       <div class="flex items-center gap-2 mr-2">
-        <Input v-model="searchTerm" placeholder="搜索..." class="w-64" />
+        <Input v-model="searchTerm" placeholder="搜索牌号..." class="flex-1 min-w-0 sm:w-64 sm:flex-initial" />
       </div>
+    </template>
+
+    <template #mobile-card="{ item }">
+      <Item variant="outline" size="sm">
+        <ItemContent>
+          <ItemTitle>{{ item.name }}</ItemTitle>
+        </ItemContent>
+        <div class="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="icon" class="size-7" @click="openEdit(item)">
+            <Pencil class="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" class="size-7 text-destructive" @click="handleDelete(item)">
+            <Trash2 class="size-3.5" />
+          </Button>
+        </div>
+      </Item>
     </template>
 
     <template #dialog>
@@ -127,7 +87,7 @@ const columns: ColumnDef<any>[] = [
           <SimpleNameDialog
             v-if="dialogOpen"
             :item="editingItem"
-            title="Brand"
+            title="牌号"
             :api-add="addBrand"
             :api-update="updateBrand"
             @close="dialogOpen = false"

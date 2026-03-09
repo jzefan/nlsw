@@ -45,11 +45,13 @@ const routeMap: Record<string, { parent?: string; title: string }> = {
   '/dashboard': { title: '首页' },
   '/plans': { parent: '业务操作', title: '计划列表' },
   '/plans/create': { parent: '业务操作', title: '新建计划' },
+  '/bills/list': { parent: '提单管理', title: '提单列表' },
   '/bills/create': { parent: '提单管理', title: '新建提单' },
   '/bills/edit': { parent: '提单管理', title: '修改提单' },
   '/bills/delete': { parent: '提单管理', title: '删除提单' },
   '/bills/search': { parent: '提单管理', title: '查询' },
-  '/invoices/create': { parent: '运单管理', title: '配发货' },
+  '/invoices/create-truck': { parent: '运单管理', title: '配发货(车运)' },
+  '/invoices/create-ship': { parent: '运单管理', title: '配发货(船运)' },
   '/invoices/edit': { parent: '运单管理', title: '修改运单' },
   '/invoices/delete': { parent: '运单管理', title: '删除运单' },
   '/settle/bill': { parent: '结算管理', title: '结算' },
@@ -162,8 +164,10 @@ const breadcrumbs = computed(() => {
         </div>
       </header>
       <SubscriptionBanner @open-payment="showPaymentQR = true" />
-      <div :class="cn('p-4 grow', contentLayout === 'centered' ? 'container mx-auto ' : '')">
-        <router-view />
+      <div class="overflow-x-auto grow">
+        <div :class="cn('p-4 md:min-w-[1024px]', contentLayout === 'centered' ? 'container mx-auto ' : '')">
+          <router-view />
+        </div>
       </div>
     </UiSidebarInset>
 
