@@ -3,6 +3,7 @@ import { Download, Image, Loader2, Maximize2, Minimize2, Printer, Trash2, Upload
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { formatDate } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -149,16 +150,6 @@ function formatFileSize(bytes: number): string {
   return `${Math.round((bytes / k ** i) * 100) / 100} ${sizes[i]}`
 }
 
-function formatDateTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function handleClose(open: boolean) {
   if (!open) {
@@ -460,7 +451,7 @@ defineExpose({ open })
               <div class="text-muted-foreground space-y-0.5">
                 <p>大小: {{ formatFileSize(image.file_size) }}</p>
                 <p>上传人: {{ image.uploader }}</p>
-                <p>上传时间: {{ formatDateTime(image.upload_time) }}</p>
+                <p>上传时间: {{ formatDate(image.upload_time) }}</p>
               </div>
             </div>
           </div>
@@ -629,7 +620,7 @@ defineExpose({ open })
               </div>
               <div>
                 <span class="text-muted-foreground">上传时间：</span>
-                <span class="font-medium">{{ formatDateTime(pendingDeleteImage.upload_time) }}</span>
+                <span class="font-medium">{{ formatDate(pendingDeleteImage.upload_time) }}</span>
               </div>
             </div>
           </div>

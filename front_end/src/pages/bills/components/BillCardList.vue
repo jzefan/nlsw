@@ -2,7 +2,7 @@
 import { CheckSquare, ChevronDown, ChevronUp, Square } from 'lucide-vue-next'
 
 import type { Bill } from '@/services/api/bill.api'
-import { formatDim, formatNumber } from '@/utils/format'
+import { formatDate, formatDim, formatNumber } from '@/utils/format'
 
 const props = defineProps<{
   bills: Bill[]
@@ -37,12 +37,6 @@ function isSelected(bill: Bill) {
 
 function toggleSelect(bill: Bill) {
   emit('select', bill)
-}
-
-function formatDate(date: Date | string | undefined) {
-  if (!date) return ''
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function statusVariant(status: string) {
@@ -136,6 +130,19 @@ function statusVariant(status: string) {
           <div>
             <span class="text-muted-foreground">创建人:</span>
             <span class="ml-1">{{ bill.creater }}</span>
+          </div>
+          <div v-if="bill.dispatches?.length" class="col-span-2">
+            <span class="text-muted-foreground">配发信息:</span>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <span
+                v-for="(d, i) in bill.dispatches"
+                :key="i"
+                class="inline-flex flex-col items-center px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground text-xs leading-tight"
+              >
+                <span class="font-medium">{{ d.veh_name }}</span>
+                <span class="text-muted-foreground text-[10px]">{{ d.waybill_no }}</span>
+              </span>
+            </div>
           </div>
         </div>
         <slot name="expandActions" :bill="bill" />

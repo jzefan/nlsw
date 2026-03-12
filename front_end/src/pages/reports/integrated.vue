@@ -10,6 +10,7 @@ import type { IntegratedQueryBill } from '@/services/api/report.api'
 
 import dayjs from 'dayjs'
 import { useDevice } from '@/composables/use-device'
+import { formatDate, sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import IntegratedMobile from './components/IntegratedMobile.vue'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
@@ -182,11 +183,6 @@ function getStrValue(val: any) {
   return val === undefined || val === null ? '' : val
 }
 
-function formatDate(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('zh-CN')
-}
 
 // Columns
 const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
@@ -199,6 +195,7 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
         // Logic from integ_query.js
         if (row.inv_settle_flag === 0) {
           if (row.collection_price < 0 && row.price < 0) return '客户，代收都不需要结算'
+          if (row.price < 0) return '客户不需要结算，代收未结算'
           if (row.collection_price < 0) return '客户未结算，代收不需要结算'
           return '客户，代收都未结算'
         } else if (row.inv_settle_flag === 1) {
@@ -303,7 +300,13 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
     { header: '发货人', accessorKey: 'inv_shipper' },
     { header: '运单号', accessorKey: 'inv_no' },
     { header: '发货仓库', accessorKey: 'ship_warehouse' },
-    { header: '牌号', accessorKey: 'brand_no' },
+    {
+      header: '牌号',
+      accessorKey: 'brand_no',
+      size: 240,
+      maxSize: 240,
+      cell: ({ getValue }) => h('span', { class: 'block max-w-[240px] break-words whitespace-normal' }, getValue() as string),
+    },
     { header: '规格', accessorFn: (row) => `${row.thickness}*${row.width}*${row.len}` },
     { header: '尺寸', accessorKey: 'size_type' },
     { header: '总块数', accessorKey: 'block_num' },
@@ -373,7 +376,8 @@ async function handleExport() {
       return
     }
 
-    const exportBills = res.bills
+    // 按订单号排序
+    const exportBills = sortByOrder(res.bills)
     const headers = columns.value.map((c) => (c as any).header as string)
     // 在"车船号"后插入"车船类型"（仅导出，表格不显示此列）
     const vehIdx = headers.indexOf('车船号')
@@ -384,6 +388,7 @@ async function handleExport() {
       const getSettleState = () => {
         if (bill.inv_settle_flag === 0) {
           if (bill.collection_price < 0 && bill.price < 0) return '客户，代收都不需要结算'
+          if (bill.price < 0) return '客户不需要结算，代收未结算'
           if (bill.collection_price < 0) return '客户未结算，代收不需要结算'
           return '客户，代收都未结算'
         } else if (bill.inv_settle_flag === 1) {
@@ -410,11 +415,11 @@ async function handleExport() {
         row.push('')
         row.push('')
         row.push(0)
-        row.push(w)
+        row.push(toExcelNum(w))
         if (canSeePrice.value) {
-          row.push(getStrValue(bill.price))
-          row.push(getStrValue(bill.collection_price))
-          row.push(getStrValue(bill.veh_ves_price))
+          row.push(toExcelNum(bill.price))
+          row.push(toExcelNum(bill.collection_price))
+          row.push(toExcelNum(bill.veh_ves_price))
         }
         row.push('')
         row.push('')
@@ -428,14 +433,14 @@ async function handleExport() {
         row.push(bill.veh_ves_name)
         row.push(bill.veh_mode || '')
         row.push(bill.ship_to)
-        row.push(bill.send_num)
-        row.push(bill.send_weight)
+        row.push(toExcelNum(bill.send_num))
+        row.push(toExcelNum(bill.send_weight))
         if (canSeePrice.value) {
-          row.push(getStrValue(bill.price))
-          row.push(getStrValue(bill.collection_price))
-          row.push(getStrValue(bill.veh_ves_price))
+          row.push(toExcelNum(bill.price))
+          row.push(toExcelNum(bill.collection_price))
+          row.push(toExcelNum(bill.veh_ves_price))
         }
-        row.push(formatDate(bill.inv_ship_date || ''))
+        row.push(toExcelDate(bill.inv_ship_date))
         row.push(bill.inv_shipper)
         row.push(bill.inv_no)
       }
@@ -444,11 +449,11 @@ async function handleExport() {
       row.push(bill.brand_no)
       row.push(`${bill.thickness}*${bill.width}*${bill.len}`)
       row.push(bill.size_type)
-      row.push(bill.block_num)
-      row.push(bill.total_weight)
+      row.push(toExcelNum(bill.block_num))
+      row.push(toExcelNum(bill.total_weight))
       row.push(bill.contract_no)
       row.push(bill.sales_dep)
-      row.push(formatDate(bill.create_date))
+      row.push(toExcelDate(bill.create_date))
       row.push(bill.creater)
 
       return row
@@ -491,7 +496,8 @@ async function handleExportAccount() {
       toast.error('导出失败: 获取数据错误')
       return
     }
-    const exportBills = res.bills
+    // 按订单号排序
+    const exportBills = sortByOrder(res.bills)
 
     const headers = [
       '状态',
@@ -553,20 +559,20 @@ async function handleExportAccount() {
           '',
           0,
           0,
-          prevBill.block_num,
-          leftW,
+          toExcelNum(prevBill.block_num),
+          toExcelNum(leftW),
           '',
           '',
           '',
           prevBill.ship_warehouse,
           prevBill.brand_no,
-          prevBill.thickness,
-          prevBill.width,
-          prevBill.len,
+          toExcelNum(prevBill.thickness),
+          toExcelNum(prevBill.width),
+          toExcelNum(prevBill.len),
           prevBill.size_type,
           prevBill.contract_no,
           prevBill.sales_dep,
-          formatDate(prevBill.create_date),
+          toExcelDate(prevBill.create_date),
           prevBill.creater,
           settleState,
         ])
@@ -597,22 +603,22 @@ async function handleExportAccount() {
         bill.veh_ves_name,
         bill.veh_mode || '',
         bill.ship_to,
-        bill.send_num,
-        bill.send_weight,
-        bill.block_num,
-        tWeight,
-        formatDate(bill.inv_ship_date || ''),
+        toExcelNum(bill.send_num),
+        toExcelNum(bill.send_weight),
+        toExcelNum(bill.block_num),
+        toExcelNum(tWeight),
+        toExcelDate(bill.inv_ship_date),
         bill.inv_shipper,
         bill.inv_no,
         bill.ship_warehouse,
         bill.brand_no,
-        bill.thickness,
-        bill.width,
-        bill.len,
+        toExcelNum(bill.thickness),
+        toExcelNum(bill.width),
+        toExcelNum(bill.len),
         bill.size_type,
         bill.contract_no,
         bill.sales_dep,
-        formatDate(bill.create_date),
+        toExcelDate(bill.create_date),
         bill.creater,
         settleState,
       ])
@@ -939,7 +945,7 @@ function handlePageChange(p: number) {
     </div>
 
     <!-- Table -->
-    <div class="border rounded-md overflow-hidden">
+    <div class="border rounded-md overflow-auto">
       <DataTable
         :table="table"
         :columns="columns"

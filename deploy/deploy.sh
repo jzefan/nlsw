@@ -23,7 +23,7 @@ show_help() {
     echo ""
     echo -e "${BOLD}预设公司:${NC}"
     echo -e "  ${CYAN}lianren${NC}  江苏联润      1.13.249.95      ubuntu"
-    echo -e "  ${CYAN}xht${NC}      鑫鸿图物流    218.244.152.142  xht2020"
+    echo -e "  ${CYAN}xht${NC}      鑫鸿图储运    218.244.152.142  xht2020"
     echo ""
     echo -e "${BOLD}部署模式:${NC}"
     echo "  standalone  独立部署，单公司，无平台概念"
@@ -70,7 +70,7 @@ echo "======================================"
 echo ""
 echo -e "${YELLOW}选择部署目标:${NC}"
 echo "  1) lianren — 江苏联润 (1.13.249.95)"
-echo "  2) xht     — 鑫鸿图物流 (218.244.152.142)"
+echo "  2) xht     — 鑫鸿图储运 (218.244.152.142)"
 echo "  3) 手动输入"
 read -p "请选择 [1]: " COMPANY_CHOICE
 COMPANY_CHOICE=${COMPANY_CHOICE:-"1"}
@@ -86,7 +86,7 @@ case $COMPANY_CHOICE in
         SERVER_IP="218.244.152.142"
         SERVER_USER="xht2020"
         SERVER_PASSWORD="Hello2020xht"
-        DEFAULT_COMPANY_NAME="鑫鸿图物流"
+        DEFAULT_COMPANY_NAME="鑫鸿图储运"
         ;;
     *)
         echo ""

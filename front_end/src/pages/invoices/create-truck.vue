@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Tra
 import { toast } from 'vue-sonner'
 
 import type { InvoiceBill } from '@/services/api/invoice.api'
+import { formatDate, formatNumber } from '@/utils/format'
 
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -19,6 +20,7 @@ import {
   searchWarehouses,
 } from '@/services/api/invoice.api'
 import { getPlanByOrderNo, searchCompanies } from '@/services/api/plan.api'
+import { getUserNames } from '@/services/api/user.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
@@ -42,7 +44,15 @@ const showInvoiceListDialog = ref(false)
 const invoiceListLoading = ref(false)
 const invoiceList = ref<any[]>([])
 const invoiceListTotal = ref(0)
-const invoiceSearchKeyword = ref('')
+const invoiceSearchFilters = ref({
+  vehicleName: '',
+  shipName: '',
+  waybillNo: '',
+  startDate: '',
+  endDate: '',
+  shipTo: '',
+  shipperName: '',
+})
 const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
@@ -113,6 +123,9 @@ const expandedCards = ref<Set<number>>(new Set())
 // 被修改的提单ID集合（用于高亮显示）
 const highlightedBillIds = ref<Set<string>>(new Set())
 
+// 最近一次添加的提单ID集合（用于浅色背景区分）
+const lastAddedBillIds = ref<Set<string>>(new Set())
+
 function toggleCardExpand(index: number) {
   if (expandedCards.value.has(index)) {
     expandedCards.value.delete(index)
@@ -128,6 +141,33 @@ const totalWeight = computed(() => {
 const totalNumber = computed(() => {
   return selectedBills.value.reduce((sum, b) => sum + (b.send_num || 0), 0)
 })
+
+// 搜索所有车辆（不限类别，用于筛选对话框）
+async function searchAllVehicles(search: string, limit: number, page: number) {
+  return searchVehicles(search, '车', limit, page)
+}
+
+// 用户名列表（发货人筛选用）
+const cachedUserNames = ref<string[]>([])
+
+async function loadUserNamesIfNeeded() {
+  if (cachedUserNames.value.length > 0) return
+  try {
+    const result = await getUserNames()
+    if (result.ok) cachedUserNames.value = result.data
+  } catch { /* ignore */ }
+}
+
+async function searchShipperNames(search: string, limit: number, page: number) {
+  await loadUserNamesIfNeeded()
+  let filtered = cachedUserNames.value
+  if (search) {
+    filtered = filtered.filter(n => n.toLowerCase().includes(search.toLowerCase()))
+  }
+  const start = (page - 1) * limit
+  const data = filtered.slice(start, start + limit).map(n => ({ name: n }))
+  return { ok: true, data, total: filtered.length }
+}
 
 // 搜索车辆 (仅车)
 async function searchTrucks(search: string, limit: number, page: number) {
@@ -311,7 +351,7 @@ async function searchOrders(search: string, limit: number, page: number) {
         .map((o: any) => ({ name: o.order_no }))
 
       const data = [
-        ...result.data.map((order: any) => ({ name: order.order_no })),
+        ...result.data.filter((order: any) => order.order_no).map((order: any) => ({ name: order.order_no })),
         ...localOnlyOrders,
       ].sort((a, b) => {
         // 有搜索词时，匹配的优先
@@ -338,7 +378,7 @@ async function searchOrders(search: string, limit: number, page: number) {
 
 // 本地搜索提单号（用于 SearchableCombobox，按 bill_no 去重展示）
 async function searchBills(search: string, limit: number, page: number) {
-  let filtered = currentOrderBills.value
+  let filtered = currentOrderBills.value.filter((b: any) => b.bill_no)
   if (search) {
     filtered = filtered.filter(
       (b: any) =>
@@ -356,7 +396,7 @@ async function searchBills(search: string, limit: number, page: number) {
       billNoMap.set(b.bill_no, { count: 1, first: b })
     }
   }
-  const uniqueBills = Array.from(billNoMap.entries())
+  const uniqueBills = Array.from(billNoMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
   const start = (page - 1) * limit
   const data = uniqueBills.slice(start, start + limit).map(([billNo, { count, first }]) => ({
     value: billNo,
@@ -401,6 +441,7 @@ function handleOrderChange(orderNo: string) {
 // 选择提单后批量添加同 bill_no 的所有项次
 function handleBillSelect(billNo: string) {
   if (!billNo) return
+  lastAddedBillIds.value = new Set()
   const matchingBills = currentOrderBills.value.filter((b: any) => b.bill_no === billNo)
   for (const bill of matchingBills) {
     addBillToList(bill)
@@ -416,7 +457,7 @@ function addBillToList(bill: any) {
 
   // 发运数默认为0，用户手动输入
   // 注意：bill 来自订单分组数据，不包含 order_no，使用当前选中的订单号
-  selectedBills.value.push({
+  selectedBills.value.unshift({
     _id: bill._id, // 提单唯一标识
     bill_no: bill.bill_no,
     order_no: selectedOrderNo.value,
@@ -432,6 +473,7 @@ function addBillToList(bill: any) {
     send_weight: 0,
   })
 
+  lastAddedBillIds.value.add(bill._id)
   // 刷新可选提单列表（不清空，只更新）
   handleOrderChange(selectedOrderNo.value)
 }
@@ -663,7 +705,19 @@ function copyLastOperation() {
 async function openInvoiceList() {
   showInvoiceListDialog.value = true
   invoiceListPage.value = 1
-  invoiceSearchKeyword.value = ''
+  const today = new Date()
+  const oneMonthAgo = new Date(today)
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  invoiceSearchFilters.value = {
+    vehicleName: '',
+    shipName: '',
+    waybillNo: '',
+    startDate: fmt(oneMonthAgo),
+    endDate: fmt(today),
+    shipTo: '',
+    shipperName: '',
+  }
   await loadInvoiceList()
 }
 
@@ -672,11 +726,18 @@ async function loadInvoiceList() {
   invoiceListLoading.value = true
   try {
     const params: any = {
-      keyword: invoiceSearchKeyword.value,
       page: invoiceListPage.value,
       limit: invoiceListLimit.value,
       transportType: '车',
     }
+    const f = invoiceSearchFilters.value
+    if (f.vehicleName) params.vehicleName = f.vehicleName
+    if (f.shipName) params.shipName = f.shipName
+    if (f.waybillNo) params.waybillNo = f.waybillNo
+    if (f.startDate) params.startDate = f.startDate
+    if (f.endDate) params.endDate = f.endDate
+    if (f.shipTo) params.shipTo = f.shipTo
+    if (f.shipperName) params.shipperName = f.shipperName
 
     // 只有在勾选时才传递myOnly参数
     if (showMyOnly.value) {
@@ -811,24 +872,9 @@ async function loadInvoiceDetail(invoice: any) {
   }
 }
 
-// 格式化日期时间
-function formatDate(date: any) {
-  if (!date) return '-'
-  const d = new Date(date)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  const s = String(d.getSeconds()).padStart(2, '0')
-  if (h === '00' && min === '00' && s === '00') return `${y}-${m}-${day}`
-  return `${y}-${m}-${day} ${h}:${min}:${s}`
-}
-
-// 格式化重量（最多3位小数）
-function formatWeight(weight: number) {
-  if (weight == null) return '-'
-  return Number(weight).toFixed(3)
+// 格式化重量（使用通用 formatNumber，3位小数）
+function formatWeight(num: number | string | null | undefined) {
+  return formatNumber(num) || '-'
 }
 
 // 获取订单显示文本（项次号补零到3位）
@@ -1004,8 +1050,10 @@ function isBillHighlighted(bill: InvoiceBill) {
             <UiTableRow
               v-for="(bill, index) in selectedBills"
               :key="bill._id"
+              class="hover:!bg-muted"
               :class="{
                 'bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+                'bg-orange-50 dark:bg-orange-950/40': lastAddedBillIds.has(bill._id!) && !isBillHighlighted(bill),
               }"
             >
               <UiTableCell>
@@ -1060,6 +1108,7 @@ function isBillHighlighted(bill: InvoiceBill) {
           class="border rounded-lg overflow-hidden bg-card"
           :class="{
             'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+            '!bg-primary/10': lastAddedBillIds.has(bill._id!) && !isBillHighlighted(bill),
           }"
         >
           <!-- 卡片头部 -->
@@ -1151,17 +1200,28 @@ function isBillHighlighted(bill: InvoiceBill) {
         </div>
       </div>
 
-      <!-- 汇总和操作 -->
-      <div
-        v-if="selectedBills.length > 0"
-        class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3"
-      >
+      <!-- 空状态 -->
+      <div v-if="!waybillNo" class="border rounded-lg p-12 text-center text-muted-foreground">
+        <p>请点击"新建运单"开始创建配发货单</p>
+      </div>
+
+      <!-- 底部占位，防止内容被固定操作栏遮挡 -->
+      <div v-if="selectedBills.length > 0" class="h-16" />
+    </div>
+
+    <!-- 固定在屏幕底部的操作栏 -->
+    <div
+      v-if="selectedBills.length > 0"
+      class="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
+    >
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 px-4 py-3 max-w-screen-2xl mx-auto">
         <div class="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
-          <span
-            >总块数: <strong>{{ totalNumber }}</strong></span
+          <span>记录: <strong>{{ selectedBills.length }}</strong> 条</span>
+          <span class="ml-3 sm:ml-6"
+            >发运块数: <strong>{{ totalNumber }}</strong></span
           >
           <span class="ml-3 sm:ml-6"
-            >总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span
+            >发运总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span
           >
         </div>
         <div class="flex flex-col sm:flex-row gap-2">
@@ -1175,11 +1235,6 @@ function isBillHighlighted(bill: InvoiceBill) {
           </UiButton>
         </div>
       </div>
-
-      <!-- 空状态 -->
-      <div v-if="!waybillNo" class="border rounded-lg p-12 text-center text-muted-foreground">
-        <p>请点击"新建运单"开始创建配发货单</p>
-      </div>
     </div>
 
     <!-- 运单列表对话框 -->
@@ -1190,27 +1245,58 @@ function isBillHighlighted(bill: InvoiceBill) {
         </UiDialogHeader>
 
         <div class="flex-1 overflow-hidden flex flex-col space-y-4 min-h-[50vh]">
-          <!-- 搜索框和筛选 -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <UiInput
-              v-model="invoiceSearchKeyword"
-              placeholder="搜索车船号或开单名称..."
-              class="max-w-[300px]"
-              @keyup.enter="searchInvoices"
-            />
-            <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
-              <Search class="w-4 h-4 mr-1" />
-              搜索
-            </UiButton>
-            <!-- 管理员：只看我的运单 -->
-            <div v-if="isAdmin" class="flex items-center gap-2 ml-2">
-              <input
-                id="my-only-truck"
-                v-model="showMyOnly"
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+          <!-- 搜索筛选 -->
+          <div class="space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.vehicleName"
+                :search-fn="searchAllVehicles"
+                placeholder="车船号"
               />
-              <label for="my-only-truck" class="text-sm cursor-pointer whitespace-nowrap">只看我配发的运单</label>
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipName"
+                :search-fn="searchBillingNames"
+                placeholder="开单名称"
+              />
+              <UiInput
+                v-model="invoiceSearchFilters.waybillNo"
+                placeholder="运单号"
+                @keyup.enter="searchInvoices"
+              />
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipTo"
+                :search-fn="searchDestinations"
+                placeholder="目的地"
+              />
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipperName"
+                :search-fn="searchShipperNames"
+                placeholder="发货人"
+              />
+              <DatePicker
+                v-model="invoiceSearchFilters.startDate"
+                placeholder="开始日期"
+              />
+              <DatePicker
+                v-model="invoiceSearchFilters.endDate"
+                placeholder="结束日期"
+              />
+              <div class="flex items-center gap-2">
+                <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
+                  <Search class="w-4 h-4 mr-1" />
+                  搜索
+                </UiButton>
+                <!-- 管理员：只看我的运单 -->
+                <div v-if="isAdmin" class="flex items-center gap-2">
+                  <input
+                    id="my-only-truck"
+                    v-model="showMyOnly"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  />
+                  <label for="my-only-truck" class="text-xs cursor-pointer whitespace-nowrap">只看我的</label>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1228,6 +1314,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                     <UiTableHead>创建日期</UiTableHead>
                     <UiTableHead>配发日期</UiTableHead>
                     <UiTableHead>总重量(吨)</UiTableHead>
+                    <UiTableHead>发货人</UiTableHead>
                     <UiTableHead>状态</UiTableHead>
                     <UiTableHead class="w-20"> 操作 </UiTableHead>
                   </UiTableRow>
@@ -1247,6 +1334,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                     <UiTableCell>{{ formatDate(invoice.create_date) }}</UiTableCell>
                     <UiTableCell>{{ formatDate(invoice.ship_date) }}</UiTableCell>
                     <UiTableCell>{{ formatWeight(invoice.total_weight) }}</UiTableCell>
+                    <UiTableCell>{{ invoice.shipper }}</UiTableCell>
                     <UiTableCell>{{ invoice.state }}</UiTableCell>
                     <UiTableCell>
                       <UiButton

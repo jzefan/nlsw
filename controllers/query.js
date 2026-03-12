@@ -337,8 +337,7 @@ exports.getVesselRevenueData = async function (req, res) {
 
   if (query.fDate1 && query.fDate2) {
     let qDate = getStartEndDate(query.fDate1, query.fDate2, false);
-    obj["$and"].push({ ship_date: { $gte: query.fDate1, $lt: query.fDate2 } });
-    //obj["$and"].push({ship_date: { $gte: qDate.s, $lt: qDate.e }});
+    obj["$and"].push({ ship_date: { $gte: qDate.s, $lte: qDate.e } });
   }
 
   if (query.fName && query.fName.length) {
@@ -660,6 +659,7 @@ function combineBill(bills, invs) {
       date: inv.ship_date,
       shipper: inv.shipper,
       remark: inv.incoming_price_remark,
+      ship_to: inv.ship_to,
     };
   });
 
@@ -709,7 +709,7 @@ function combineBill(bills, invs) {
           send_weight:
             bill.block_num > 0 ? bill.weight * binv.num : binv.weight,
           price: binv.price,
-          ship_to: binv.ship_to,
+          ship_to: binv.ship_to || o.ship_to,
           ship_from: binv.ship_from,
           ship_customer: o.customer,
           inv_ship_date: o.date,
@@ -743,7 +743,7 @@ async function getDataFromInvoiceFirst(query) {
   try {
     const db_invs = await Invoice.find(obj)
       .select(
-        "waybill_no ship_customer ship_date shipper bills incoming_price_remark",
+        "waybill_no ship_customer ship_date shipper ship_to bills incoming_price_remark",
       )
       .lean()
       .exec();
@@ -809,7 +809,7 @@ exports.getInvoiceBill = async function (req, res) {
 
       const db_invs = await Invoice.find(obj)
         .select(
-          "waybill_no ship_customer ship_date shipper bills incoming_price_remark",
+          "waybill_no ship_customer ship_date shipper ship_to bills incoming_price_remark",
         )
         .lean()
         .exec();
@@ -855,6 +855,79 @@ exports.getInvoiceBill = async function (req, res) {
 
       obj = { $and: [] };
       if (!showUnsend && (bVeh || bDest || bDate || bc)) {
+        // 优化：当有订单号/提单号+日期区间时，先查Bill再查Invoice（Bill端过滤更高效）
+        if (bDate && (bBNo || bOrder) && !bVeh && !bDest && !bc) {
+          // 先按订单号/提单号查Bill
+          let billQueryObj = { $and: [] };
+          if (bBNo)
+            billQueryObj["$and"].push({
+              bill_no: { $regex: new RegExp(query.fBno, "gi") },
+            });
+          if (bOrder)
+            billQueryObj["$and"].push({
+              order_no: { $regex: new RegExp(query.fOrder, "gi") },
+            });
+          if (bName)
+            billQueryObj["$and"].push({ billing_name: { $in: query.fName } });
+
+          const matchedBills = await Bill.find(billQueryObj).lean().exec();
+          if (matchedBills && matchedBills.length) {
+            // 提取这些Bill关联的运单号
+            var invNoList = utils.getAllList(true, matchedBills, "invoices", "inv_no");
+            if (invNoList.length) {
+              // 用运单号+日期区间查Invoice
+              let invQuery = { $and: [
+                { waybill_no: { $in: invNoList } },
+                { ship_date: { $gte: qDate.s, $lte: qDate.e } },
+              ]};
+              if (bVehMode) {
+                var vehs_inner = utils.getAllList(false, vehList, "name", "");
+                if (query.fVehMode === "自有") {
+                  invQuery["$and"].push({
+                    $or: [
+                      { vehicle_vessel_name: { $in: vehs_inner } },
+                      { "bills.vehicles.veh_name": { $in: vehs_inner } },
+                    ],
+                  });
+                } else {
+                  invQuery["$and"].push({
+                    $and: [
+                      { vehicle_vessel_name: { $nin: vehs_inner } },
+                      { "bills.vehicles.veh_name": { $nin: vehs_inner } },
+                    ],
+                  });
+                }
+              }
+              const invoices = await Invoice.find(invQuery)
+                .select("waybill_no ship_customer ship_date shipper ship_to bills")
+                .lean()
+                .exec();
+              if (invoices && invoices.length) {
+                const settles = await Settle.find({ status: { $ne: "已结算" } })
+                  .select("bills status")
+                  .lean()
+                  .exec();
+                res.json({
+                  ok: true,
+                  bills: getBillArray(
+                    matchedBills,
+                    invoices,
+                    settles,
+                    query.fVeh,
+                    showVehicles,
+                  ),
+                });
+              } else {
+                res.json({ ok: false });
+              }
+            } else {
+              res.json({ ok: false });
+            }
+          } else {
+            res.json({ ok: false });
+          }
+        } else {
+        // 原有逻辑：先查Invoice再查Bill
         if (bVeh && !bDest && !bDate && !bc) {
           obj["$and"].push({
             $or: [
@@ -879,7 +952,7 @@ exports.getInvoiceBill = async function (req, res) {
           if (bDest) obj["$and"].push({ ship_to: { $in: query.fDest } });
           if (bDate)
             obj["$and"].push({
-              ship_date: { $gte: query.fDate1, $lte: query.fDate2 },
+              ship_date: { $gte: qDate.s, $lte: qDate.e },
             });
           if (bc) obj["$and"].push({ ship_customer: query.fCustomerName });
         }
@@ -920,12 +993,12 @@ exports.getInvoiceBill = async function (req, res) {
             }
           }
           invoices = await Invoice.find(obj)
-            .select("waybill_no ship_customer ship_date shipper bills")
+            .select("waybill_no ship_customer ship_date shipper ship_to bills")
             .lean()
             .exec();
         } else {
           invoices = await Invoice.find(obj)
-            .select("waybill_no ship_customer ship_date shipper bills")
+            .select("waybill_no ship_customer ship_date shipper ship_to bills")
             .lean()
             .exec();
         }
@@ -964,6 +1037,7 @@ exports.getInvoiceBill = async function (req, res) {
           });
         } else {
           res.json({ ok: false });
+        }
         }
       } else {
         // only find from Bill
@@ -1011,7 +1085,7 @@ exports.getInvoiceBill = async function (req, res) {
               const db_invs = await Invoice.find({
                 waybill_no: { $in: invNoList },
               })
-                .select("waybill_no ship_customer ship_date shipper")
+                .select("waybill_no ship_customer ship_date shipper ship_to")
                 .lean()
                 .exec();
               const settles = await Settle.find({ status: { $ne: "已结算" } })
@@ -1069,6 +1143,7 @@ function getBillArray(bills, invs, settles, vehList, mode) {
       customer: inv.ship_customer,
       date: inv.ship_date,
       shipper: inv.shipper,
+      ship_to: inv.ship_to,
     };
   });
 
@@ -1083,6 +1158,10 @@ function getBillArray(bills, invs, settles, vehList, mode) {
         bill.inv_ship_date = o.date;
         bill.inv_shipper = o.shipper;
         bill.status_2 = "";
+        // 如果提单中的目的地为空，从运单中获取
+        if (!binv.ship_to && o.ship_to) {
+          binv.ship_to = o.ship_to;
+        }
 
         if (statObj[bill._id]) {
           for (let k = 0; k < statObj[bill._id].length; ++k) {
@@ -1593,17 +1672,16 @@ async function searchDbData(res, query, inv_f_selected, bill_f_selected) {
 }
 
 function getStartEndDate(start, end, isDay) {
-  if (start === end) {
-    var d1 = utils.convertDateToUTC(new Date(start));
-    var d2 = utils.convertDateToUTC(new Date(end));
-    if (isDay) {
-      d2.setDate(d1.getDate() + 1);
-    } else {
-      d2.setMonth(d1.getMonth() + 1);
-    }
-
-    return { s: d1, e: d2 };
-  } else {
-    return { s: start, e: end };
+  const s = utils.parseLocalDate(start);
+  const e = utils.parseLocalDateEnd(end);
+  if (start === end && isDay) {
+    // 同一天：结束已经是 23:59:59.999，无需额外处理
+  } else if (start === end && !isDay) {
+    // 同一月：结束日期设为下月初前一刻
+    e.setMonth(e.getMonth() + 1);
+    e.setDate(1);
+    e.setHours(0, 0, 0, 0);
+    e.setMilliseconds(-1);
   }
+  return { s, e };
 }

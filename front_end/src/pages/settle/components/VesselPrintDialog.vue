@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import dayjs from 'dayjs'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 
-import { formatNumber } from '@/utils/format'
+import { formatDate, formatNumber } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -192,11 +191,6 @@ function handleClose(open: boolean) {
   }
 }
 
-function formatDate(date: any): string {
-  if (!date)
-    return ''
-  return dayjs(date).format('YYYY-MM-DD')
-}
 
 defineExpose({ open })
 </script>

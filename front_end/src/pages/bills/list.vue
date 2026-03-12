@@ -20,7 +20,7 @@ import {
 } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
 import { getUserNames } from '@/services/api/user.api'
-import { formatDim, formatNumber } from '@/utils/format'
+import { formatDate, formatDim, formatNumber } from '@/utils/format'
 import BillCardList from './components/BillCardList.vue'
 
 // 状态
@@ -547,13 +547,6 @@ async function fixWeightAndBlockNum() {
   }
 }
 
-// 格式化日期
-function formatDate(date: Date | string | undefined) {
-  if (!date)
-    return ''
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 // 重置筛选
 function resetFilters() {
@@ -750,6 +743,9 @@ onMounted(() => {
             <th class="p-2 text-left whitespace-nowrap">
               创建人
             </th>
+            <th class="p-2 text-left whitespace-nowrap">
+              配发信息
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -818,9 +814,21 @@ onMounted(() => {
             <td class="p-2">
               {{ bill.creater }}
             </td>
+            <td class="p-2">
+              <div v-if="bill.dispatches?.length" class="flex flex-wrap gap-1">
+                <span
+                  v-for="(d, i) in bill.dispatches"
+                  :key="i"
+                  class="inline-flex flex-col items-center px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground text-xs leading-tight"
+                >
+                  <span class="font-medium">{{ d.veh_name }}</span>
+                  <span class="text-muted-foreground text-[10px]">{{ d.waybill_no }}</span>
+                </span>
+              </div>
+            </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
-            <td colspan="17" class="p-8 text-center text-muted-foreground">
+            <td colspan="18" class="p-8 text-center text-muted-foreground">
               暂无数据
             </td>
           </tr>

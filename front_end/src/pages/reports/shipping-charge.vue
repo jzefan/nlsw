@@ -7,6 +7,7 @@ import { Download, List, RefreshCcw, Search } from 'lucide-vue-next'
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
+import { formatDate, toExcelDate, toExcelNum } from '@/utils/format'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -160,11 +161,6 @@ function getInvRecord(bill: any) {
   return bill.invoices?.find((ir: any) => ir.inv_no === selectedWaybillNo.value)
 }
 
-// Helpers
-function formatDate(dateStr: string) {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
 
 function formatNum(num: any) {
   if (num === undefined || num === null) return ''
@@ -193,12 +189,12 @@ function handleExport() {
       ship_name: inv.ship_customer ? `${inv.ship_name}/${inv.ship_customer}` : inv.ship_name,
       vehicle_vessel_name: inv.vehicle_vessel_name,
       ship_to: inv.ship_to,
-      bill_num: billNum,
-      total_weight: inv.total_weight,
-      cust_price: p.cust_price,
-      veh_price: p.veh_price,
-      net_income: p.net_income,
-      ship_date: formatDate(inv.ship_date),
+      bill_num: toExcelNum(billNum),
+      total_weight: toExcelNum(inv.total_weight),
+      cust_price: toExcelNum(p.cust_price),
+      veh_price: toExcelNum(p.veh_price),
+      net_income: toExcelNum(p.net_income),
+      ship_date: toExcelDate(inv.ship_date),
       shipper: inv.shipper,
       waybill_no: inv.waybill_no
     }

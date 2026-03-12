@@ -99,5 +99,12 @@ var invoiceSchema = new Schema({
 // Indexes for aggregation performance
 invoiceSchema.index({ tenantId: 1, waybill_no: 1 });
 invoiceSchema.index({ tenantId: 1, ship_date: -1 });
+invoiceSchema.index({ tenantId: 1, shipper: 1 });
+// 综合查询优化：日期+状态，车船号+日期
+invoiceSchema.index({ tenantId: 1, state: 1, ship_date: -1 });
+invoiceSchema.index({ tenantId: 1, vehicle_vessel_name: 1, ship_date: -1 });
+invoiceSchema.index({ tenantId: 1, ship_name: 1, ship_date: -1 });
+invoiceSchema.index({ tenantId: 1, ship_to: 1 });
+invoiceSchema.index({ tenantId: 1, 'bills.bill_id': 1, ship_date: -1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

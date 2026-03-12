@@ -49,7 +49,8 @@ var tenantSchema = new mongoose.Schema({
   settings: {
     logo: String,
     theme: String,
-    companyName: String  // 显示在界面上的公司名称
+    companyName: String,  // 显示在界面上的公司名称
+    requireReceiptForSettle: { type: Boolean, default: false }  // 结算前是否必须有回执
   },
 
   // 时间

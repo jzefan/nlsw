@@ -61,4 +61,5 @@ module.exports = {
   deployMode: process.env.DEPLOY_MODE || "saas",
   standaloneCompany: process.env.STANDALONE_COMPANY || "",
   enableSelfVehicle: process.env.ENABLE_SELF_VEHICLE === "true",
+  enablePublicBasket: process.env.ENABLE_PUBLIC_BASKET === "true",
 };

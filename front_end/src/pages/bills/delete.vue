@@ -14,7 +14,7 @@ import {
   searchBills,
 } from '@/services/api/bill.api'
 import { getUserNames } from '@/services/api/user.api'
-import { formatDim, formatNumber } from '@/utils/format'
+import { formatDate, formatDim, formatNumber } from '@/utils/format'
 import BillCardList from './components/BillCardList.vue'
 
 // 状态
@@ -167,13 +167,6 @@ async function handleDelete() {
   }
 }
 
-// 格式化日期
-function formatDate(date: Date | string | undefined) {
-  if (!date)
-    return ''
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 // 重置筛选
 function resetFilters() {

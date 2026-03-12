@@ -40,6 +40,9 @@ export interface SettleBill {
   inv_settle_flag: number // 位标志: 1=客户已结算, 2=代收代付已结算
   settle_flag?: number
   status?: string
+
+  // 公共篮子
+  _basketOwner?: string
 }
 
 // 过滤参数

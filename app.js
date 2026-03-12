@@ -108,7 +108,7 @@ app.use(
 );
 app.use(compress());
 app.use(favicon(__dirname + "/public/favicon.ico"));
-app.use(logger("dev"));
+// morgan 日志移到 passport.session() 之后，以便获取用户信息
 app.use(express.json({ limit: "50mb" })); // Using Express built-in body parser
 app.use(express.urlencoded({ limit: "50mb", extended: true })); // Using Express built-in body parser
 app.use(methodOverride());
@@ -135,6 +135,13 @@ app.use(passport.session());
 // Tenant context middleware - sets req.tenantId, req.tenant, req.isPlatformUser
 const { tenantContext } = require("./middleware/tenantContext");
 app.use(tenantContext);
+
+// 自定义 morgan token: 用户名、URL 中文解码
+logger.token("user", (req) => (req.user ? req.user.userid : "-"));
+logger.token("decoded-url", (req) => decodeURIComponent(req.originalUrl || req.url));
+app.use(
+  logger(":method :decoded-url :status :response-time ms - :user")
+);
 
 const { migrateArrayToBinary } = require("./utils/privilege-migration");
 app.use(function (req, res, next) {

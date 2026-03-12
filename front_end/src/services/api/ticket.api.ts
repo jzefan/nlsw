@@ -42,6 +42,7 @@ export interface SettleDetailResponse {
   settle: SettleRecord
   bills: any[]
   settle_bills: any[]
+  shipDateMap?: Record<string, string>
   message?: string
 }
 

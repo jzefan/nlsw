@@ -16,6 +16,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       fContact,
       fName,
       fDest,
+      fOrigin,
       fDate1,
       fDate2,
       fSettledState,
@@ -42,27 +43,34 @@ exports.getInvoiceSettleVessel = async (req, res) => {
         { "bills.vehicles.veh_name": fVeh },
       ];
     if (fName) matchStage.ship_name = fName;
+    if (fOrigin) matchStage.ship_from = fOrigin;
     if (fDest) matchStage.ship_to = fDest;
 
-    // 日期过滤：已结算状态使用结算日期，其他状态使用发货日期
+    // 日期过滤：统一使用发货日期，结算状态仅作为额外筛选条件
     if (fDate1 && fDate2) {
-      if (fSettledState === "已结算" || fSettledState === "已付款") {
-        // 已结算/已付款状态：按结算日期过滤
-        matchStage.vessel_settle_date = {
-          $gte: utils.parseLocalDate(fDate1),
-          $lte: utils.parseLocalDate(fDate2),
-        };
-      } else {
-        // 未结算/不需要结算/全部：按发货日期过滤
-        matchStage.ship_date = {
-          $gte: utils.parseLocalDate(fDate1),
-          $lte: utils.parseLocalDate(fDate2),
-        };
-      }
+      matchStage.ship_date = {
+        $gte: utils.parseLocalDate(fDate1),
+        $lte: utils.parseLocalDateEnd(fDate2),
+      };
     }
 
-    if (fSettledState && fSettledState !== "全部")
-      matchStage.vessel_settle_state = fSettledState;
+    if (fSettledState && fSettledState !== "全部") {
+      // 同时匹配船运主记录的状态 和 车运子行的状态
+      // 例如：船已付款但车运子行仅已结算时，按"已结算"筛选也应返回该记录
+      const settleOr = [
+        { vessel_settle_state: fSettledState },
+        { "inner_settle.state": fSettledState },
+      ];
+      if (matchStage.$or) {
+        // 已有 $or（如车辆筛选），用 $and 合并
+        const existingOr = matchStage.$or;
+        delete matchStage.$or;
+        if (!matchStage.$and) matchStage.$and = [];
+        matchStage.$and.push({ $or: existingOr }, { $or: settleOr });
+      } else {
+        matchStage.$or = settleOr;
+      }
+    }
     if (fReceipt != null && fReceipt != 2)
       matchStage.receipt = parseInt(fReceipt);
     if (fAmount) matchStage.vessel_price = parseFloat(fAmount);
@@ -999,6 +1007,13 @@ exports.toggleVesselReceipt = async (req, res) => {
       let innerSettle = invoice.inner_settle.find(
         (is) => is.inner_waybill_no === wno,
       );
+      // 取消回执时，检查是否已结算或已付款
+      if (receipt === 0 && innerSettle) {
+        const state = innerSettle.state;
+        if (state === "已结算" || state === "已付款") {
+          return res.status(400).json({ ok: false, message: `该运单${state}，不能取消回执` });
+        }
+      }
       if (!innerSettle) {
         innerSettle = {
           inner_waybill_no: wno,
@@ -1010,7 +1025,13 @@ exports.toggleVesselReceipt = async (req, res) => {
       }
       innerSettle.receipt = receipt;
     } else {
-      // 主运单
+      // 主运单 - 取消回执时，检查是否已结算或已付款
+      if (receipt === 0) {
+        const state = invoice.vessel_settle_state;
+        if (state === "已结算" || state === "已付款") {
+          return res.status(400).json({ ok: false, message: `该运单${state}，不能取消回执` });
+        }
+      }
       invoice.receipt = receipt;
     }
 

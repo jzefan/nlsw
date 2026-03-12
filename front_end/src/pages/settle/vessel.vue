@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { Ban, CheckCircle, CheckSquare, Clock, Download, Eye, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Wallet, X } from 'lucide-vue-next'
+import { Ban, Check, CheckCircle, CheckSquare, CirclePlus, Clock, Download, Eye, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Users, Wallet, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -29,8 +29,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import * as settleApi from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
-import { formatNumber } from '@/utils/format'
+import { formatDate, formatNumber, toExcelDate, toExcelNum } from '@/utils/format'
 
+import PublicBasketsDialog from './components/PublicBasketsDialog.vue'
 import SettleBasket from './components/SettleBasket.vue'
 import VesselCardContent from './components/VesselCardContent.vue'
 import VesselBatchPriceInputDialog from './components/VesselBatchPriceInputDialog.vue'
@@ -85,11 +86,19 @@ const {
   flyingItems,
   basketStatistics,
   isInBasket,
+  isPublic,
   addToBasket,
   removeFromBasket,
   clearBasket,
   refreshBasketItems,
+  loadBasket,
+  togglePublic,
+  publicItems,
+  showPublicBaskets,
+  publicStatistics,
+  loadPublicBaskets,
 } = useSettleBasket({
+  basketType: 'vessel',
   isSameItem: (item1: any, item2: any) => {
     return (
       item1.waybill_no === item2.waybill_no &&
@@ -107,6 +116,7 @@ const showFilter = ref(true)
 const filterForm = ref({
   vehicle: '',
   billName: '',
+  origin: '',
   destination: '',
   startDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'), // 默认查询1个月
   endDate: dayjs().format('YYYY-MM-DD'),
@@ -130,7 +140,7 @@ const showColShipDate = ref(true)
 const showColSettleDate = ref(true)
 const showColUnshipDate = ref(false) // 默认隐藏
 const showColDelayDays = ref(false) // 默认隐藏
-const showColWaybillNo = ref(false) // 默认隐藏
+const showColWaybillNo = ref(false) // 已合并到车船号列，默认隐藏
 const showColTicketNo = ref(false) // 已付款状态下自动显示
 
 // 切换结算状态时自动控制票号列
@@ -150,6 +160,19 @@ const vehCategoryMap = ref<Record<string, string>>({})
 const showBillNameFilter = ref(false)
 const shipFilterSelected = ref<string[]>([])
 const billNameFilterOptions = ref<Array<{ value: string; label: string; checked: boolean }>>([])
+
+// 承运单位筛选（多选，客户端过滤）
+const carrierFilterSelected = ref<string[]>([])
+const carrierFilterOptions = computed(() => {
+  const set = new Set<string>()
+  Object.values(vehPersonMap.value).forEach((v: any) => {
+    const boss = typeof v === 'string' ? v : v?.boss
+    if (boss) {
+      boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean).forEach((b: string) => set.add(b))
+    }
+  })
+  return Array.from(set).sort()
+})
 
 // 表格数据
 const tableData = ref<any[]>([])
@@ -234,9 +257,53 @@ const canShowDetail = computed(() => selectedRecords.value.length === 1)
 // 是否显示结算篮相关按钮（仅在"未结算"状态下显示）
 const canShowBasket = computed(() => filterForm.value.settleState === '未结算')
 
+// 检查选中记录是否都有回执（requireReceiptForSettle 启用时）
+// 返回 true 表示通过检查（可继续操作），false 表示有未回执记录
+function checkReceiptForSettle(records: any[], innerNos: string[] = []): boolean {
+  if (!authStore.features.requireReceiptForSettle) return true
+
+  const noReceiptMain = records.filter((r) => !r.isSubItem && r.receipt !== 1)
+  const noReceiptInner = innerNos.filter((innerNo) => {
+    const row = tableData.value.find((r) => r.isSubItem && r.inner_waybill_no === innerNo)
+    return row && row.receipt !== 1
+  })
+
+  const noReceiptItems = [
+    ...noReceiptMain.map((r) => r.waybill_no),
+    ...noReceiptInner,
+  ]
+
+  if (noReceiptItems.length > 0) {
+    toast.error(`以下记录未回执，不能结算或加入结算篮：${noReceiptItems.join('、')}`)
+    return false
+  }
+  return true
+}
+
+// 查看公开篮（其他用户的公开结算篮）
+async function handleShowPublicBaskets() {
+  await loadPublicBaskets()
+  showPublicBaskets.value = true
+}
+
+// 结算篮卡片展开状态
+const basketExpandedItems = ref(new Set<string>())
+function getBasketItemKey(item: any): string {
+  return `${item.waybill_no}_${item.veh_name}_${item.inner_waybill_no || ''}`
+}
+function toggleBasketCardExpand(item: any) {
+  const key = getBasketItemKey(item)
+  if (basketExpandedItems.value.has(key)) {
+    basketExpandedItems.value.delete(key)
+  } else {
+    basketExpandedItems.value.add(key)
+  }
+}
+
 // 初始化
 onMounted(() => {
   handleSearch(true)
+  loadBasket()
   // 点击其他地方关闭发货单位筛选面板
   document.addEventListener('click', closeBillNameFilter)
 })
@@ -259,6 +326,17 @@ async function searchBillingNames(search: string, limit: number, page: number) {
     return response
   } catch (error) {
     console.error('搜索开单名称失败:', error)
+    return { ok: false, data: [] }
+  }
+}
+
+// 搜索函数 - 起始地/仓库（服务器端动态搜索）
+async function searchOrigins(search: string, limit: number, page: number) {
+  try {
+    const response = await settleApi.searchOrigins(search, limit)
+    return response
+  } catch (error) {
+    console.error('搜索起始地失败:', error)
     return { ok: false, data: [] }
   }
 }
@@ -292,6 +370,7 @@ async function handleSearch(silent = false) {
     const params = {
       fVeh: filterForm.value.vehicle || null,
       fName: filterForm.value.billName || null,
+      fOrigin: filterForm.value.origin || null,
       fDest: filterForm.value.destination || null,
       fDate1: filterForm.value.startDate
         ? dayjs(filterForm.value.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
@@ -321,6 +400,7 @@ async function handleSearch(silent = false) {
       imageWaybillsSet.value = new Set(response.imageWaybills || [])
       buildTableData()
       updateButtonStates()
+      refreshBasketItems()
       if (!silent) toast.success(`查询成功`, { id: 'search' })
     } else {
       console.error('查询 API 返回失败:', response)
@@ -374,31 +454,94 @@ function buildTableData() {
     })
   }
 
+  // 应用承运单位筛选
+  if (carrierFilterSelected.value.length > 0) {
+    filteredRecords = filteredRecords.filter((inv) => {
+      const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
+      const boss = typeof carrier === 'string' ? carrier : carrier?.boss || ''
+      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+      return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+    })
+  }
+
+  // 是否按车辆筛选（用于船运下只显示匹配的车）
+  const vehicleFilter = filterForm.value.vehicle || ''
+
   filteredRecords.forEach((inv) => {
     // 检查是否有车辆（船运）
     const isVessel = inv.bills?.some((bill: any) => bill.vehicles && bill.vehicles.length > 0)
-    const vehObj = isVessel ? makeVehInfo(inv) : null
+    let vehObj = isVessel ? makeVehInfo(inv) : null
+
+    // 船运记录 + 车辆筛选：只保留匹配的车辆子行
+    let vehicleFiltered = false
+    if (vehicleFilter && isVessel && vehObj) {
+      const filteredVehObj: any = {}
+      Object.keys(vehObj).forEach((key) => {
+        if (vehObj[key].name === vehicleFilter) {
+          filteredVehObj[key] = vehObj[key]
+        }
+      })
+      // 如果该船下没有匹配的车，且船本身也不匹配，跳过该记录
+      if (Object.keys(filteredVehObj).length === 0 && inv.vehicle_vessel_name !== vehicleFilter) {
+        return
+      }
+      if (Object.keys(filteredVehObj).length > 0) {
+        vehObj = filteredVehObj
+        vehicleFiltered = true // 标记：船运主行不可结算
+      }
+    }
+
+    // 按状态筛选时，如果船主行状态不匹配但车运子行匹配，隐藏船主行只显示匹配的子行
+    const settleState = filterForm.value.settleState
+    let shipSettledButTrucksNot = false
+    if (settleState && settleState !== '全部' && isVessel && vehObj && inv.vessel_settle_state !== settleState) {
+      // 只保留匹配状态的车运子行
+      const matchedVehObj: any = {}
+      Object.keys(vehObj).forEach((key) => {
+        const vehState = vehObj[key].state || '未结算'
+        if (vehState === settleState) {
+          matchedVehObj[key] = vehObj[key]
+        }
+      })
+      if (Object.keys(matchedVehObj).length === 0) {
+        return // 没有匹配状态的车运子行，跳过
+      }
+      vehObj = matchedVehObj
+      shipSettledButTrucksNot = true
+    }
+
+    const hideMainRow = vehicleFiltered || shipSettledButTrucksNot
 
     // 主行
     const mainRow = buildMainRow(inv, isVessel, vehObj)
-    data.push(mainRow)
-
-    // 更新统计
-    if (inv.vessel_price >= 0) {
-      const price = inv.vessel_price * inv.total_weight
-      totalAmount.value += price
+    mainRow.vehicleFiltered = vehicleFiltered || shipSettledButTrucksNot
+    // 车辆筛选或船已结算时不显示船运主行
+    if (!hideMainRow) {
+      data.push(mainRow)
     }
-    totalWeight.value += inv.total_weight
-    prePayment.value += (inv.charge_cash || 0) + (inv.charge_oil || 0)
 
-    if (inv.receipt !== 1) allReceiptOk.value = false
-    if (inv.vessel_price >= 0) allNotNeed.value = false
+    // 更新统计（隐藏主行时不计入统计）
+    if (!hideMainRow) {
+      if (inv.vessel_price >= 0) {
+        const price = inv.vessel_price * inv.total_weight
+        totalAmount.value += price
+      }
+      totalWeight.value += inv.total_weight
+      prePayment.value += (inv.charge_cash || 0) + (inv.charge_oil || 0)
+
+      if (inv.receipt !== 1) allReceiptOk.value = false
+      if (inv.vessel_price >= 0) allNotNeed.value = false
+    }
 
     // 子行（车辆）
     if (isVessel && vehObj) {
       Object.keys(vehObj).forEach((key) => {
         const veh = vehObj[key]
         const subRow = buildSubRow(inv, veh, key, mainRow)
+        // 主行隐藏时，子行直接显示
+        if (hideMainRow) {
+          subRow.parentExpanded = true
+        }
         data.push(subRow)
 
         // 更新统计
@@ -420,7 +563,8 @@ function buildTableData() {
 
 // 构建主行数据
 function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
-  const shipName = inv.ship_name + (inv.ship_customer ? `/${inv.ship_customer}` : '')
+  const shipName = inv.ship_name || ''
+  const shipCustomer = inv.ship_customer || ''
   const notNeedColor = inv.vessel_price < 0 ? 'darkgray' : 'red'
 
   // 承运单位处理
@@ -494,6 +638,7 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
     expanded: false,
     has_receipt_image: imageWaybillsSet.value.has(inv.waybill_no),
     shipName,
+    shipCustomer,
     notNeedColor,
     carrierBoss,
     carrierOptions,
@@ -513,7 +658,8 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any) {
 
 // 构建子行数据
 function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
-  const shipName = inv.ship_name + (inv.ship_customer ? `/${inv.ship_customer}` : '')
+  const shipName = inv.ship_name || ''
+  const shipCustomer = inv.ship_customer || ''
   const notNeedColor = veh.price < 0 ? 'darkgray' : 'red'
 
   // 承运单位处理
@@ -595,6 +741,7 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any) {
     receipt: veh.receipt,
     remark: veh.remark,
     shipName,
+    shipCustomer,
     notNeedColor,
     carrierBoss,
     carrierOptions,
@@ -748,11 +895,6 @@ function toggleCardExpand(key: string) {
   }
 }
 
-// 格式化日期（显示到秒）
-function formatDate(date: any, allowEmpty = false): string {
-  if (!date) return allowEmpty ? '' : '-'
-  return dayjs(date).format('YYYY-MM-DD HH:mm')
-}
 
 // 更新按钮状态
 function updateButtonStates() {
@@ -768,79 +910,37 @@ function updateButtonStates() {
 // 全选
 function handleSelectAll() {
   tableData.value.forEach((row) => {
+    // 车辆筛选时，船运主行不可选
+    if (row.vehicleFiltered) return
     row.selected = selectAll.value
   })
   calcSelectedSummary()
 }
 
 // 行选择
-// 检查并询问是否同时选中船下的车
-function checkAndSelectVehicles(row: any, wasUnselected: boolean) {
-  // 如果是船运单且有子行（车），且从未选中变为选中
-  if (wasUnselected && row.selected && row.isVessel && row.vehObj && Object.keys(row.vehObj).length > 0) {
-    nextTick(() => {
-      // 检查该船下的车是否已经全部选中
-      const allVehiclesSelected = tableData.value
-        .filter((r) => r.isSubItem && r.parentRow === row && !isInBasket(r))
-        .every((r) => r.selected)
-
-      // 如果车辆已经全部选中，不需要弹出对话框
-      if (allVehiclesSelected) {
-        calcSelectedSummary()
-      } else {
-        selectVehiclesDialogData.value = row
-        selectVehiclesDialog.value = true
-      }
-    })
-  } else {
-    calcSelectedSummary()
-  }
-}
-
-// 确认选中船下的车
-function handleConfirmSelectVehicles() {
-  const row = selectVehiclesDialogData.value
-  if (row) {
-    // 展开该船的行
-    row.expanded = true
-
-    // 选中该船下的所有车
-    tableData.value.forEach((r) => {
-      if (r.isSubItem && r.parentRow === row && !isInBasket(r)) {
-        r.selected = true
-        r.parentExpanded = true // 更新子行的展开状态
-      }
-    })
-  }
-  calcSelectedSummary()
-  selectVehiclesDialog.value = false
-}
-
 function handleRowClick(row: any) {
   // 如果已在结算篮中，不允许选择
   if (isInBasket(row)) return
+  // 车辆筛选时，船运主行不可选
+  if (row.vehicleFiltered) return
 
   if (!row.isSubItem) {
-    const wasUnselected = !row.selected
     row.selected = !row.selected
-    checkAndSelectVehicles(row, wasUnselected)
+    calcSelectedSummary()
   }
 }
 
 function handleRowSelect(row: any) {
   // 如果已在结算篮中，不允许选择
   if (isInBasket(row)) return
+  // 车辆筛选时，船运主行不可选
+  if (row.vehicleFiltered) {
+    nextTick(() => { row.selected = false })
+    return
+  }
 
-  // 点击复选框，v-model 会自动更新 row.selected
-  // 如果当前是选中状态（刚刚被选中），检查是否需要弹出对话框
   nextTick(() => {
-    if (row.selected) {
-      // 刚刚被选中，wasUnselected = true
-      checkAndSelectVehicles(row, true)
-    } else {
-      // 刚刚被取消选中
-      calcSelectedSummary()
-    }
+    calcSelectedSummary()
   })
 }
 
@@ -995,6 +1095,7 @@ function handlePriceInput() {
 // 加入结算篮
 function handleAddToBasket() {
   const selected = selectedRecords.value.filter((r) => !r.isSubItem)
+  if (!checkReceiptForSettle(selected)) return
   if (addToBasket(selected)) {
     // 清除选中状态
     tableData.value.forEach((row) => {
@@ -1013,18 +1114,8 @@ async function handleSettleFromBasket(items: any[]) {
     return
   }
 
-  // 验证船运单下的所有车是否都已结算
-  const vesselItems = items.filter((item) => item.isVessel && item.vehObj)
-  for (const vesselItem of vesselItems) {
-    const unsettledVehs = Object.entries(vesselItem.vehObj).filter(
-      ([_, veh]: [string, any]) => veh.state === '未结算' && veh.price >= 0,
-    )
-    if (unsettledVehs.length > 0) {
-      const names = unsettledVehs.map(([_, veh]: [string, any]) => veh.name).join('、')
-      toast.error(`船运单 ${vesselItem.waybill_no} 下还有 ${unsettledVehs.length} 辆车未结算：${names}，请先结算这些车`)
-      return
-    }
-  }
+  // 检查回执
+  if (!checkReceiptForSettle(items)) return
 
   // 检查价格输入情况
   const itemsWithoutPrice = items.filter((item) => item.vessel_price === 0)
@@ -1166,6 +1257,9 @@ async function performSettle(settle: boolean, state: string, date: any, username
     return
   }
 
+  // 结算时检查回执
+  if (settle && !checkReceiptForSettle(selected, selectedInner)) return
+
   // 验证
   const allSelectedWNo: string[] = []
   for (const rec of selected) {
@@ -1176,19 +1270,6 @@ async function performSettle(settle: boolean, state: string, date: any, username
       } else if (rec.vessel_price === 0) {
         toast.error(`您选择的运单: ${rec.waybill_no} 还未输入价格, 不能继续结算`)
         return
-      } else if (rec.isVessel && rec.vehObj) {
-        // 船运单：检查所有车是否都已结算
-        const unsettledVehs = Object.entries(rec.vehObj).filter(
-          ([_, veh]: [string, any]) => veh.state === '未结算' && veh.price >= 0,
-        )
-        if (unsettledVehs.length > 0) {
-          const names = unsettledVehs.map(([_, veh]: [string, any]) => veh.name).join('、')
-          toast.error(`船运单 ${rec.waybill_no} 下还有 ${unsettledVehs.length} 辆车未结算：${names}，请先结算这些车`)
-          return
-        }
-        if (rec.vessel_settle_state === '未结算') {
-          allSelectedWNo.push(rec.waybill_no)
-        }
       } else if (rec.vessel_settle_state === '未结算') {
         allSelectedWNo.push(rec.waybill_no)
       }
@@ -1236,6 +1317,10 @@ async function performSettle(settle: boolean, state: string, date: any, username
     })
 
     toast.success(settle ? '结算成功' : '结算取消成功')
+    // 结算完成后清空车辆筛选，回到全量视图
+    if (filterForm.value.vehicle) {
+      filterForm.value.vehicle = ''
+    }
     handleSearch(true)
   } catch (error) {
     toast.error(settle ? '结算失败' : '结算取消失败')
@@ -1313,6 +1398,10 @@ function handlePrintDetail() {
 
 // 不需要结算
 function handleNotNeedSettle(row: any) {
+  if (row.vehicleFiltered) {
+    toast.warning('按车辆筛选时，不能对船运单进行结算操作')
+    return
+  }
   const isAlreadyNotNeed = row.notNeedColor === 'darkgray'
   if (!isAlreadyNotNeed && filterForm.value.settleState !== '未结算') {
     toast.warning('已结算,不能再进行"不需要结算操作"')
@@ -1416,11 +1505,12 @@ function handleExport() {
     '车船号',
     '承运单位',
     '开单名称/发货单位',
-    '起始→目的地',
-    '总价格',
-    '单价',
+    '始发地',
+    '目的地',
     '发运块数',
     '发运重量',
+    '单价',
+    '总价格',
     '发货日期',
     '结算日期',
     '卸船日期',
@@ -1436,20 +1526,23 @@ function handleExport() {
   tableData.value
     .filter((row) => !row.isSubItem || row.parentExpanded)
     .forEach((row) => {
+      const weight = row.isSubItem ? row.send_weight : row.total_weight
+      const price = row.isSubItem ? row.price : row.vessel_price
       data.push([
         row.isSubItem ? row.state : row.vessel_settle_state,
         row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
         row.carrierBoss,
-        row.shipName,
-        `${row.ship_from || ''}→${row.ship_to || ''}`,
-        row.isSubItem ? formatNumber(row.price * row.send_weight) : formatNumber(row.vessel_price * row.total_weight),
-        row.isSubItem ? formatNumber(row.price) : formatNumber(row.vessel_price),
-        formatNumber(row.send_num),
-        formatNumber(row.isSubItem ? row.send_weight : row.total_weight),
-        formatDate(row.ship_date),
-        formatDate(row.settle_date),
-        formatDate(row.unship_date, true),
-        row.delay_day,
+        row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+        row.ship_from || '',
+        row.ship_to || '',
+        toExcelNum(row.send_num),
+        toExcelNum(weight),
+        toExcelNum(price),
+        toExcelNum(price && weight ? price * weight : 0),
+        toExcelDate(row.ship_date),
+        toExcelDate(row.settle_date),
+        toExcelDate(row.unship_date),
+        toExcelNum(row.delay_day),
         row.isSubItem ? row.inner_waybill_no : row.waybill_no,
         row.ticket_no,
         row.chargeText.replace(',', '，'),
@@ -1458,6 +1551,94 @@ function handleExport() {
     })
 
   exportFromAOAWithPicker(data, `车船结算_${dayjs().format('YYYY-MM-DD')}`, '车船结算')
+}
+
+// 结算篮导出
+function handleExportFromBasket() {
+  if (basketItems.value.length === 0) {
+    toast.warning('结算篮为空')
+    return
+  }
+
+  const columns = [
+    '状态', '车船号', '承运单位', '开单名称/发货单位', '始发地', '目的地',
+    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+  ]
+  const data: any[][] = [columns]
+
+  basketItems.value.forEach((row: any) => {
+    const weight = row.isSubItem ? row.send_weight : row.total_weight
+    const price = row.isSubItem ? row.price : row.vessel_price
+    data.push([
+      row.isSubItem ? row.state : row.vessel_settle_state,
+      row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
+      row.carrierBoss,
+      row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+      row.ship_from || '',
+      row.ship_to || '',
+      toExcelNum(row.send_num),
+      toExcelNum(weight),
+      toExcelNum(price),
+      toExcelNum(price && weight ? price * weight : 0),
+      toExcelDate(row.ship_date),
+    ])
+  })
+
+  exportFromAOAWithPicker(data, `结算篮_车船_${dayjs().format('YYYY-MM-DD')}`, '结算篮')
+}
+
+// 结算篮价格设置
+function handlePriceInputFromBasket() {
+  if (basketItems.value.length === 0) {
+    toast.warning('结算篮为空')
+    return
+  }
+  // 使用批量价格输入对话框处理结算篮中的数据（不含内部运单号）
+  batchPriceInputDialog.value?.open(basketItems.value, [], dbRecords.value)
+}
+
+// 公开篮导出
+function handleExportFromPublicBaskets() {
+  if (publicItems.value.length === 0) {
+    toast.warning('公开篮为空')
+    return
+  }
+
+  const columns = [
+    '用户', '状态', '车船号', '承运单位', '开单名称/发货单位', '始发地', '目的地',
+    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+  ]
+  const data: any[][] = [columns]
+
+  publicItems.value.forEach((row: any) => {
+    const weight = row.isSubItem ? row.send_weight : row.total_weight
+    const price = row.isSubItem ? row.price : row.vessel_price
+    data.push([
+      row._basketOwner || '',
+      row.isSubItem ? row.state : row.vessel_settle_state,
+      row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
+      row.carrierBoss,
+      row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+      row.ship_from || '',
+      row.ship_to || '',
+      toExcelNum(row.send_num),
+      toExcelNum(weight),
+      toExcelNum(price),
+      toExcelNum(price && weight ? price * weight : 0),
+      toExcelDate(row.ship_date),
+    ])
+  })
+
+  exportFromAOAWithPicker(data, `公开篮_车船_${dayjs().format('YYYY-MM-DD')}`, '公开篮')
+}
+
+// 公开篮价格设置
+function handlePriceInputFromPublicBaskets() {
+  if (publicItems.value.length === 0) {
+    toast.warning('公开篮为空')
+    return
+  }
+  batchPriceInputDialog.value?.open(publicItems.value, [], dbRecords.value)
 }
 
 // 对话框回调
@@ -1687,6 +1868,17 @@ function handleUploadReceiptConfirm() {
             </span>
           </UiButton>
 
+          <!-- 查看公开篮 -->
+          <UiButton
+            v-if="canShowBasket && authStore.features.publicBasket"
+            variant="outline"
+            size="sm"
+            @click="handleShowPublicBaskets"
+          >
+            <Users class="w-4 h-4 mr-1" />
+            公开篮
+          </UiButton>
+
           <!-- 结算按钮组 -->
           <UiButton v-if="showSettleBtn" variant="default" size="sm" @click="handleSettle"> 结算 </UiButton>
           <UiButton v-if="showSettleCancelBtn" variant="outline" size="sm" @click="handleSettleCancel">
@@ -1751,7 +1943,7 @@ function handleUploadReceiptConfirm() {
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColVehicle" type="checkbox" class="h-4 w-4 cursor-pointer" />
-                    <span class="text-sm">车船号</span>
+                    <span class="text-sm">车船号/运单号</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColCarrier" type="checkbox" class="h-4 w-4 cursor-pointer" />
@@ -1766,20 +1958,20 @@ function handleUploadReceiptConfirm() {
                     <span class="text-sm">起始→目的地</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColTotalPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
-                    <span class="text-sm">总价格</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColUnitPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
-                    <span class="text-sm">单价</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColQuantity" type="checkbox" class="h-4 w-4 cursor-pointer" />
                     <span class="text-sm">发运数</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColWeight" type="checkbox" class="h-4 w-4 cursor-pointer" />
                     <span class="text-sm">发运量</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColUnitPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">单价</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input v-model="showColTotalPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <span class="text-sm">总价格</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColShipDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
@@ -1818,7 +2010,7 @@ function handleUploadReceiptConfirm() {
         class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4"
         :class="{ 'pointer-events-none opacity-50': loading }"
       >
-        <!-- 第一行：车船号 | 开单名称 | 目的地 | 回执状态 -->
+        <!-- 第一行：车船号 | 开单名称 | 承运单位（多选） | 回执状态 -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <SearchableCombobox
             v-model="filterForm.vehicle"
@@ -1832,12 +2024,65 @@ function handleUploadReceiptConfirm() {
             placeholder="开单名称"
             class="h-8 text-sm w-full"
           />
-          <SearchableCombobox
-            v-model="filterForm.destination"
-            :search-fn="searchDestinations"
-            placeholder="目的地"
-            class="h-8 text-sm w-full"
-          />
+          <!-- 承运单位多选 -->
+          <Popover>
+            <PopoverTrigger as-child>
+              <UiButton variant="outline" size="sm" class="h-8 text-sm w-full justify-start font-normal border-dashed">
+                <CirclePlus v-if="carrierFilterSelected.length === 0" class="size-4 mr-1.5 shrink-0 text-muted-foreground" />
+                <template v-if="carrierFilterSelected.length === 0">
+                  <span class="text-muted-foreground">承运单位</span>
+                </template>
+                <template v-else>
+                  <span class="truncate">{{ carrierFilterSelected.length > 2 ? `${carrierFilterSelected.length} 个承运单位` : carrierFilterSelected.join(', ') }}</span>
+                  <X
+                    class="size-3.5 ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+                    @click.stop="carrierFilterSelected = []; buildTableData()"
+                  />
+                </template>
+              </UiButton>
+            </PopoverTrigger>
+            <PopoverContent class="w-[220px] p-0" align="start">
+              <UiCommand>
+                <UiCommandInput placeholder="搜索承运单位..." />
+                <UiCommandList>
+                  <UiCommandEmpty>无匹配项</UiCommandEmpty>
+                  <UiCommandGroup>
+                    <UiCommandItem
+                      v-for="opt in carrierFilterOptions"
+                      :key="opt"
+                      :value="opt"
+                      @select="() => {
+                        const idx = carrierFilterSelected.indexOf(opt)
+                        if (idx >= 0) carrierFilterSelected.splice(idx, 1)
+                        else carrierFilterSelected.push(opt)
+                        buildTableData()
+                      }"
+                    >
+                      <div
+                        class="mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary"
+                        :class="carrierFilterSelected.includes(opt) ? 'bg-primary' : 'opacity-50 [&_svg]:invisible'"
+                      >
+                        <Check class="h-4 w-4" :class="carrierFilterSelected.includes(opt) ? 'text-primary-foreground' : ''" />
+                      </div>
+                      <span>{{ opt }}</span>
+                    </UiCommandItem>
+                  </UiCommandGroup>
+                  <template v-if="carrierFilterSelected.length > 0">
+                    <UiCommandSeparator />
+                    <UiCommandGroup>
+                      <UiCommandItem
+                        value="__clear__"
+                        class="justify-center text-center"
+                        @select="() => { carrierFilterSelected = []; buildTableData() }"
+                      >
+                        清除筛选
+                      </UiCommandItem>
+                    </UiCommandGroup>
+                  </template>
+                </UiCommandList>
+              </UiCommand>
+            </PopoverContent>
+          </Popover>
           <Select v-model="filterForm.receiptState" @update:model-value="() => handleSearch(true)">
             <SelectTrigger class="h-8 text-sm w-full">
               <SelectValue placeholder="回执状态" />
@@ -1850,9 +2095,36 @@ function handleUploadReceiptConfirm() {
           </Select>
         </div>
 
-        <!-- 第二行：[开始日期] | [结束日期] | [单价 吨位 查询] -->
+        <!-- 第二行：起始地 | 目的地 | 单价 | 吨位 -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <!-- 开始日期 -->
+          <SearchableCombobox
+            v-model="filterForm.origin"
+            :search-fn="searchOrigins"
+            placeholder="起始地"
+            class="h-8 text-sm w-full"
+          />
+          <SearchableCombobox
+            v-model="filterForm.destination"
+            :search-fn="searchDestinations"
+            placeholder="目的地"
+            class="h-8 text-sm w-full"
+          />
+          <Input
+            v-model="filterForm.amount"
+            placeholder="单价"
+            class="h-8 text-sm"
+            @input="filterForm.amount = filterForm.amount.replace(/[^0-9.]/g, '')"
+          />
+          <Input
+            v-model="filterForm.weight"
+            placeholder="吨位"
+            class="h-8 text-sm"
+            @input="filterForm.weight = filterForm.weight.replace(/[^0-9.]/g, '')"
+          />
+        </div>
+
+        <!-- 第三行：开始日期 | 结束日期 | 查询按钮（右对齐） -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <DatePicker
             v-model="filterForm.startDate"
             placeholder="发货日期(开始)"
@@ -1860,8 +2132,6 @@ function handleUploadReceiptConfirm() {
             disabled-hint="开始日期不能晚于结束日期"
             class="h-8 w-full"
           />
-
-          <!-- 结束日期 -->
           <DatePicker
             v-model="filterForm.endDate"
             placeholder="发货日期(结束)"
@@ -1869,21 +2139,7 @@ function handleUploadReceiptConfirm() {
             disabled-hint="结束日期不能早于开始日期"
             class="h-8 w-full"
           />
-
-          <!-- 查询组 -->
-          <div class="col-span-2 flex gap-2 flex-wrap md:flex-nowrap">
-            <Input
-              v-model="filterForm.amount"
-              placeholder="单价"
-              class="h-8 text-sm flex-1"
-              @input="filterForm.amount = filterForm.amount.replace(/[^0-9.]/g, '')"
-            />
-            <Input
-              v-model="filterForm.weight"
-              placeholder="吨位"
-              class="h-8 text-sm flex-1"
-              @input="filterForm.weight = filterForm.weight.replace(/[^0-9.]/g, '')"
-            />
+          <div class="col-span-2 flex justify-end">
             <UiButton variant="default" size="sm" class="h-8 shrink-0" :disabled="loading" @click="handleSearch">
               <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
               查询
@@ -2008,9 +2264,9 @@ function handleUploadReceiptConfirm() {
               </TableHead>
               <TableHead
                 v-if="showColVehicle"
-                class="px-1.5 py-1.5 text-left min-w-[100px] sticky top-0 bg-background z-20 shadow-sm"
+                class="px-1.5 py-1.5 text-left min-w-[120px] sticky top-0 bg-background z-20 shadow-sm"
               >
-                车船号
+                车船号/运单号
               </TableHead>
               <TableHead
                 v-if="showColCarrier"
@@ -2059,18 +2315,6 @@ function handleUploadReceiptConfirm() {
                 起始→目的地
               </TableHead>
               <TableHead
-                v-if="showColTotalPrice"
-                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
-              >
-                总价格
-              </TableHead>
-              <TableHead
-                v-if="showColUnitPrice"
-                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
-              >
-                单价
-              </TableHead>
-              <TableHead
                 v-if="showColQuantity"
                 class="px-1.5 py-1.5 text-center min-w-[70px] sticky top-0 bg-background z-20 shadow-sm"
               >
@@ -2081,6 +2325,18 @@ function handleUploadReceiptConfirm() {
                 class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
               >
                 发运量
+              </TableHead>
+              <TableHead
+                v-if="showColUnitPrice"
+                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                单价
+              </TableHead>
+              <TableHead
+                v-if="showColTotalPrice"
+                class="px-1.5 py-1.5 text-center min-w-[80px] sticky top-0 bg-background z-20 shadow-sm"
+              >
+                总价格
               </TableHead>
               <TableHead
                 v-if="showColShipDate"
@@ -2167,10 +2423,11 @@ function handleUploadReceiptConfirm() {
                 v-if="!row.isSubItem"
                 class="border-b transition-colors"
                 :class="{
-                  'bg-orange-100 hover:bg-orange-200 cursor-pointer': row.isVessel && !row.selected && !isInBasket(row),
+                  'bg-orange-100 hover:bg-orange-200 cursor-pointer': row.isVessel && !row.selected && !isInBasket(row) && !row.vehicleFiltered,
                   'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
                   'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
                   'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
+                  'bg-gray-50 opacity-60 cursor-not-allowed': row.vehicleFiltered,
                 }"
                 @click="handleRowClick(row)"
               >
@@ -2179,8 +2436,8 @@ function handleUploadReceiptConfirm() {
                     v-model="row.selected"
                     type="checkbox"
                     class="h-4 w-4"
-                    :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
-                    :disabled="isInBasket(row)"
+                    :class="(isInBasket(row) || row.vehicleFiltered) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                    :disabled="isInBasket(row) || row.vehicleFiltered"
                     :checked="row.selected || isInBasket(row)"
                     @click.stop="handleRowSelect(row)"
                   />
@@ -2212,14 +2469,26 @@ function handleUploadReceiptConfirm() {
                 </TableCell>
                 <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
                 <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
-                  <span class="inline-flex items-center gap-1">
-                    {{ row.vehicle_vessel_name }}
-                    <span
-                      v-if="vehCategoryMap[row.vehicle_vessel_name]"
-                      class="inline-flex items-center px-1 py-0 rounded border text-[10px] font-medium leading-tight"
-                      :class="vehCategoryMap[row.vehicle_vessel_name] === '自有' ? 'bg-blue-100 text-blue-700 border-transparent' : 'bg-orange-100 text-orange-700 border-transparent'"
-                    >{{ vehCategoryMap[row.vehicle_vessel_name] === '自有' ? '自' : '外' }}</span>
-                  </span>
+                  <div>
+                    <span class="inline-flex items-center gap-1">
+                      {{ row.vehicle_vessel_name }}
+                      <span
+                        v-if="vehCategoryMap[row.vehicle_vessel_name]"
+                        class="inline-flex items-center px-1 py-0 rounded border text-[10px] font-medium leading-tight"
+                        :class="vehCategoryMap[row.vehicle_vessel_name] === '自有' ? 'bg-blue-100 text-blue-700 border-transparent' : 'bg-orange-100 text-orange-700 border-transparent'"
+                      >{{ vehCategoryMap[row.vehicle_vessel_name] === '自有' ? '自' : '外' }}</span>
+                    </span>
+                    <div class="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{{ row.waybill_no }}</span>
+                      <span
+                        v-if="isInBasket(row)"
+                        class="inline-flex items-center gap-0.5 px-1 py-0 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
+                      >
+                        <ShoppingCart class="w-2.5 h-2.5" />
+                        已在结算篮
+                      </span>
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                   <Select
@@ -2240,24 +2509,27 @@ function handleUploadReceiptConfirm() {
                   <span v-else>{{ row.carrierBoss }}</span>
                 </TableCell>
                 <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
-                  {{ row.shipName }}
+                  <div :class="row.shipCustomer ? '' : 'flex items-center'">
+                    <span>{{ row.shipName }}</span>
+                    <div v-if="row.shipCustomer" class="text-xs text-muted-foreground">{{ row.shipCustomer }}</div>
+                  </div>
                 </TableCell>
                 <TableCell v-if="showColDestination" class="px-1.5 py-1.5">
                   {{ row.ship_from }}→{{ row.ship_to }}
-                </TableCell>
-                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
-                  <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.send_num) }}
                 </TableCell>
                 <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.total_weight) }}
+                </TableCell>
+                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
+                  <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
                   {{ formatDate(row.ship_date) }}
@@ -2266,7 +2538,7 @@ function handleUploadReceiptConfirm() {
                   {{ formatDate(row.settle_date) }}
                 </TableCell>
                 <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
-                  {{ formatDate(row.unship_date, true) }}
+                  {{ formatDate(row.unship_date, '') }}
                 </TableCell>
                 <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
                   {{ row.delay_day }}
@@ -2382,7 +2654,10 @@ function handleUploadReceiptConfirm() {
                 </TableCell>
                 <TableCell v-if="showColState" class="px-1.5 py-1.5" v-html="row.statusHtml" />
                 <TableCell v-if="showColVehicle" class="px-1.5 py-1.5">
-                  {{ row.veh_name }}
+                  <div>
+                    <span>{{ row.veh_name }}</span>
+                    <div class="text-xs text-muted-foreground">{{ row.inner_waybill_no }}</div>
+                  </div>
                 </TableCell>
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                   <Select
@@ -2403,24 +2678,27 @@ function handleUploadReceiptConfirm() {
                   <span v-else>{{ row.carrierBoss }}</span>
                 </TableCell>
                 <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
-                  {{ row.shipName }}
+                  <div :class="row.shipCustomer ? '' : 'flex items-center'">
+                    <span>{{ row.shipName }}</span>
+                    <div v-if="row.shipCustomer" class="text-xs text-muted-foreground">{{ row.shipCustomer }}</div>
+                  </div>
                 </TableCell>
                 <TableCell v-if="showColDestination" class="px-1.5 py-1.5">
                   {{ row.ship_from }}→{{ row.ship_to }}
-                </TableCell>
-                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
-                  <span v-else class="blurred-price">***</span>
-                </TableCell>
-                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
-                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
-                  <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColQuantity" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.send_num) }}
                 </TableCell>
                 <TableCell v-if="showColWeight" class="px-1.5 py-1.5 text-center">
                   {{ formatNumber(row.send_weight) }}
+                </TableCell>
+                <TableCell v-if="showColUnitPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.unitPrice }}</span>
+                  <span v-else class="blurred-price">***</span>
+                </TableCell>
+                <TableCell v-if="showColTotalPrice" class="px-1.5 py-1.5 text-center">
+                  <span v-if="hasPrivilegePrice" :class="row.priceColor">{{ row.priceText }}</span>
+                  <span v-else class="blurred-price">***</span>
                 </TableCell>
                 <TableCell v-if="showColShipDate" class="px-1.5 py-1.5">
                   {{ formatDate(row.ship_date) }}
@@ -2429,7 +2707,7 @@ function handleUploadReceiptConfirm() {
                   {{ formatDate(row.settle_date) }}
                 </TableCell>
                 <TableCell v-if="showColUnshipDate" class="px-1.5 py-1.5">
-                  {{ formatDate(row.unship_date, true) }}
+                  {{ formatDate(row.unship_date, '') }}
                 </TableCell>
                 <TableCell v-if="showColDelayDays" class="px-1.5 py-1.5 text-center">
                   {{ row.delay_day }}
@@ -2531,10 +2809,11 @@ function handleUploadReceiptConfirm() {
             v-if="!row.isSubItem"
             class="relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
-              'bg-orange-50/60 border-l-4 border-l-orange-400': row.isVessel && !row.selected && !isInBasket(row),
+              'bg-orange-50/60 border-l-4 border-l-orange-400': row.isVessel && !row.selected && !isInBasket(row) && !row.vehicleFiltered,
               'bg-muted/30 hover:border-primary/30': !row.isVessel && !row.selected && !isInBasket(row),
               'bg-blue-50 border-l-4 border-l-blue-500': row.selected && !isInBasket(row),
               'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(row),
+              'bg-gray-50 opacity-60 cursor-not-allowed': row.vehicleFiltered,
             }"
             @click="handleRowClick(row)"
           >
@@ -2576,7 +2855,9 @@ function handleUploadReceiptConfirm() {
               <input
                 v-model="row.selected"
                 type="checkbox"
-                class="h-4 w-4 shrink-0 cursor-pointer"
+                class="h-4 w-4 shrink-0"
+                :class="row.vehicleFiltered ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                :disabled="row.vehicleFiltered"
                 @click.stop="handleRowSelect(row)"
               />
               <span
@@ -2593,15 +2874,28 @@ function handleUploadReceiptConfirm() {
                 :charge-text="row.chargeText"
                 :remark="row.remark"
                 :ship-name="row.shipName"
+                :ship-customer="row.shipCustomer"
                 :ship-from="row.ship_from"
                 :ship-to="row.ship_to"
                 :ship-date="formatDate(row.ship_date)"
+                :send-num="row.send_num ? formatNumber(row.send_num) : undefined"
                 :weight="`${formatNumber(row.total_weight)}吨`"
                 :price="hasPrivilegePrice ? `${row.unitPrice}/${row.priceText}` : undefined"
                 :price-class="row.priceColor"
                 :show-expand="row.isVessel"
                 :expanded="row.expanded"
+                :card-expanded="expandedCards.has(row.waybill_no)"
+                :waybill-no="row.waybill_no"
+                :ticket-no="row.ticket_no"
+                :charge-cash="row.charge_cash"
+                :charge-oil="row.charge_oil"
+                :delay-day="row.delay_day"
+                :settle-date="formatDate(row.settle_date, '')"
+                :unship-date="formatDate(row.unship_date, '')"
+                :pay-date="formatDate(row.pay_date, '')"
+                :carrier-boss="row.carrierBoss"
                 @toggle-expand="toggleExpand(row)"
+                @toggle-card-expand="toggleCardExpand(row.waybill_no)"
               />
 
               <!-- 右侧：回执checkbox -->
@@ -2675,12 +2969,25 @@ function handleUploadReceiptConfirm() {
                 :charge-text="row.chargeText"
                 :remark="row.remark"
                 :ship-name="row.shipName"
+                :ship-customer="row.shipCustomer"
                 :ship-from="row.ship_from"
                 :ship-to="row.ship_to"
                 :ship-date="formatDate(row.ship_date)"
+                :send-num="row.send_num ? formatNumber(row.send_num) : undefined"
                 :weight="`${formatNumber(row.send_weight)}吨`"
                 :price="hasPrivilegePrice ? `${row.unitPrice}/${row.priceText}` : undefined"
                 :price-class="row.priceColor"
+                :card-expanded="expandedCards.has(row.inner_waybill_no)"
+                :waybill-no="row.inner_waybill_no"
+                :ticket-no="row.ticket_no"
+                :charge-cash="row.charge_cash"
+                :charge-oil="row.charge_oil"
+                :delay-day="row.delay_day"
+                :settle-date="formatDate(row.settle_date, '')"
+                :unship-date="formatDate(row.unship_date, '')"
+                :pay-date="formatDate(row.pay_date, '')"
+                :carrier-boss="row.carrierBoss"
+                @toggle-card-expand="toggleCardExpand(row.inner_waybill_no)"
               />
 
               <!-- 右侧：回执checkbox -->
@@ -2820,9 +3127,13 @@ function handleUploadReceiptConfirm() {
         v-model:open="showBasket"
         :items="basketItems"
         :statistics="basketStatistics"
+        :is-public="isPublic"
         @settle="handleSettleFromBasket"
         @remove="removeFromBasket"
         @clear="clearBasket"
+        @export="handleExportFromBasket"
+        @price-input="handlePriceInputFromBasket"
+        @toggle-public="togglePublic"
       >
         <template #item="{ item }">
           <VesselCardContent
@@ -2831,16 +3142,53 @@ function handleUploadReceiptConfirm() {
             :status="item.isSubItem ? (item.state || '') : (item.vessel_settle_state || '')"
             :status-class="getStatusTagClass(item.isSubItem ? (item.state || '') : (item.vessel_settle_state || ''))"
             :charge-text="item.chargeText"
+            :remark="item.remark"
             :ship-name="item.shipName || item.ship_name"
+            :ship-customer="item.shipCustomer"
             :ship-from="item.ship_from"
             :ship-to="item.ship_to"
             :ship-date="formatDate(item.ship_date)"
+            :send-num="`${item.send_num || ''}`"
             :weight="`${formatNumber(item.send_weight)}吨`"
             :price="hasPrivilegePrice ? `${formatNumber(item.vessel_price || 0)}/${formatNumber((item.vessel_price || 0) * item.send_weight)}` : undefined"
             price-class="text-blue-600"
+            :card-expanded="basketExpandedItems.has(getBasketItemKey(item))"
+            :waybill-no="item.isSubItem ? item.inner_waybill_no : item.waybill_no"
+            :ticket-no="item.ticket_no"
+            :charge-cash="item.charge_cash"
+            :charge-oil="item.charge_oil"
+            :delay-day="item.delay_day"
+            :settle-date="formatDate(item.settle_date)"
+            :unship-date="formatDate(item.unship_date, '')"
+            :carrier-boss="item.carrierBoss"
+            @toggle-card-expand="toggleBasketCardExpand(item)"
           />
         </template>
       </SettleBasket>
+
+      <!-- 公开篮面板（查看其他用户的公开结算篮） -->
+      <PublicBasketsDialog
+        v-model:open="showPublicBaskets"
+        :items="publicItems"
+        :statistics="publicStatistics"
+        @export="handleExportFromPublicBaskets"
+        @price-input="handlePriceInputFromPublicBaskets"
+      >
+        <template #item="{ item }">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-0.5">
+              <span class="font-medium text-sm">{{ item.veh_name || item.vehicle_vessel_name }}</span>
+              <span class="text-xs text-muted-foreground">{{ item.shipName || item.ship_name }}</span>
+              <span v-if="item._basketOwner" class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{{ item._basketOwner }}</span>
+            </div>
+            <div class="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>{{ item.ship_from }} → {{ item.ship_to }}</span>
+              <span>{{ formatNumber(item.send_weight) }}吨</span>
+              <span v-if="item.vessel_price" class="text-blue-600">¥{{ formatNumber(item.vessel_price * item.send_weight) }}</span>
+            </div>
+          </div>
+        </template>
+      </PublicBasketsDialog>
 
       <!-- 飞行动画元素 -->
       <Teleport to="body">
@@ -2863,29 +3211,6 @@ function handleUploadReceiptConfirm() {
 
       <!-- 导出对话框 -->
       <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
-
-      <!-- 确认对话框：选中船下的车 -->
-      <ConfirmDialog
-        v-model:open="selectVehiclesDialog"
-        cancel-button-text="取消"
-        confirm-button-text="确定"
-        @confirm="handleConfirmSelectVehicles"
-      >
-        <template #title>选择车辆</template>
-        <template #description>
-          <div v-if="selectVehiclesDialogData" class="space-y-2">
-            <p>该船运单下有 {{ Object.keys(selectVehiclesDialogData.vehObj || {}).length }} 辆车：</p>
-            <p class="text-sm text-muted-foreground">
-              {{
-                Object.values(selectVehiclesDialogData.vehObj || {})
-                  .map((veh: any) => veh.name)
-                  .join('、')
-              }}
-            </p>
-            <p class="mt-4">是否同时选中这些车？</p>
-          </div>
-        </template>
-      </ConfirmDialog>
 
       <!-- 确认对话框：结算篮价格输入 -->
       <ConfirmDialog

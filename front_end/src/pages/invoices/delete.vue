@@ -6,6 +6,7 @@ import { BasicPage } from '@/components/global-layout'
 import { deleteInvoice, getInvoiceDetail, getInvoiceList } from '@/services/api/invoice.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
+import { formatDate, formatNumber } from '@/utils/format'
 
 const authStore = useAuthStore()
 
@@ -135,18 +136,9 @@ async function handleDelete() {
   }
 }
 
-// 格式化日期
-function formatDate(date: any) {
-  if (!date)
-    return '-'
-  return new Date(date).toLocaleDateString('zh-CN')
-}
-
-// 格式化重量（最多3位小数）
-function formatWeight(weight: number) {
-  if (weight == null)
-    return '-'
-  return Number(weight).toFixed(3)
+// 格式化重量（使用通用 formatNumber，3位小数）
+function formatWeight(num: number | string | null | undefined) {
+  return formatNumber(num) || '-'
 }
 
 // 获取订单显示文本（项次号补零到3位）

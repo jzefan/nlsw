@@ -3,6 +3,7 @@ import { ImagePlus, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-vue-n
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { formatDate } from '@/utils/format'
 import {
   createOrder,
   deleteOrder,
@@ -268,10 +269,6 @@ async function handleQRUpload(event: Event) {
   }
 }
 
-function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
 
 function formatAmount(amount: number) {
   return `¥${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`

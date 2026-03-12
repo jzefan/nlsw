@@ -296,19 +296,34 @@ exports.getSettleDetail = async (req, res) => {
       return res.status(404).json({ ok: false, message: '结算记录不存在或无权限' });
     }
 
-    // 获取所有提单ID
+    // 获取所有提单ID和运单号
     const billIds = settle.bills.map(b => b.bill_id);
+    const invNos = [...new Set(settle.bills.map(b => b.inv_no).filter(Boolean))];
 
-    // 查询提单详情
-    const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
-    const bills = await Bill.find(billQuery).lean().exec();
+    // 并行查询提单详情和运单发货日期
+    const [bills, invoices] = await Promise.all([
+      Bill.find(buildTenantQuery(req, { _id: { $in: billIds } })).lean().exec(),
+      invNos.length > 0
+        ? Invoice.find(buildTenantQuery(req, { waybill_no: { $in: invNos } }))
+            .select('waybill_no ship_date')
+            .lean()
+            .exec()
+        : [],
+    ]);
+
+    // 构建运单号→发��日期映射
+    const shipDateMap = {};
+    invoices.forEach(inv => {
+      shipDateMap[inv.waybill_no] = inv.ship_date;
+    });
 
     // 返回结算记录、提单详情和结算中的提单信息
     res.json({
       ok: true,
       settle,
       bills,
-      settle_bills: settle.bills
+      settle_bills: settle.bills,
+      shipDateMap,
     });
   } catch (error) {
     console.error('getSettleDetail error:', error);

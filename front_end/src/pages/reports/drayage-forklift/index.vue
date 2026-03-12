@@ -135,8 +135,8 @@ function handleExport() {
     sheetName: '短驳叉车应收款',
     columns: [
       { header: '月份', key: 'month' },
-      { header: '短驳应收款', key: 'drayage', formatter: (v: number) => v?.toFixed(2) },
-      { header: '叉车应收款', key: 'forklift', formatter: (v: number) => v?.toFixed(2) },
+      { header: '短驳应收款', key: 'drayage', type: 'number' },
+      { header: '叉车应收款', key: 'forklift', type: 'number' },
     ],
     data: data.value,
   })

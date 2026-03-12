@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Filter, Pencil, Plus, Square, Trash2, XCircle } from 'lucide-vue-next'
+import { CheckCircle, CheckSquare, ChevronDown, ChevronUp, Download, Filter, Pencil, Plus, Square, Trash2, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { OrderPlan } from '@/services/api/plan.api'
 
 import { BasicPage } from '@/components/global-layout'
-import { formatNumber } from '@/utils/format'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
+import { formatDate, formatNumber } from '@/utils/format'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
 import {
@@ -18,6 +20,8 @@ import {
   unclosePlans,
   updatePlan,
 } from '@/services/api/plan.api'
+
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 状态
 const loading = ref(false)
@@ -268,13 +272,63 @@ async function handleUnclose() {
   }
 }
 
-// 格式化日期
-function formatDate(date: Date | string | undefined) {
-  if (!date)
-    return ''
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// 导出（获取所有匹配数据，不受分页限制）
+async function handleExport() {
+  if (total.value === 0) {
+    toast.warning('没有可导出的数据')
+    return
+  }
+
+  try {
+    const result = await getPlans({
+      page: 1,
+      limit: total.value,
+      orderNo: filters.value.orderNo || undefined,
+      customerName: filters.value.customerName || undefined,
+      transportMode: filters.value.transportMode || undefined,
+      status: filters.value.status || undefined,
+      startDate: filters.value.startDate || undefined,
+      endDate: filters.value.endDate || undefined,
+    })
+
+    if (!result.ok || result.data.length === 0) {
+      toast.warning('没有可导出的数据')
+      return
+    }
+
+    exportWithPicker({
+      fileName: `订单计划_${dayjs().format('YYYY-MM-DD')}`,
+      sheetName: '订单计划',
+      columns: [
+        { header: '订单号', key: 'order_no' },
+        { header: '订单量', key: 'order_weight', type: 'number' },
+        { header: '已发量', key: 'sent_weight', type: 'number' },
+        { header: '未发量', key: 'left_weight', type: 'number' },
+        { header: '客户名称', key: 'customer_name' },
+        { header: '客户代码', key: 'customer_code' },
+        { header: '目的地', key: 'destination' },
+        { header: '运输方式', key: 'transport_mode' },
+        { header: '收货人', key: 'consignee' },
+        { header: '下游客户', key: 'ds_client' },
+        { header: '客户业务员', key: 'customer_saleman' },
+        { header: '业务员', key: 'consigner' },
+        { header: '合同号', key: 'contract_no' },
+        { header: '接单价', key: 'receiving_charge', type: 'number' },
+        { header: '录单时间', key: 'entry_time', type: 'date' },
+        { header: '状态', key: 'status_text' },
+      ],
+      data: result.data.map(p => ({
+        ...p,
+        sent_weight: p.order_weight - p.left_weight,
+        status_text: p.status === 0 ? '生效' : '结案',
+      })),
+    })
+  }
+  catch (e: any) {
+    toast.error('导出失败', { description: e.message })
+  }
 }
+
 
 // 获取状态文本
 function getStatusText(status: number) {
@@ -327,6 +381,10 @@ onMounted(() => {
         >
           <Filter class="w-4 h-4 mr-1" />
           {{ showFilter ? '收起' : '筛选' }}
+        </UiButton>
+        <UiButton variant="outline" size="sm" @click="handleExport">
+          <Download class="w-4 h-4 mr-1" />
+          导出
         </UiButton>
         <UiButton size="sm" @click="$router.push('/plans/create')">
           <Plus class="w-4 h-4 mr-1" />
@@ -792,6 +850,8 @@ onMounted(() => {
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>
+    <!-- 导出对话框 -->
+    <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
   </BasicPage>
 </template>
 

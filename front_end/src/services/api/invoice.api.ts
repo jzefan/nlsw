@@ -83,6 +83,13 @@ export async function getInvoices(params: {
 // 获取运单列表（新API，支持关键字搜索）
 export async function getInvoiceList(params?: {
   keyword?: string
+  waybillNo?: string
+  vehicleName?: string
+  shipName?: string
+  shipTo?: string
+  shipperName?: string
+  startDate?: string
+  endDate?: string
   limit?: number
   page?: number
   myOnly?: boolean

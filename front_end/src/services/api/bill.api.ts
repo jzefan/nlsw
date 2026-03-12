@@ -35,6 +35,7 @@ export interface Bill {
   shipper?: string
   settler?: string
   invoices?: any[]
+  dispatches?: Array<{ veh_name: string, waybill_no: string }>
 }
 
 export interface BillCreateData {

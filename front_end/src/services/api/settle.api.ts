@@ -285,6 +285,35 @@ export async function getWaybill(wno: string) {
   return response.data
 }
 
+// ==================== 结算篮持久化 API ====================
+
+// 获取结算篮
+export async function getBasket(type: 'vessel' | 'bill') {
+  const response = await axiosInstance.get<{
+    ok: boolean
+    data: { items: any[]; isPublic: boolean }
+  }>('/settle/basket', { params: { type } })
+  return response.data
+}
+
+// 保存结算篮
+export async function saveBasket(type: 'vessel' | 'bill', items: any[], isPublic: boolean = false) {
+  const response = await axiosInstance.post<{ ok: boolean }>('/settle/basket', { type, items, isPublic })
+  return response.data
+}
+
+// 获取租户内其他用户的公开结算篮
+export async function getPublicBaskets(type: 'vessel' | 'bill') {
+  const response = await axiosInstance.get<{
+    ok: boolean
+    data: {
+      items: any[]
+      baskets: Array<{ userId: string; count: number; updatedAt: string }>
+    }
+  }>('/settle/basket/public', { params: { type } })
+  return response.data
+}
+
 // 车船结算 - 搜索车船号（包括车和船）
 export async function searchVehicles(search: string, limit: number) {
   const response = await axiosInstance.get<{
@@ -302,6 +331,17 @@ export async function searchBillingNames(search: string, limit: number) {
     ok: boolean
     data: Array<{ name: string }>
   }>('/companies/search', {
+    params: { search, limit },
+  })
+  return response.data
+}
+
+// 车船结算 - 搜索起始地/仓库
+export async function searchOrigins(search: string, limit: number) {
+  const response = await axiosInstance.get<{
+    ok: boolean
+    data: Array<{ name: string }>
+  }>('/warehouses', {
     params: { search, limit },
   })
   return response.data

@@ -163,30 +163,29 @@ const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = us
 function handleExport() {
   const dateStr = new Date().toISOString().split('T')[0]
   const isVehicle = activeTab.value === 'che'
-  const fmt = (v: number) => v?.toFixed(2)
 
   const columns = isVehicle
     ? [
         { header: '月份', key: 'month' },
         { header: '车号', key: 'name' },
-        { header: '配件', key: 'fittings', formatter: fmt },
-        { header: '修理费', key: 'repair', formatter: fmt },
-        { header: '年检二维费用', key: 'annual_survey', formatter: fmt },
-        { header: '驾驶员工资', key: 'salary', formatter: fmt },
-        { header: '油费', key: 'oil', formatter: fmt },
-        { header: '过路费', key: 'toll', formatter: fmt },
-        { header: '罚款', key: 'fine', formatter: fmt },
-        { header: '其它', key: 'other', formatter: fmt },
-        { header: '合计', key: 'total', formatter: fmt },
+        { header: '配件', key: 'fittings', type: 'number' as const },
+        { header: '修理费', key: 'repair', type: 'number' as const },
+        { header: '年检二维费用', key: 'annual_survey', type: 'number' as const },
+        { header: '驾驶员工资', key: 'salary', type: 'number' as const },
+        { header: '油费', key: 'oil', type: 'number' as const },
+        { header: '过路费', key: 'toll', type: 'number' as const },
+        { header: '罚款', key: 'fine', type: 'number' as const },
+        { header: '其它', key: 'other', type: 'number' as const },
+        { header: '合计', key: 'total', type: 'number' as const },
       ]
     : [
         { header: '月份', key: 'month' },
-        { header: '保险费用', key: 'ic', formatter: fmt },
-        { header: '吊装费用', key: 'hc', formatter: fmt },
-        { header: '港口建设费', key: 'pcc', formatter: fmt },
-        { header: '辅料', key: 'aux', formatter: fmt },
-        { header: '其它', key: 'other', formatter: fmt },
-        { header: '合计', key: 'total', formatter: fmt },
+        { header: '保险费用', key: 'ic', type: 'number' as const },
+        { header: '吊装费用', key: 'hc', type: 'number' as const },
+        { header: '港口建设费', key: 'pcc', type: 'number' as const },
+        { header: '辅料', key: 'aux', type: 'number' as const },
+        { header: '其它', key: 'other', type: 'number' as const },
+        { header: '合计', key: 'total', type: 'number' as const },
       ]
 
   exportWithPicker({

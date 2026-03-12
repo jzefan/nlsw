@@ -3,6 +3,7 @@ import { Building2, CreditCard, KeyRound, Pencil, Plus, RefreshCw, Search, Trash
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { formatDate } from '@/utils/format'
 import {
   createTenant,
   deleteTenant,
@@ -302,15 +303,6 @@ async function handleResetPassword() {
   }
 }
 
-function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
-
-function formatDateTime(dateStr: string | null | undefined) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString('zh-CN')
-}
 
 const planLabels: Record<string, string> = {
   basic: '基础版',
@@ -389,7 +381,7 @@ onMounted(() => {
             </td>
             <td class="p-2 text-center">{{ tenant.userCount }} / {{ tenant.maxUsers }}</td>
             <td class="p-2 text-muted-foreground">
-              {{ formatDateTime(tenant.lastActiveAt) }}
+              {{ formatDate(tenant.lastActiveAt) }}
             </td>
             <td class="p-2 text-muted-foreground">
               {{ formatDate(tenant.createDate) }}
@@ -454,7 +446,7 @@ onMounted(() => {
           </div>
           <div class="flex justify-between">
             <span>到期: {{ formatDate(tenant.expireDate) }}</span>
-            <span>最近活跃: {{ formatDateTime(tenant.lastActiveAt) }}</span>
+            <span>最近活跃: {{ formatDate(tenant.lastActiveAt) }}</span>
           </div>
         </div>
         <div class="flex gap-2">
@@ -522,7 +514,7 @@ onMounted(() => {
                   </UiBadge>
                 </td>
                 <td class="p-2 text-muted-foreground">
-                  {{ formatDateTime(u.lastLoginAt) }}
+                  {{ formatDate(u.lastLoginAt) }}
                 </td>
                 <td class="p-2 text-center">
                   <UiButton variant="ghost" size="sm" @click="confirmResetPassword(u)">

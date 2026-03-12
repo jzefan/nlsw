@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { CheckCircle, Download, Filter, Loader2, ShoppingCart, Trash2, X, XCircle } from 'lucide-vue-next'
+import { CheckCircle, ChevronDown, ChevronUp, Download, Filter, Loader2, ShoppingCart, Trash2, Users, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -9,6 +9,8 @@ import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getSettleBills, markNotRequireSettle, settleBills } from '@/services/api/settle.api'
+import { useAuthStore } from '@/stores/auth'
+import { sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import { deleteSettle, getSettleList } from '@/services/api/ticket.api'
 
 import type { SettleRecord } from './ticket-types'
@@ -19,10 +21,14 @@ import PriceInputDialog from './components/PriceInputDialog.vue'
 import SettleCardContent from './components/SettleCardContent.vue'
 import SettleFilter from './components/SettleFilter.vue'
 import SettleTable from './components/SettleTable.vue'
+import PublicBasketsDialog from './components/PublicBasketsDialog.vue'
+import SettleBasket from './components/SettleBasket.vue'
+import { useSettleBasket } from './composables/useSettleBasket'
 import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
 const route = useRoute()
-const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+const authStore = useAuthStore()
+const { exportWithPicker, exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 自有车模式（从路由参数读取）
 const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
@@ -37,13 +43,60 @@ const loading = ref(true) // 初始显示loading，数据加载完成后自动�
 const showFilter = ref(true) // 默认显示过滤器
 const showNonSettle = ref(false)
 
-// 结算篮状态
-const basketBills = ref<SettleBill[]>([])
-const showBasket = ref(false)
+// 判断两个提单是否相同
+function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
+  return (
+    bill1._id === bill2._id &&
+    bill1.inv_no === bill2.inv_no &&
+    bill1.veh_ves_name === bill2.veh_ves_name &&
+    bill1.send_num === bill2.send_num &&
+    bill1.send_weight === bill2.send_weight
+  )
+}
 
-// 动画状态
-const basketButtonRef = ref<any>(null)
-const flyingItems = ref<{ id: string; x: number; y: number; targetX: number; targetY: number }[]>([])
+// 结算篮（使用composable，支持持久化）
+const {
+  basketItems: basketBills,
+  showBasket,
+  basketButtonRef,
+  flyingItems,
+  basketStatistics,
+  isInBasket,
+  addToBasket: composableAddToBasket,
+  removeFromBasket: composableRemoveFromBasket,
+  clearBasket: composableClearBasket,
+  refreshBasketItems: refreshBasketBills,
+  loadBasket,
+  debouncedSave,
+  isPublic,
+  togglePublic,
+  publicItems,
+  showPublicBaskets,
+  publicStatistics,
+  loadPublicBaskets,
+} = useSettleBasket<SettleBill>({
+  basketType: 'bill',
+  isSameItem: isSameBill,
+  getPrice: (item: SettleBill) => settleMode.value === 'CUSTOMER' ? item.price : item.collection_price,
+  allItems: () => allBills.value,
+})
+
+// 结算篮卡片展开状态
+const basketExpandedBills = ref(new Set<string>())
+function toggleBillCardExpand(bill: SettleBill) {
+  const key = `${bill._id}_${bill.inv_no}`
+  if (basketExpandedBills.value.has(key)) {
+    basketExpandedBills.value.delete(key)
+  } else {
+    basketExpandedBills.value.add(key)
+  }
+}
+
+// 查看公开篮
+async function handleShowPublicBaskets() {
+  await loadPublicBaskets()
+  showPublicBaskets.value = true
+}
 
 // 分页状态
 const currentPage = ref(1)
@@ -71,6 +124,7 @@ const filterParams = ref<SettleFilterParams>({
 // 页面初始化
 onMounted(() => {
   // 过滤器组件会自动初始化日期并触发 applyFilter
+  loadBasket()
 })
 
 // 监听 tab 切换，实时获取数据
@@ -195,28 +249,7 @@ const selectedStatistics = computed(() => {
   return { totalNum, totalWeight }
 })
 
-// 结算篮统计信息
-const basketStatistics = computed(() => {
-  let totalNum = 0
-  let totalWeight = 0
-  let totalAmount = 0
-
-  basketBills.value.forEach((bill) => {
-    const price = settleMode.value === 'CUSTOMER' ? bill.price : bill.collection_price
-    totalNum += bill.send_num
-    totalWeight += bill.send_weight
-    if (price > 0) {
-      totalAmount += price * bill.send_weight
-    }
-  })
-
-  return {
-    count: basketBills.value.length,
-    totalNum,
-    totalWeight,
-    totalAmount,
-  }
-})
+// basketStatistics is provided by useSettleBasket composable
 
 // 检查另一个结算模式下是否有数据
 const otherModeHasData = computed(() => {
@@ -588,100 +621,102 @@ function handleResetFilter() {
 }
 
 // ==================== 结算篮功能 ====================
+// addToBasket, removeFromBasket, clearBasket, isInBasket, refreshBasketBills
+// are provided by useSettleBasket composable
 
-// 添加选中的提单到结算篮（带动画）
+// 添加选中的提单到结算篮（包装 composable 方法，清除选中状态）
 function addToBasket() {
-  if (selectedBills.value.length === 0) {
-    toast.warning('请先选择要添加到结算篮的提单')
+  const added = composableAddToBasket(selectedBills.value)
+  if (added) {
+    selectedBills.value = []
+  }
+}
+
+// 结算篮导出
+function handleExportFromBasket() {
+  if (basketBills.value.length === 0) {
+    toast.warning('结算篮为空')
     return
   }
 
-  // 检查是否有已在结算篮中的提单
-  const newBills = selectedBills.value.filter((bill) => !basketBills.value.some((b) => isSameBill(b, bill)))
+  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
+  const columns = [
+    '开单名称', '运单号', '车船号', '始发地', '目的地',
+    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+  ]
+  const data: any[][] = [columns]
 
-  if (newBills.length === 0) {
-    toast.info('选中的提单已在结算篮中')
-    return
-  }
-
-  // 获取结算篮按钮位置
-  const basketBtn = basketButtonRef.value?.$el || basketButtonRef.value
-  if (basketBtn) {
-    const btnRect = (basketBtn as HTMLElement).getBoundingClientRect()
-    const targetX = btnRect.left + btnRect.width / 2
-    const targetY = btnRect.top + btnRect.height / 2
-
-    // 获取选中行的位置并创建飞行动画
-    const selectedRows = document.querySelectorAll('tr.bg-blue-50')
-    const maxAnimations = Math.min(selectedRows.length, 5) // 最多显示5个动画
-
-    selectedRows.forEach((row, index) => {
-      if (index >= maxAnimations) return
-      const rowRect = row.getBoundingClientRect()
-      const startX = rowRect.left + rowRect.width / 2
-      const startY = rowRect.top + rowRect.height / 2
-
-      flyingItems.value.push({
-        id: `fly-${Date.now()}-${index}`,
-        x: startX,
-        y: startY,
-        targetX,
-        targetY,
-      })
-    })
-
-    // 动画结束后清理
-    setTimeout(() => {
-      flyingItems.value = []
-    }, 600)
-  }
-
-  basketBills.value = [...basketBills.value, ...newBills]
-  toast.success(`已添加 ${newBills.length} 条提单到结算篮`)
-  selectedBills.value = []
-}
-
-// 从结算篮移除单个提单
-function removeFromBasket(bill: SettleBill) {
-  basketBills.value = basketBills.value.filter((b) => b._id !== bill._id)
-}
-
-// 清空结算篮
-function clearBasket() {
-  if (basketBills.value.length === 0) return
-
-  const confirmed = window.confirm('确定要清空结算篮吗？')
-  if (confirmed) {
-    basketBills.value = []
-    toast.success('结算篮已清空')
-  }
-}
-
-// 判断两个提单是否相同（使用更精确的条件）
-function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
-  return (
-    bill1._id === bill2._id &&
-    bill1.inv_no === bill2.inv_no &&
-    bill1.veh_ves_name === bill2.veh_ves_name &&
-    bill1.send_num === bill2.send_num &&
-    bill1.send_weight === bill2.send_weight
-  )
-}
-
-// 检查提单是否在结算篮中
-function isInBasket(bill: SettleBill): boolean {
-  return basketBills.value.some((b) => isSameBill(b, bill))
-}
-
-// 刷新结算篮中的提单数据（从 allBills 中更新）
-function refreshBasketBills() {
-  if (basketBills.value.length === 0) return
-
-  // 根据精确匹配从 allBills 中查找并更新
-  basketBills.value = basketBills.value.map((basketBill) => {
-    const updatedBill = allBills.value.find((b) => isSameBill(b, basketBill))
-    return updatedBill || basketBill
+  basketBills.value.forEach((bill: SettleBill) => {
+    const price = bill[priceField] || 0
+    data.push([
+      bill.billing_name,
+      bill.inv_no,
+      bill.veh_ves_name,
+      bill.ship_from || '',
+      bill.ship_to || '',
+      toExcelNum(bill.send_num),
+      toExcelNum(bill.send_weight),
+      toExcelNum(price),
+      toExcelNum(price > 0 ? price * bill.send_weight : 0),
+      toExcelDate(bill.inv_ship_date),
+    ])
   })
+
+  exportFromAOAWithPicker(data, `结算篮_客户_${dayjs().format('YYYY-MM-DD')}`, '结算篮')
+}
+
+// 结算篮价格设置
+function handlePriceInputFromBasket() {
+  if (basketBills.value.length === 0) {
+    toast.warning('结算篮为空')
+    return
+  }
+  selectedBills.value = [...basketBills.value]
+  showBatchPriceDialog.value = true
+}
+
+// 公开篮导出
+function handleExportFromPublicBaskets() {
+  if (publicItems.value.length === 0) {
+    toast.warning('公开篮为空')
+    return
+  }
+
+  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
+  const columns = [
+    '用户', '开单名称', '运单号', '车船号', '始发地', '目的地',
+    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+  ]
+  const data: any[][] = [columns]
+
+  publicItems.value.forEach((bill: any) => {
+    const price = bill[priceField] || 0
+    data.push([
+      bill._basketOwner || '',
+      bill.billing_name,
+      bill.inv_no,
+      bill.veh_ves_name,
+      bill.ship_from || '',
+      bill.ship_to || '',
+      toExcelNum(bill.send_num),
+      toExcelNum(bill.send_weight),
+      toExcelNum(price),
+      toExcelNum(price > 0 ? price * bill.send_weight : 0),
+      toExcelDate(bill.inv_ship_date),
+    ])
+  })
+
+  exportFromAOAWithPicker(data, `公开篮_客户_${dayjs().format('YYYY-MM-DD')}`, '公开篮')
+}
+
+// 公开篮价格设置
+function handlePriceInputFromPublicBaskets() {
+  if (publicItems.value.length === 0) {
+    toast.warning('公开篮为空')
+    return
+  }
+  selectedBills.value = [...publicItems.value]
+  showBatchPriceDialog.value = true
 }
 
 // 从结算篮结算
@@ -772,7 +807,7 @@ async function handleSettleFromBasket() {
 
     if (result.ok) {
       toast.success('结算成功')
-      basketBills.value = [] // 清空结算篮
+      composableClearBasket() // 清空结算篮并同步到数据库
       showBasket.value = false
       updateDisplayBills()
     } else {
@@ -794,17 +829,17 @@ function handleExport() {
 
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
 
-  const data = displayBills.value.map((bill) => {
+  // 按订单号排序
+  const sorted = sortByOrder(displayBills.value)
+
+  const data = sorted.map((bill) => {
     const price = bill[priceField]
     const orderDisplay = bill.order_item_no
       ? `${bill.order_no}-${String(bill.order_item_no).padStart(3, '0')}`
       : bill.order_no
     const name = bill.ship_customer ? `${bill.billing_name}/${bill.ship_customer}` : bill.billing_name
-    const totPrice = price > 0 ? (price * bill.send_weight).toFixed(2) : '-'
-    const priceText = getPriceText(price)
     const spec = `${bill.thickness}*${bill.width}*${bill.len}`
     const specSize = getSpecSize(bill.width, bill.len)
-    const shipDate = bill.inv_ship_date ? dayjs(bill.inv_ship_date).format('YYYY-MM-DD HH:mm') : ''
 
     return {
       status: getSettleStatus(bill),
@@ -813,13 +848,13 @@ function handleExport() {
       billing_name: name,
       veh_ves_name: bill.veh_ves_name,
       ship_to: bill.ship_to,
-      total_price: totPrice,
-      price: priceText,
-      send_num: bill.send_num || '',
-      send_weight: bill.send_weight.toFixed(3),
+      total_price: price > 0 ? price * bill.send_weight : '',
+      price: price < 0 ? '不需要结算' : toExcelNum(price),
+      send_num: toExcelNum(bill.send_num),
+      send_weight: toExcelNum(bill.send_weight),
       ship_from: bill.ship_from,
       ship_warehouse: bill.ship_warehouse || '',
-      ship_date: shipDate,
+      ship_date: toExcelDate(bill.inv_ship_date),
       shipper: bill.inv_shipper || '',
       inv_no: bill.inv_no,
       spec_size: specSize,
@@ -838,13 +873,13 @@ function handleExport() {
       { header: '开单名称', key: 'billing_name' },
       { header: '车船', key: 'veh_ves_name' },
       { header: '目的地', key: 'ship_to' },
-      { header: '总价格', key: 'total_price' },
+      { header: '发运块数', key: 'send_num', type: 'number' },
+      { header: '发运重量', key: 'send_weight', type: 'number' },
       { header: '单价', key: 'price' },
-      { header: '发运块数', key: 'send_num' },
-      { header: '发运重量', key: 'send_weight' },
+      { header: '总价格', key: 'total_price', type: 'number' },
       { header: '起始地', key: 'ship_from' },
       { header: '发货仓库', key: 'ship_warehouse' },
-      { header: '发货日期', key: 'ship_date' },
+      { header: '发货日期', key: 'ship_date', type: 'datetime' },
       { header: '发货人', key: 'shipper' },
       { header: '运单号', key: 'inv_no' },
       { header: '规格大小', key: 'spec_size' },
@@ -1212,6 +1247,17 @@ function isBillSelected(bill: SettleBill): boolean {
               </span>
             </UiButton>
 
+            <!-- 查看公开篮 -->
+            <UiButton
+              v-if="authStore.features.publicBasket"
+              variant="outline"
+              size="sm"
+              @click="handleShowPublicBaskets"
+            >
+              <Users class="w-4 h-4 mr-1" />
+              公开篮
+            </UiButton>
+
             <!-- 原有结算操作 -->
             <UiButton
               variant="default"
@@ -1393,7 +1439,7 @@ function isBillSelected(bill: SettleBill): boolean {
             class="relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
               'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
-              'bg-blue-50 border-l-4 border-l-blue-500': !isInBasket(bill) && isBillSelected(bill),
+              'bg-amber-100 border-l-4 border-l-amber-500': !isInBasket(bill) && isBillSelected(bill),
               'bg-muted/30 hover:border-primary/30': !isInBasket(bill) && !isBillSelected(bill),
             }"
             @click="toggleBill(bill)"
@@ -1408,7 +1454,7 @@ function isBillSelected(bill: SettleBill): boolean {
               <button
                 class="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
                 title="从结算篮移除"
-                @click.stop="removeFromBasket(bill)"
+                @click.stop="composableRemoveFromBasket(bill)"
               >
                 <X class="w-4 h-4" />
               </button>
@@ -1562,9 +1608,9 @@ function isBillSelected(bill: SettleBill): boolean {
                   v-for="settle in settledRecords"
                   v-else
                   :key="settle._id"
-                  class="border-b hover:bg-muted/50 cursor-pointer transition-colors"
+                  class="border-b hover:bg-amber-50 cursor-pointer transition-colors"
                   :class="{
-                    'bg-blue-50 border-l-4 border-l-blue-500': isSettleSelected(settle),
+                    'bg-amber-100 border-l-4 border-l-amber-500': isSettleSelected(settle),
                   }"
                   @click="toggleSettle(settle)"
                 >
@@ -1629,7 +1675,7 @@ function isBillSelected(bill: SettleBill): boolean {
             :key="settle._id"
             class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
-              'bg-blue-50 border-l-4 border-l-blue-500': isSettleSelected(settle),
+              'bg-amber-100 border-l-4 border-l-amber-500': isSettleSelected(settle),
               'bg-muted/30 hover:border-primary/30': !isSettleSelected(settle),
             }"
             @click="toggleSettle(settle)"
@@ -1671,114 +1717,114 @@ function isBillSelected(bill: SettleBill): boolean {
       </TabsContent>
     </Tabs>
 
-    <!-- 结算篮滑出面板 -->
-    <Teleport to="body">
-      <Transition name="basket-fade">
-        <div v-if="showBasket" class="fixed inset-0 bg-black/50 z-50" @click="showBasket = false" />
-      </Transition>
-      <Transition name="basket-slide">
-        <div
-          v-if="showBasket"
-          class="fixed right-0 top-0 h-full w-[500px] max-w-[90vw] bg-background shadow-xl z-50 flex flex-col"
-        >
-          <!-- 头部 -->
-          <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
-            <div class="flex items-center gap-2">
-              <ShoppingCart class="w-5 h-5 text-primary" />
-              <span class="font-semibold text-lg">结算篮</span>
-              <span class="text-muted-foreground text-sm">({{ basketBills.length }} 条)</span>
-            </div>
-            <button class="p-1 hover:bg-muted rounded-md transition-colors" @click="showBasket = false">
-              <X class="w-5 h-5" />
-            </button>
+    <!-- 结算篮组件 -->
+    <SettleBasket
+      v-model:open="showBasket"
+      :items="basketBills"
+      :statistics="basketStatistics"
+      :settle-mode="settleMode"
+      :is-public="isPublic"
+      @settle="handleSettleFromBasket"
+      @remove="composableRemoveFromBasket"
+      @clear="composableClearBasket"
+      @export="handleExportFromBasket"
+      @toggle-public="togglePublic"
+      @price-input="handlePriceInputFromBasket"
+    >
+      <template #item="{ item }">
+        <div class="flex-1 min-w-0 cursor-pointer" @click.stop="toggleBillCardExpand(item)">
+          <!-- 行1：提单号 + 订单号 -->
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-medium truncate">{{ item.bill_no }}</span>
+            <span class="text-xs text-muted-foreground">{{ getOrderDisplay(item) }}</span>
           </div>
-
-          <!-- 统计信息 -->
-          <div class="px-4 py-2 border-b bg-muted/20 text-sm">
-            <div class="flex items-center justify-between">
-              <span class="text-muted-foreground"
-                >块数: <strong class="text-foreground">{{ basketStatistics.totalNum }}</strong></span
-              >
-              <span class="text-muted-foreground"
-                >重量: <strong class="text-foreground">{{ basketStatistics.totalWeight.toFixed(3) }}</strong> 吨</span
-              >
-              <span class="text-muted-foreground"
-                >金额: <strong class="text-primary">¥{{ basketStatistics.totalAmount.toFixed(2) }}</strong></span
-              >
-            </div>
+          <!-- 行2：开单名称 -->
+          <div class="text-sm text-muted-foreground truncate">
+            {{ item.billing_name }}
           </div>
-
-          <!-- 列表内容 -->
-          <div class="flex-1 overflow-y-auto p-4 space-y-2">
-            <div
-              v-if="basketBills.length === 0"
-              class="flex flex-col items-center justify-center h-full text-muted-foreground"
-            >
-              <ShoppingCart class="w-12 h-12 mb-2 opacity-30" />
-              <p>结算篮为空</p>
-              <p class="text-sm">请选择提单后点击"加入结算篮"</p>
-            </div>
-            <div
-              v-else
-              v-for="bill in basketBills"
-              :key="bill._id"
-              class="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border hover:border-primary/50 transition-colors"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="font-medium truncate">{{ bill.bill_no }}</span>
-                  <span class="text-xs text-muted-foreground">{{ getOrderDisplay(bill) }}</span>
-                </div>
-                <div class="text-sm text-muted-foreground truncate">
-                  {{ bill.billing_name }}
-                </div>
-                <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                  <span>{{ bill.send_num }}块</span>
-                  <span>{{ bill.send_weight.toFixed(3) }}吨</span>
-                  <span class="text-primary">
-                    ¥{{
-                      ((settleMode === 'CUSTOMER' ? bill.price : bill.collection_price) * bill.send_weight).toFixed(2)
-                    }}
-                  </span>
-                </div>
-              </div>
-              <button
-                class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
-                title="从结算篮移除"
-                @click="removeFromBasket(bill)"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
-            </div>
+          <!-- 行3：数量 + 重量 + 金额 + 展开箭头 -->
+          <div class="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+            <span>{{ item.send_num }}块</span>
+            <span>{{ item.send_weight.toFixed(3) }}吨</span>
+            <span class="text-primary">
+              ¥{{ ((settleMode === 'CUSTOMER' ? item.price : item.collection_price) * item.send_weight).toFixed(2) }}
+            </span>
+            <component
+              :is="basketExpandedBills.has(`${item._id}_${item.inv_no}`) ? ChevronUp : ChevronDown"
+              class="ml-auto h-4 w-4 text-muted-foreground shrink-0"
+            />
           </div>
-
-          <!-- 底部操作 -->
-          <div class="px-4 py-3 border-t bg-muted/30 space-y-2">
-            <div class="flex items-center gap-2">
-              <UiButton
-                variant="outline"
-                size="sm"
-                class="flex-1"
-                :disabled="basketBills.length === 0"
-                @click="clearBasket"
-              >
-                <Trash2 class="w-4 h-4 mr-1" />
-                清空
-              </UiButton>
-              <UiButton
-                variant="default"
-                size="sm"
-                class="flex-1"
-                :disabled="basketBills.length === 0 || loading"
-                @click="handleSettleFromBasket"
-              >
-                结算 ({{ basketBills.length }})
-              </UiButton>
+          <!-- 展开详情 -->
+          <div v-if="basketExpandedBills.has(`${item._id}_${item.inv_no}`)" class="border-t mt-2 pt-2 space-y-1 text-xs" @click.stop>
+            <div>
+              <span class="text-muted-foreground">运单号：</span>
+              <span>{{ item.inv_no || '-' }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">车船号：</span>
+              <span>{{ item.veh_ves_name || '-' }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">开单名称：</span>
+              <span>{{ item.billing_name }}</span>
+              <span v-if="item.ship_customer" class="text-muted-foreground ml-1">/ {{ item.ship_customer }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">始发地：</span>
+              <span>{{ item.ship_from || '-' }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">目的地：</span>
+              <span>{{ item.ship_to || '-' }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">发运数：</span>
+              <span>{{ item.send_num }}块</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">发运重量：</span>
+              <span class="font-medium">{{ item.send_weight.toFixed(3) }}吨</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">客户单价：</span>
+              <span :class="item.price > 0 ? 'text-primary' : ''">{{ item.price || 0 }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">代收单价：</span>
+              <span :class="item.collection_price > 0 ? 'text-blue-600' : ''">{{ item.collection_price || 0 }}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">发货日期：</span>
+              <span>{{ item.inv_ship_date ? dayjs(item.inv_ship_date).format('YYYY-MM-DD') : '-' }}</span>
             </div>
           </div>
         </div>
-      </Transition>
-    </Teleport>
+      </template>
+    </SettleBasket>
+
+    <!-- 公开篮面板 -->
+    <PublicBasketsDialog
+      v-model:open="showPublicBaskets"
+      :items="publicItems"
+      :statistics="publicStatistics"
+      @export="handleExportFromPublicBaskets"
+      @price-input="handlePriceInputFromPublicBaskets"
+    >
+      <template #item="{ item }">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-0.5">
+            <span class="font-medium text-sm">{{ item.bill_no }}</span>
+            <span class="text-xs text-muted-foreground">{{ item.billing_name }}</span>
+            <span v-if="item._basketOwner" class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{{ item._basketOwner }}</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>{{ item.send_num }}块</span>
+            <span>{{ item.send_weight?.toFixed(3) }}吨</span>
+            <span v-if="item.price" class="text-primary">¥{{ (item.price * item.send_weight).toFixed(2) }}</span>
+          </div>
+        </div>
+      </template>
+    </PublicBasketsDialog>
 
     <!-- 飞行动画元素 -->
     <Teleport to="body">
@@ -1805,24 +1851,6 @@ function isBillSelected(bill: SettleBill): boolean {
 </template>
 
 <style scoped>
-.basket-fade-enter-active,
-.basket-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.basket-fade-enter-from,
-.basket-fade-leave-to {
-  opacity: 0;
-}
-
-.basket-slide-enter-active,
-.basket-slide-leave-active {
-  transition: transform 0.3s ease;
-}
-.basket-slide-enter-from,
-.basket-slide-leave-to {
-  transform: translateX(100%);
-}
-
 /* 飞行动画 */
 .flying-item {
   position: fixed;

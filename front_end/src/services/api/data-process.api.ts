@@ -76,3 +76,13 @@ export async function getShipmentBatches(params: ShipmentBatchListParams): Promi
   const response = await axiosInstance.get('/data-process/shipment/batches', { params })
   return response.data
 }
+
+export async function deleteShipmentBatch(batchId: string) {
+  const response = await axiosInstance.post('/data-process/shipment/delete-batch', { batchId })
+  return response.data as { ok: boolean, data?: { deletedCount: number }, error?: string }
+}
+
+export async function updateShipmentDetail(id: string, updates: Record<string, any>) {
+  const response = await axiosInstance.post('/data-process/shipment/update', { id, updates })
+  return response.data as { ok: boolean, data?: any, error?: string }
+}

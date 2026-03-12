@@ -163,13 +163,13 @@ exports.getSettleBills = async (req, res) => {
       matchConditions.push({
         ship_date: {
           $gte: utils.parseLocalDate(fDate1),
-          $lte: utils.parseLocalDate(fDate2),
+          $lte: utils.parseLocalDateEnd(fDate2),
         },
       });
     }
 
-    // 只查询已配发的运单
-    matchConditions.push({ state: { $in: ["已配发", "新建"] } });
+    // 查询已配发、新建和已结算的运单（已结算的运单可能只完成了一种结算模式）
+    matchConditions.push({ state: { $in: ["已配发", "新建", "已结算"] } });
 
     // 使用聚合管道优化查询
     const pipeline = [
@@ -693,7 +693,7 @@ exports.getVehicleList = async (req, res) => {
       .lean()
       .exec();
 
-    const vehicles = invoices.map((name) => ({ name, veh_type: "车船" }));
+    const vehicles = utils.pinyin_sort_2(invoices.map((name) => ({ name, veh_type: "车船" })));
 
     res.json({
       ok: true,

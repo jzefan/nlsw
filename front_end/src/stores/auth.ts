@@ -23,6 +23,8 @@ export type DeployMode = 'saas' | 'standalone'
 
 export interface Features {
   selfVehicle: boolean
+  publicBasket: boolean
+  requireReceiptForSettle: boolean
 }
 
 export const useAuthStore = defineStore('user', () => {
@@ -31,7 +33,7 @@ export const useAuthStore = defineStore('user', () => {
   const tenant = ref<Tenant | null>(null)
   const deployMode = ref<DeployMode>('saas')
   const standaloneCompany = ref('')
-  const features = ref<Features>({ selfVehicle: false })
+  const features = ref<Features>({ selfVehicle: false, publicBasket: false, requireReceiptForSettle: false })
 
   function setUser(userData: User | null, tenantData: Tenant | null = null) {
     user.value = userData

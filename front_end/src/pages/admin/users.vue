@@ -470,8 +470,8 @@ onMounted(() => {
     </template>
 
     <!-- 工具栏 -->
-    <div class="mb-4 flex items-center justify-between">
-      <div class="flex items-center gap-2">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <UiButton variant="outline" size="sm" :disabled="!selectedUser" @click="openEditDialog()">
           <Pencil class="w-4 h-4 mr-1" />
           修改
@@ -490,8 +490,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 数据表格 -->
-    <div class="border rounded-lg overflow-auto">
+    <!-- 桌面端表格 -->
+    <div class="hidden sm:block border rounded-lg overflow-auto">
       <table class="w-full text-sm">
         <thead class="bg-muted/50">
           <tr>
@@ -560,9 +560,70 @@ onMounted(() => {
       </table>
     </div>
 
+    <!-- 移动端卡片列表 -->
+    <div class="sm:hidden space-y-2">
+      <div v-if="users.length === 0 && !loading" class="p-8 text-center text-muted-foreground border rounded-lg">
+        暂无数据
+      </div>
+      <div
+        v-for="user in users"
+        :key="'m-' + user.userid"
+        class="border rounded-lg p-3 cursor-pointer transition-colors"
+        :class="isSelected(user) ? 'bg-primary/15 border-primary/30' : 'hover:bg-muted/30'"
+        @click="toggleSelect(user)"
+      >
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-start gap-2 min-w-0 flex-1">
+            <input
+              type="checkbox"
+              class="h-4 w-4 mt-0.5 shrink-0 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+              :checked="isSelected(user)"
+              @click.stop
+              @change="handleUserCheck(user, ($event.target as HTMLInputElement).checked)"
+            />
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-medium">{{ user.userid }}</span>
+                <UiBadge v-if="isOwnerUser(user)" variant="outline" class="text-[10px] px-1 py-0">
+                  {{ getRoleDisplay(user.role) }}
+                </UiBadge>
+                <UiBadge v-if="user.privilege.includes('admin')" variant="destructive" class="text-[10px] px-1 py-0">
+                  管理
+                </UiBadge>
+              </div>
+              <div class="text-xs text-muted-foreground mt-1 space-y-0.5">
+                <div v-if="user.name">{{ user.name }} <span v-if="user.title" class="ml-1">/ {{ user.title }}</span></div>
+                <div v-if="user.phone">{{ user.phone }}</div>
+                <div v-if="!user.privilege.includes('admin') && getPrivilegeDisplay(user.privilege)">
+                  {{ getPrivilegeDisplay(user.privilege) }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0" @click.stop>
+            <button
+              class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground shadow-sm active:scale-95 transition-all"
+              @click="openEditDialog(user)"
+            >
+              <Pencil class="h-3 w-3" />
+              编辑
+            </button>
+            <button
+              v-if="!isOwnerUser(user) && !isSelf(user)"
+              class="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-xs text-destructive shadow-sm active:scale-95 transition-all"
+              @click="handleDeleteOne(user)"
+            >
+              <Trash2 class="h-3 w-3" />
+              删除
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 新建/编辑对话框 -->
     <UiDialog v-model:open="showEditDialog">
-      <UiDialogContent class="w-[600px] min-w-[600px]">
+      <UiDialogContent class="w-full max-w-[600px] max-h-[90vh] overflow-y-auto">
         <UiDialogHeader>
           <UiDialogTitle>{{ dialogMode === 'add' ? '新建用户' : '修改用户' }}</UiDialogTitle>
           <UiDialogDescription v-if="dialogMode === 'add'">
@@ -614,7 +675,7 @@ onMounted(() => {
           <!-- 权限选择 -->
           <div class="grid gap-2">
             <label class="text-sm font-medium">选择权限 <span class="text-destructive">*</span></label>
-            <div class="grid grid-cols-4 gap-2">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <!-- 管理员 -->
               <label
                 class="flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition-all"
@@ -806,9 +867,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <UiDialogFooter>
-          <UiButton variant="outline" @click="showEditDialog = false"> 取消 </UiButton>
-          <UiButton :disabled="!canSubmit" @click="handleSave"> 确定 </UiButton>
+        <UiDialogFooter class="flex-col-reverse sm:flex-row gap-2">
+          <UiButton variant="outline" class="w-full sm:w-auto" @click="showEditDialog = false"> 取消 </UiButton>
+          <UiButton :disabled="!canSubmit" class="w-full sm:w-auto" @click="handleSave"> 确定 </UiButton>
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>

@@ -1,4 +1,5 @@
 const Bill = require('../../models/Bill');
+const Invoice = require('../../models/Invoice');
 const Company = require('../../models/Company');
 const Warehouse = require('../../models/Warehouse');
 const Brand = require('../../models/Brand');
@@ -73,6 +74,46 @@ exports.getBills = async (req, res) => {
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
+
+    // 查询每个提单关联的运单信息（车船号/运单号）
+    const billIds = bills.map(b => b._id);
+    if (billIds.length > 0) {
+      const invoices = await Invoice.find(
+        buildTenantQuery(req, { 'bills.bill_id': { $in: billIds }, state: { $ne: '新建' } }),
+        { waybill_no: 1, vehicle_vessel_name: 1, 'bills.bill_id': 1, 'bills.vehicles.veh_name': 1, 'bills.vehicles.inner_waybill_no': 1 }
+      ).lean();
+
+      // 构建 billId -> [{vehicle_vessel_name, waybill_no, veh_name?}] 映射
+      const billDispatchMap = {};
+      for (const inv of invoices) {
+        for (const b of (inv.bills || [])) {
+          const bid = String(b.bill_id);
+          if (!billIds.some(id => String(id) === bid)) continue;
+          if (!billDispatchMap[bid]) billDispatchMap[bid] = [];
+
+          if (b.vehicles && b.vehicles.length > 0) {
+            // 船运：每个车一条记录
+            for (const veh of b.vehicles) {
+              billDispatchMap[bid].push({
+                veh_name: veh.veh_name,
+                waybill_no: veh.inner_waybill_no || inv.waybill_no,
+              });
+            }
+          } else {
+            // 车运
+            billDispatchMap[bid].push({
+              veh_name: inv.vehicle_vessel_name,
+              waybill_no: inv.waybill_no,
+            });
+          }
+        }
+      }
+
+      // 附加到提单数据
+      for (const bill of bills) {
+        bill.dispatches = billDispatchMap[String(bill._id)] || [];
+      }
+    }
 
     res.json({
       ok: true,

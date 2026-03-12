@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { formatDate } from '@/utils/format'
 import {
   ChevronDown,
   ChevronUp,
@@ -117,11 +118,6 @@ function resetFilter() {
   showFilterSheet.value = false
 }
 
-// 格式化日期
-function formatDate(dateStr: string) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
 
 // 获取订单号
 function getOrder(orderNo: string, itemNo: string) {
@@ -159,6 +155,7 @@ function getSettleStatus(bill: IntegratedQueryBill) {
   if (props.showNotSent) return ''
   if (bill.inv_settle_flag === 0) {
     if (bill.collection_price < 0 && bill.price < 0) return '客户、代收都不需结算'
+    if (bill.price < 0) return '客户不需结算，代收未结算'
     if (bill.collection_price < 0) return '客户未结算，代收不需结算'
     return '客户、代收都未结算'
   } else if (bill.inv_settle_flag === 1) {

@@ -3,6 +3,7 @@ import { FileText, Receipt, RefreshCw } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { formatDate } from '@/utils/format'
 import { getTenantBills, getTenantInvoices, getTenants } from '@/services/api/platform.api'
 import type { BillItem, InvoiceItem, TenantItem } from '@/services/api/platform.api'
 
@@ -107,10 +108,6 @@ function refreshCurrentTab() {
   }
 }
 
-function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
 
 function formatNumber(num: number | null | undefined) {
   if (num == null) return '-'

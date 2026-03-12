@@ -9,6 +9,8 @@ export interface ExportColumn {
   key: string
   /** 格式化函数 */
   formatter?: (value: any, row: any) => any
+  /** 单元格类型提示（用于设置 Excel 数字格式） */
+  type?: 'number' | 'date' | 'datetime'
 }
 
 export interface ExportOptions {
@@ -31,12 +33,22 @@ export interface ExportAOAOptions {
   sheetName?: string
 }
 
+export interface ExportBufferOptions {
+  /** 文件名（不含扩展名） */
+  fileName: string
+  /** 生成 buffer 的函数（延迟到确认时执行） */
+  generateBuffer: () => Promise<ArrayBuffer | Uint8Array>
+}
+
 type PendingExport = {
   type: 'columns'
   options: ExportOptions
 } | {
   type: 'aoa'
   options: ExportAOAOptions
+} | {
+  type: 'buffer'
+  options: ExportBufferOptions
 }
 
 /**
@@ -47,6 +59,24 @@ export function useExport() {
   const showExportDialog = ref(false)
   const exportFileName = ref('')
   const pendingExport = ref<PendingExport | null>(null)
+
+  /**
+   * 自动检测 Date 类型的单元格并设置 Excel 日期格式
+   */
+  function applyDateFormats(ws: XLSX.WorkSheet) {
+    const ref = ws['!ref']
+    if (!ref) return
+    const range = XLSX.utils.decode_range(ref)
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
+        if (cell && cell.v instanceof Date) {
+          // 统一使用日期格式（toExcelDate 已做时区补偿，时间部分不可靠）
+          cell.z = 'yyyy-mm-dd'
+        }
+      }
+    }
+  }
 
   /**
    * 生成工作簿（从列定义）
@@ -70,7 +100,21 @@ export function useExport() {
 
     // 创建工作表
     const aoa = [headers, ...rows]
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
+
+    // 为有类型标记的列设置 Excel 数字格式
+    columns.forEach((col, colIdx) => {
+      if (!col.type) return
+      const fmt = col.type === 'date' ? 'yyyy-mm-dd' : col.type === 'datetime' ? 'yyyy-mm-dd hh:mm' : undefined
+      for (let rowIdx = 1; rowIdx <= rows.length; rowIdx++) {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
+        const cell = ws[cellRef]
+        if (cell && fmt) cell.z = fmt
+      }
+    })
+
+    // 自动检测 Date 对象并设置格式（兜底）
+    applyDateFormats(ws)
 
     // 自动调整列宽
     const colWidths = columns.map((col, idx) => {
@@ -98,15 +142,19 @@ export function useExport() {
    * 生成工作簿（从 AOA）
    */
   function generateWorkbookFromAOA(aoa: any[][], sheetName?: string): XLSX.WorkBook {
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
+
+    // 自动检测 Date 对象并设置格式
+    applyDateFormats(ws)
 
     // 自动调整列宽
     if (aoa.length > 0) {
       const colWidths = aoa[0].map((_, colIdx) => {
         let maxWidth = 0
         aoa.forEach((row) => {
-          const cellValue = String(row[colIdx] ?? '')
-          const width = [...cellValue].reduce((sum, char) => {
+          const cellValue = row[colIdx]
+          const str = cellValue instanceof Date ? 'yyyy-mm-dd hh:mm' : String(cellValue ?? '')
+          const width = [...str].reduce((sum, char) => {
             return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
           }, 0)
           maxWidth = Math.max(maxWidth, width)
@@ -147,6 +195,15 @@ export function useExport() {
   }
 
   /**
+   * 打开导出对话框（预生成 buffer 方式，适用于 ExcelJS 等自定义格式）
+   */
+  function exportWithBufferPicker(options: ExportBufferOptions) {
+    pendingExport.value = { type: 'buffer', options }
+    exportFileName.value = options.fileName
+    showExportDialog.value = true
+  }
+
+  /**
    * 打开导出对话框（AOA 方式）
    */
   function exportFromAOAWithPicker(aoa: any[][], defaultFileName: string, sheetName?: string) {
@@ -181,27 +238,34 @@ export function useExport() {
       return
 
     try {
-      let wb: XLSX.WorkBook
-
-      if (pendingExport.value.type === 'columns') {
-        wb = generateWorkbook(pendingExport.value.options)
-      }
-      else {
-        wb = generateWorkbookFromAOA(
-          pendingExport.value.options.aoa,
-          pendingExport.value.options.sheetName,
-        )
-      }
-
       const fullFileName = `${fileName}.xlsx`
+      let blob: Blob
 
-      if (directoryHandle) {
-        // 保存到用户选择的目录
-        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-        const blob = new Blob([wbout], {
+      if (pendingExport.value.type === 'buffer') {
+        // 预生成 buffer（ExcelJS 等）
+        const buffer = await pendingExport.value.options.generateBuffer()
+        blob = new Blob([buffer instanceof ArrayBuffer ? buffer : new Uint8Array(buffer)], {
           type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         })
+      }
+      else {
+        let wb: XLSX.WorkBook
+        if (pendingExport.value.type === 'columns') {
+          wb = generateWorkbook(pendingExport.value.options)
+        }
+        else {
+          wb = generateWorkbookFromAOA(
+            pendingExport.value.options.aoa,
+            pendingExport.value.options.sheetName,
+          )
+        }
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+        blob = new Blob([wbout], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      }
 
+      if (directoryHandle) {
         const fileHandle = await directoryHandle.getFileHandle(fullFileName, { create: true })
         const writable = await fileHandle.createWritable()
         await writable.write(blob)
@@ -211,7 +275,12 @@ export function useExport() {
       }
       else {
         // 保存到默认下载目录
-        XLSX.writeFile(wb, fullFileName)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fullFileName
+        a.click()
+        URL.revokeObjectURL(url)
         toast.success('导出成功')
       }
     }
@@ -241,6 +310,7 @@ export function useExport() {
     // 方法
     exportDirect,
     exportWithPicker,
+    exportWithBufferPicker,
     exportFromAOA,
     exportFromAOAWithPicker,
     confirmExport,

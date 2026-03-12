@@ -84,6 +84,7 @@ billSchema.index({ tenantId: 1, order: 1, bill_no: 1 });
 billSchema.index({ tenantId: 1, billing_name: 1, create_date: -1, left_num: 1 });
 billSchema.index({ tenantId: 1, billing_name: 1, order_no: 1 });
 billSchema.index({ tenantId: 1, order_no: 1 });
+billSchema.index({ tenantId: 1, bill_no: 1 });
 billSchema.index({ tenantId: 1, status_flag: 1, create_date: -1 });
 billSchema.index({ tenantId: 1, creater: 1, create_date: -1 });
 

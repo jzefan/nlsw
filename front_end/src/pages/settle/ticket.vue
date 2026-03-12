@@ -12,6 +12,7 @@ import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { deleteSettle, getSettleDetail, getSettleList, updateTicket } from '@/services/api/ticket.api'
 
+import { sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import type { DisplayMode, SettleRecord, SettleType } from './ticket-types'
 
 import SettleModeTabs from './components/SettleModeTabs.vue'
@@ -250,10 +251,10 @@ const filterOptions = computed(() => {
 function localFilterSearch(items: string[], search: string, limit: number, page: number) {
   let filtered = items
   if (search) {
-    filtered = filtered.filter(item => item.toLowerCase().includes(search.toLowerCase()))
+    filtered = filtered.filter((item) => item.toLowerCase().includes(search.toLowerCase()))
   }
   const start = (page - 1) * limit
-  const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
+  const data = filtered.slice(start, start + limit).map((item) => ({ name: item }))
   return Promise.resolve({ ok: true as const, data, total: filtered.length })
 }
 
@@ -443,7 +444,7 @@ function handleExport() {
     return
   }
 
-  const fmtDate = (d: string) => d ? dayjs(d).format('YYYY-MM-DD HH:mm') : '-'
+  const fmtDate = (d: string) => (d ? dayjs(d).format('YYYY-MM-DD HH:mm') : '-')
 
   const columns = [
     { header: '结算号', key: 'serial_number' },
@@ -453,23 +454,25 @@ function handleExport() {
     { header: '重量', key: 'ship_weight' },
     { header: '金额', key: 'price' },
     { header: '结算日期', key: 'settle_date' },
-    ...(displayMode.value === 'ticket' ? [
-      { header: '开票号', key: 'ticket_no' },
-      { header: '开票日期', key: 'ticket_date' },
-    ] : []),
+    ...(displayMode.value === 'ticket'
+      ? [
+          { header: '开票号', key: 'ticket_no' },
+          { header: '开票日期', key: 'ticket_date' },
+        ]
+      : []),
     { header: '状态', key: 'status' },
   ]
 
-  const exportData = displaySettles.value.map(settle => ({
+  const exportData = displaySettles.value.map((settle) => ({
     serial_number: settle.serial_number,
     billing_name: settle.billing_name,
     ship_to: settle.ship_to,
-    ship_number: settle.ship_number,
-    ship_weight: (settle.ship_weight || 0).toFixed(3),
-    price: (settle.price || 0).toFixed(2),
-    settle_date: fmtDate(settle.settle_date),
-    ticket_no: settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : (settle.ticket_no || '-'),
-    ticket_date: settle.ticket_date ? fmtDate(settle.ticket_date) : '-',
+    ship_number: toExcelNum(settle.ship_number),
+    ship_weight: toExcelNum(settle.ship_weight),
+    price: toExcelNum(settle.price),
+    settle_date: toExcelDate(settle.settle_date),
+    ticket_no: settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-',
+    ticket_date: toExcelDate(settle.ticket_date),
     status: settle.status,
   }))
 
@@ -495,18 +498,21 @@ function exportDetail() {
     return
   }
 
-  const exportData = detailBills.value.map((bill, index) => ({
+  // 按订单号排序
+  const sorted = sortByOrder(detailBills.value)
+  const exportData = sorted.map((bill, index) => ({
     index: index + 1,
     order_no: `${bill.order_no}-${String(bill.order_item_no || 0).padStart(3, '0')}`,
     bill_no: bill.bill_no,
+    ship_date: toExcelDate(bill.ship_date),
     spec: `${bill.thickness}*${bill.width}*${bill.len}`,
     billing_name: bill.billing_name,
     vessel: bill.vessel || '-',
     ship_to: bill.ship_to || '-',
-    price: bill.price?.toFixed(2) || '0.00',
-    settle_num: bill.settle_num || 0,
-    settle_weight: bill.settle_weight?.toFixed(3) || '0.000',
-    amount: bill.amount?.toFixed(2) || '0.00',
+    price: toExcelNum(bill.price),
+    settle_num: toExcelNum(bill.settle_num),
+    settle_weight: toExcelNum(bill.settle_weight),
+    amount: toExcelNum(bill.amount),
   }))
 
   const fileName = currentSettle.value
@@ -520,14 +526,15 @@ function exportDetail() {
       { header: '序号', key: 'index' },
       { header: '订单号', key: 'order_no' },
       { header: '提单号', key: 'bill_no' },
+      { header: '发货日期', key: 'ship_date', type: 'date' },
       { header: '规格', key: 'spec' },
       { header: '开单名称', key: 'billing_name' },
       { header: '车船', key: 'vessel' },
       { header: '目的地', key: 'ship_to' },
-      { header: '单价', key: 'price' },
-      { header: '发运块数', key: 'settle_num' },
-      { header: '发运重量', key: 'settle_weight' },
-      { header: '金额', key: 'amount' },
+      { header: '单价', key: 'price', type: 'number' },
+      { header: '发运块数', key: 'settle_num', type: 'number' },
+      { header: '发运重量', key: 'settle_weight', type: 'number' },
+      { header: '金额', key: 'amount', type: 'number' },
     ],
     data: exportData,
   })
@@ -583,6 +590,7 @@ async function handleShowDetail() {
             ship_to: shipTo,
             price,
             amount: price * settleBill.weight,
+            ship_date: result.shipDateMap?.[settleBill.inv_no] || '',
           }
         })
         .filter(Boolean)
@@ -600,7 +608,8 @@ async function handleShowDetail() {
 <template>
   <BasicPage
     :title="isSelfOwnedMode ? '开票管理(自有车)' : '开票管理'"
-    :description="isSelfOwnedMode ? '自有车结算记录的开票和票据管理' : '结算记录的开票和票据管理'">
+    :description="isSelfOwnedMode ? '自有车结算记录的开票和票据管理' : '结算记录的开票和票据管理'"
+  >
     <Tabs v-model="displayMode" class="w-full">
       <!-- Tabs 和操作按钮 -->
       <SettleModeTabs
@@ -709,7 +718,9 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div
+          class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm"
+        >
           <span class="text-muted-foreground"
             >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
           >
@@ -740,17 +751,27 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
-                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th
+                    v-if="displayMode === 'ticket'"
+                    class="px-2 py-2 text-left"
+                    style="max-width: 300px; min-width: 100px"
+                  >
+                    开票号
+                  </th>
                   <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">加载中...</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">
+                    加载中...
+                  </td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">没有数据</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">
+                    没有数据
+                  </td>
                 </tr>
                 <tr
                   v-for="settle in pagedSettles"
@@ -910,7 +931,9 @@ async function handleShowDetail() {
         </div>
 
         <!-- 汇总统计信息 -->
-        <div class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+        <div
+          class="grid grid-cols-2 md:flex md:items-center gap-2 md:gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm"
+        >
           <span class="text-muted-foreground"
             >记录数: <strong class="text-foreground">{{ statistics.count }}</strong></span
           >
@@ -941,17 +964,27 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">金额</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
-                  <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="max-width: 300px; min-width: 100px">开票号</th>
+                  <th
+                    v-if="displayMode === 'ticket'"
+                    class="px-2 py-2 text-left"
+                    style="max-width: 300px; min-width: 100px"
+                  >
+                    开票号
+                  </th>
                   <th v-if="displayMode === 'ticket'" class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">加载中...</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">
+                    加载中...
+                  </td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">没有数据</td>
+                  <td :colspan="displayMode === 'ticket' ? 11 : 9" class="p-8 text-center text-muted-foreground">
+                    没有数据
+                  </td>
                 </tr>
                 <tr
                   v-for="settle in pagedSettles"
@@ -1061,10 +1094,21 @@ async function handleShowDetail() {
     </Tabs>
 
     <!-- 分页 -->
-    <div v-if="displaySettles.length > 0" class="flex flex-col md:flex-row items-center justify-between gap-2 mt-4 px-2">
+    <div
+      v-if="displaySettles.length > 0"
+      class="flex flex-col md:flex-row items-center justify-between gap-2 mt-4 px-2"
+    >
       <div class="text-sm text-muted-foreground">
-        <span class="hidden md:inline">显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} 条，共 {{ displaySettles.length }} 条</span>
-        <span class="md:hidden">{{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} / {{ displaySettles.length }}条</span>
+        <span class="hidden md:inline"
+          >显示 {{ (currentPage - 1) * pageSize + 1 }}-{{
+            Math.min(currentPage * pageSize, displaySettles.length)
+          }}
+          条，共 {{ displaySettles.length }} 条</span
+        >
+        <span class="md:hidden"
+          >{{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, displaySettles.length) }} /
+          {{ displaySettles.length }}条</span
+        >
       </div>
       <div class="flex items-center gap-2">
         <select v-model.number="pageSize" class="h-8 px-2 text-sm border rounded" @change="currentPage = 1">
@@ -1075,9 +1119,7 @@ async function handleShowDetail() {
           <option :value="50">50条/页</option>
           <option :value="100">100条/页</option>
         </select>
-        <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="currentPage--">
-          上一页
-        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="currentPage--"> 上一页 </UiButton>
         <span class="text-sm">{{ currentPage }}/{{ totalPages }}</span>
         <UiButton variant="outline" size="sm" :disabled="currentPage >= totalPages" @click="currentPage++">
           下一页
@@ -1143,36 +1185,22 @@ async function handleShowDetail() {
                 <th class="px-2 py-2 text-right">发运块数</th>
                 <th class="px-2 py-2 text-right">发运重量</th>
                 <th class="px-2 py-2 text-right">金额</th>
+                <th class="px-2 py-2 text-left">发货日期</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(bill, index) in detailBills" :key="index" class="border-b hover:bg-muted/50">
                 <td class="px-2 py-2">{{ bill.order_no }}-{{ String(bill.order_item_no || 0).padStart(3, '0') }}</td>
-                <td class="px-2 py-2">
-                  {{ bill.bill_no }}
-                </td>
+                <td class="px-2 py-2">{{ bill.bill_no }}</td>
                 <td class="px-2 py-2">{{ bill.thickness }}*{{ bill.width }}*{{ bill.len }}</td>
-                <td class="px-2 py-2">
-                  {{ bill.billing_name }}
-                </td>
-                <td class="px-2 py-2">
-                  {{ bill.vessel || '-' }}
-                </td>
-                <td class="px-2 py-2">
-                  {{ bill.ship_to || '-' }}
-                </td>
-                <td class="px-2 py-2 text-right">
-                  {{ bill.price?.toFixed(2) || '0.00' }}
-                </td>
-                <td class="px-2 py-2 text-right">
-                  {{ bill.settle_num || 0 }}
-                </td>
-                <td class="px-2 py-2 text-right">
-                  {{ bill.settle_weight?.toFixed(3) || '0.000' }}
-                </td>
-                <td class="px-2 py-2 text-right">
-                  {{ bill.amount?.toFixed(2) || '0.00' }}
-                </td>
+                <td class="px-2 py-2">{{ bill.billing_name }}</td>
+                <td class="px-2 py-2">{{ bill.vessel || '-' }}</td>
+                <td class="px-2 py-2">{{ bill.ship_to || '-' }}</td>
+                <td class="px-2 py-2 text-right">{{ bill.price?.toFixed(2) || '0.00' }}</td>
+                <td class="px-2 py-2 text-right">{{ bill.settle_num || 0 }}</td>
+                <td class="px-2 py-2 text-right">{{ bill.settle_weight?.toFixed(3) || '0.000' }}</td>
+                <td class="px-2 py-2 text-right">{{ bill.amount?.toFixed(2) || '0.00' }}</td>
+                <td class="px-2 py-2">{{ bill.ship_date ? dayjs(bill.ship_date).format('YYYY-MM-DD') : '-' }}</td>
               </tr>
             </tbody>
           </table>

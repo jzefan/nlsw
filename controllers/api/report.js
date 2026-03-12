@@ -9,18 +9,18 @@ const { hasPermission, PERMISSIONS } = require('../../utils/permissions');
 
 // Helper to get start/end date
 function getStartEndDate(start, end, isDay) {
-  if (start === end) {
-    const d1 = utils.convertDateToUTC(new Date(start));
-    const d2 = utils.convertDateToUTC(new Date(end));
-    if (isDay) {
-      d2.setDate(d1.getDate() + 1);
-    } else {
-      d2.setMonth(d1.getMonth() + 1);
-    }
-    return { s: d1, e: d2 };
-  } else {
-    return { s: start, e: end };
+  const s = utils.parseLocalDate(start);
+  const e = utils.parseLocalDateEnd(end);
+  if (start === end && isDay) {
+    // 同一天：结束已经是 23:59:59.999，无需额外处理
+  } else if (start === end && !isDay) {
+    // 同一月：结束日期设为下月初前一刻
+    e.setMonth(e.getMonth() + 1);
+    e.setDate(1);
+    e.setHours(0, 0, 0, 0);
+    e.setMilliseconds(-1);
   }
+  return { s, e };
 }
 
 // Helper to copy bill properties
@@ -146,7 +146,7 @@ function getBillArray(bills, invs, settles, vehList, mode, selfOwnedVehs) {
 
   const invObj = {};
   invs.forEach(function (inv) {
-    invObj[inv.waybill_no] = { customer: inv.ship_customer, date: inv.ship_date, shipper: inv.shipper }
+    invObj[inv.waybill_no] = { customer: inv.ship_customer, date: inv.ship_date, shipper: inv.shipper, ship_to: inv.ship_to }
   });
 
   const copied = [];
@@ -160,6 +160,9 @@ function getBillArray(bills, invs, settles, vehList, mode, selfOwnedVehs) {
         bill.inv_ship_date = o.date;
         bill.inv_shipper = o.shipper;
         bill.status_2 = '';
+        if (!binv.ship_to && o.ship_to) {
+          binv.ship_to = o.ship_to;
+        }
 
         if (statObj[bill._id]) {
           for (let k = 0; k < statObj[bill._id].length; ++k) {
@@ -201,7 +204,7 @@ function getBillArray(bills, invs, settles, vehList, mode, selfOwnedVehs) {
 function combineBill(bills, invs) {
   let invObj = {};
   invs.forEach(function (inv) {
-    invObj[inv.waybill_no] = { customer: inv.ship_customer, date: inv.ship_date, shipper: inv.shipper, remark: inv.incoming_price_remark }
+    invObj[inv.waybill_no] = { customer: inv.ship_customer, date: inv.ship_date, shipper: inv.shipper, remark: inv.incoming_price_remark, ship_to: inv.ship_to }
   });
 
   let copied = [];
@@ -244,7 +247,7 @@ function combineBill(bills, invs) {
           send_num: binv.num,
           send_weight: bill.block_num > 0 ? bill.weight * binv.num : binv.weight,
           price: binv.price,
-          ship_to: binv.ship_to,
+          ship_to: binv.ship_to || o.ship_to,
           ship_from: binv.ship_from,
           ship_customer: o.customer,
           inv_ship_date: o.date,
@@ -321,7 +324,7 @@ exports.getIntegratedQuery = async function (req, res) {
       // Or paginate invoices? If we paginate invoices, we get a subset of bills.
       
       const db_invs = await Invoice.find(buildTenantQuery(req, obj))
-        .select('waybill_no ship_customer ship_date shipper bills incoming_price_remark')
+        .select('waybill_no ship_customer ship_date shipper ship_to bills incoming_price_remark')
         .lean()
         .exec();
 
@@ -375,11 +378,80 @@ exports.getIntegratedQuery = async function (req, res) {
         const pagedData = isExport ? bills : bills.slice(skip, skip + limit);
         res.json({ ok: true, bills: stripPriceFields(pagedData), total, page, limit, totalSendNum: 0, totalSendWeight: 0, totalUnsendWeight });
 
+      } else if (bBNo || bOrder) {
+        // ── 快速路径：有订单号/提单号时，用 find 代替聚合管道（避免 $unwind + $lookup 开销）──
+        // 1) 先查 Bill（走索引，结果集小）
+        const billFilter = { $and: [] };
+        if (bBNo) billFilter["$and"].push({ bill_no: { $regex: new RegExp(query.fBno, 'gi') } });
+        if (bOrder) billFilter["$and"].push({ order_no: { $regex: new RegExp(query.fOrder, 'gi') } });
+        if (bName) billFilter["$and"].push({ billing_name: { $in: query.fName } });
+
+        const matchedBills = await Bill.find(buildTenantQuery(req, billFilter)).lean().exec();
+        if (!matchedBills || matchedBills.length === 0) {
+          return res.json({ ok: false, bills: [], total: 0 });
+        }
+
+        // 2) 提取关联运单号，查 Invoice（走 waybill_no + ship_date 索引）
+        const invNoList = utils.getAllList(true, matchedBills, "invoices", "inv_no");
+        if (invNoList.length === 0) {
+          return res.json({ ok: false, bills: [], total: 0 });
+        }
+
+        const invQuery = { $and: [{ waybill_no: { $in: invNoList } }] };
+        if (bDate) invQuery["$and"].push({ ship_date: { $gte: new Date(qDate.s), $lte: new Date(qDate.e) } });
+        if (bDest) invQuery["$and"].push({ ship_to: { $in: query.fDest } });
+        if (bFrom) invQuery["$and"].push({ ship_from: { $in: query.fFrom } });
+        if (bc) invQuery["$and"].push({ ship_customer: query.fCustomerName });
+        if (bVeh) invQuery["$and"].push({
+          $or: [
+            { vehicle_vessel_name: { $in: query.fVeh } },
+            { 'bills.vehicles.veh_name': { $in: query.fVeh } }
+          ]
+        });
+        if (bVehMode) {
+          if (query.fVehMode === '自有') {
+            invQuery["$and"].push({
+              $or: [
+                { vehicle_vessel_name: { $in: vehs } },
+                { 'bills.vehicles.veh_name': { $in: vehs } }
+              ]
+            });
+          } else {
+            invQuery["$and"].push({ vehicle_vessel_name: { $nin: vehs } });
+            invQuery["$and"].push({ 'bills.vehicles.veh_name': { $nin: vehs } });
+          }
+        }
+
+        const invoices = await Invoice.find(buildTenantQuery(req, invQuery))
+          .select('waybill_no ship_customer ship_date shipper ship_to bills')
+          .lean()
+          .exec();
+
+        if (!invoices || invoices.length === 0) {
+          return res.json({ ok: false, bills: [], total: 0 });
+        }
+
+        // 3) 用已有的 getBillArray 组合结果
+        const settles = await Settle.find(buildTenantQuery(req, { status: { $ne: '已结算' } }))
+          .select('bills status')
+          .lean()
+          .exec();
+
+        const combined = getBillArray(matchedBills, invoices, settles, query.fVeh ? query.fVeh : [], showVehicles, vehs);
+        const total = combined.length;
+        const totalSendNum = combined.reduce((sum, b) => sum + (b.send_num || 0), 0);
+        const totalSendWeight = combined.reduce((sum, b) => {
+          const w = (!b.send_weight && b.block_num > 0) ? (b.send_num || 0) * (b.weight || 0) : (b.send_weight || 0);
+          return sum + w;
+        }, 0);
+        const pagedData = isExport ? combined : combined.slice(skip, skip + limit);
+        res.json({ ok: true, bills: stripPriceFields(pagedData), total, page, limit, totalSendNum, totalSendWeight, totalUnsendWeight: 0 });
+
       } else {
-        // ── 聚合管道优化：从 Invoice 出发（利用 ship_date 索引），再 $lookup Bill ──
+        // ── 聚合管道路径：无订单号/提单号时，从 Invoice 出发 ──
         const pipeline = [];
 
-        // 1) 运单级过滤（从 Invoice 开始，利用 {tenantId, ship_date} 索引大幅缩小数据集）
+        // 1) 运单级过滤
         const invMatch = {};
         if (bDate) invMatch.ship_date = { $gte: new Date(qDate.s), $lte: new Date(qDate.e) };
         if (bDest) invMatch.ship_to = { $in: query.fDest };
@@ -389,6 +461,14 @@ exports.getIntegratedQuery = async function (req, res) {
           { vehicle_vessel_name: { $in: query.fVeh } },
           { 'bills.vehicles.veh_name': { $in: query.fVeh } }
         ];
+        if (bName) {
+          // 开单名称在 Bill 上，先查 Bill 获取 id 列表
+          const nameBills = await Bill.find(buildTenantQuery(req, { billing_name: { $in: query.fName } })).select('_id').lean().exec();
+          if (nameBills.length === 0) {
+            return res.json({ ok: false, bills: [], total: 0 });
+          }
+          invMatch['bills.bill_id'] = { $in: nameBills.map(b => b._id) };
+        }
         if (bVehMode) {
           if (query.fVehMode === '自有') {
             const vehFilter = { $or: [
@@ -396,7 +476,6 @@ exports.getIntegratedQuery = async function (req, res) {
               { 'bills.vehicles.veh_name': { $in: vehs } }
             ]};
             if (invMatch.$or) {
-              // 已有 $or，需要用 $and 组合
               invMatch.$and = [{ $or: invMatch.$or }, vehFilter];
               delete invMatch.$or;
             } else {
@@ -409,10 +488,10 @@ exports.getIntegratedQuery = async function (req, res) {
         }
         pipeline.push({ $match: buildTenantQuery(req, invMatch) });
 
-        // 2) 展开 Invoice.bills 数组（每个运单-提单关联变为一行）
+        // 2) 展开 Invoice.bills
         pipeline.push({ $unwind: '$bills' });
 
-        // 3) $lookup 关联 Bill 集合（简单 localField/foreignField 走 _id 索引，极快）
+        // 3) $lookup Bill
         pipeline.push({
           $lookup: {
             from: 'bills',
@@ -423,10 +502,8 @@ exports.getIntegratedQuery = async function (req, res) {
         });
         pipeline.push({ $unwind: { path: '$billDoc', preserveNullAndEmptyArrays: false } });
 
-        // 4) 提单级过滤（billing_name, bill_no, order_no）
+        // 4) 提单级过滤
         if (bName) pipeline.push({ $match: { 'billDoc.billing_name': { $in: query.fName } } });
-        if (bBNo) pipeline.push({ $match: { 'billDoc.bill_no': { $regex: new RegExp(query.fBno, 'gi') } } });
-        if (bOrder) pipeline.push({ $match: { 'billDoc.order_no': { $regex: new RegExp(query.fOrder, 'gi') } } });
 
         // 5) 从 Bill.invoices[] 中提取匹配当前运单的条目（binv）
         pipeline.push({ $addFields: {

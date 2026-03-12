@@ -59,6 +59,17 @@ exports.parseLocalDate = function (dateStr) {
   return new Date(dateStr + 'T00:00:00');
 };
 
+/**
+ * 解析日期字符串为当天最后一刻（23:59:59.999），用于日期区间的结束日期
+ */
+exports.parseLocalDateEnd = function (dateStr) {
+  if (!dateStr) return null;
+  if (dateStr.includes('T') || dateStr.includes(' ')) {
+    return new Date(dateStr);
+  }
+  return new Date(dateStr + 'T23:59:59.999');
+};
+
 exports.leftPad = function (number, length) {
   var str = '' + number;
   while (str.length < length) {

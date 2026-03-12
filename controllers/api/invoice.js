@@ -195,18 +195,19 @@ exports.getInvoiceList = async (req, res) => {
     if (state) {
       query.state = state;
     }
+    if (req.query.shipTo) {
+      query.ship_to = { $regex: req.query.shipTo, $options: 'i' };
+    }
+    if (req.query.shipperName && !query.shipper) {
+      query.shipper = { $regex: req.query.shipperName, $options: 'i' };
+    }
     if (startDate || endDate) {
       query.ship_date = {};
       if (startDate) {
         query.ship_date.$gte = utils.parseLocalDate(startDate);
       }
       if (endDate) {
-        // 如果是日期字符串，设为当天的结束时间
-        const end = utils.parseLocalDate(endDate);
-        if (endDate.length <= 10) { // YYYY-MM-DD
-           end.setHours(23, 59, 59, 999);
-        }
-        query.ship_date.$lte = end;
+        query.ship_date.$lte = utils.parseLocalDateEnd(endDate);
       }
     }
 

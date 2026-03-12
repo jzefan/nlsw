@@ -172,3 +172,64 @@ exports.getShipmentDetails = async (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   }
 };
+
+/**
+ * 删除整个批次
+ * POST /data-process/shipment/delete-batch
+ * Body: { batchId }
+ */
+exports.deleteShipmentBatch = async (req, res) => {
+  try {
+    const { batchId } = req.body;
+    if (!batchId) {
+      return res.status(400).json({ ok: false, error: '缺少 batchId' });
+    }
+
+    const query = buildTenantQuery(req, { batchId });
+    const result = await ShipmentDetail.deleteMany(query);
+
+    res.json({ ok: true, data: { deletedCount: result.deletedCount } });
+  } catch (error) {
+    console.error('deleteShipmentBatch error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
+ * 更新单条发运明细
+ * POST /data-process/shipment/update
+ * Body: { id, updates: { vehicleNo, contractNo, ... } }
+ */
+exports.updateShipmentDetail = async (req, res) => {
+  try {
+    const { id, updates } = req.body;
+    if (!id || !updates) {
+      return res.status(400).json({ ok: false, error: '缺少 id 或 updates' });
+    }
+
+    // Only allow updating specific fields
+    const allowedFields = [
+      'vehicleNo', 'contractNo', 'bundleNo', 'orderNo', 'orderItemNo',
+      'quantity', 'weight', 'thickness', 'width', 'length',
+      'brandNo', 'fixedLength', 'customerName', 'loadingListNo',
+    ];
+    const safeUpdates = {};
+    for (const key of allowedFields) {
+      if (updates[key] !== undefined) {
+        safeUpdates[key] = updates[key];
+      }
+    }
+
+    const query = buildTenantQuery(req, { _id: id });
+    const doc = await ShipmentDetail.findOneAndUpdate(query, { $set: safeUpdates }, { new: true }).lean();
+
+    if (!doc) {
+      return res.status(404).json({ ok: false, error: '记录不存在' });
+    }
+
+    res.json({ ok: true, data: doc });
+  } catch (error) {
+    console.error('updateShipmentDetail error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};

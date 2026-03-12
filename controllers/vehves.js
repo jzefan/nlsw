@@ -178,8 +178,8 @@ exports.searchVehicles = async function(req, res) {
       .sort({ create_time: -1 })
       .lean();
 
-    // 只保留合理长度的车船号
-    const validVehicles = vehicles.filter(v => v.name && v.name.length <= 20);
+    // 只保留合理长度的车船号，并按拼音排序
+    const validVehicles = utils.pinyin_sort_2(vehicles.filter(v => v.name && v.name.length <= 20));
 
     // 应用分页
     const total = validVehicles.length;

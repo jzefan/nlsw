@@ -6,6 +6,8 @@ import { toast } from 'vue-sonner'
 import ExcelJS from 'exceljs'
 
 import { BasicPage } from '@/components/global-layout'
+import ExportDialog from '@/components/export-dialog.vue'
+import { useExport } from '@/composables/use-export'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -43,7 +45,9 @@ import {
 import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
 import { useAuthStore } from '@/stores/auth'
 import { COMPANY_FULL_NAME } from '@/config/constants'
-import { formatDim, formatNumber } from '@/utils/format'
+import { formatDate, formatDim, formatNumber, toExcelDate, toExcelNum } from '@/utils/format'
+
+const { exportWithBufferPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 const companyName = computed(() => {
   // 优先使用运单的开单名称（发货单抬头应属于运单所属公司）
@@ -300,12 +304,6 @@ watch(myWaybills, () => {
   invoiceDetail.value = null
 })
 
-// Helpers
-function formatDate(date: string | Date | undefined) {
-  if (!date)
-    return ''
-  return new Date(date).toLocaleDateString('zh-CN')
-}
 
 function getOrderDisplay(bill: any) {
   if (bill.order_item_no != null) {
@@ -494,19 +492,53 @@ async function handleExport() {
 
   // 用于记录每列的最大宽度
   const columnWidths: number[] = Array(12).fill(0)
+  // 合并单元格宽度约束：{ startCol(0-based), endCol(0-based), width }
+  const mergedConstraints: { startCol: number, endCol: number, width: number }[] = []
 
   // 计算文本宽度（中文字符算2个宽度，英文算1个）
+  // 数字类型先格式化为最多3位小数再计算宽度，避免原始精度撑大列宽
   function getTextWidth(text: any): number {
-    const str = String(text || '')
+    if (text instanceof Date) return 10 // yyyy-mm-dd
+    const str = typeof text === 'number'
+      ? parseFloat(text.toFixed(3)).toString()
+      : String(text ?? '')
     return [...str].reduce((sum, char) => {
       return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
     }, 0)
   }
 
-  // 更新列宽
+  // 更新单列列宽
   function updateColumnWidth(colIndex: number, text: any) {
     const width = getTextWidth(text)
     columnWidths[colIndex] = Math.max(columnWidths[colIndex], width)
+  }
+
+  // 更新合并列列宽（内容宽度分摊到跨越的列）
+  function updateMergedColumnWidth(startCol: number, endCol: number, text: any) {
+    const width = getTextWidth(text)
+    if (width > 0) {
+      mergedConstraints.push({ startCol, endCol, width })
+    }
+  }
+
+  // 最终计算列宽：先用单列宽度，再用合并约束补齐不足
+  function resolveColumnWidths() {
+    for (const { startCol, endCol, width } of mergedConstraints) {
+      const spanCount = endCol - startCol + 1
+      // 当前跨越列的宽度总和
+      let currentSum = 0
+      for (let c = startCol; c <= endCol; c++) {
+        currentSum += columnWidths[c]
+      }
+      // 如果现有总宽度不够，将差额均分到各列
+      if (currentSum < width) {
+        const deficit = width - currentSum
+        const perCol = Math.ceil(deficit / spanCount)
+        for (let c = startCol; c <= endCol; c++) {
+          columnWidths[c] += perCol
+        }
+      }
+    }
   }
 
   let rowNum = 1
@@ -519,7 +551,7 @@ async function handleExport() {
   titleCell.font = { bold: true, size: 16 }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
   sheet.getRow(rowNum).height = 30
-  updateColumnWidth(0, titleText)
+  // 标题跨全部12列，不影响单列宽度
   rowNum++
 
   // 空行
@@ -539,7 +571,7 @@ async function handleExport() {
   row1.getCell(2).value = inv.waybill_no
   row1.getCell(2).border = thinBorder
   row1.getCell(3).border = thinBorder
-  updateColumnWidth(1, inv.waybill_no)
+  updateMergedColumnWidth(1, 2, inv.waybill_no)
 
   sheet.mergeCells(rowNum, 4, rowNum, 5)
   const r1c4 = '开单名称'
@@ -548,12 +580,12 @@ async function handleExport() {
   row1.getCell(4).fill = labelFill
   row1.getCell(4).border = thinBorder
   row1.getCell(5).border = thinBorder
-  updateColumnWidth(3, r1c4)
+  updateMergedColumnWidth(3, 4, r1c4)
 
   sheet.mergeCells(rowNum, 6, rowNum, 9)
   row1.getCell(6).value = inv.ship_name
   for (let c = 6; c <= 9; c++) row1.getCell(c).border = thinBorder
-  updateColumnWidth(5, inv.ship_name)
+  updateMergedColumnWidth(5, 8, inv.ship_name)
 
   const r1c10 = '目的地'
   row1.getCell(10).value = r1c10
@@ -566,7 +598,7 @@ async function handleExport() {
   row1.getCell(11).value = inv.ship_to
   row1.getCell(11).border = thinBorder
   row1.getCell(12).border = thinBorder
-  updateColumnWidth(10, inv.ship_to)
+  updateMergedColumnWidth(10, 11, inv.ship_to)
   rowNum++
 
   // 第二行：车船号(1列) | 车船号值(2列) | 发货单位(2列) | 发货单位值(4列) | 联系人(1列) | 联系人值(2列)
@@ -575,11 +607,13 @@ async function handleExport() {
   row2.getCell(1).font = { bold: true }
   row2.getCell(1).fill = labelFill
   row2.getCell(1).border = thinBorder
+  updateColumnWidth(0, '车船号')
 
   sheet.mergeCells(rowNum, 2, rowNum, 3)
   row2.getCell(2).value = inv.vehicle_vessel_name
   row2.getCell(2).border = thinBorder
   row2.getCell(3).border = thinBorder
+  updateMergedColumnWidth(1, 2, inv.vehicle_vessel_name)
 
   sheet.mergeCells(rowNum, 4, rowNum, 5)
   row2.getCell(4).value = '发货单位'
@@ -587,20 +621,24 @@ async function handleExport() {
   row2.getCell(4).fill = labelFill
   row2.getCell(4).border = thinBorder
   row2.getCell(5).border = thinBorder
+  updateMergedColumnWidth(3, 4, '发货单位')
 
   sheet.mergeCells(rowNum, 6, rowNum, 9)
   row2.getCell(6).value = inv.ship_customer || '-'
   for (let c = 6; c <= 9; c++) row2.getCell(c).border = thinBorder
+  updateMergedColumnWidth(5, 8, inv.ship_customer)
 
   row2.getCell(10).value = '联系人'
   row2.getCell(10).font = { bold: true }
   row2.getCell(10).fill = labelFill
   row2.getCell(10).border = thinBorder
+  updateColumnWidth(9, '联系人')
 
   sheet.mergeCells(rowNum, 11, rowNum, 12)
   row2.getCell(11).value = inv.ship_to_contact || '-'
   row2.getCell(11).border = thinBorder
   row2.getCell(12).border = thinBorder
+  updateMergedColumnWidth(10, 11, inv.ship_to_contact)
   rowNum++
 
   // 第三行：发货日期(1列) | 发货日期值(2列) | 电话(2列) | 电话值(4列) | 电话(1列) | 电话值(2列)
@@ -609,11 +647,17 @@ async function handleExport() {
   row3.getCell(1).font = { bold: true }
   row3.getCell(1).fill = labelFill
   row3.getCell(1).border = thinBorder
+  updateColumnWidth(0, '发货日期')
 
   sheet.mergeCells(rowNum, 2, rowNum, 3)
-  row3.getCell(2).value = formatDate(inv.ship_date)
+  const shipDate = toExcelDate(inv.ship_date)
+  row3.getCell(2).value = shipDate
+  if (shipDate instanceof Date) {
+    row3.getCell(2).numFmt = 'yyyy-mm-dd'
+  }
   row3.getCell(2).border = thinBorder
   row3.getCell(3).border = thinBorder
+  updateMergedColumnWidth(1, 2, shipDate)
 
   sheet.mergeCells(rowNum, 4, rowNum, 5)
   row3.getCell(4).value = '电话'
@@ -621,20 +665,24 @@ async function handleExport() {
   row3.getCell(4).fill = labelFill
   row3.getCell(4).border = thinBorder
   row3.getCell(5).border = thinBorder
+  updateMergedColumnWidth(3, 4, '电话')
 
   sheet.mergeCells(rowNum, 6, rowNum, 9)
   row3.getCell(6).value = inv.ship_phone || '-'
   for (let c = 6; c <= 9; c++) row3.getCell(c).border = thinBorder
+  updateMergedColumnWidth(5, 8, inv.ship_phone)
 
   row3.getCell(10).value = '电话'
   row3.getCell(10).font = { bold: true }
   row3.getCell(10).fill = labelFill
   row3.getCell(10).border = thinBorder
+  updateColumnWidth(9, '电话')
 
   sheet.mergeCells(rowNum, 11, rowNum, 12)
   row3.getCell(11).value = inv.ship_to_phone || '-'
   row3.getCell(11).border = thinBorder
   row3.getCell(12).border = thinBorder
+  updateMergedColumnWidth(10, 11, inv.ship_to_phone)
   rowNum++
 
   // 第四行：始发地(1列) | 始发地值(11列)
@@ -643,10 +691,12 @@ async function handleExport() {
   row4.getCell(1).font = { bold: true }
   row4.getCell(1).fill = labelFill
   row4.getCell(1).border = thinBorder
+  updateColumnWidth(0, '始发地')
 
   sheet.mergeCells(rowNum, 2, rowNum, 12)
   row4.getCell(2).value = inv.ship_from
   for (let c = 2; c <= 12; c++) row4.getCell(c).border = thinBorder
+  updateMergedColumnWidth(1, 11, inv.ship_from)
   rowNum++
 
   // 空行
@@ -672,6 +722,9 @@ async function handleExport() {
   inv.bills.forEach((bill: any) => {
     const billInfo = bill.bill_id || {}
 
+    // 数字列索引（厚度3, 宽度4, 长度5, 单重6, 发运数7, 发运重量8）
+    const numColIndices = new Set([3, 4, 5, 6, 7, 8])
+
     const addDataRow = (data: any[]) => {
       const dataRow = sheet.getRow(rowNum)
       data.forEach((val, idx) => {
@@ -679,8 +732,12 @@ async function handleExport() {
         cell.value = val
         cell.border = thinBorder
         // 数字列右对齐
-        if (idx >= 3 && idx <= 8) {
+        if (numColIndices.has(idx)) {
           cell.alignment = { horizontal: 'right' }
+        }
+        // 牌号列自动换行
+        if (idx === 2) {
+          cell.alignment = { wrapText: true }
         }
         updateColumnWidth(idx, val)
       })
@@ -693,12 +750,12 @@ async function handleExport() {
           billInfo.bill_no || '',
           getOrderDisplay(billInfo),
           billInfo.brand_no || '',
-          formatDim(billInfo.thickness),
-          formatDim(billInfo.width),
-          formatDim(billInfo.len),
-          formatNumber(billInfo.weight),
-          veh.send_num,
-          formatNumber(getVehSendWeight(veh, billInfo)),
+          toExcelNum(billInfo.thickness),
+          toExcelNum(billInfo.width),
+          toExcelNum(billInfo.len),
+          toExcelNum(billInfo.weight),
+          toExcelNum(veh.send_num),
+          toExcelNum(getVehSendWeight(veh, billInfo)),
           billInfo.ship_warehouse || '',
           billInfo.contract_no || '',
           veh.veh_name || ''
@@ -710,12 +767,12 @@ async function handleExport() {
         billInfo.bill_no || '',
         getOrderDisplay(billInfo),
         billInfo.brand_no || '',
-        formatDim(billInfo.thickness),
-        formatDim(billInfo.width),
-        formatDim(billInfo.len),
-        formatNumber(billInfo.weight),
-        bill.num || 0,
-        formatNumber(getBillSendWeight(bill)),
+        toExcelNum(billInfo.thickness),
+        toExcelNum(billInfo.width),
+        toExcelNum(billInfo.len),
+        toExcelNum(billInfo.weight),
+        toExcelNum(bill.num),
+        toExcelNum(getBillSendWeight(bill)),
         billInfo.ship_warehouse || '',
         billInfo.contract_no || '',
         '-'
@@ -742,30 +799,22 @@ async function handleExport() {
   for (let c = 1; c <= 12; c++) {
     summaryRow.getCell(c).border = thinBorder
   }
-  updateColumnWidth(7, summaryText1)
-  updateColumnWidth(9, summaryText2)
+  updateMergedColumnWidth(7, 8, summaryText1)
+  updateMergedColumnWidth(9, 11, summaryText2)
 
-  // 应用列宽（设置最小宽度10，最大宽度50）
+  // 解析合并单元格约束，补齐列宽
+  resolveColumnWidths()
+
+  // 应用列宽（设置最小宽度8，最大宽度50）
   sheet.columns = columnWidths.map(width => ({
-    width: Math.max(10, Math.min(width + 2, 50))
+    width: Math.max(8, Math.min(width + 4, 50))
   }))
 
-  // 导出文件
-  try {
-    const buffer = await workbook.xlsx.writeBuffer()
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `发货单_${inv.waybill_no}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('导出成功')
-  }
-  catch (error: any) {
-    console.error('Export error:', error)
-    toast.error('导出失败', { description: error.message })
-  }
+  // 通过对话框导出
+  exportWithBufferPicker({
+    fileName: `发货单_${inv.waybill_no}`,
+    generateBuffer: () => workbook.xlsx.writeBuffer(),
+  })
 }
 
 // 计算提单的单块重（兼容 weight 字段为空的情况）
@@ -927,7 +976,7 @@ const calculateTotals = computed(() => {
             <TableRow>
               <TableHead>提单号</TableHead>
               <TableHead>订单号</TableHead>
-              <TableHead>牌号</TableHead>
+              <TableHead class="max-w-[240px]">牌号</TableHead>
               <TableHead class="text-right">
                 厚度
               </TableHead>
@@ -958,7 +1007,7 @@ const calculateTotals = computed(() => {
                 <TableRow v-for="(veh, vIndex) in bill.vehicles" :key="`${index}-${vIndex}`">
                   <TableCell>{{ bill.bill_id?.bill_no }}</TableCell>
                   <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
-                  <TableCell>{{ bill.bill_id?.brand_no }}</TableCell>
+                  <TableCell class="max-w-[240px] break-words whitespace-normal">{{ bill.bill_id?.brand_no }}</TableCell>
                   <TableCell class="text-right">
                     {{ formatDim(bill.bill_id?.thickness) }}
                   </TableCell>
@@ -986,7 +1035,7 @@ const calculateTotals = computed(() => {
                 <TableRow>
                   <TableCell>{{ bill.bill_id?.bill_no }}</TableCell>
                   <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
-                  <TableCell>{{ bill.bill_id?.brand_no }}</TableCell>
+                  <TableCell class="max-w-[240px] break-words whitespace-normal">{{ bill.bill_id?.brand_no }}</TableCell>
                   <TableCell class="text-right">
                     {{ formatDim(bill.bill_id?.thickness) }}
                   </TableCell>
@@ -1136,5 +1185,11 @@ const calculateTotals = computed(() => {
       </DialogContent>
     </Dialog>
 
+    <!-- 导出对话框 -->
+    <ExportDialog
+      v-model:open="showExportDialog"
+      :default-file-name="exportFileName"
+      @confirm="confirmExport"
+    />
   </BasicPage>
 </template>

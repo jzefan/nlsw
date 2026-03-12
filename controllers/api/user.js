@@ -75,7 +75,9 @@ exports.getMe = async (req, res) => {
       deployMode: getDeployMode(),
       standaloneCompany: getStandaloneCompany(),
       features: {
-        selfVehicle: secrets.enableSelfVehicle
+        selfVehicle: secrets.enableSelfVehicle,
+        publicBasket: secrets.enablePublicBasket,
+        requireReceiptForSettle: req.tenant?.settings?.requireReceiptForSettle || false,
       }
     });
   } catch (error) {

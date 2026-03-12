@@ -1,17 +1,13 @@
 <script setup lang="ts" generic="T extends Record<string, any>">
-import { ShoppingCart, Trash2, X } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { Download, Globe, Lock, ShoppingCart, Trash2, X } from 'lucide-vue-next'
+import { computed } from 'vue'
 import { toast } from 'vue-sonner'
-
-interface BasketItem {
-  _id: string
-  [key: string]: any
-}
-
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 interface Props {
   open: boolean
   items: T[]
   settleMode?: string
+  isPublic?: boolean
   statistics?: {
     count: number
     totalNum: number
@@ -25,10 +21,14 @@ interface Emits {
   (e: 'settle', items: T[]): void
   (e: 'remove', item: T): void
   (e: 'clear'): void
+  (e: 'export'): void
+  (e: 'price-input'): void
+  (e: 'toggle-public', value: boolean): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   settleMode: '',
+  isPublic: false,
 })
 
 const emit = defineEmits<Emits>()
@@ -79,6 +79,24 @@ function handleSettle() {
   emit('settle', props.items)
 }
 
+// 导出
+function handleExport() {
+  if (props.items.length === 0) {
+    toast.warning('结算篮为空，无数据可导出')
+    return
+  }
+  emit('export')
+}
+
+// 价格输入
+function handlePriceInput() {
+  if (props.items.length === 0) {
+    toast.warning('结算篮为空')
+    return
+  }
+  emit('price-input')
+}
+
 // 定义插槽内容的类型
 defineSlots<{
   item?: (props: { item: T }) => any
@@ -109,12 +127,56 @@ defineSlots<{
             <span class="font-semibold text-lg">结算篮</span>
             <span class="text-muted-foreground text-sm">({{ items.length }} 条)</span>
           </div>
-          <button
-            class="p-1 hover:bg-muted rounded-md transition-colors"
-            @click="close"
-          >
-            <X class="w-5 h-5" />
-          </button>
+          <div class="flex items-center gap-1">
+            <TooltipProvider :delay-duration="300">
+              <!-- 公开/私有切换 -->
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    class="p-1.5 rounded-md transition-colors"
+                    :class="isPublic
+                      ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                      : 'text-muted-foreground hover:bg-muted'"
+                    @click="emit('toggle-public', !isPublic)"
+                  >
+                    <Globe v-if="isPublic" class="w-4 h-4" />
+                    <Lock v-else class="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent><p>{{ isPublic ? '已公开，其他用户可查看' : '私有，点击设为公开' }}</p></TooltipContent>
+              </Tooltip>
+              <!-- 导出按钮 -->
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    class="p-1.5 text-muted-foreground hover:bg-muted rounded-md transition-colors"
+                    @click="handleExport"
+                  >
+                    <Download class="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent><p>导出</p></TooltipContent>
+              </Tooltip>
+              <!-- 价格按钮 -->
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    class="p-1.5 text-muted-foreground hover:bg-muted rounded-md transition-colors"
+                    @click="handlePriceInput"
+                  >
+                    <span class="text-sm font-medium">¥</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent><p>设置价格</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <button
+              class="p-1 hover:bg-muted rounded-md transition-colors"
+              @click="close"
+            >
+              <X class="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <!-- 统计信息 -->

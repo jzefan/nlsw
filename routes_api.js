@@ -11,6 +11,7 @@ const userApiController = require('./controllers/api/user');
 const reportApiController = require('./controllers/api/report');
 const vehvesController = require('./controllers/vehves');
 const settleApiController = require('./controllers/api/settle');
+const settleBasketController = require('./controllers/api/settle_basket');
 const vesselSettleController = require('./controllers/api/vessel_settle');
 const ticketApiController = require('./controllers/api/ticket');
 const moneyApiController = require('./controllers/api/money');
@@ -105,6 +106,13 @@ module.exports = function (app) {
   app.post('/settle/not_require_settle', requireTenant, settleApiController.markNotRequireSettle);
   app.get('/settle/vehicles', requireTenant, settleApiController.getVehicleList);
 
+  // Settle Basket API (结算篮持久化) (tenant-scoped)
+  app.get('/settle/basket', requireTenant, settleBasketController.getBasket);
+  app.post('/settle/basket', requireTenant, settleBasketController.saveBasket);
+  app.get('/settle/basket/public', requireTenant, settleBasketController.getPublicBaskets);
+  app.get('/settle/basket/shared', requireTenant, settleBasketController.getSharedBasket);
+  app.post('/settle/basket/shared', requireTenant, settleBasketController.saveSharedBasket);
+
   // Vessel Settle API (车船结算) (tenant-scoped)
   app.get('/settle/vessel_initial_data', requireTenant, vesselSettleController.getVesselInitialData);
   app.get('/get_invoice_settle_vellel', requireTenant, vesselSettleController.getInvoiceSettleVessel);
@@ -150,6 +158,8 @@ module.exports = function (app) {
   app.post('/data-process/shipment/save', requireTenant, dataProcessApiController.saveShipmentDetail);
   app.get('/data-process/shipment/batches', requireTenant, dataProcessApiController.getShipmentBatches);
   app.get('/data-process/shipment/list', requireTenant, dataProcessApiController.getShipmentDetails);
+  app.post('/data-process/shipment/delete-batch', requireTenant, dataProcessApiController.deleteShipmentBatch);
+  app.post('/data-process/shipment/update', requireTenant, dataProcessApiController.updateShipmentDetail);
 
   // Platform Admin API (platform-only, SaaS mode only)
   if (isSaas()) {

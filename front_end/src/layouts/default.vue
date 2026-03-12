@@ -115,7 +115,7 @@ const breadcrumbs = computed(() => {
   <UiSidebarProvider :default-open="defaultOpen.get(SIDEBAR_COOKIE_NAME)">
     <AppSidebar />
     <UiSidebarInset
-      class="w-full max-w-full peer-data-[state=collapsed]:w-[calc(100%-var(--sidebar-width-icon)-1rem)] peer-data-[state=expanded]:w-[calc(100%-var(--sidebar-width))]"
+      class="w-full max-w-full max-h-svh overflow-hidden peer-data-[state=collapsed]:w-[calc(100%-var(--sidebar-width-icon)-1rem)] peer-data-[state=expanded]:w-[calc(100%-var(--sidebar-width))]"
     >
       <header
         class="flex items-center gap-3 sm:gap-4 h-12 px-4 shrink-0 transition-[width,height] ease-linear border-b"
@@ -164,7 +164,7 @@ const breadcrumbs = computed(() => {
         </div>
       </header>
       <SubscriptionBanner @open-payment="showPaymentQR = true" />
-      <div class="overflow-x-auto grow">
+      <div class="overflow-auto grow min-h-0">
         <div :class="cn('p-4 md:min-w-[1024px]', contentLayout === 'centered' ? 'container mx-auto ' : '')">
           <router-view />
         </div>

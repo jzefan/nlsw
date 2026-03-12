@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // @ts-nocheck
-import { Check, ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronUp, Copy, FolderOpen, Plus, Save, Search, Send, Trash2, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { InvoiceBill } from '@/services/api/invoice.api'
@@ -21,6 +21,8 @@ import {
   searchWarehouses,
 } from '@/services/api/invoice.api'
 import { getPlanByOrderNo, searchCompanies } from '@/services/api/plan.api'
+import { formatDate, formatNumber } from '@/utils/format'
+import { getUserNames } from '@/services/api/user.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
@@ -45,13 +47,50 @@ const showInvoiceListDialog = ref(false)
 const invoiceListLoading = ref(false)
 const invoiceList = ref<any[]>([])
 const invoiceListTotal = ref(0)
-const invoiceSearchKeyword = ref('')
+const invoiceSearchFilters = ref({
+  vehicleName: '',
+  shipName: '',
+  waybillNo: '',
+  startDate: '',
+  endDate: '',
+  shipTo: '',
+  shipperName: '',
+})
 const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
 
 // 判断是否是管理员
 const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
+
+// 搜索所有车船（用于筛选对话框）
+async function searchAllVehicles(search: string, limit: number, page: number) {
+  return searchVehicles(search, '船', limit, page)
+}
+
+// 用户名列表（发货人筛选用）
+const cachedUserNames = ref<string[]>([])
+
+async function loadUserNamesIfNeeded() {
+  if (cachedUserNames.value.length > 0) return
+  try {
+    const result = await getUserNames()
+    if (result.ok) cachedUserNames.value = result.data
+  } catch {
+    /* ignore */
+  }
+}
+
+async function searchShipperNames(search: string, limit: number, page: number) {
+  await loadUserNamesIfNeeded()
+  let filtered = cachedUserNames.value
+  if (search) {
+    filtered = filtered.filter((n) => n.toLowerCase().includes(search.toLowerCase()))
+  }
+  const start = (page - 1) * limit
+  const data = filtered.slice(start, start + limit).map((n) => ({ name: n }))
+  return { ok: true, data, total: filtered.length }
+}
 
 // 检查是否有未保存的改动
 const hasUnsavedChanges = computed(() => {
@@ -125,6 +164,9 @@ const expandedConfirmedCards = ref<Set<string>>(new Set())
 
 // 被修改的提单ID集合（用于高亮显示）
 const highlightedBillIds = ref<Set<string>>(new Set())
+
+// 最近一次添加的提单ID集合（用于浅色背景区分）
+const lastAddedBillIds = ref<Set<string>>(new Set())
 
 function togglePendingCardExpand(index: number) {
   if (expandedPendingCards.value.has(index)) {
@@ -329,8 +371,9 @@ async function handleBillingNameChange(name: string) {
     const result = await searchCompanies(name, 20, 1)
     if (result.ok && result.data && result.data.length > 0) {
       // 优先精确匹配，其次模糊匹配（Company名称可能带编号前缀）
-      const company = result.data.find((c: any) => c.name === name)
-        || result.data.find((c: any) => c.name.includes(name) || name.includes(c.name))
+      const company =
+        result.data.find((c: any) => c.name === name) ||
+        result.data.find((c: any) => c.name.includes(name) || name.includes(c.name))
       if (company && company.customers?.length) {
         shipCustomers.value = company.customers
       } else {
@@ -376,7 +419,7 @@ async function searchOrders(search: string, limit: number, page: number) {
         .map((o: any) => ({ name: o.order_no }))
 
       const data = [
-        ...result.data.map((order: any) => ({ name: order.order_no })),
+        ...result.data.filter((order: any) => order.order_no).map((order: any) => ({ name: order.order_no })),
         ...localOnlyOrders,
       ].sort((a, b) => {
         // 有搜索词时，匹配的优先
@@ -403,7 +446,7 @@ async function searchOrders(search: string, limit: number, page: number) {
 
 // 本地搜索提单号（用于 SearchableCombobox，按 bill_no 去重展示）
 async function searchBills(search: string, limit: number, page: number) {
-  let filtered = currentOrderBills.value
+  let filtered = currentOrderBills.value.filter((b: any) => b.bill_no)
   if (search) {
     filtered = filtered.filter(
       (b: any) =>
@@ -421,7 +464,7 @@ async function searchBills(search: string, limit: number, page: number) {
       billNoMap.set(b.bill_no, { count: 1, first: b })
     }
   }
-  const uniqueBills = Array.from(billNoMap.entries())
+  const uniqueBills = Array.from(billNoMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
   const start = (page - 1) * limit
   const data = uniqueBills.slice(start, start + limit).map(([billNo, { count, first }]) => ({
     value: billNo,
@@ -487,6 +530,7 @@ function handleOrderChange(orderNo: string) {
 // 选择提单后批量添加同 bill_no 的所有项次到待确认列表
 function handleBillSelect(billNo: string) {
   if (!billNo) return
+  lastAddedBillIds.value = new Set()
   const matchingBills = currentOrderBills.value.filter((b: any) => b.bill_no === billNo)
   for (const bill of matchingBills) {
     addBillToPending(bill)
@@ -532,7 +576,7 @@ function addBillToPending(bill: any) {
 
   // 发运数默认为0，用户手动输入
   // 注意：bill 来自订单分组数据，不包含 order_no，使用当前选中的订单号
-  pendingBills.value.push({
+  pendingBills.value.unshift({
     _id: bill._id, // 提单唯一标识
     bill_no: bill.bill_no,
     order_no: selectedOrderNo.value,
@@ -549,6 +593,7 @@ function addBillToPending(bill: any) {
     wagon_no: currentWagonNo.value,
   })
 
+  lastAddedBillIds.value.add(bill._id)
   handleOrderChange(selectedOrderNo.value)
 }
 
@@ -617,6 +662,81 @@ function updateSendWeight(index: number, value: number) {
   } else {
     bill.send_weight = clamped
   }
+}
+
+// 匹配当前车号的已配发分组（用于"增加到已配发的相同车"）
+const matchingWagonGroups = computed(() => {
+  if (!currentWagonNo.value) return []
+  return Object.entries(confirmedByWagon.value)
+    .filter(([_, group]) => group.wagonNo === currentWagonNo.value)
+    .map(([key, group]) => ({
+      key,
+      wagonNo: group.wagonNo,
+      innerWaybillNo: group.innerWaybillNo,
+      stats: getWagonStats(group.bills),
+      shipFrom: group.bills[0]?.ship_from || '-',
+    }))
+})
+
+// 增加到已配发的相同车
+function addToExistingWagon(targetGroup: { innerWaybillNo: string; wagonNo: string }) {
+  if (pendingBills.value.length === 0) {
+    toast.warning('请选择要配发的提单')
+    return
+  }
+
+  const invalidBills = pendingBills.value.filter((b) => {
+    return (b.send_num > 0 && b.send_weight === 0) || (b.send_num === 0 && b.send_weight > 0)
+  })
+  if (invalidBills.length > 0) {
+    toast.warning('请完成发运块数和发运重量的输入')
+    return
+  }
+
+  const validBills = pendingBills.value.filter((b) => {
+    return b.send_num > 0 || b.send_weight > 0
+  })
+
+  if (validBills.length === 0) {
+    toast.warning('请至少为一个提单输入发运数量')
+    return
+  }
+
+  // 找到目标分组在 confirmedBills 中最后一条记录的位置，插入到其后
+  const lastIndex = confirmedBills.value.reduce((last, bill, idx) => {
+    if (bill.wagon_no === targetGroup.wagonNo && bill.inner_waybill_no === targetGroup.innerWaybillNo) {
+      return idx
+    }
+    return last
+  }, -1)
+
+  const newBills = validBills.map((bill) => ({
+    ...bill,
+    wagon_no: currentWagonNo.value,
+    inner_waybill_no: targetGroup.innerWaybillNo,
+    ship_from: currentOrigin.value,
+  }))
+
+  if (lastIndex >= 0) {
+    confirmedBills.value.splice(lastIndex + 1, 0, ...newBills)
+  } else {
+    confirmedBills.value.unshift(...newBills)
+  }
+
+  pendingBills.value = []
+  toast.success(`已增加到车辆 "${targetGroup.wagonNo}" 的配发记录`)
+  handleOrderChange(selectedOrderNo.value)
+}
+
+// 清空待确认提单
+async function clearPendingBills() {
+  const hasInput = pendingBills.value.some((b) => b.send_num > 0 || b.send_weight > 0)
+  if (hasInput) {
+    const confirmed = await confirmDialog('部分提单已输入发运数量，确定要清空所有待确认提单吗？', '清空待确认')
+    if (!confirmed) return
+  }
+  pendingBills.value = []
+  handleOrderChange(selectedOrderNo.value)
 }
 
 // 确认当前车辆的配发
@@ -1051,7 +1171,20 @@ async function deleteConfirmedBill(wagonNo: string, innerWaybillNo: string, bill
 async function openInvoiceList() {
   showInvoiceListDialog.value = true
   invoiceListPage.value = 1
-  invoiceSearchKeyword.value = ''
+  const today = new Date()
+  const oneMonthAgo = new Date(today)
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  invoiceSearchFilters.value = {
+    vehicleName: '',
+    shipName: '',
+    waybillNo: '',
+    startDate: fmt(oneMonthAgo),
+    endDate: fmt(today),
+    shipTo: '',
+    shipperName: '',
+  }
   await loadInvoiceList()
 }
 
@@ -1060,11 +1193,18 @@ async function loadInvoiceList() {
   invoiceListLoading.value = true
   try {
     const params: any = {
-      keyword: invoiceSearchKeyword.value,
       page: invoiceListPage.value,
       limit: invoiceListLimit.value,
       transportType: '船',
     }
+    const f = invoiceSearchFilters.value
+    if (f.vehicleName) params.vehicleName = f.vehicleName
+    if (f.shipName) params.shipName = f.shipName
+    if (f.waybillNo) params.waybillNo = f.waybillNo
+    if (f.startDate) params.startDate = f.startDate
+    if (f.endDate) params.endDate = f.endDate
+    if (f.shipTo) params.shipTo = f.shipTo
+    if (f.shipperName) params.shipperName = f.shipperName
 
     // 只有在勾选时才传递myOnly参数
     if (showMyOnly.value) {
@@ -1147,6 +1287,7 @@ async function loadInvoiceDetail(invoice: any) {
             block_num: billInfo.block_num,
             total_weight: billInfo.total_weight,
             left_num: billInfo.left_num,
+            ship_warehouse: billInfo.ship_warehouse || '',
             send_num: vehicle.send_num || 0,
             send_weight: vehicle.send_weight || 0,
             wagon_no: vehicle.veh_name || '',
@@ -1207,24 +1348,9 @@ async function loadInvoiceDetail(invoice: any) {
   }
 }
 
-// 格式化日期时间
-function formatDate(date: any) {
-  if (!date) return '-'
-  const d = new Date(date)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  const s = String(d.getSeconds()).padStart(2, '0')
-  if (h === '00' && min === '00' && s === '00') return `${y}-${m}-${day}`
-  return `${y}-${m}-${day} ${h}:${min}:${s}`
-}
-
-// 格式化重量（最多3位小数）
-function formatWeight(weight: number) {
-  if (weight == null) return '-'
-  return Number(weight).toFixed(3)
+// 格式化重量（使用通用 formatNumber，3位小数）
+function formatWeight(num: number | string | null | undefined) {
+  return formatNumber(num) || '-'
 }
 
 // 检查提单是否被标记为已修改（需要高亮）
@@ -1343,9 +1469,9 @@ function isBillHighlighted(bill: InvoiceBill) {
 
           <!-- 订单计划提示 -->
           <div v-if="orderPlanInfo" class="mt-1 px-1 text-xs text-muted-foreground">
-            订单计划: 订单量 {{ orderPlanInfo.order_weight.toFixed(3) }} 吨 | 已发
-            {{ (orderPlanInfo.order_weight - orderPlanInfo.left_weight).toFixed(3) }} 吨 | 剩余
-            {{ orderPlanInfo.left_weight.toFixed(3) }} 吨
+            订单计划: 订单量 {{ formatWeight(orderPlanInfo.order_weight) }} 吨 | 已发
+            {{ formatWeight(orderPlanInfo.order_weight - orderPlanInfo.left_weight) }} 吨 | 剩余
+            {{ formatWeight(orderPlanInfo.left_weight) }} 吨
           </div>
         </div>
       </div>
@@ -1353,10 +1479,21 @@ function isBillHighlighted(bill: InvoiceBill) {
       <!-- 当前车辆待确认提单 -->
       <div v-if="pendingBills.length > 0">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-          <h4 class="text-sm font-medium">当前车辆待确认 ({{ currentWagonNo || '未选择车号' }})</h4>
+          <div class="flex items-center gap-2">
+            <h4 class="text-sm font-medium">当前车辆待确认 ({{ currentWagonNo || '未选择车号' }})</h4>
+            <UiButton
+              variant="ghost"
+              size="sm"
+              class="h-6 px-2 text-muted-foreground hover:text-destructive"
+              @click="clearPendingBills"
+            >
+              <X class="w-3 h-3 mr-1" />
+              清空
+            </UiButton>
+          </div>
           <div class="text-xs sm:text-sm text-muted-foreground">
             <span>块数: {{ wagonTotalNumber }}</span>
-            <span class="ml-3 sm:ml-4">重量: {{ wagonTotalWeight.toFixed(3) }}</span>
+            <span class="ml-3 sm:ml-4">重量: {{ formatWeight(wagonTotalWeight) }}</span>
           </div>
         </div>
 
@@ -1368,6 +1505,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 <UiTableHead class="w-10" />
                 <UiTableHead>提单号</UiTableHead>
                 <UiTableHead>订单号</UiTableHead>
+                <UiTableHead>仓库</UiTableHead>
                 <UiTableHead>厚度</UiTableHead>
                 <UiTableHead>宽度</UiTableHead>
                 <UiTableHead>长度</UiTableHead>
@@ -1381,8 +1519,10 @@ function isBillHighlighted(bill: InvoiceBill) {
               <UiTableRow
                 v-for="(bill, index) in pendingBills"
                 :key="`${bill.bill_no}-${index}`"
+                class="hover:!bg-muted"
                 :class="{
                   'bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+                  'bg-orange-50 dark:bg-orange-950/40': lastAddedBillIds.has(bill._id) && !isBillHighlighted(bill),
                 }"
               >
                 <UiTableCell>
@@ -1397,10 +1537,11 @@ function isBillHighlighted(bill: InvoiceBill) {
                 </UiTableCell>
                 <UiTableCell>{{ bill.bill_no }}</UiTableCell>
                 <UiTableCell>{{ getOrderDisplay(bill) }}</UiTableCell>
+                <UiTableCell>{{ bill.ship_warehouse }}</UiTableCell>
                 <UiTableCell>{{ bill.thickness }}</UiTableCell>
                 <UiTableCell>{{ bill.width }}</UiTableCell>
                 <UiTableCell>{{ bill.len }}</UiTableCell>
-                <UiTableCell>{{ bill.weight?.toFixed(4) }}</UiTableCell>
+                <UiTableCell>{{ formatWeight(bill.weight) }}</UiTableCell>
                 <UiTableCell>{{ getBillLeftNum(bill, index) }}</UiTableCell>
                 <UiTableCell>
                   <UiInput
@@ -1415,7 +1556,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 </UiTableCell>
                 <UiTableCell>
                   <template v-if="isBlockBill(bill)">
-                    {{ bill.send_weight?.toFixed(3) }}
+                    {{ formatWeight(bill.send_weight) }}
                   </template>
                   <UiInput
                     v-else
@@ -1441,6 +1582,7 @@ function isBillHighlighted(bill: InvoiceBill) {
             class="border rounded-lg overflow-hidden bg-card"
             :class="{
               'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 animate-pulse': isBillHighlighted(bill),
+              '!bg-primary/10': lastAddedBillIds.has(bill._id) && !isBillHighlighted(bill),
             }"
           >
             <!-- 卡片头部 -->
@@ -1493,7 +1635,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 </div>
                 <div>
                   <span class="text-muted-foreground">单重:</span>
-                  <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+                  <span class="ml-1">{{ formatWeight(bill.weight) }}</span>
                 </div>
               </div>
 
@@ -1515,7 +1657,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
                   <template v-if="isBlockBill(bill)">
                     <div class="p-2 bg-muted rounded text-center">
-                      {{ bill.send_weight?.toFixed(3) }}
+                      {{ formatWeight(bill.send_weight) }}
                     </div>
                   </template>
                   <UiInput
@@ -1534,7 +1676,21 @@ function isBillHighlighted(bill: InvoiceBill) {
           </div>
         </div>
 
-        <div class="mt-2 flex justify-end">
+        <div class="mt-2 flex items-center justify-end gap-2">
+          <UiButton
+            v-if="matchingWagonGroups.length > 0"
+            variant="outline"
+            :disabled="wagonTotalNumber === 0"
+            @click="addToExistingWagon(matchingWagonGroups[0])"
+          >
+            <Plus class="w-4 h-4 mr-1" />
+            增加到已配发的 {{ matchingWagonGroups[0].wagonNo }}
+            <span class="ml-1 text-xs text-muted-foreground"
+              >(已有{{ matchingWagonGroups[0].stats.totalNum }}块/{{
+                formatWeight(matchingWagonGroups[0].stats.totalWeight)
+              }}吨)</span
+            >
+          </UiButton>
           <UiButton :disabled="!currentWagonNo || wagonTotalNumber === 0" @click="confirmWagon">
             <Check class="w-4 h-4 mr-1" />
             确认此车配发
@@ -1551,12 +1707,21 @@ function isBillHighlighted(bill: InvoiceBill) {
               总块数: <strong>{{ totalNumber }}</strong>
             </span>
             <span class="ml-3 sm:ml-4">
-              总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨
+              总重量: <strong>{{ formatWeight(totalWeight) }}</strong> 吨
             </span>
           </div>
         </div>
 
-        <div v-for="(group, key) in confirmedByWagon" :key="key" class="mb-3">
+        <div
+          v-for="(group, key) in confirmedByWagon"
+          :key="key"
+          class="mb-3 rounded-md transition-all"
+          :class="
+            pendingBills.length > 0 && matchingWagonGroups.length > 0 && matchingWagonGroups[0].key === key
+              ? 'border-2 border-dashed border-primary/50 p-2 bg-primary/5'
+              : ''
+          "
+        >
           <div
             class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground mb-1 bg-muted px-2 py-1.5 sm:py-1 rounded"
           >
@@ -1568,7 +1733,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 块数: <strong>{{ getWagonStats(group.bills).totalNum }}</strong>
               </span>
               <span>
-                重量: <strong>{{ getWagonStats(group.bills).totalWeight.toFixed(3) }}</strong>
+                重量: <strong>{{ formatWeight(getWagonStats(group.bills).totalWeight) }}</strong>
               </span>
               <span>
                 起始地: <strong class="text-foreground">{{ group.bills[0]?.ship_from || '-' }}</strong>
@@ -1593,6 +1758,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   <UiTableHead class="w-10" />
                   <UiTableHead>提单号</UiTableHead>
                   <UiTableHead>订单号</UiTableHead>
+                  <UiTableHead>仓库</UiTableHead>
                   <UiTableHead>厚度</UiTableHead>
                   <UiTableHead>宽度</UiTableHead>
                   <UiTableHead>长度</UiTableHead>
@@ -1622,10 +1788,11 @@ function isBillHighlighted(bill: InvoiceBill) {
                   </UiTableCell>
                   <UiTableCell>{{ bill.bill_no }}</UiTableCell>
                   <UiTableCell>{{ getOrderDisplay(bill) }}</UiTableCell>
+                  <UiTableCell>{{ bill.ship_warehouse }}</UiTableCell>
                   <UiTableCell>{{ bill.thickness }}</UiTableCell>
                   <UiTableCell>{{ bill.width }}</UiTableCell>
                   <UiTableCell>{{ bill.len }}</UiTableCell>
-                  <UiTableCell>{{ bill.weight?.toFixed(4) }}</UiTableCell>
+                  <UiTableCell>{{ formatWeight(bill.weight) }}</UiTableCell>
                   <UiTableCell>{{ getConfirmedBillLeftNum(bill) }}</UiTableCell>
                   <UiTableCell>
                     <UiInput
@@ -1640,7 +1807,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   </UiTableCell>
                   <UiTableCell>
                     <template v-if="isBlockBill(bill)">
-                      {{ bill.send_weight?.toFixed(3) }}
+                      {{ formatWeight(bill.send_weight) }}
                     </template>
                     <UiInput
                       v-else
@@ -1695,7 +1862,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   <div class="text-sm text-muted-foreground space-y-0.5">
                     <div>订单: {{ getOrderDisplay(bill) }}</div>
                     <div class="flex items-center justify-between">
-                      <span>发运: {{ bill.send_num }}块 / {{ bill.send_weight?.toFixed(3) }}吨</span>
+                      <span>发运: {{ bill.send_num }}块 / {{ formatWeight(bill.send_weight) }}吨</span>
                       <span>可用量: {{ getConfirmedBillLeftNum(bill) }}</span>
                     </div>
                   </div>
@@ -1722,7 +1889,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   </div>
                   <div>
                     <span class="text-muted-foreground">单重:</span>
-                    <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+                    <span class="ml-1">{{ formatWeight(bill.weight) }}</span>
                   </div>
                 </div>
 
@@ -1743,9 +1910,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                   <div>
                     <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
                     <template v-if="isBlockBill(bill)">
-                      <div class="p-2 bg-muted rounded text-center">
-                        {{ bill.send_weight?.toFixed(3) }}
-                      </div>
+                      <div class="p-2 bg-muted rounded text-center">{{ formatWeight(bill.send_weight) }}</div>
                     </template>
                     <UiInput
                       v-else
@@ -1763,56 +1928,58 @@ function isBillHighlighted(bill: InvoiceBill) {
             </div>
           </div>
         </div>
-
-        <!-- 固定在内容区域底部的操作栏 -->
-        <div
-          class="sticky bottom-0 z-40 -mx-4 -mb-2 bg-background/95 backdrop-blur-sm border-t shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
-        >
-          <div class="flex items-center justify-between px-4 py-3">
-            <!-- 左侧：未保存状态 -->
-            <div class="flex items-center">
-              <Transition
-                enter-active-class="transition-all duration-300 ease-out"
-                enter-from-class="opacity-0 -translate-x-2"
-                enter-to-class="opacity-100 translate-x-0"
-                leave-active-class="transition-all duration-200 ease-in"
-                leave-from-class="opacity-100 translate-x-0"
-                leave-to-class="opacity-0 -translate-x-2"
-              >
-                <div
-                  v-if="hasUnsavedChanges"
-                  class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800"
-                >
-                  <span class="relative flex h-2.5 w-2.5">
-                    <span
-                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"
-                    />
-                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
-                  </span>
-                  <span class="text-sm font-medium text-orange-600 dark:text-orange-400">未保存</span>
-                </div>
-              </Transition>
-            </div>
-
-            <!-- 右侧：保存按钮 -->
-            <div class="flex gap-2">
-              <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
-                <Save class="w-4 h-4 mr-1" />
-                保存
-              </UiButton>
-              <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
-                <Send class="w-4 h-4 mr-1" />
-                保存并确定配发
-              </UiButton>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- 空状态 -->
       <div v-if="!waybillNo" class="border rounded-lg p-12 text-center text-muted-foreground">
         <p>请点击"新建运单"开始创建船运配发货单</p>
         <p class="text-xs mt-2">船运需要为每批货物指定装卸的车辆</p>
+      </div>
+
+      <!-- 底部占位，防止内容被固定操作栏遮挡 -->
+      <div v-if="confirmedBills.length > 0" class="h-16" />
+    </div>
+
+    <!-- 固定在屏幕底部的操作栏 -->
+    <div
+      v-if="confirmedBills.length > 0"
+      class="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
+    >
+      <div class="flex items-center justify-between px-4 py-3 max-w-screen-2xl mx-auto">
+        <!-- 左侧：未保存状态 -->
+        <div class="flex items-center">
+          <Transition
+            enter-active-class="transition-all duration-300 ease-out"
+            enter-from-class="opacity-0 -translate-x-2"
+            enter-to-class="opacity-100 translate-x-0"
+            leave-active-class="transition-all duration-200 ease-in"
+            leave-from-class="opacity-100 translate-x-0"
+            leave-to-class="opacity-0 -translate-x-2"
+          >
+            <div
+              v-if="hasUnsavedChanges"
+              class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800"
+            >
+              <span class="relative flex h-2.5 w-2.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
+              </span>
+              <span class="text-sm font-medium text-orange-600 dark:text-orange-400">未保存</span>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- 右侧：保存按钮 -->
+        <div class="flex gap-2">
+          <UiButton :disabled="!canSave || loading" @click="saveInvoice('新建')">
+            <Save class="w-4 h-4 mr-1" />
+            保存
+          </UiButton>
+          <UiButton :disabled="!canSave || !form.shipDate || loading" @click="saveInvoice('已配发')">
+            <Send class="w-4 h-4 mr-1" />
+            保存并确定配发
+          </UiButton>
+        </div>
       </div>
     </div>
 
@@ -1824,27 +1991,48 @@ function isBillHighlighted(bill: InvoiceBill) {
         </UiDialogHeader>
 
         <div class="flex-1 overflow-hidden flex flex-col space-y-4 min-h-[50vh]">
-          <!-- 搜索框和筛选 -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <UiInput
-              v-model="invoiceSearchKeyword"
-              placeholder="搜索车船号或开单名称..."
-              class="max-w-[300px]"
-              @keyup.enter="searchInvoices"
-            />
-            <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
-              <Search class="w-4 h-4 mr-1" />
-              搜索
-            </UiButton>
-            <!-- 管理员：只看我的运单 -->
-            <div v-if="isAdmin" class="flex items-center gap-2 ml-2">
-              <input
-                id="my-only"
-                v-model="showMyOnly"
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+          <!-- 搜索筛选 -->
+          <div class="space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.vehicleName"
+                :search-fn="searchAllVehicles"
+                placeholder="车船号"
               />
-              <label for="my-only" class="text-sm cursor-pointer whitespace-nowrap">只看我配发的运单</label>
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipName"
+                :search-fn="searchBillingNames"
+                placeholder="开单名称"
+              />
+              <UiInput v-model="invoiceSearchFilters.waybillNo" placeholder="运单号" @keyup.enter="searchInvoices" />
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipTo"
+                :search-fn="searchDestinations"
+                placeholder="目的地"
+              />
+              <SearchableCombobox
+                v-model="invoiceSearchFilters.shipperName"
+                :search-fn="searchShipperNames"
+                placeholder="发货人"
+              />
+              <DatePicker v-model="invoiceSearchFilters.startDate" placeholder="开始日期" />
+              <DatePicker v-model="invoiceSearchFilters.endDate" placeholder="结束日期" />
+              <div class="flex items-center gap-2">
+                <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
+                  <Search class="w-4 h-4 mr-1" />
+                  搜索
+                </UiButton>
+                <!-- 管理员：只看我的运单 -->
+                <div v-if="isAdmin" class="flex items-center gap-2">
+                  <input
+                    id="my-only-ship"
+                    v-model="showMyOnly"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  />
+                  <label for="my-only-ship" class="text-xs cursor-pointer whitespace-nowrap">只看我的</label>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1859,6 +2047,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                     <UiTableHead>开单名称</UiTableHead>
                     <UiTableHead>始发地</UiTableHead>
                     <UiTableHead>目的地</UiTableHead>
+                    <UiTableHead>发货人</UiTableHead>
                     <UiTableHead>创建日期</UiTableHead>
                     <UiTableHead>配发日期</UiTableHead>
                     <UiTableHead>总重量(吨)</UiTableHead>
@@ -1878,6 +2067,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                     <UiTableCell>{{ invoice.ship_name }}</UiTableCell>
                     <UiTableCell>{{ invoice.ship_from }}</UiTableCell>
                     <UiTableCell>{{ invoice.ship_to }}</UiTableCell>
+                    <UiTableCell>{{ invoice.shipper_name }}</UiTableCell>
                     <UiTableCell>{{ formatDate(invoice.create_date) }}</UiTableCell>
                     <UiTableCell>{{ formatDate(invoice.ship_date) }}</UiTableCell>
                     <UiTableCell>{{ formatWeight(invoice.total_weight) }}</UiTableCell>

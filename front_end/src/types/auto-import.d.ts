@@ -103,7 +103,7 @@ declare global {
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
   // @ts-ignore
-  export type { ExportColumn, ExportOptions, ExportAOAOptions } from '../composables/use-export'
+  export type { ExportColumn, ExportOptions, ExportAOAOptions, ExportBufferOptions } from '../composables/use-export'
   import('../composables/use-export')
   // @ts-ignore
   export type { Urgency } from '../composables/use-subscription-reminder'

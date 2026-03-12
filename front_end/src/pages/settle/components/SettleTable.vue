@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import dayjs from 'dayjs'
 import { computed } from 'vue'
 
 import type { SettleBill, SettleMode } from '../types'
+import { formatDate } from '@/utils/format'
 
 import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from '../types'
 
@@ -115,14 +115,25 @@ function getStatus(bill: SettleBill) {
     return { text: '未结算', class: 'bg-gray-100 text-gray-700' }
   }
 
-  const statusText: string[] = []
+  const parts: string[] = []
+
+  // 客户结算状态
   if ((bill.inv_settle_flag & CUSTOMER_SETTLE_FLAG) === CUSTOMER_SETTLE_FLAG) {
-    statusText.push('客户')
+    parts.push('客户已结算')
+  } else if (bill.price === -1) {
+    parts.push('客户不需结算')
   }
+
+  // 代收付结算状态
   if ((bill.inv_settle_flag & COLLECTION_SETTLE_FLAG) === COLLECTION_SETTLE_FLAG) {
-    statusText.push('代收付')
+    parts.push('代收已结算')
+  } else if (bill.collection_price === -1) {
+    parts.push('代收不需结算')
   }
-  return { text: `${statusText.join(',')}已结算`, class: 'bg-green-100 text-green-700' }
+
+  const text = parts.join(',')
+  const allDone = parts.length > 0 && parts.every(p => p.includes('已结算') || p.includes('不需结算'))
+  return { text, class: allDone ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' }
 }
 
 // 获取订单显示（包含项次号）
@@ -142,12 +153,6 @@ function getBillingNameDisplay(bill: SettleBill) {
   return bill.billing_name
 }
 
-// 格式化日期
-function formatDate(date: string) {
-  if (!date)
-    return '-'
-  return dayjs(date).format('YYYY-MM-DD HH:mm')
-}
 
 // 获取规格显示
 function getSpecDisplay(bill: SettleBill) {
@@ -225,17 +230,8 @@ function switchToOtherMode() {
             <th class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
               开单名称
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[90px] border-r border-border/50 text-xs">
-              车船
-            </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs">
-              目的地
-            </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
-              总价格
-            </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
-              单价
+            <th class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
+              车船/运单号
             </th>
             <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
               发运块数
@@ -243,8 +239,14 @@ function switchToOtherMode() {
             <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
               发运重量
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs">
-              起始地
+            <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
+              单价
+            </th>
+            <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
+              总价格
+            </th>
+            <th class="px-1.5 py-1.5 text-left min-w-[120px] border-r border-border/50 text-xs">
+              始发→目的地
             </th>
             <th class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs">
               发货仓库
@@ -254,9 +256,6 @@ function switchToOtherMode() {
             </th>
             <th class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs">
               发货人
-            </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[115px] border-r border-border/50 text-xs">
-              运单号
             </th>
             <th class="px-1.5 py-1.5 text-left min-w-[85px] text-xs">
               规格
@@ -302,9 +301,9 @@ function switchToOtherMode() {
             v-else
             :key="`${bill._id}-${bill.inv_no}-${bill.veh_ves_name}`"
             :class="{
-              'bg-blue-50 border-l-4 border-l-blue-500': isSelected(bill),
+              'bg-amber-100 border-l-4 border-l-amber-500': isSelected(bill),
               'bg-orange-100 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
-              'hover:bg-muted/50 cursor-pointer': !isInBasket(bill),
+              'hover:bg-amber-50 cursor-pointer': !isInBasket(bill),
               'cursor-not-allowed': isInBasket(bill),
             }"
             class="border-b transition-colors"
@@ -340,20 +339,18 @@ function switchToOtherMode() {
                 </span>
               </div>
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ getBillingNameDisplay(bill) }}
+            <td class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
+              <div v-if="bill.ship_customer" class="leading-tight">
+                <div class="font-medium">{{ bill.billing_name }}</div>
+                <div class="text-muted-foreground text-[11px]">{{ bill.ship_customer }}</div>
+              </div>
+              <span v-else>{{ bill.billing_name }}</span>
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ bill.veh_ves_name }}
-            </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ bill.ship_to }}
-            </td>
-            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50">
-              {{ getTotalPrice(bill) }}
-            </td>
-            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50" :class="getPriceDisplay(getPrice(bill)).class">
-              {{ getPriceDisplay(getPrice(bill)).text }}
+              <div class="leading-tight">
+                <div class="font-medium">{{ bill.veh_ves_name }}</div>
+                <div class="text-muted-foreground text-[11px]">{{ bill.inv_no }}</div>
+              </div>
             </td>
             <td class="px-1.5 py-1.5 text-center border-r border-border/50">
               {{ bill.send_num || '' }}
@@ -361,8 +358,14 @@ function switchToOtherMode() {
             <td class="px-1.5 py-1.5 text-center font-mono border-r border-border/50">
               {{ bill.send_weight.toFixed(3) }}
             </td>
+            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50" :class="getPriceDisplay(getPrice(bill)).class">
+              {{ getPriceDisplay(getPrice(bill)).text }}
+            </td>
+            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50">
+              {{ getTotalPrice(bill) }}
+            </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ bill.ship_from }}
+              {{ bill.ship_from }}→{{ bill.ship_to }}
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.ship_warehouse || '-' }}
@@ -372,9 +375,6 @@ function switchToOtherMode() {
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.inv_shipper || '-' }}
-            </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
-              {{ bill.inv_no }}
             </td>
             <td class="px-1.5 py-1.5 text-xs">
               {{ getSpecDisplay(bill) }}
