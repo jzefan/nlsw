@@ -10,6 +10,7 @@ import { formatNumber } from '@/utils/format'
 const props = defineProps<{
   group: LoadingListGroup
   groupIndex: number
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -294,14 +295,19 @@ function showFillHandle(rowIndex: number): boolean {
       </div>
       <div class="flex items-center gap-2 ml-4">
         <span class="text-sm whitespace-nowrap">车船号:</span>
-        <SearchableCombobox
-          :model-value="group.vehicleNo"
-          placeholder="选择车船号"
-          :search-fn="searchVehicles"
-          class="w-52"
-          @update:model-value="emit('update-vehicle', groupIndex, $event)"
-        />
-        <span v-if="!group.vehicleNo" class="text-sm text-orange-500">请选择车号</span>
+        <template v-if="readonly">
+          <span class="text-sm font-medium">{{ group.vehicleNo || '-' }}</span>
+        </template>
+        <template v-else>
+          <SearchableCombobox
+            :model-value="group.vehicleNo"
+            placeholder="选择车船号"
+            :search-fn="searchVehicles"
+            class="w-52"
+            @update:model-value="emit('update-vehicle', groupIndex, $event)"
+          />
+          <span v-if="!group.vehicleNo" class="text-sm text-orange-500">请选择车号</span>
+        </template>
       </div>
       <div class="flex items-center gap-3 text-sm text-muted-foreground ml-auto">
         <span>{{ group.rows.length }} 条</span>
@@ -320,12 +326,15 @@ function showFillHandle(rowIndex: number): boolean {
             <th class="p-2 text-right whitespace-nowrap">发运数</th>
             <th class="p-2 text-right whitespace-nowrap">发运重量</th>
             <th class="p-2 text-left whitespace-nowrap">牌号</th>
-            <th class="p-2 text-left whitespace-nowrap">定尺</th>
+            <th class="p-2 text-right whitespace-nowrap">厚/直径</th>
+            <th class="p-2 text-right whitespace-nowrap">宽</th>
+            <th class="p-2 text-right whitespace-nowrap">长</th>
             <th class="p-2 text-left whitespace-nowrap">客户名称</th>
-            <th class="p-2 pr-4 text-left whitespace-nowrap bg-yellow-50 dark:bg-yellow-950/30">
+            <th class="p-2 pr-4 text-left whitespace-nowrap" :class="!readonly && 'bg-yellow-50 dark:bg-yellow-950/30'">
               <div class="flex items-center justify-between">
                 <span>合同号</span>
                 <button
+                  v-if="!readonly"
                   class="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-primary transition-colors"
                   @click="openBatchFillDialog"
                 >
@@ -348,10 +357,11 @@ function showFillHandle(rowIndex: number): boolean {
 
             <!-- Quantity -->
             <td
-              class="p-2 text-right cursor-pointer hover:bg-muted/50"
-              @click="startEdit(rIdx, 'quantity', row.quantity)"
+              class="p-2 text-right"
+              :class="!readonly && 'cursor-pointer hover:bg-muted/50'"
+              @click="!readonly && startEdit(rIdx, 'quantity', row.quantity)"
             >
-              <template v-if="isEditing(rIdx, 'quantity')">
+              <template v-if="!readonly && isEditing(rIdx, 'quantity')">
                 <UiInput
                   v-model="editingValue"
                   type="number"
@@ -368,10 +378,11 @@ function showFillHandle(rowIndex: number): boolean {
 
             <!-- Weight -->
             <td
-              class="p-2 text-right cursor-pointer hover:bg-muted/50"
-              @click="startEdit(rIdx, 'weight', row.weight)"
+              class="p-2 text-right"
+              :class="!readonly && 'cursor-pointer hover:bg-muted/50'"
+              @click="!readonly && startEdit(rIdx, 'weight', row.weight)"
             >
-              <template v-if="isEditing(rIdx, 'weight')">
+              <template v-if="!readonly && isEditing(rIdx, 'weight')">
                 <UiInput
                   v-model="editingValue"
                   type="number"
@@ -388,11 +399,14 @@ function showFillHandle(rowIndex: number): boolean {
             </td>
 
             <td class="p-2">{{ row.brandNo }}</td>
-            <td class="p-2">{{ row.fixedLength }}</td>
+            <td class="p-2 text-right">{{ row.thickness }}</td>
+            <td class="p-2 text-right">{{ row.width }}</td>
+            <td class="p-2 text-right">{{ row.length }}</td>
             <td class="p-2">{{ row.customerName }}</td>
 
             <!-- Contract No (inline input with drag-fill) -->
             <td
+              v-if="!readonly"
               :class="getContractNoCellClass(rIdx)"
               @mouseenter="handleCellMouseEnter(rIdx, 'contractNo')"
               @mouseleave="handleCellMouseLeave"
@@ -413,6 +427,7 @@ function showFillHandle(rowIndex: number): boolean {
                 @mousedown="startDrag(rIdx, 'contractNo', $event)"
               />
             </td>
+            <td v-else class="p-2">{{ row.contractNo }}</td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">
@@ -426,7 +441,7 @@ function showFillHandle(rowIndex: number): boolean {
             <td class="p-2 text-right font-medium">
               {{ group.subtotalWeight.toFixed(3) }}
             </td>
-            <td colspan="4" />
+            <td colspan="6" />
           </tr>
         </tfoot>
       </table>

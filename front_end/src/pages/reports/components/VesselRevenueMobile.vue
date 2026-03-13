@@ -63,7 +63,7 @@ function isExpanded(month: string) {
 }
 
 function formatVal(val: number) {
-  return val.toFixed(2)
+  return val.toFixed(3)
 }
 
 function formatPrice(val: number) {
@@ -115,10 +115,18 @@ function formatPrice(val: number) {
 
       <!-- 明细按钮 -->
       <div class="flex items-center gap-2 px-4 py-2 border-t bg-white dark:bg-slate-900">
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'summary')" class="flex-1 text-xs">自有统计</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'detail')" class="flex-1 text-xs">自有清单</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'summary')" class="flex-1 text-xs">外挂统计</Button>
-        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'detail')" class="flex-1 text-xs">外挂清单</Button>
+        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'summary')" class="flex-1 text-xs"
+          >自有统计</Button
+        >
+        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '自有', 'detail')" class="flex-1 text-xs"
+          >自有清单</Button
+        >
+        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'summary')" class="flex-1 text-xs"
+          >外挂统计</Button
+        >
+        <Button size="sm" variant="ghost" @click="emit('openDrillDown', '外挂', 'detail')" class="flex-1 text-xs"
+          >外挂清单</Button
+        >
       </div>
     </div>
 
@@ -156,7 +164,10 @@ function formatPrice(val: number) {
               <div class="text-xs opacity-75">总金额</div>
             </div>
             <div>
-              <div class="text-xl font-bold" :class="summaryTotals.vsNetProfit >= 0 ? 'text-green-200' : 'text-red-200'">
+              <div
+                class="text-xl font-bold"
+                :class="summaryTotals.vsNetProfit >= 0 ? 'text-green-200' : 'text-red-200'"
+              >
                 {{ formatPrice(summaryTotals.vsNetProfit) }}
               </div>
               <div class="text-xs opacity-75">净利润</div>
@@ -184,7 +195,10 @@ function formatPrice(val: number) {
               <div class="text-xs opacity-75">总金额</div>
             </div>
             <div>
-              <div class="text-xl font-bold" :class="summaryTotals.vhNetProfit >= 0 ? 'text-green-200' : 'text-red-200'">
+              <div
+                class="text-xl font-bold"
+                :class="summaryTotals.vhNetProfit >= 0 ? 'text-green-200' : 'text-red-200'"
+              >
                 {{ formatPrice(summaryTotals.vhNetProfit) }}
               </div>
               <div class="text-xs opacity-75">净利润</div>
@@ -209,15 +223,28 @@ function formatPrice(val: number) {
       </div>
 
       <!-- 月份卡片列表 -->
-      <div v-for="item in statisticsData" :key="item.month" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm overflow-hidden">
+      <div
+        v-for="item in statisticsData"
+        :key="item.month"
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-sm overflow-hidden"
+      >
         <!-- 卡片头部 -->
         <div
           class="flex items-center justify-between p-4 cursor-pointer active:bg-gray-50 dark:active:bg-slate-700"
           @click="toggleExpand(item.month)"
         >
           <div class="flex items-center gap-3">
-            <div class="h-10 w-10 rounded-full flex items-center justify-center" :class="viewMode === 'vessel' ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'bg-amber-100 dark:bg-amber-900/30'">
-              <component :is="viewMode === 'vessel' ? Ship : Truck" class="h-5 w-5" :class="viewMode === 'vessel' ? 'text-indigo-600' : 'text-amber-600'" />
+            <div
+              class="h-10 w-10 rounded-full flex items-center justify-center"
+              :class="
+                viewMode === 'vessel' ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'bg-amber-100 dark:bg-amber-900/30'
+              "
+            >
+              <component
+                :is="viewMode === 'vessel' ? Ship : Truck"
+                class="h-5 w-5"
+                :class="viewMode === 'vessel' ? 'text-indigo-600' : 'text-amber-600'"
+              />
             </div>
             <div>
               <div class="font-medium">{{ item.month }}</div>
@@ -238,7 +265,10 @@ function formatPrice(val: number) {
         </div>
 
         <!-- 展开详情 - 船运 -->
-        <div v-if="isExpanded(item.month) && viewMode === 'vessel'" class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3">
+        <div
+          v-if="isExpanded(item.month) && viewMode === 'vessel'"
+          class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3"
+        >
           <!-- 自有车船 -->
           <div>
             <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">自有船</div>
@@ -293,7 +323,10 @@ function formatPrice(val: number) {
             </div>
             <div>
               <span class="text-muted-foreground">净利润：</span>
-              <span class="font-bold" :class="item.vsOwnProfit + item.vsProfit - item.vsFixedCost >= 0 ? 'text-green-600' : 'text-red-600'">
+              <span
+                class="font-bold"
+                :class="item.vsOwnProfit + item.vsProfit - item.vsFixedCost >= 0 ? 'text-green-600' : 'text-red-600'"
+              >
                 {{ formatPrice(item.vsOwnProfit + item.vsProfit - item.vsFixedCost) }}
               </span>
             </div>
@@ -301,7 +334,10 @@ function formatPrice(val: number) {
         </div>
 
         <!-- 展开详情 - 车运 -->
-        <div v-if="isExpanded(item.month) && viewMode === 'vehicle'" class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3">
+        <div
+          v-if="isExpanded(item.month) && viewMode === 'vehicle'"
+          class="border-t px-4 py-3 bg-gray-50/50 dark:bg-slate-700/50 space-y-3"
+        >
           <!-- 自有车辆 -->
           <div>
             <div class="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">自有车</div>
@@ -368,7 +404,14 @@ function formatPrice(val: number) {
             </div>
             <div>
               <span class="text-muted-foreground">净利润：</span>
-              <span class="font-bold" :class="item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift >= 0 ? 'text-green-600' : 'text-red-600'">
+              <span
+                class="font-bold"
+                :class="
+                  item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift >= 0
+                    ? 'text-green-600'
+                    : 'text-red-600'
+                "
+              >
                 {{ formatPrice(item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift) }}
               </span>
             </div>

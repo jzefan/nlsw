@@ -132,12 +132,20 @@ export async function searchBillingNames(search: string, limit = 20, page = 1) {
   return response.data
 }
 
-// 根据开单名称获取提单（2年内剩余量大于0的提单）
+// 根据开单名称获取订单号列表（不含提单明细）
 export async function getBillsByBillingName(billingName: string, search?: string, page = 1, limit = 100) {
   const response = await axiosInstance.get('/bills/orders', {
     params: { billingName, search, page, limit },
   })
   return response.data
+}
+
+// 获取指定订单的提单列表
+export async function getOrderBills(billingName: string, orderNo: string) {
+  const response = await axiosInstance.get('/bills/order-bills', {
+    params: { billingName, orderNo },
+  })
+  return response.data as { ok: boolean, data: any[] }
 }
 
 // 创建/保存运单 (车运) - 旧接口，保留兼容

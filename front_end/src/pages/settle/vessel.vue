@@ -2,6 +2,7 @@
 import dayjs from 'dayjs'
 import { Ban, Check, CheckCircle, CheckSquare, CirclePlus, Clock, Download, Eye, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Users, Wallet, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useThrottleFn } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
@@ -161,6 +162,19 @@ const showBillNameFilter = ref(false)
 const shipFilterSelected = ref<string[]>([])
 const billNameFilterOptions = ref<Array<{ value: string; label: string; checked: boolean }>>([])
 
+// 根据公司标识隐藏承运单位列：SaaS模式看tenant.code，独立部署看COMPANY_NAME
+const hideCarrier = computed(() => {
+  if (authStore.isStandalone) {
+    return (authStore.standaloneCompany || '').includes('鑫鸿图')
+  }
+  return authStore.tenant?.code === 'xht'
+})
+
+// 公司名含"鑫鸿图"时隐藏承运单位列
+watchEffect(() => {
+  if (hideCarrier.value) showColCarrier.value = false
+})
+
 // 承运单位筛选（多选，客户端过滤）
 const carrierFilterSelected = ref<string[]>([])
 const carrierFilterOptions = computed(() => {
@@ -172,6 +186,42 @@ const carrierFilterOptions = computed(() => {
     }
   })
   return Array.from(set).sort()
+})
+
+// 级联筛选选项（每个下拉选项 = dbRecords 按其他已选条件过滤后的唯一值）
+const filterOptions = computed(() => {
+  function applyOtherFilters(exclude: string) {
+    let filtered = dbRecords.value
+    if (exclude !== 'vehicle' && filterForm.value.vehicle) {
+      filtered = filtered.filter((inv) => inv.vehicle_vessel_name === filterForm.value.vehicle)
+    }
+    if (exclude !== 'billName' && filterForm.value.billName) {
+      filtered = filtered.filter((inv) => inv.ship_name === filterForm.value.billName)
+    }
+    if (exclude !== 'origin' && filterForm.value.origin) {
+      filtered = filtered.filter((inv) => inv.ship_from === filterForm.value.origin)
+    }
+    if (exclude !== 'destination' && filterForm.value.destination) {
+      filtered = filtered.filter((inv) => inv.ship_to === filterForm.value.destination)
+    }
+    return filtered
+  }
+
+  function uniqueSorted(records: any[], getter: (inv: any) => string): string[] {
+    const set = new Set<string>()
+    records.forEach((inv) => {
+      const v = getter(inv)
+      if (v) set.add(v)
+    })
+    return Array.from(set).sort()
+  }
+
+  return {
+    vehicles: uniqueSorted(applyOtherFilters('vehicle'), (inv) => inv.vehicle_vessel_name),
+    billNames: uniqueSorted(applyOtherFilters('billName'), (inv) => inv.ship_name),
+    origins: uniqueSorted(applyOtherFilters('origin'), (inv) => inv.ship_from),
+    destinations: uniqueSorted(applyOtherFilters('destination'), (inv) => inv.ship_to),
+  }
 })
 
 // 表格数据
@@ -308,49 +358,58 @@ onMounted(() => {
   document.addEventListener('click', closeBillNameFilter)
 })
 
-// 搜索函数 - 车船号（服务器端动态搜索）
-async function searchVehicles(search: string, limit: number, page: number) {
-  try {
-    const response = await settleApi.searchVehicles(search, limit)
-    return response
-  } catch (error) {
-    console.error('搜索车船号失败:', error)
-    return { ok: false, data: [] }
+// 日期变化 → throttle 后重新从服务端加载
+const throttledSearch = useThrottleFn(() => {
+  handleSearch(true)
+}, 1000)
+
+watch(
+  () => [filterForm.value.startDate, filterForm.value.endDate],
+  () => {
+    throttledSearch()
+  },
+)
+
+// 单价/吨位变化 → throttle 后重新从服务端加载
+const throttledAmountWeightSearch = useThrottleFn(() => {
+  handleSearch(true)
+}, 1000)
+
+watch(
+  () => [filterForm.value.amount, filterForm.value.weight],
+  () => {
+    throttledAmountWeightSearch()
+  },
+)
+
+// combobox 变化 → 客户端过滤（即时触发 buildTableData）
+watch(
+  () => [filterForm.value.vehicle, filterForm.value.billName, filterForm.value.origin, filterForm.value.destination],
+  () => {
+    buildTableData()
+    updateButtonStates()
+  },
+)
+
+// 本地搜索函数工厂（从 filterOptions 中过滤）
+function createLocalSearchFn(optionsGetter: () => string[]) {
+  return async (search: string, limit: number, page: number) => {
+    let filtered = optionsGetter()
+    if (search) {
+      const searchLower = search.toLowerCase()
+      filtered = filtered.filter((item) => item.toLowerCase().includes(searchLower))
+    }
+    const start = (page - 1) * limit
+    const data = filtered.slice(start, start + limit).map((item) => ({ name: item }))
+    return { ok: true, data, total: filtered.length }
   }
 }
 
-// 搜索函数 - 开单名称（服务器端动态搜索）
-async function searchBillingNames(search: string, limit: number, page: number) {
-  try {
-    const response = await settleApi.searchBillingNames(search, limit)
-    return response
-  } catch (error) {
-    console.error('搜索开单名称失败:', error)
-    return { ok: false, data: [] }
-  }
-}
-
-// 搜索函数 - 起始地/仓库（服务器端动态搜索）
-async function searchOrigins(search: string, limit: number, page: number) {
-  try {
-    const response = await settleApi.searchOrigins(search, limit)
-    return response
-  } catch (error) {
-    console.error('搜索起始地失败:', error)
-    return { ok: false, data: [] }
-  }
-}
-
-// 搜索函数 - 目的地（服务器端动态搜索）
-async function searchDestinations(search: string, limit: number, page: number) {
-  try {
-    const response = await settleApi.searchDestinations(search, limit)
-    return response
-  } catch (error) {
-    console.error('搜索目的地失败:', error)
-    return { ok: false, data: [] }
-  }
-}
+// 搜索函数 - 从 filterOptions 本地过滤
+const searchVehicles = computed(() => createLocalSearchFn(() => filterOptions.value.vehicles))
+const searchBillingNames = computed(() => createLocalSearchFn(() => filterOptions.value.billNames))
+const searchOrigins = computed(() => createLocalSearchFn(() => filterOptions.value.origins))
+const searchDestinations = computed(() => createLocalSearchFn(() => filterOptions.value.destinations))
 
 // 查询
 async function handleSearch(silent = false) {
@@ -368,10 +427,10 @@ async function handleSearch(silent = false) {
 
   try {
     const params = {
-      fVeh: filterForm.value.vehicle || null,
-      fName: filterForm.value.billName || null,
-      fOrigin: filterForm.value.origin || null,
-      fDest: filterForm.value.destination || null,
+      fVeh: null,
+      fName: null,
+      fOrigin: null,
+      fDest: null,
       fDate1: filterForm.value.startDate
         ? dayjs(filterForm.value.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
         : null,
@@ -464,6 +523,21 @@ function buildTableData() {
     })
   }
 
+  // 应用开单名称筛选（客户端）
+  if (filterForm.value.billName) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_name === filterForm.value.billName)
+  }
+
+  // 应用起始地筛选（客户端）
+  if (filterForm.value.origin) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_from === filterForm.value.origin)
+  }
+
+  // 应用目的地筛选（客户端）
+  if (filterForm.value.destination) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_to === filterForm.value.destination)
+  }
+
   // 是否按车辆筛选（用于船运下只显示匹配的车）
   const vehicleFilter = filterForm.value.vehicle || ''
 
@@ -491,30 +565,17 @@ function buildTableData() {
       }
     }
 
-    // 按状态筛选时，如果船主行状态不匹配但车运子行匹配，隐藏船主行只显示匹配的子行
+    // 按状态筛选时，如果船主行状态不匹配，跳过整条记录（船及其下的车运子行都不显示）
     const settleState = filterForm.value.settleState
-    let shipSettledButTrucksNot = false
-    if (settleState && settleState !== '全部' && isVessel && vehObj && inv.vessel_settle_state !== settleState) {
-      // 只保留匹配状态的车运子行
-      const matchedVehObj: any = {}
-      Object.keys(vehObj).forEach((key) => {
-        const vehState = vehObj[key].state || '未结算'
-        if (vehState === settleState) {
-          matchedVehObj[key] = vehObj[key]
-        }
-      })
-      if (Object.keys(matchedVehObj).length === 0) {
-        return // 没有匹配状态的车运子行，跳过
-      }
-      vehObj = matchedVehObj
-      shipSettledButTrucksNot = true
+    if (settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState) {
+      return // 船状态不匹配，跳过整条记录
     }
 
-    const hideMainRow = vehicleFiltered || shipSettledButTrucksNot
+    const hideMainRow = vehicleFiltered
 
     // 主行
     const mainRow = buildMainRow(inv, isVessel, vehObj)
-    mainRow.vehicleFiltered = vehicleFiltered || shipSettledButTrucksNot
+    mainRow.vehicleFiltered = vehicleFiltered
     // 车辆筛选或船已结算时不显示船运主行
     if (!hideMainRow) {
       data.push(mainRow)
@@ -1503,8 +1564,9 @@ function handleExport() {
   const columns = [
     '状态',
     '车船号',
-    '承运单位',
-    '开单名称/发货单位',
+    ...(!hideCarrier.value ? ['承运单位'] : []),
+    '开单名称',
+    '发货单位',
     '始发地',
     '目的地',
     '发运块数',
@@ -1531,8 +1593,9 @@ function handleExport() {
       data.push([
         row.isSubItem ? row.state : row.vessel_settle_state,
         row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
-        row.carrierBoss,
-        row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+        ...(!hideCarrier.value ? [row.carrierBoss] : []),
+        row.shipName || '',
+        row.shipCustomer || row.shipName || '',
         row.ship_from || '',
         row.ship_to || '',
         toExcelNum(row.send_num),
@@ -1561,7 +1624,7 @@ function handleExportFromBasket() {
   }
 
   const columns = [
-    '状态', '车船号', '承运单位', '开单名称/发货单位', '始发地', '目的地',
+    '状态', '车船号', ...(!hideCarrier.value ? ['承运单位'] : []), '开单名称', '发货单位', '始发地', '目的地',
     '发运块数', '发运重量', '单价', '总价格', '发货日期',
   ]
   const data: any[][] = [columns]
@@ -1572,8 +1635,9 @@ function handleExportFromBasket() {
     data.push([
       row.isSubItem ? row.state : row.vessel_settle_state,
       row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
-      row.carrierBoss,
-      row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+      ...(!hideCarrier.value ? [row.carrierBoss] : []),
+      row.shipName || '',
+      row.shipCustomer || row.shipName || '',
       row.ship_from || '',
       row.ship_to || '',
       toExcelNum(row.send_num),
@@ -1605,7 +1669,7 @@ function handleExportFromPublicBaskets() {
   }
 
   const columns = [
-    '用户', '状态', '车船号', '承运单位', '开单名称/发货单位', '始发地', '目的地',
+    '用户', '状态', '车船号', ...(!hideCarrier.value ? ['承运单位'] : []), '开单名称', '发货单位', '始发地', '目的地',
     '发运块数', '发运重量', '单价', '总价格', '发货日期',
   ]
   const data: any[][] = [columns]
@@ -1617,8 +1681,9 @@ function handleExportFromPublicBaskets() {
       row._basketOwner || '',
       row.isSubItem ? row.state : row.vessel_settle_state,
       row.isSubItem ? row.veh_name : row.vehicle_vessel_name,
-      row.carrierBoss,
-      row.shipCustomer ? `${row.shipName}/${row.shipCustomer}` : row.shipName,
+      ...(!hideCarrier.value ? [row.carrierBoss] : []),
+      row.shipName || '',
+      row.shipCustomer || row.shipName || '',
       row.ship_from || '',
       row.ship_to || '',
       toExcelNum(row.send_num),
@@ -1945,7 +2010,7 @@ function handleUploadReceiptConfirm() {
                     <input v-model="showColVehicle" type="checkbox" class="h-4 w-4 cursor-pointer" />
                     <span class="text-sm">车船号/运单号</span>
                   </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
+                  <label v-if="!hideCarrier" class="flex items-center gap-2 cursor-pointer">
                     <input v-model="showColCarrier" type="checkbox" class="h-4 w-4 cursor-pointer" />
                     <span class="text-sm">承运单位</span>
                   </label>
@@ -2010,8 +2075,7 @@ function handleUploadReceiptConfirm() {
         class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4"
         :class="{ 'pointer-events-none opacity-50': loading }"
       >
-        <!-- 第一行：车船号 | 开单名称 | 承运单位（多选） | 回执状态 -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 gap-2" :class="hideCarrier ? 'md:grid-cols-3' : 'md:grid-cols-4'">
           <SearchableCombobox
             v-model="filterForm.vehicle"
             :search-fn="searchVehicles"
@@ -2025,7 +2089,7 @@ function handleUploadReceiptConfirm() {
             class="h-8 text-sm w-full"
           />
           <!-- 承运单位多选 -->
-          <Popover>
+          <Popover v-if="!hideCarrier">
             <PopoverTrigger as-child>
               <UiButton variant="outline" size="sm" class="h-8 text-sm w-full justify-start font-normal border-dashed">
                 <CirclePlus v-if="carrierFilterSelected.length === 0" class="size-4 mr-1.5 shrink-0 text-muted-foreground" />
@@ -2093,10 +2157,6 @@ function handleUploadReceiptConfirm() {
               <SelectItem value="0">未回执</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-
-        <!-- 第二行：起始地 | 目的地 | 单价 | 吨位 -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <SearchableCombobox
             v-model="filterForm.origin"
             :search-fn="searchOrigins"
@@ -2121,10 +2181,6 @@ function handleUploadReceiptConfirm() {
             class="h-8 text-sm"
             @input="filterForm.weight = filterForm.weight.replace(/[^0-9.]/g, '')"
           />
-        </div>
-
-        <!-- 第三行：开始日期 | 结束日期 | 查询按钮（右对齐） -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <DatePicker
             v-model="filterForm.startDate"
             placeholder="发货日期(开始)"
@@ -2139,12 +2195,6 @@ function handleUploadReceiptConfirm() {
             disabled-hint="结束日期不能早于开始日期"
             class="h-8 w-full"
           />
-          <div class="col-span-2 flex justify-end">
-            <UiButton variant="default" size="sm" class="h-8 shrink-0" :disabled="loading" @click="handleSearch">
-              <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
-              查询
-            </UiButton>
-          </div>
         </div>
       </div>
 

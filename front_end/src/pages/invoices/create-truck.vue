@@ -14,6 +14,7 @@ import {
   getInvoiceDetail,
   getInvoiceList,
   getMaxWaybillNo,
+  getOrderBills,
   searchBillingNames,
   searchDestinations,
   searchVehicles,
@@ -99,9 +100,11 @@ const form = ref({
   shipDate: '',
 })
 
-// 可用订单数据 (根据开单名称获取，按订单分组)
-// 结构: [{order_no: string, bills: [{bill_no, order_item_no, ...}]}]
-const availableOrdersData = ref<any[]>([])
+// 可用订单号列表 (根据开单名称获取)
+const availableOrderNos = ref<string[]>([])
+
+// 已加载的提单缓存 (按订单号索引, 选中订单时从API加载)
+const billsCache = ref<Map<string, any[]>>(new Map())
 
 // 当前选择的订单号
 const selectedOrderNo = ref('')
@@ -155,17 +158,19 @@ async function loadUserNamesIfNeeded() {
   try {
     const result = await getUserNames()
     if (result.ok) cachedUserNames.value = result.data
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function searchShipperNames(search: string, limit: number, page: number) {
   await loadUserNamesIfNeeded()
   let filtered = cachedUserNames.value
   if (search) {
-    filtered = filtered.filter(n => n.toLowerCase().includes(search.toLowerCase()))
+    filtered = filtered.filter((n) => n.toLowerCase().includes(search.toLowerCase()))
   }
   const start = (page - 1) * limit
-  const data = filtered.slice(start, start + limit).map(n => ({ name: n }))
+  const data = filtered.slice(start, start + limit).map((n) => ({ name: n }))
   return { ok: true, data, total: filtered.length }
 }
 
@@ -233,7 +238,8 @@ function resetForm() {
     shipTo: '',
     shipDate: '',
   }
-  availableOrdersData.value = []
+  availableOrderNos.value = []
+  billsCache.value = new Map()
   selectedOrderNo.value = ''
   currentOrderBills.value = []
   selectedBills.value = []
@@ -241,23 +247,23 @@ function resetForm() {
   orderPlanInfo.value = null
 }
 
-// 根据提单号查找提单信息（从分组数据中查找）
+// 根据提单号查找提单信息（从缓存中查找）
 function findBillByNo(billNo: string) {
-  for (const order of availableOrdersData.value) {
-    const bill = order.bills?.find((b: any) => b.bill_no === billNo)
+  for (const [orderNo, bills] of billsCache.value) {
+    const bill = bills.find((b: any) => b.bill_no === billNo)
     if (bill) {
-      return { ...bill, order_no: order.order_no }
+      return { ...bill, order_no: orderNo }
     }
   }
   return null
 }
 
-// 根据提单_id查找提单信息（从分组数据中查找）
+// 根据提单_id查找提单信息（从缓存中查找）
 function findBillById(billId: string) {
-  for (const order of availableOrdersData.value) {
-    const bill = order.bills?.find((b: any) => b._id === billId)
+  for (const [orderNo, bills] of billsCache.value) {
+    const bill = bills.find((b: any) => b._id === billId)
     if (bill) {
-      return { ...bill, order_no: order.order_no }
+      return { ...bill, order_no: orderNo }
     }
   }
   return null
@@ -278,7 +284,8 @@ function confirmDialog(message: string): Promise<boolean> {
 async function handleShipNameChange(name: string) {
   form.value.shipName = name
   if (!name) {
-    availableOrdersData.value = []
+    availableOrderNos.value = []
+    billsCache.value = new Map()
     selectedOrderNo.value = ''
     currentOrderBills.value = []
     shipCustomers.value = []
@@ -295,7 +302,8 @@ async function handleShipNameChange(name: string) {
   }
 
   // 清空已加载的订单数据，订单会在下拉框打开时按需加载
-  availableOrdersData.value = []
+  availableOrderNos.value = []
+  billsCache.value = new Map()
   selectedOrderNo.value = ''
   currentOrderBills.value = []
 
@@ -304,8 +312,9 @@ async function handleShipNameChange(name: string) {
     const result = await searchCompanies(name, 20, 1)
     if (result.ok && result.data && result.data.length > 0) {
       // 优先精确匹配，其次模糊匹配（Company名称可能带编号前缀）
-      const company = result.data.find((c: any) => c.name === name)
-        || result.data.find((c: any) => c.name.includes(name) || name.includes(c.name))
+      const company =
+        result.data.find((c: any) => c.name === name) ||
+        result.data.find((c: any) => c.name.includes(name) || name.includes(c.name))
       if (company && company.customers?.length) {
         shipCustomers.value = company.customers
       } else {
@@ -332,36 +341,33 @@ async function searchOrders(search: string, limit: number, page: number) {
   try {
     const result = await getBillsByBillingName(form.value.shipName, search, page, limit)
     if (result.ok && result.data) {
-      // 将加载的订单数据缓存起来（用于后续查找提单）
-      const newOrders = result.data.filter(
-        (order: any) => !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
-      )
-      if (newOrders.length > 0) {
-        availableOrdersData.value = [...availableOrdersData.value, ...newOrders]
+      // 缓存订单号
+      for (const order of result.data) {
+        if (order.order_no && !availableOrderNos.value.includes(order.order_no)) {
+          availableOrderNos.value.push(order.order_no)
+        }
       }
 
-      // 返回订单号列表给下拉框显示，同时合并本地已有但API未返回的订单（如 left_num=0 的提单所属订单）
+      // 合并本地已有但API未返回的订单（如 left_num=0 的提单所属订单）
       const apiOrderNos = new Set(result.data.map((order: any) => order.order_no))
-      const localOnlyOrders = availableOrdersData.value
-        .filter((o: any) => {
-          if (apiOrderNos.has(o.order_no)) return false
+      const localOnlyOrders = availableOrderNos.value
+        .filter((orderNo) => {
+          if (apiOrderNos.has(orderNo)) return false
           if (!search) return true
-          return o.order_no.toLowerCase().includes(search.toLowerCase())
+          return orderNo.toLowerCase().includes(search.toLowerCase())
         })
-        .map((o: any) => ({ name: o.order_no }))
+        .map((orderNo) => ({ name: orderNo }))
 
       const data = [
         ...result.data.filter((order: any) => order.order_no).map((order: any) => ({ name: order.order_no })),
         ...localOnlyOrders,
       ].sort((a, b) => {
-        // 有搜索词时，匹配的优先
         if (search) {
           const s = search.toLowerCase()
           const aMatch = a.name.toLowerCase().includes(s)
           const bMatch = b.name.toLowerCase().includes(s)
           if (aMatch !== bMatch) return aMatch ? -1 : 1
         }
-        // 按订单号第4-7位（YYMM年月）降序，同年月按序号降序
         const aDate = a.name.substring(3, 7)
         const bDate = b.name.substring(3, 7)
         if (aDate !== bDate) return bDate.localeCompare(aDate)
@@ -407,8 +413,8 @@ async function searchBills(search: string, limit: number, page: number) {
   return { ok: true, data, total: uniqueBills.length }
 }
 
-// 订单号改变时更新可选提单
-function handleOrderChange(orderNo: string) {
+// 订单号改变时从API加载提单
+async function handleOrderChange(orderNo: string) {
   selectedOrderNo.value = orderNo
   if (!orderNo) {
     currentOrderBills.value = []
@@ -425,15 +431,25 @@ function handleOrderChange(orderNo: string) {
       orderPlanInfo.value = null
     })
 
-  // 从分组数据中找到该订单
-  const orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
-  if (!orderData) {
-    currentOrderBills.value = []
-    return
+  // 从缓存或API获取该订单的提单
+  let bills = billsCache.value.get(orderNo)
+  if (!bills) {
+    try {
+      const result = await getOrderBills(form.value.shipName, orderNo)
+      if (result.ok && result.data) {
+        bills = result.data
+        billsCache.value.set(orderNo, bills)
+      } else {
+        bills = []
+      }
+    } catch (error) {
+      console.error('获取订单提单失败', error)
+      bills = []
+    }
   }
 
-  // 获取该订单的提单，排除已选的（按 _id 匹配，同提单号不同项次可分别选择）
-  currentOrderBills.value = (orderData.bills || []).filter((b: any) => {
+  // 排除已选的（按 _id 匹配）
+  currentOrderBills.value = bills.filter((b: any) => {
     return !selectedBills.value.some((sb) => sb._id === b._id)
   })
 }
@@ -634,21 +650,20 @@ async function saveInvoice(state: string) {
 
       // 重新加载可用提单数据
       if (form.value.shipName) {
-        // 清空缓存的订单数据，强制重新加载
-        availableOrdersData.value = []
+        // 清空提单缓存，强制重新加载
+        billsCache.value = new Map()
 
-        // 重新加载当前选中的订单
+        // 重新加载当前选中的订单的提单
         if (selectedOrderNo.value) {
           try {
-            const result = await getBillsByBillingName(form.value.shipName, '', 1, 100)
-            if (result.ok && result.data) {
-              availableOrdersData.value = result.data
+            const freshResult = await getOrderBills(form.value.shipName, selectedOrderNo.value)
+            if (freshResult.ok && freshResult.data) {
+              billsCache.value.set(selectedOrderNo.value, freshResult.data)
 
               // 更新已选提单的数据（刷新 left_num等字段）
               for (const selectedBill of selectedBills.value) {
                 const freshBill = findBillById(selectedBill._id!)
                 if (freshBill) {
-                  // 更新剩余量等关键字段，但保留用户输入的 send_num 和 send_weight
                   Object.assign(selectedBill, {
                     left_num: freshBill.left_num,
                     block_num: freshBill.block_num,
@@ -708,7 +723,8 @@ async function openInvoiceList() {
   const today = new Date()
   const oneMonthAgo = new Date(today)
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   invoiceSearchFilters.value = {
     vehicleName: '',
     shipName: '',
@@ -818,6 +834,8 @@ async function loadInvoiceDetail(invoice: any) {
           block_num: billInfo.block_num,
           total_weight: billInfo.total_weight,
           left_num: billInfo.left_num,
+          ship_warehouse: billInfo.ship_warehouse || '',
+          contract_no: billInfo.contract_no || '',
           send_num: sendNum,
           send_weight: sendWeight,
           _originalLeft: originalLeft,
@@ -825,35 +843,12 @@ async function loadInvoiceDetail(invoice: any) {
         selectedBills.value.push(bill)
       }
 
-      // 将运单中的提单注入到 availableOrdersData，确保 left_num=0 的提单也能在下拉列表中找到
+      // 只注入订单号，不注入提单到缓存（避免缓存导致新增提单不显示）
       for (const bill of selectedBills.value) {
         const orderNo = bill.order_no
         if (!orderNo) continue
-
-        let orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
-        if (!orderData) {
-          orderData = { order_no: orderNo, bills: [] }
-          availableOrdersData.value.push(orderData)
-        }
-
-        const existingBill = orderData.bills.find((b: any) => b._id === bill._id)
-        if (!existingBill) {
-          orderData.bills.push({
-            _id: bill._id,
-            bill_no: bill.bill_no,
-            order_no: bill.order_no,
-            order_item_no: bill.order_item_no,
-            brand_no: bill.brand_no,
-            thickness: bill.thickness,
-            width: bill.width,
-            len: bill.len,
-            weight: bill.weight,
-            block_num: (bill as any).block_num,
-            total_weight: (bill as any).total_weight,
-            left_num: (bill as any)._originalLeft,
-            ship_warehouse: bill.ship_warehouse,
-            contract_no: bill.contract_no,
-          })
+        if (!availableOrderNos.value.includes(orderNo)) {
+          availableOrderNos.value.push(orderNo)
         }
       }
 
@@ -890,7 +885,7 @@ function getOrderDisplay(bill: any) {
 function isBlockBill(bill: InvoiceBill) {
   const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
   if (originalBill) return originalBill.block_num > 0
-  // 已加载运单的提单可能不在 availableOrdersData 中，使用自身属性
+  // 已加载运单的提单可能不在 billsCache 中，使用自身属性
   return (bill as any).block_num > 0
 }
 
@@ -1022,9 +1017,9 @@ function isBillHighlighted(bill: InvoiceBill) {
 
         <!-- 订单计划提示 -->
         <div v-if="orderPlanInfo" class="mt-1 px-1 text-xs text-muted-foreground">
-          订单计划: 订单量 {{ orderPlanInfo.order_weight.toFixed(3) }} 吨 | 已发
-          {{ (orderPlanInfo.order_weight - orderPlanInfo.left_weight).toFixed(3) }} 吨 | 剩余
-          {{ orderPlanInfo.left_weight.toFixed(3) }} 吨
+          订单计划: 订单量 {{ formatWeight(orderPlanInfo.order_weight) }} 吨 | 已发
+          {{ formatWeight(orderPlanInfo.order_weight - orderPlanInfo.left_weight) }} 吨 | 剩余
+          {{ formatWeight(orderPlanInfo.left_weight) }} 吨
         </div>
       </div>
 
@@ -1067,7 +1062,7 @@ function isBillHighlighted(bill: InvoiceBill) {
               <UiTableCell>{{ bill.thickness }}</UiTableCell>
               <UiTableCell>{{ bill.width }}</UiTableCell>
               <UiTableCell>{{ bill.len }}</UiTableCell>
-              <UiTableCell>{{ bill.weight?.toFixed(4) }}</UiTableCell>
+              <UiTableCell>{{ formatWeight(bill.weight) }}</UiTableCell>
               <UiTableCell>{{ getBillLeftNum(bill) }}</UiTableCell>
               <UiTableCell>
                 <UiInput
@@ -1082,7 +1077,7 @@ function isBillHighlighted(bill: InvoiceBill) {
               </UiTableCell>
               <UiTableCell>
                 <template v-if="isBlockBill(bill)">
-                  {{ bill.send_weight?.toFixed(3) }}
+                  {{ formatWeight(bill.send_weight) }}
                 </template>
                 <UiInput
                   v-else
@@ -1159,7 +1154,7 @@ function isBillHighlighted(bill: InvoiceBill) {
               </div>
               <div>
                 <span class="text-muted-foreground">单重:</span>
-                <span class="ml-1">{{ bill.weight?.toFixed(4) }}</span>
+                <span class="ml-1">{{ formatNumber(bill.weight, 3) }}</span>
               </div>
             </div>
 
@@ -1180,9 +1175,7 @@ function isBillHighlighted(bill: InvoiceBill) {
               <div>
                 <label class="text-xs text-muted-foreground block mb-1">发运重量</label>
                 <template v-if="isBlockBill(bill)">
-                  <div class="p-2 bg-muted rounded text-center">
-                    {{ bill.send_weight?.toFixed(3) }}
-                  </div>
+                  <div class="p-2 bg-muted rounded text-center">{{ formatWeight(bill.send_weight) }}</div>
                 </template>
                 <UiInput
                   v-else
@@ -1214,14 +1207,18 @@ function isBillHighlighted(bill: InvoiceBill) {
       v-if="selectedBills.length > 0"
       class="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
     >
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 px-4 py-3 max-w-screen-2xl mx-auto">
+      <div
+        class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 px-4 py-3 max-w-screen-2xl mx-auto"
+      >
         <div class="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
-          <span>记录: <strong>{{ selectedBills.length }}</strong> 条</span>
+          <span
+            >记录: <strong>{{ selectedBills.length }}</strong> 条</span
+          >
           <span class="ml-3 sm:ml-6"
             >发运块数: <strong>{{ totalNumber }}</strong></span
           >
           <span class="ml-3 sm:ml-6"
-            >发运总重量: <strong>{{ totalWeight.toFixed(3) }}</strong> 吨</span
+            >发运总重量: <strong>{{ formatWeight(totalWeight) }}</strong> 吨</span
           >
         </div>
         <div class="flex flex-col sm:flex-row gap-2">
@@ -1258,11 +1255,7 @@ function isBillHighlighted(bill: InvoiceBill) {
                 :search-fn="searchBillingNames"
                 placeholder="开单名称"
               />
-              <UiInput
-                v-model="invoiceSearchFilters.waybillNo"
-                placeholder="运单号"
-                @keyup.enter="searchInvoices"
-              />
+              <UiInput v-model="invoiceSearchFilters.waybillNo" placeholder="运单号" @keyup.enter="searchInvoices" />
               <SearchableCombobox
                 v-model="invoiceSearchFilters.shipTo"
                 :search-fn="searchDestinations"
@@ -1273,14 +1266,8 @@ function isBillHighlighted(bill: InvoiceBill) {
                 :search-fn="searchShipperNames"
                 placeholder="发货人"
               />
-              <DatePicker
-                v-model="invoiceSearchFilters.startDate"
-                placeholder="开始日期"
-              />
-              <DatePicker
-                v-model="invoiceSearchFilters.endDate"
-                placeholder="结束日期"
-              />
+              <DatePicker v-model="invoiceSearchFilters.startDate" placeholder="开始日期" />
+              <DatePicker v-model="invoiceSearchFilters.endDate" placeholder="结束日期" />
               <div class="flex items-center gap-2">
                 <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
                   <Search class="w-4 h-4 mr-1" />

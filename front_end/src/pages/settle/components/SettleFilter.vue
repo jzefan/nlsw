@@ -28,12 +28,12 @@ const emit = defineEmits<{
 
 // 过滤条件
 const billingName = ref('')
-const vehicles = ref('')
-const shipFrom = ref('')
-const destinations = ref('')
-const orderNos = ref('')
-const billNos = ref('')
-const invNos = ref('')
+const vehicles = ref<string[]>([])
+const shipFrom = ref<string[]>([])
+const destinations = ref<string[]>([])
+const orderNos = ref<string[]>([])
+const billNos = ref<string[]>([])
+const invNos = ref<string[]>([])
 const startDate = ref('')
 const endDate = ref('')
 
@@ -115,12 +115,12 @@ function applyFilter() {
 
   const params: SettleFilterParams = {
     fName: billingName.value ? [billingName.value] : undefined,
-    fVeh: vehicles.value ? [vehicles.value] : undefined,
-    fShipFrom: shipFrom.value ? [shipFrom.value] : undefined,
-    fDest: destinations.value ? [destinations.value] : undefined,
-    fOrder: orderNos.value ? [orderNos.value] : undefined,
-    fBno: billNos.value ? [billNos.value] : undefined,
-    fInvNo: invNos.value ? [invNos.value] : undefined,
+    fVeh: vehicles.value.length > 0 ? vehicles.value : undefined,
+    fShipFrom: shipFrom.value.length > 0 ? shipFrom.value : undefined,
+    fDest: destinations.value.length > 0 ? destinations.value : undefined,
+    fOrder: orderNos.value.length > 0 ? orderNos.value : undefined,
+    fBno: billNos.value.length > 0 ? billNos.value : undefined,
+    fInvNo: invNos.value.length > 0 ? invNos.value : undefined,
     fDate1: startDate.value ? startDate.value + 'T00:00:00' : undefined,
     fDate2: endDate.value ? endDate.value + 'T23:59:59' : undefined,
     fType: 'invoice-first',
@@ -155,12 +155,12 @@ const throttledApplyFilter = useThrottleFn(() => {
 // 重置过滤（保持日期范围不变）
 function resetFilter() {
   billingName.value = ''
-  vehicles.value = ''
-  shipFrom.value = ''
-  destinations.value = ''
-  orderNos.value = ''
-  billNos.value = ''
-  invNos.value = ''
+  vehicles.value = []
+  shipFrom.value = []
+  destinations.value = []
+  orderNos.value = []
+  billNos.value = []
+  invNos.value = []
   // 注意：不重置日期，保持当前日期范围
   // 重置后立即触发过滤
   applyFilter()
@@ -178,7 +178,7 @@ defineExpose({
 // 非日期条件直接触发（前端过滤很快）
 watch([billingName, vehicles, shipFrom, destinations, orderNos, billNos, invNos], () => {
   applyFilter()
-})
+}, { deep: true })
 
 // 日期变化使用节流（需要从后端重新加载数据）
 watch([startDate, endDate], () => {
@@ -203,31 +203,37 @@ watch(() => props.showNonSettle, () => {
         v-model="orderNos"
         :search-fn="searchOrders"
         placeholder="订单号"
+        multiple
       />
       <SearchableCombobox
         v-model="billNos"
         :search-fn="searchBillNos"
         placeholder="提单号"
+        multiple
       />
       <SearchableCombobox
         v-model="vehicles"
         :search-fn="searchVehicles"
         placeholder="车船号"
+        multiple
       />
       <SearchableCombobox
         v-model="shipFrom"
         :search-fn="searchShipFroms"
         placeholder="起始地"
+        multiple
       />
       <SearchableCombobox
         v-model="destinations"
         :search-fn="searchDestinations"
         placeholder="目的地"
+        multiple
       />
       <SearchableCombobox
         v-model="invNos"
         :search-fn="searchInvNos"
         placeholder="运单号"
+        multiple
       />
       <DatePicker
         v-model="startDate"

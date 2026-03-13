@@ -15,6 +15,7 @@ import {
   getInvoiceDetail,
   getInvoiceList,
   getMaxWaybillNo,
+  getOrderBills,
   searchBillingNames,
   searchDestinations,
   searchVehicles,
@@ -138,9 +139,11 @@ const form = ref({
 const currentWagonNo = ref('')
 const currentOrigin = ref('南钢')
 
-// 可用订单数据 (根据开单名称获取，按订单分组)
-// 结构: [{order_no: string, bills: [{bill_no, order_item_no, ...}]}]
-const availableOrdersData = ref<any[]>([])
+// 可用订单号列表 (根据开单名称获取)
+const availableOrderNos = ref<string[]>([])
+
+// 已加载的提单缓存 (按订单号索引, 选中订单时从API加载)
+const billsCache = ref<Map<string, any[]>>(new Map())
 
 // 当前选择的订单号
 const selectedOrderNo = ref('')
@@ -281,7 +284,8 @@ function resetForm() {
   }
   currentWagonNo.value = ''
   currentOrigin.value = '南钢'
-  availableOrdersData.value = []
+  availableOrderNos.value = []
+  billsCache.value = new Map()
   selectedOrderNo.value = ''
   currentOrderBills.value = []
   pendingBills.value = []
@@ -290,23 +294,23 @@ function resetForm() {
   orderPlanInfo.value = null
 }
 
-// 根据提单号查找提单信息（从分组数据中查找）
+// 根据提单号查找提单信息（从缓存中查找）
 function findBillByNo(billNo: string) {
-  for (const order of availableOrdersData.value) {
-    const bill = order.bills?.find((b: any) => b.bill_no === billNo)
+  for (const [orderNo, bills] of billsCache.value) {
+    const bill = bills.find((b: any) => b.bill_no === billNo)
     if (bill) {
-      return { ...bill, order_no: order.order_no }
+      return { ...bill, order_no: orderNo }
     }
   }
   return null
 }
 
-// 根据提单_id查找提单信息（从分组数据中查找）
+// 根据提单_id查找提单信息（从缓存中查找）
 function findBillById(billId: string) {
-  for (const order of availableOrdersData.value) {
-    const bill = order.bills?.find((b: any) => b._id === billId)
+  for (const [orderNo, bills] of billsCache.value) {
+    const bill = bills.find((b: any) => b._id === billId)
     if (bill) {
-      return { ...bill, order_no: order.order_no }
+      return { ...bill, order_no: orderNo }
     }
   }
   return null
@@ -344,7 +348,8 @@ watch(confirmDialogOpen, (open) => {
 async function handleBillingNameChange(name: string) {
   form.value.billingName = name
   if (!name) {
-    availableOrdersData.value = []
+    availableOrderNos.value = []
+    billsCache.value = new Map()
     selectedOrderNo.value = ''
     currentOrderBills.value = []
     shipCustomers.value = []
@@ -362,7 +367,8 @@ async function handleBillingNameChange(name: string) {
   }
 
   // 清空已加载的订单数据，订单会在下拉框打开时按需加载
-  availableOrdersData.value = []
+  availableOrderNos.value = []
+  billsCache.value = new Map()
   selectedOrderNo.value = ''
   currentOrderBills.value = []
 
@@ -400,36 +406,33 @@ async function searchOrders(search: string, limit: number, page: number) {
   try {
     const result = await getBillsByBillingName(form.value.billingName, search, page, limit)
     if (result.ok && result.data) {
-      // 将加载的订单数据缓存起来（用于后续查找提单）
-      const newOrders = result.data.filter(
-        (order: any) => !availableOrdersData.value.some((o: any) => o.order_no === order.order_no),
-      )
-      if (newOrders.length > 0) {
-        availableOrdersData.value = [...availableOrdersData.value, ...newOrders]
+      // 缓存订单号
+      for (const order of result.data) {
+        if (order.order_no && !availableOrderNos.value.includes(order.order_no)) {
+          availableOrderNos.value.push(order.order_no)
+        }
       }
 
-      // 返回订单号列表给下拉框显示，同时合并本地已有但API未返回的订单（如 left_num=0 的提单所属订单）
+      // 合并本地已有但API未返回的订单（如 left_num=0 的提单所属订单）
       const apiOrderNos = new Set(result.data.map((order: any) => order.order_no))
-      const localOnlyOrders = availableOrdersData.value
-        .filter((o: any) => {
-          if (apiOrderNos.has(o.order_no)) return false
+      const localOnlyOrders = availableOrderNos.value
+        .filter((orderNo) => {
+          if (apiOrderNos.has(orderNo)) return false
           if (!search) return true
-          return o.order_no.toLowerCase().includes(search.toLowerCase())
+          return orderNo.toLowerCase().includes(search.toLowerCase())
         })
-        .map((o: any) => ({ name: o.order_no }))
+        .map((orderNo) => ({ name: orderNo }))
 
       const data = [
         ...result.data.filter((order: any) => order.order_no).map((order: any) => ({ name: order.order_no })),
         ...localOnlyOrders,
       ].sort((a, b) => {
-        // 有搜索词时，匹配的优先
         if (search) {
           const s = search.toLowerCase()
           const aMatch = a.name.toLowerCase().includes(s)
           const bMatch = b.name.toLowerCase().includes(s)
           if (aMatch !== bMatch) return aMatch ? -1 : 1
         }
-        // 按订单号第4-7位（YYMM年月）降序，同年月按序号降序
         const aDate = a.name.substring(3, 7)
         const bDate = b.name.substring(3, 7)
         if (aDate !== bDate) return bDate.localeCompare(aDate)
@@ -475,8 +478,8 @@ async function searchBills(search: string, limit: number, page: number) {
   return { ok: true, data, total: uniqueBills.length }
 }
 
-// 订单号改变时更新可选提单
-function handleOrderChange(orderNo: string) {
+// 订单号改变时从API加载提单
+async function handleOrderChange(orderNo: string) {
   selectedOrderNo.value = orderNo
   if (!orderNo) {
     currentOrderBills.value = []
@@ -493,20 +496,29 @@ function handleOrderChange(orderNo: string) {
       orderPlanInfo.value = null
     })
 
-  // 从分组数据中找到该订单
-  const orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
-  if (!orderData) {
-    currentOrderBills.value = []
-    return
+  // 从缓存或API获取该订单的提单
+  let bills = billsCache.value.get(orderNo)
+  if (!bills) {
+    try {
+      const result = await getOrderBills(form.value.billingName, orderNo)
+      if (result.ok && result.data) {
+        bills = result.data
+        billsCache.value.set(orderNo, bills)
+      } else {
+        bills = []
+      }
+    } catch (error) {
+      console.error('获取订单提单失败', error)
+      bills = []
+    }
   }
 
-  // 获取该订单的提单，过滤掉已无剩余量的
-  currentOrderBills.value = (orderData.bills || []).filter((b: any) => {
+  // 过滤掉已无剩余量的
+  currentOrderBills.value = bills.filter((b: any) => {
     const isBlock = b.block_num > 0
     const baseLeft = b.left_num ?? 0
 
     if (isBlock) {
-      // 定尺：按块数计算
       const confirmedSendNum = confirmedBills.value
         .filter((cb) => cb._id === b._id)
         .reduce((sum, cb) => sum + cb.send_num, 0)
@@ -515,7 +527,6 @@ function handleOrderChange(orderNo: string) {
         .reduce((sum, pb) => sum + pb.send_num, 0)
       return baseLeft - confirmedSendNum - pendingSendNum > 0
     } else {
-      // 非定尺：按重量计算
       const confirmedSendWeight = confirmedBills.value
         .filter((cb) => cb._id === b._id)
         .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
@@ -873,27 +884,25 @@ async function saveInvoice(state: string) {
 
       // 重新加载可用提单数据
       if (form.value.billingName) {
-        // 清空缓存的订单数据，强制重新加载
-        availableOrdersData.value = []
+        // 清空提单缓存，强制重新加载
+        billsCache.value = new Map()
 
-        // 重新加载当前选中的订单
+        // 重新加载当前选中的订单的提单
         if (selectedOrderNo.value) {
           try {
-            const result = await getBillsByBillingName(form.value.billingName, '', 1, 100)
-            if (result.ok && result.data) {
-              availableOrdersData.value = result.data
+            const freshResult = await getOrderBills(form.value.billingName, selectedOrderNo.value)
+            if (freshResult.ok && freshResult.data) {
+              billsCache.value.set(selectedOrderNo.value, freshResult.data)
 
               // 更新已确认提单的数据（刷新 left_num等字段）
               for (const confirmedBill of confirmedBills.value) {
                 const freshBill = findBillById(confirmedBill._id!)
                 if (freshBill) {
-                  // 更新剩余量等关键字段，但保留用户输入的 send_num 和 send_weight
                   Object.assign(confirmedBill, {
                     left_num: freshBill.left_num,
                     block_num: freshBill.block_num,
                     total_weight: freshBill.total_weight,
                   })
-                  // 更新 _originalLeft 以反映新的基准值
                   ;(confirmedBill as any)._originalLeft = freshBill.left_num
                 }
               }
@@ -967,7 +976,7 @@ function getOrderDisplay(bill: any) {
 function isBlockBill(bill: InvoiceBill) {
   const originalBill = bill._id ? findBillById(bill._id) : findBillByNo(bill.bill_no)
   if (originalBill) return originalBill.block_num > 0
-  // 已加载运单的提单可能不在 availableOrdersData 中，使用自身属性
+  // 已加载运单的提单可能不在 billsCache 中，使用自身属性
   return (bill as any).block_num > 0
 }
 
@@ -980,7 +989,7 @@ function getBaseLeft(billId: string) {
   if (confirmedWithOriginal) {
     return (confirmedWithOriginal as any)._originalLeft
   }
-  // 新建运单：使用 availableOrdersData 中的 left_num
+  // 新建运单：使用 billsCache 中的 left_num
   const originalBill = findBillById(billId)
   return originalBill?.left_num || originalBill?.left || 0
 }
@@ -1298,38 +1307,14 @@ async function loadInvoiceDetail(invoice: any) {
         }
       }
 
-      // 将运单中的提单注入到 availableOrdersData，确保 left_num=0 的提单也能在下拉列表中找到
-      // 按提单去重（船运同一提单可能有多个车辆记录）
-      const seenBillIds = new Set<string>()
+      // 只注入订单号，不注入提单到缓存（避免缓存导致新增提单不显示）
+      const seenOrderNos = new Set<string>()
       for (const bill of confirmedBills.value) {
         const orderNo = bill.order_no
-        if (!orderNo || !bill._id || seenBillIds.has(bill._id)) continue
-        seenBillIds.add(bill._id)
-
-        let orderData = availableOrdersData.value.find((o: any) => o.order_no === orderNo)
-        if (!orderData) {
-          orderData = { order_no: orderNo, bills: [] }
-          availableOrdersData.value.push(orderData)
-        }
-
-        const existingBill = orderData.bills.find((b: any) => b._id === bill._id)
-        if (!existingBill) {
-          orderData.bills.push({
-            _id: bill._id,
-            bill_no: bill.bill_no,
-            order_no: bill.order_no,
-            order_item_no: bill.order_item_no,
-            brand_no: bill.brand_no,
-            thickness: bill.thickness,
-            width: bill.width,
-            len: bill.len,
-            weight: bill.weight,
-            block_num: (bill as any).block_num,
-            total_weight: (bill as any).total_weight,
-            left_num: (bill as any)._originalLeft,
-            ship_warehouse: (bill as any).ship_warehouse,
-            contract_no: (bill as any).contract_no,
-          })
+        if (!orderNo || seenOrderNos.has(orderNo)) continue
+        seenOrderNos.add(orderNo)
+        if (!availableOrderNos.value.includes(orderNo)) {
+          availableOrderNos.value.push(orderNo)
         }
       }
 

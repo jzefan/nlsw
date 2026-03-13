@@ -109,7 +109,22 @@ export async function updateBill(data: {
   blockNum?: number
   totalWeight?: number
 }) {
-  const response = await axiosInstance.post('/bills/update', data)
+  // Map camelCase to snake_case for DB field names
+  const payload: Record<string, any> = { _id: data._id }
+  if (data.billNo !== undefined) payload.bill_no = data.billNo
+  if (data.billingName !== undefined) payload.billing_name = data.billingName
+  if (data.brandNo !== undefined) payload.brand_no = data.brandNo
+  if (data.shipWarehouse !== undefined) payload.ship_warehouse = data.shipWarehouse
+  if (data.contractNo !== undefined) payload.contract_no = data.contractNo
+  if (data.salesDep !== undefined) payload.sales_dep = data.salesDep
+  if (data.sizeType !== undefined) payload.size_type = data.sizeType
+  if (data.thickness !== undefined) payload.thickness = data.thickness
+  if (data.width !== undefined) payload.width = data.width
+  if (data.length !== undefined) payload.len = data.length
+  if (data.weight !== undefined) payload.weight = data.weight
+  if (data.blockNum !== undefined) payload.block_num = data.blockNum
+  if (data.totalWeight !== undefined) payload.total_weight = data.totalWeight
+  const response = await axiosInstance.post('/bills/update', payload)
   return response.data
 }
 

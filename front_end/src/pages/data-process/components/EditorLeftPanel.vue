@@ -44,6 +44,7 @@ const props = defineProps<{
   selectedOrderKey: string
   searchQuery: string
   checkedSet: Set<string>
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -112,7 +113,7 @@ const filteredOrders = computed(() => {
           @update:model-value="emit('update:searchQuery', String($event))"
         />
       </div>
-      <div v-if="activeTab === 'loadingList'" class="flex items-center justify-between">
+      <div v-if="activeTab === 'loadingList' && !readonly" class="flex items-center justify-between">
         <button
           class="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
           @click="emit('toggleCheckAll')"
@@ -142,16 +143,20 @@ const filteredOrders = computed(() => {
           @click="emit('selectLoadingList', group.loadingListNo)"
         >
           <div class="flex items-center gap-1.5 font-medium">
-            <button
-              class="flex-shrink-0 focus:outline-none flex items-center gap-1.5"
-              @click.stop="emit('toggleCheck', group.loadingListNo)"
-            >
-              <CheckSquare v-if="checkedSet.has(group.loadingListNo)" class="w-4 h-4 text-primary" />
-              <Square v-else class="w-4 h-4 text-muted-foreground" />
-              <Truck class="w-3.5 h-3.5" />
-            </button>
+            <template v-if="!readonly">
+              <button
+                class="flex-shrink-0 focus:outline-none flex items-center gap-1.5"
+                @click.stop="emit('toggleCheck', group.loadingListNo)"
+              >
+                <CheckSquare v-if="checkedSet.has(group.loadingListNo)" class="w-4 h-4 text-primary" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
+                <Truck class="w-3.5 h-3.5" />
+              </button>
+            </template>
+            <Truck v-else class="w-3.5 h-3.5 flex-shrink-0" />
             <span class="truncate">{{ group.loadingListNo }}</span>
             <button
+              v-if="!readonly"
               class="ml-auto flex-shrink-0 opacity-0 group-hover/item:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
               title="删除此装车单"
               @click.stop="emit('deleteGroup', group.loadingListNo)"

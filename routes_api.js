@@ -90,9 +90,11 @@ module.exports = function (app) {
   app.get('/bills', requireTenant, billApiController.getBills);
   app.get('/bills/billing-names', requireTenant, billApiController.getBillingNames);
   app.get('/bills/orders', requireTenant, billApiController.getOrders);
+  app.get('/bills/order-bills', requireTenant, billApiController.getOrderBills);
   app.post('/bills', requireTenant, billApiController.createBills);
   app.post('/bills/delete', requireTenant, billApiController.deleteBills);
   app.post('/bills/update', requireTenant, billApiController.updateBill);
+  app.post('/bills/update-batch', requireTenant, billApiController.updateBillsBatch);
   app.post('/bills/search', requireTenant, billApiController.searchBills);
   app.post('/bills/export', requireTenant, billApiController.exportBills);
 

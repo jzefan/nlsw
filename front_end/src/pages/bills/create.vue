@@ -65,7 +65,7 @@ function calculateWeight() {
   if (t > 0 && w > 0 && l > 0) {
     // 公式: 长 × 宽 × 厚 × 7.85 × 10⁻⁹ (转换为吨)
     const weight = l * w * t * 7.85 * 1e-9
-    form.value.weight = weight.toFixed(4)
+    form.value.weight = weight.toFixed(3)
     calculateTotalWeight()
   }
 }
@@ -76,7 +76,7 @@ function calculateTotalWeight() {
   const blockNum = Number.parseInt(form.value.blockNum) || 0
 
   if (weight > 0 && blockNum > 0) {
-    form.value.totalWeight = (weight * blockNum).toFixed(4)
+    form.value.totalWeight = (weight * blockNum).toFixed(3)
   }
 }
 
@@ -648,11 +648,11 @@ function switchToImport() {
         </div>
         <!-- 尺寸和重量单独一行 -->
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <UiInput v-model="form.len" type="number" min="0" step="0.01" placeholder="长度" class="w-32" />
+          <UiInput v-model="form.thickness" type="number" min="0" step="0.01" placeholder="厚度" class="w-32" />
           <span class="text-muted-foreground">×</span>
           <UiInput v-model="form.width" type="number" min="0" step="0.01" placeholder="宽度" class="w-32" />
           <span class="text-muted-foreground">×</span>
-          <UiInput v-model="form.thickness" type="number" min="0" step="0.01" placeholder="厚度" class="w-32" />
+          <UiInput v-model="form.len" type="number" min="0" step="0.01" placeholder="长度" class="w-32" />
           <span class="text-muted-foreground">=</span>
           <input
             v-model="form.weight"
@@ -747,58 +747,28 @@ function switchToImport() {
                 <CheckCircle class="w-4 h-4 inline" />
               </span>
             </td>
-            <td class="p-2 font-mono">
-              {{ bill.billNo }}
-            </td>
-            <td class="p-2 font-mono">
-              {{ bill.orderNo }}
-            </td>
-            <td class="p-2">
-              {{ bill.orderItemNo }}
-            </td>
-            <td class="p-2">
-              {{ bill.billingName }}
-            </td>
-            <td class="p-2">
-              {{ bill.brandNo }}
-            </td>
-            <td class="p-2">
-              {{ bill.salesDep }}
-            </td>
-            <td class="p-2">
-              {{ bill.shipWarehouse }}
-            </td>
-            <td class="p-2 text-right">
-              {{ formatDim(bill.thickness) }}
-            </td>
-            <td class="p-2 text-right">
-              {{ formatDim(bill.width) }}
-            </td>
-            <td class="p-2 text-right">
-              {{ formatDim(bill.len) }}
-            </td>
-            <td class="p-2 text-right">
-              {{ bill.weight?.toFixed(4) }}
-            </td>
-            <td class="p-2 text-right">
-              {{ bill.blockNum }}
-            </td>
-            <td class="p-2 text-right font-medium">
-              {{ formatNumber(bill.totalWeight, 2) }}
-            </td>
-            <td class="p-2">
-              {{ bill.sizeType }}
-            </td>
-            <td class="p-2">
-              {{ bill.carrier }}
-            </td>
+            <td class="p-2 font-mono">{{ bill.billNo }}</td>
+            <td class="p-2 font-mono">{{ bill.orderNo }}</td>
+            <td class="p-2">{{ bill.orderItemNo }}</td>
+            <td class="p-2">{{ bill.billingName }}</td>
+            <td class="p-2">{{ bill.brandNo }}</td>
+            <td class="p-2">{{ bill.salesDep }}</td>
+            <td class="p-2">{{ bill.shipWarehouse }}</td>
+            <td class="p-2 text-right">{{ formatDim(bill.thickness) }}</td>
+            <td class="p-2 text-right">{{ formatDim(bill.width) }}</td>
+            <td class="p-2 text-right">{{ formatDim(bill.len) }}</td>
+            <td class="p-2 text-right">{{ formatNumber(bill.weight, 3) }}</td>
+            <td class="p-2 text-right">{{ bill.blockNum }}</td>
+            <td class="p-2 text-right font-medium">{{ formatNumber(bill.totalWeight, 3) }}</td>
+            <td class="p-2">{{ bill.sizeType }}</td>
+            <td class="p-2">{{ bill.carrier }}</td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">
           <tr>
             <td colspan="16" class="p-2 font-medium">合计: {{ bills.length }} 条</td>
             <td class="p-2 text-right font-medium">
-              {{ formatNumber(totalWeight, 2) }}
+              {{ formatNumber(totalWeight, 3) }}
             </td>
           </tr>
         </tfoot>

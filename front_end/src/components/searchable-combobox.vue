@@ -26,9 +26,10 @@ const props = defineProps<{
   searchFn: (search: string, limit: number, page: number) => Promise<SearchResponse>
   class?: string
   disabled?: boolean
+  multiple?: boolean
 }>()
 
-const modelValue = defineModel<string>({ default: '' })
+const modelValue = defineModel<string | string[]>({ default: '' })
 
 const open = ref(false)
 const searchQuery = ref('')
@@ -39,6 +40,26 @@ const page = ref(1)
 const limit = 20
 const searchVersion = ref(0)
 const inputRef = ref<HTMLInputElement | null>(null)
+
+// 多选模式下的已选值数组
+const selectedArray = computed<string[]>({
+  get: () => {
+    if (Array.isArray(modelValue.value)) return modelValue.value
+    return modelValue.value ? [modelValue.value] : []
+  },
+  set: (val) => {
+    if (props.multiple) {
+      modelValue.value = val
+    } else {
+      modelValue.value = val[0] || ''
+    }
+  },
+})
+
+function isItemSelected(item: SearchResult): boolean {
+  const val = item.value ?? item.name
+  return selectedArray.value.includes(val)
+}
 
 // 搜索
 async function loadItems(reset = false) {
@@ -107,8 +128,21 @@ function handleScroll(e: Event) {
 // 选择 — 支持 item.value 作为唯一标识（默认使用 item.name）
 function selectItem(item: SearchResult) {
   const val = item.value ?? item.name
-  modelValue.value = val === modelValue.value ? '' : val
-  open.value = false
+
+  if (props.multiple) {
+    const arr = [...selectedArray.value]
+    const idx = arr.indexOf(val)
+    if (idx >= 0) {
+      arr.splice(idx, 1)
+    } else {
+      arr.push(val)
+    }
+    selectedArray.value = arr
+    // 多选模式不关闭弹窗
+  } else {
+    modelValue.value = val === modelValue.value ? '' : val
+    open.value = false
+  }
 }
 
 // 打开时初始加载
@@ -129,14 +163,29 @@ watch(open, (isOpen) => {
 
 // 获取显示文本
 const displayText = computed(() => {
-  return modelValue.value || props.placeholder || '请选择...'
+  if (props.multiple) {
+    const arr = selectedArray.value
+    if (arr.length === 0) return props.placeholder || '请选择...'
+    if (arr.length === 1) return arr[0]
+    return `${arr[0]} 等${arr.length}项`
+  }
+  return (modelValue.value as string) || props.placeholder || '请选择...'
+})
+
+const hasValue = computed(() => {
+  if (props.multiple) return selectedArray.value.length > 0
+  return !!modelValue.value
 })
 
 // 清除选择
 function clearValue(e: Event) {
   e.stopPropagation()
   e.preventDefault()
-  modelValue.value = ''
+  if (props.multiple) {
+    modelValue.value = []
+  } else {
+    modelValue.value = ''
+  }
   open.value = false // 确保不打开下拉列表
 }
 </script>
@@ -150,10 +199,13 @@ function clearValue(e: Event) {
           role="combobox"
           :aria-expanded="open"
           :disabled="props.disabled"
-          :class="cn('justify-between font-normal h-9', props.class || 'w-full', { 'text-muted-foreground': !modelValue })"
+          :class="cn('justify-between font-normal h-9', props.class || 'w-full', { 'text-muted-foreground': !hasValue })"
         >
           <span class="truncate">{{ displayText }}</span>
           <div class="ml-2 flex items-center gap-1 shrink-0">
+            <span v-if="multiple && selectedArray.length > 1" class="text-xs bg-primary text-primary-foreground rounded-full px-1.5 leading-5">
+              {{ selectedArray.length }}
+            </span>
             <ChevronsUpDown class="h-4 w-4 opacity-50" />
           </div>
         </Button>
@@ -191,7 +243,7 @@ function clearValue(e: Event) {
             <Check
               :class="cn(
                 'mr-2 h-4 w-4',
-                modelValue === (item.value ?? item.name) ? 'opacity-100' : 'opacity-0',
+                isItemSelected(item) ? 'opacity-100' : 'opacity-0',
               )"
             />
             <span class="flex-1 flex items-center justify-between gap-2">
@@ -212,12 +264,22 @@ function clearValue(e: Event) {
             向下滚动加载更多
           </div>
         </div>
+
+        <!-- 多选模式：底部清除按钮 -->
+        <div v-if="multiple && selectedArray.length > 0" class="border-t p-1">
+          <div
+            class="flex cursor-pointer select-none items-center justify-center rounded-sm px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            @click="selectedArray = []; open = false"
+          >
+            清除全部
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
 
     <!-- 清除按钮 - 独立于Button，避免触发下拉 -->
     <button
-      v-if="modelValue && !props.disabled"
+      v-if="hasValue && !props.disabled"
       type="button"
       class="absolute right-8 top-1/2 -translate-y-1/2 p-0.5 hover:bg-muted rounded-sm transition-colors z-10"
       @click="clearValue"

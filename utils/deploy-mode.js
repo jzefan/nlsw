@@ -13,7 +13,7 @@ function getDeployMode() {
 }
 
 function getStandaloneCompany() {
-  return secrets.standaloneCompany || '';
+  return secrets.companyName || secrets.standaloneCompany || '';
 }
 
 module.exports = { isStandalone, isSaas, getDeployMode, getStandaloneCompany };

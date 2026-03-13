@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, CheckCircle, ChevronDown, ChevronUp, Download, FileSpreadsheet, RefreshCcw, Save, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, CheckCircle, ChevronDown, ChevronUp, Download, FileSpreadsheet, Maximize2, Minimize2, RefreshCcw, Save, Trash2 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
@@ -49,6 +49,9 @@ const validationError = ref('')
 // Step 3: Edit by loading list groups
 const loadingListGroups = ref<LoadingListGroup[]>([])
 const checkedLoadingListNos = ref<Set<string>>(new Set())
+
+// Step 3: Fullscreen mode
+const step3Fullscreen = ref(false)
 
 // Step 4: Export & Save results
 const savedBatchId = ref('')
@@ -450,7 +453,13 @@ const steps = [
     </div>
 
     <!-- Step 3: Edit by Loading List groups -->
-    <div v-else-if="currentStep === 3" class="flex flex-col gap-3 h-[calc(100vh-180px)]">
+    <div
+      v-else-if="currentStep === 3"
+      :class="[
+        'flex flex-col gap-3 transition-all duration-200',
+        step3Fullscreen ? 'fixed inset-0 z-50 bg-background p-4' : 'h-[calc(100vh-180px)]',
+      ]"
+    >
       <div class="flex-1 min-h-0">
         <UiCard class="h-full flex flex-col">
           <UiCardHeader class="py-2 flex-shrink-0">
@@ -467,6 +476,22 @@ const steps = [
                 <span>已选发运数: <strong>{{ checkedGroups.reduce((s, g) => s + g.subtotalQuantity, 0) }}</strong></span>
                 <span class="text-muted-foreground">|</span>
                 <span>已选重量: <strong>{{ checkedGroups.reduce((s, g) => s + g.subtotalWeight, 0).toFixed(3) }}</strong> 吨</span>
+                <UiTooltipProvider>
+                  <UiTooltip>
+                    <UiTooltipTrigger as-child>
+                      <button
+                        class="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                        @click="step3Fullscreen = !step3Fullscreen"
+                      >
+                        <Minimize2 v-if="step3Fullscreen" class="w-4 h-4" />
+                        <Maximize2 v-else class="w-4 h-4" />
+                      </button>
+                    </UiTooltipTrigger>
+                    <UiTooltipContent>
+                      {{ step3Fullscreen ? '还原' : '最大化' }}
+                    </UiTooltipContent>
+                  </UiTooltip>
+                </UiTooltipProvider>
               </div>
             </div>
           </UiCardHeader>

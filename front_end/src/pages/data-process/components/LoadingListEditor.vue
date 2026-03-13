@@ -10,6 +10,7 @@ import EditorLeftPanel, { type OrderItem, type UniqueOrder } from './EditorLeftP
 const props = defineProps<{
   modelValue: LoadingListGroup[]
   checked: Set<string>
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -212,6 +213,29 @@ function handleOrderVehicleNoUpdate(orderKey: string, vehicleNo: string) {
   }
 }
 
+function handleOrderVehicleNoMapUpdate(orderKey: string, vehicleMap: Record<string, string>) {
+  const newGroups = [...props.modelValue]
+  const updatedChecked = new Set(props.checked)
+  let checkedChanged = false
+
+  for (let i = 0; i < newGroups.length; i++) {
+    const loadingListNo = newGroups[i].loadingListNo
+    if (loadingListNo in vehicleMap) {
+      const vehicleNo = vehicleMap[loadingListNo]
+      newGroups[i] = { ...newGroups[i], vehicleNo }
+      if (vehicleNo && !updatedChecked.has(loadingListNo)) {
+        updatedChecked.add(loadingListNo)
+        checkedChanged = true
+      }
+    }
+  }
+
+  emit('update:modelValue', newGroups)
+  if (checkedChanged) {
+    emit('update:checked', updatedChecked)
+  }
+}
+
 function handleBatchFillContract(groupIndex: number, contractNo: string) {
   const newGroups = [...props.modelValue]
   const group = { ...newGroups[groupIndex] }
@@ -277,6 +301,7 @@ function handleDeleteGroup(loadingListNo: string) {
           :selected-order-key="selectedOrderKey"
           :search-query="searchQuery"
           :checked-set="checked"
+          :readonly="readonly"
           @update:active-tab="activeTab = $event"
           @update:search-query="searchQuery = $event"
           @select-loading-list="selectedLoadingListNo = $event"
@@ -288,12 +313,13 @@ function handleDeleteGroup(loadingListNo: string) {
       </div>
 
       <!-- Right panel (flex-1) -->
-      <div class="flex-1 min-w-0">
+      <div class="flex-1 min-w-0 min-h-0 overflow-hidden">
         <!-- Loading list detail view -->
         <EditorDetailLoadingList
           v-if="activeTab === 'loadingList' && selectedGroup"
           :group="selectedGroup"
           :group-index="selectedGroupIndex"
+          :readonly="readonly"
           @update-vehicle="handleUpdateVehicle"
           @update-cell="handleUpdateCell"
           @drag-fill="handleDragFill"
@@ -304,8 +330,10 @@ function handleDeleteGroup(loadingListNo: string) {
         <EditorDetailOrder
           v-else-if="activeTab === 'order' && selectedOrder"
           :order="selectedOrder"
+          :readonly="readonly"
           @update-contract-no="handleOrderContractNoUpdate"
           @update-vehicle-no="handleOrderVehicleNoUpdate"
+          @update-vehicle-no-map="handleOrderVehicleNoMapUpdate"
         />
 
         <!-- Empty state -->

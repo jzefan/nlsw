@@ -227,9 +227,24 @@ exports.getInvoiceList = async (req, res) => {
     // 查询总数
     const total = await Invoice.countDocuments(tenantQuery);
 
+    // 批量查询车船类型
+    const vehNames = [...new Set(invoices.map(inv => inv.vehicle_vessel_name).filter(Boolean))];
+    const vehicles = vehNames.length > 0
+      ? await Vehicle.find(buildTenantQuery(req, { name: { $in: vehNames } }))
+          .select('name veh_type').lean().exec()
+      : [];
+    const vehTypeMap = {};
+    vehicles.forEach(v => { vehTypeMap[v.name] = v.veh_type; });
+
+    const data = invoices.map(inv => ({
+      ...inv,
+      shipper_name: inv.shipper || '',
+      transport_type: vehTypeMap[inv.vehicle_vessel_name] === '船' ? '船运' : '车运',
+    }));
+
     res.json({
       ok: true,
-      data: invoices,
+      data,
       total,
       page: parseInt(page),
       limit: parseInt(limit)
@@ -250,7 +265,7 @@ exports.getInvoiceDetail = async (req, res) => {
     const invoice = await Invoice.findOne(buildTenantQuery(req, { waybill_no: waybillNo }))
       .populate({
         path: 'bills.bill_id',
-        select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status warehouse brand_no ship_warehouse'
+        select: 'bill_no order_no order_item_no spec thickness width len block_num weight total_weight left_num status warehouse brand_no ship_warehouse contract_no'
       })
       .lean()
       .exec();

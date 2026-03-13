@@ -12,7 +12,7 @@ import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { deleteSettle, getSettleDetail, getSettleList, updateTicket } from '@/services/api/ticket.api'
 
-import { sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
+import { formatNumber, sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import type { DisplayMode, SettleRecord, SettleType } from './ticket-types'
 
 import SettleModeTabs from './components/SettleModeTabs.vue'
@@ -728,10 +728,10 @@ async function handleShowDetail() {
             >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
           >
           <span class="text-muted-foreground"
-            >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span
+            >重量: <strong class="text-foreground">{{ formatNumber(statistics.totalWeight) }}</strong> 吨</span
           >
           <span class="text-muted-foreground"
-            >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+            >金额: <strong class="text-foreground">¥{{ formatNumber(statistics.totalAmount, 2) }}</strong></span
           >
         </div>
 
@@ -745,7 +745,7 @@ async function handleShowDetail() {
                     <input type="checkbox" class="h-4 w-4 cursor-pointer" :checked="allSelected" @change="toggleAll" />
                   </th>
                   <th class="px-2 py-2 text-left" style="min-width: 120px">结算号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 150px">开单名称</th>
+                  <th class="px-2 py-2 text-left whitespace-nowrap" style="min-width: 150px">开单名称</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">目的地</th>
                   <th class="px-2 py-2 text-right" style="min-width: 60px">块数</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
@@ -754,7 +754,7 @@ async function handleShowDetail() {
                   <th
                     v-if="displayMode === 'ticket'"
                     class="px-2 py-2 text-left"
-                    style="max-width: 300px; min-width: 100px"
+                    style="max-width: 260px; min-width: 100px"
                   >
                     开票号
                   </th>
@@ -794,8 +794,14 @@ async function handleShowDetail() {
                   <td class="px-2 py-2">
                     {{ settle.serial_number }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.billing_name }}
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <template v-if="settle.billing_name?.includes('/')">
+                      <div class="leading-tight">
+                        <div>{{ settle.billing_name.split('/')[0] }}</div>
+                        <div class="text-xs text-muted-foreground">{{ settle.billing_name.split('/').slice(1).join('/') }}</div>
+                      </div>
+                    </template>
+                    <template v-else>{{ settle.billing_name }}</template>
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.ship_to }}
@@ -804,15 +810,15 @@ async function handleShowDetail() {
                     {{ settle.ship_number }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ (settle.ship_weight || 0).toFixed(3) }}
+                    {{ formatNumber(settle.ship_weight || 0) }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ (settle.price || 0).toFixed(2) }}
+                    {{ formatNumber(settle.price || 0, 2) }}
                   </td>
                   <td class="px-2 py-2">
                     {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
                   </td>
-                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2 truncate" style="max-width: 260px" :title="settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-'">
                     {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
                   <td v-if="displayMode === 'ticket'" class="px-2 py-2">
@@ -862,14 +868,17 @@ async function handleShowDetail() {
               </span>
             </div>
             <div class="text-sm text-muted-foreground space-y-0.5">
-              <div>{{ settle.billing_name }}</div>
+              <div>
+                <span>{{ settle.billing_name?.includes('/') ? settle.billing_name.split('/')[0] : settle.billing_name }}</span>
+                <span v-if="settle.billing_name?.includes('/')" class="text-xs text-muted-foreground ml-1">/ {{ settle.billing_name.split('/').slice(1).join('/') }}</span>
+              </div>
               <div class="flex justify-between">
                 <span>{{ settle.ship_to }}</span>
                 <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
               </div>
               <div class="flex justify-between font-medium text-foreground">
-                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
-                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+                <span>{{ settle.ship_number }}块 / {{ formatNumber(settle.ship_weight || 0) }}吨</span>
+                <span>¥{{ formatNumber(settle.price || 0, 2) }}</span>
               </div>
               <div v-if="displayMode === 'ticket'" class="text-xs">
                 票号: {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
@@ -941,10 +950,10 @@ async function handleShowDetail() {
             >合计块数: <strong class="text-foreground">{{ statistics.totalNum }}</strong></span
           >
           <span class="text-muted-foreground"
-            >重量: <strong class="text-foreground">{{ statistics.totalWeight.toFixed(3) }}</strong> 吨</span
+            >重量: <strong class="text-foreground">{{ formatNumber(statistics.totalWeight) }}</strong> 吨</span
           >
           <span class="text-muted-foreground"
-            >金额: <strong class="text-foreground">¥{{ statistics.totalAmount.toFixed(2) }}</strong></span
+            >金额: <strong class="text-foreground">¥{{ formatNumber(statistics.totalAmount, 2) }}</strong></span
           >
         </div>
 
@@ -958,7 +967,7 @@ async function handleShowDetail() {
                     <input type="checkbox" class="h-4 w-4 cursor-pointer" :checked="allSelected" @change="toggleAll" />
                   </th>
                   <th class="px-2 py-2 text-left" style="min-width: 120px">结算号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 150px">开单名称</th>
+                  <th class="px-2 py-2 text-left whitespace-nowrap" style="min-width: 150px">开单名称</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">目的地</th>
                   <th class="px-2 py-2 text-right" style="min-width: 60px">块数</th>
                   <th class="px-2 py-2 text-right" style="min-width: 80px">重量</th>
@@ -967,7 +976,7 @@ async function handleShowDetail() {
                   <th
                     v-if="displayMode === 'ticket'"
                     class="px-2 py-2 text-left"
-                    style="max-width: 300px; min-width: 100px"
+                    style="max-width: 260px; min-width: 100px"
                   >
                     开票号
                   </th>
@@ -1007,8 +1016,14 @@ async function handleShowDetail() {
                   <td class="px-2 py-2">
                     {{ settle.serial_number }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.billing_name }}
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <template v-if="settle.billing_name?.includes('/')">
+                      <div class="leading-tight">
+                        <div>{{ settle.billing_name.split('/')[0] }}</div>
+                        <div class="text-xs text-muted-foreground">{{ settle.billing_name.split('/').slice(1).join('/') }}</div>
+                      </div>
+                    </template>
+                    <template v-else>{{ settle.billing_name }}</template>
                   </td>
                   <td class="px-2 py-2">
                     {{ settle.ship_to }}
@@ -1017,15 +1032,15 @@ async function handleShowDetail() {
                     {{ settle.ship_number }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ (settle.ship_weight || 0).toFixed(3) }}
+                    {{ formatNumber(settle.ship_weight || 0) }}
                   </td>
                   <td class="px-2 py-2 text-right">
-                    {{ (settle.price || 0).toFixed(2) }}
+                    {{ formatNumber(settle.price || 0, 2) }}
                   </td>
                   <td class="px-2 py-2">
                     {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
                   </td>
-                  <td v-if="displayMode === 'ticket'" class="px-2 py-2">
+                  <td v-if="displayMode === 'ticket'" class="px-2 py-2 truncate" style="max-width: 260px" :title="settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-'">
                     {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
                   </td>
                   <td v-if="displayMode === 'ticket'" class="px-2 py-2">
@@ -1075,14 +1090,17 @@ async function handleShowDetail() {
               </span>
             </div>
             <div class="text-sm text-muted-foreground space-y-0.5">
-              <div>{{ settle.billing_name }}</div>
+              <div>
+                <span>{{ settle.billing_name?.includes('/') ? settle.billing_name.split('/')[0] : settle.billing_name }}</span>
+                <span v-if="settle.billing_name?.includes('/')" class="text-xs text-muted-foreground ml-1">/ {{ settle.billing_name.split('/').slice(1).join('/') }}</span>
+              </div>
               <div class="flex justify-between">
                 <span>{{ settle.ship_to }}</span>
                 <span>{{ dayjs(settle.settle_date).format('MM-DD') }}</span>
               </div>
               <div class="flex justify-between font-medium text-foreground">
-                <span>{{ settle.ship_number }}块 / {{ (settle.ship_weight || 0).toFixed(3) }}吨</span>
-                <span>¥{{ (settle.price || 0).toFixed(2) }}</span>
+                <span>{{ settle.ship_number }}块 / {{ formatNumber(settle.ship_weight || 0) }}吨</span>
+                <span>¥{{ formatNumber(settle.price || 0, 2) }}</span>
               </div>
               <div v-if="displayMode === 'ticket'" class="text-xs">
                 票号: {{ settle.ticket_no === 'NOTNEEDED' ? '不需要开票' : settle.ticket_no || '-' }}
@@ -1196,10 +1214,10 @@ async function handleShowDetail() {
                 <td class="px-2 py-2">{{ bill.billing_name }}</td>
                 <td class="px-2 py-2">{{ bill.vessel || '-' }}</td>
                 <td class="px-2 py-2">{{ bill.ship_to || '-' }}</td>
-                <td class="px-2 py-2 text-right">{{ bill.price?.toFixed(2) || '0.00' }}</td>
+                <td class="px-2 py-2 text-right">{{ formatNumber(bill.price, 2) || '0' }}</td>
                 <td class="px-2 py-2 text-right">{{ bill.settle_num || 0 }}</td>
-                <td class="px-2 py-2 text-right">{{ bill.settle_weight?.toFixed(3) || '0.000' }}</td>
-                <td class="px-2 py-2 text-right">{{ bill.amount?.toFixed(2) || '0.00' }}</td>
+                <td class="px-2 py-2 text-right">{{ formatNumber(bill.settle_weight) || '0' }}</td>
+                <td class="px-2 py-2 text-right">{{ formatNumber(bill.amount, 2) || '0' }}</td>
                 <td class="px-2 py-2">{{ bill.ship_date ? dayjs(bill.ship_date).format('YYYY-MM-DD') : '-' }}</td>
               </tr>
             </tbody>

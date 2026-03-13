@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckSquare, Filter, Pencil, Search, SearchX, Square, X, Zap } from 'lucide-vue-next'
+import { CheckSquare, Filter, LoaderCircle, Pencil, Search, SearchX, Square, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { BillFilterValues } from '@/components/bill-filter.vue'
@@ -72,13 +72,13 @@ const showBatchDialog = ref(false)
 const batchField = ref('')
 const batchValue = ref('')
 const batchFields = [
-  { value: 'billNo', label: '提单号' },
-  { value: 'billingName', label: '开单名称' },
-  { value: 'brandNo', label: '牌号' },
-  { value: 'contractNo', label: '合同号' },
-  { value: 'salesDep', label: '销售部门' },
-  { value: 'shipWarehouse', label: '发货仓库' },
-  { value: 'sizeType', label: '尺寸类型' },
+  { value: 'bill_no', label: '提单号' },
+  { value: 'billing_name', label: '开单名称' },
+  { value: 'brand_no', label: '牌号' },
+  { value: 'contract_no', label: '合同号' },
+  { value: 'sales_dep', label: '销售部门' },
+  { value: 'ship_warehouse', label: '发货仓库' },
+  { value: 'size_type', label: '尺寸类型' },
 ]
 
 // 剩余量查询对话框
@@ -115,7 +115,7 @@ const advancedFields = [
 const advancedOperators = [
   { value: 'eq', label: '等于' },
   { value: 'neq', label: '不等于' },
-  { value: 'contain', label: '包含' },
+  { value: 'contains', label: '包含' },
   { value: 'gt', label: '大于' },
   { value: 'lt', label: '小于' },
   { value: 'gte', label: '大于等于' },
@@ -285,7 +285,6 @@ async function searchByLeftNum(resetPage = true) {
   try {
     const result = await searchBills({
       queryTree: {
-        type: 'condition',
         field: 'left_num',
         operator: 'lte',
         value: threshold,
@@ -415,12 +414,11 @@ async function executeAdvancedSearch(resetPage = true) {
 
   loading.value = true
   try {
-    // 构建查询树
+    // 构建查询树（匹配后端 buildQuery 格式）
     let queryTree: any
     if (validConditions.length === 1) {
       const c = validConditions[0]
       queryTree = {
-        type: 'condition',
         field: c.field,
         operator: c.operator,
         value: c.value,
@@ -428,9 +426,8 @@ async function executeAdvancedSearch(resetPage = true) {
     }
     else {
       queryTree = {
-        type: 'and',
-        children: validConditions.map(c => ({
-          type: 'condition',
+        logic: 'AND',
+        conditions: validConditions.map(c => ({
           field: c.field,
           operator: c.operator,
           value: c.value,
@@ -710,9 +707,6 @@ onMounted(() => {
             <th class="p-2 text-left min-w-[120px] whitespace-nowrap">
               开单名称
             </th>
-            <th class="p-2 text-left min-w-[100px] whitespace-nowrap">
-              销售部门
-            </th>
             <th class="p-2 text-right whitespace-nowrap">
               厚
             </th>
@@ -746,6 +740,9 @@ onMounted(() => {
             <th class="p-2 text-left whitespace-nowrap">
               配发信息
             </th>
+            <th class="p-2 text-left whitespace-nowrap">
+              销售部门
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -767,8 +764,8 @@ onMounted(() => {
                 {{ bill.status }}
               </UiBadge>
             </td>
-            <td class="p-2 font-mono">
-              {{ bill.order_no }}-{{ bill.order_item_no }}
+            <td class="p-2 font-mono whitespace-nowrap">
+              {{ bill.order_no }}-{{ String(bill.order_item_no || '').padStart(3, '0') }}
             </td>
             <td class="p-2 font-mono min-w-[100px]">
               {{ bill.bill_no }}
@@ -776,11 +773,8 @@ onMounted(() => {
             <td class="p-2">
               {{ bill.brand_no }}
             </td>
-            <td class="p-2 min-w-[120px]">
+            <td class="p-2 min-w-[120px] whitespace-nowrap">
               {{ bill.billing_name }}
-            </td>
-            <td class="p-2 min-w-[100px]">
-              {{ bill.sales_dep }}
             </td>
             <td class="p-2 text-right">
               {{ formatDim(bill.thickness) }}
@@ -802,7 +796,7 @@ onMounted(() => {
                 {{ formatNumber(bill.left_num, 2) }}
               </span>
             </td>
-            <td class="p-2">
+            <td class="p-2 whitespace-nowrap">
               {{ bill.ship_warehouse }}
             </td>
             <td class="p-2">
@@ -825,6 +819,9 @@ onMounted(() => {
                   <span class="text-muted-foreground text-[10px]">{{ d.waybill_no }}</span>
                 </span>
               </div>
+            </td>
+            <td class="p-2">
+              {{ bill.sales_dep || (bill as any).salesDep }}
             </td>
           </tr>
           <tr v-if="bills.length === 0 && !loading">
@@ -1094,7 +1091,8 @@ onMounted(() => {
           <UiButton variant="outline" @click="showAdvancedSearchDialog = false">
             取消
           </UiButton>
-          <UiButton @click="executeAdvancedSearch">
+          <UiButton :disabled="loading" @click="executeAdvancedSearch">
+            <LoaderCircle v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
             执行查询
           </UiButton>
         </UiDialogFooter>

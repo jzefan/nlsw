@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { Maximize2, Minimize2, Save } from 'lucide-vue-next'
 import { Eye, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 
 import type { ShipmentBatch } from '@/services/api/data-process.api'
+import type { LoadingListGroup } from '@/utils/excel-transform'
 import { formatDate, formatNumber } from '@/utils/format'
 
 import { BasicPage } from '@/components/global-layout'
+import { Badge } from '@/components/ui/badge'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,11 +22,27 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
   deleteShipmentBatch,
+  detailRowsToGroups,
   getShipmentBatches,
   getShipmentDetails,
   updateShipmentDetail,
 } from '@/services/api/data-process.api'
+
+import LoadingListEditor from './components/LoadingListEditor.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -32,26 +51,16 @@ const total = ref(0)
 const page = ref(1)
 const limit = ref(20)
 
-// Detail dialog
-const showDetailDialog = ref(false)
-const detailLoading = ref(false)
-const detailBatch = ref<ShipmentBatch | null>(null)
-const detailRows = ref<any[]>([])
-const detailPage = ref(1)
-const detailTotal = ref(0)
-const detailLimit = 50
-
-// Edit dialog
-const showEditDialog = ref(false)
-const editLoading = ref(false)
-const editBatch = ref<ShipmentBatch | null>(null)
-const editRows = ref<any[]>([])
-const editPage = ref(1)
-const editTotal = ref(0)
-const editLimit = 50
-const editingRowId = ref<string | null>(null)
-const editForm = ref<Record<string, any>>({})
-const savingRow = ref(false)
+// Shared editor dialog (view + edit)
+const showEditorDialog = ref(false)
+const editorMaximized = ref(false)
+const editorMode = ref<'view' | 'edit'>('view')
+const editorBatch = ref<ShipmentBatch | null>(null)
+const editorLoading = ref(false)
+const editorGroups = ref<LoadingListGroup[]>([])
+const editorChecked = ref<Set<string>>(new Set())
+const editorOriginalRows = ref<any[]>([]) // original API rows for diffing on save
+const editorSaving = ref(false)
 
 // Delete dialog
 const showDeleteAlert = ref(false)
@@ -83,119 +92,120 @@ function formatWeight(num: number | string | null | undefined) {
   return formatNumber(num, 2) || ''
 }
 
+const pageSizeOptions = [10, 20, 50, 100]
+const totalPages = computed(() => Math.ceil(total.value / limit.value) || 1)
+
 function handlePageChange(newPage: number) {
   page.value = newPage
   loadData()
 }
 
-// ---- Detail ----
-async function openDetail(batch: ShipmentBatch) {
-  detailBatch.value = batch
-  detailPage.value = 1
-  showDetailDialog.value = true
-  await loadDetailRows()
+function handlePageSizeChange(newSize: unknown) {
+  if (newSize == null) return
+  limit.value = Number(newSize)
+  page.value = 1
+  loadData()
 }
 
-async function loadDetailRows() {
-  detailLoading.value = true
+// ---- Editor Dialog (view / edit) ----
+async function openEditor(batch: ShipmentBatch, mode: 'view' | 'edit') {
+  editorBatch.value = batch
+  editorMode.value = mode
+  editorGroups.value = []
+  editorChecked.value = new Set()
+  editorOriginalRows.value = []
+  showEditorDialog.value = true
+  await loadEditorData(batch.batchId)
+}
+
+async function loadEditorData(batchId: string) {
+  editorLoading.value = true
   try {
+    // Load all rows (no pagination - editor needs all data)
     const result = await getShipmentDetails({
-      batchId: detailBatch.value!.batchId,
-      page: detailPage.value,
-      limit: detailLimit,
+      batchId,
+      limit: 9999,
     })
     if (result.ok) {
-      detailRows.value = result.data
-      detailTotal.value = result.total
+      editorOriginalRows.value = JSON.parse(JSON.stringify(result.data))
+      editorGroups.value = detailRowsToGroups(result.data)
+      // Auto-check all groups
+      editorChecked.value = new Set(editorGroups.value.map(g => g.loadingListNo))
     }
   }
   catch (e: any) {
     toast.error('加载明细失败', { description: e.message })
   }
   finally {
-    detailLoading.value = false
+    editorLoading.value = false
   }
 }
 
-function handleDetailPageChange(newPage: number) {
-  detailPage.value = newPage
-  loadDetailRows()
-}
-
-// ---- Edit ----
-async function openEdit(batch: ShipmentBatch) {
-  editBatch.value = batch
-  editPage.value = 1
-  editingRowId.value = null
-  showEditDialog.value = true
-  await loadEditRows()
-}
-
-async function loadEditRows() {
-  editLoading.value = true
+async function handleEditorSave() {
+  editorSaving.value = true
   try {
-    const result = await getShipmentDetails({
-      batchId: editBatch.value!.batchId,
-      page: editPage.value,
-      limit: editLimit,
-    })
-    if (result.ok) {
-      editRows.value = result.data
-      editTotal.value = result.total
+    // Build a map of original rows by _id
+    const originalMap = new Map<string, any>()
+    for (const row of editorOriginalRows.value) {
+      originalMap.set(row._id, row)
     }
-  }
-  catch (e: any) {
-    toast.error('加载明细失败', { description: e.message })
-  }
-  finally {
-    editLoading.value = false
-  }
-}
 
-function handleEditPageChange(newPage: number) {
-  editPage.value = newPage
-  editingRowId.value = null
-  loadEditRows()
-}
+    // Collect changed rows
+    const updates: { id: string, changes: Record<string, any> }[] = []
+    for (const group of editorGroups.value) {
+      for (const row of group.rows) {
+        if (!row._id) continue
+        const orig = originalMap.get(row._id)
+        if (!orig) continue
 
-function startEditRow(row: any) {
-  editingRowId.value = row._id
-  editForm.value = {
-    vehicleNo: row.vehicleNo || '',
-    contractNo: row.contractNo || '',
-    loadingListNo: row.loadingListNo || '',
-    customerName: row.customerName || '',
-    quantity: row.quantity,
-    weight: row.weight,
-  }
-}
+        const changes: Record<string, any> = {}
+        // Check vehicleNo (group level → each row)
+        if (group.vehicleNo !== (orig.vehicleNo || '')) {
+          changes.vehicleNo = group.vehicleNo
+        }
+        // Check row-level fields
+        if (row.contractNo !== (orig.contractNo || '')) changes.contractNo = row.contractNo
+        if (row.quantity !== (orig.quantity || 0)) changes.quantity = row.quantity
+        if (row.weight !== (orig.weight || 0)) changes.weight = row.weight
+        if (row.customerName !== (orig.customerName || '')) changes.customerName = row.customerName
 
-function cancelEditRow() {
-  editingRowId.value = null
-  editForm.value = {}
-}
+        if (Object.keys(changes).length > 0) {
+          updates.push({ id: row._id, changes })
+        }
+      }
+    }
 
-async function saveEditRow() {
-  if (!editingRowId.value)
-    return
-  savingRow.value = true
-  try {
-    const result = await updateShipmentDetail(editingRowId.value, editForm.value)
-    if (result.ok) {
-      toast.success('保存成功')
-      editingRowId.value = null
-      await loadEditRows()
+    if (updates.length === 0) {
+      toast.info('没有修改')
+      return
+    }
+
+    let successCount = 0
+    let failCount = 0
+    for (const { id, changes } of updates) {
+      const result = await updateShipmentDetail(id, changes)
+      if (result.ok) {
+        successCount++
+      }
+      else {
+        failCount++
+      }
+    }
+
+    if (failCount === 0) {
+      toast.success(`保存成功，更新了 ${successCount} 条记录`)
+      showEditorDialog.value = false
       loadData()
     }
     else {
-      toast.error('保存失败', { description: result.error })
+      toast.warning(`部分保存失败：成功 ${successCount}，失败 ${failCount}`)
     }
   }
   catch (e: any) {
     toast.error('保存失败', { description: e.message })
   }
   finally {
-    savingRow.value = false
+    editorSaving.value = false
   }
 }
 
@@ -228,15 +238,6 @@ async function handleDelete() {
   }
 }
 
-const editableFields = [
-  { key: 'vehicleNo', label: '车号' },
-  { key: 'contractNo', label: '合同号' },
-  { key: 'loadingListNo', label: '装车单号' },
-  { key: 'customerName', label: '客户名称' },
-  { key: 'quantity', label: '支数', type: 'number' },
-  { key: 'weight', label: '重量', type: 'number' },
-]
-
 onMounted(() => {
   loadData()
 })
@@ -262,46 +263,30 @@ onMounted(() => {
       <table class="text-sm w-full">
         <thead class="bg-muted/50">
           <tr>
-            <th class="p-2 text-left whitespace-nowrap">
-              批次号
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              创建人
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              创建时间
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              条数
-            </th>
-            <th class="p-2 text-right whitespace-nowrap">
-              总重量
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              装车单号
-            </th>
-            <th class="p-2 text-left whitespace-nowrap">
-              车号
-            </th>
-            <th class="p-2 text-center whitespace-nowrap">
-              操作
-            </th>
+            <th class="p-2 text-center whitespace-nowrap w-12">序号</th>
+            <th class="p-2 text-left whitespace-nowrap">装车单号/车号</th>
+            <th class="p-2 text-right whitespace-nowrap">条数</th>
+            <th class="p-2 text-right whitespace-nowrap">总重量</th>
+            <th class="p-2 text-left whitespace-nowrap">创建人</th>
+            <th class="p-2 text-left whitespace-nowrap">创建时间</th>
+            <th class="p-2 text-center whitespace-nowrap">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="batch in batches"
+            v-for="(batch, index) in batches"
             :key="batch.batchId"
             class="border-t hover:bg-muted/30"
           >
-            <td class="p-2 font-mono text-xs">
-              {{ batch.batchId.slice(-8) }}
+            <td class="p-2 text-center text-muted-foreground">
+              {{ (page - 1) * limit + index + 1 }}
             </td>
             <td class="p-2">
-              {{ batch.createdBy }}
-            </td>
-            <td class="p-2">
-              {{ formatDate(batch.createdAt) }}
+              <div class="flex flex-wrap gap-1">
+                <Badge v-for="pair in batch.loadingVehiclePairs" :key="pair" variant="secondary" class="text-xs">
+                  {{ pair }}
+                </Badge>
+              </div>
             </td>
             <td class="p-2 text-right">
               {{ batch.rowCount }}
@@ -310,27 +295,44 @@ onMounted(() => {
               {{ formatWeight(batch.totalWeight) }}
             </td>
             <td class="p-2">
-              {{ batch.loadingListNos.join(', ') }}
+              {{ batch.createdBy }}
             </td>
             <td class="p-2">
-              {{ batch.vehicleNos.join(', ') }}
+              {{ formatDate(batch.createdAt) }}
             </td>
             <td class="p-2">
-              <div class="flex items-center justify-center gap-1">
-                <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0" title="查看明细" @click="openDetail(batch)">
-                  <Eye class="w-4 h-4" />
-                </UiButton>
-                <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0" title="修改" @click="openEdit(batch)">
-                  <Pencil class="w-4 h-4" />
-                </UiButton>
-                <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:text-destructive" title="删除" @click="confirmDeleteBatch(batch)">
-                  <Trash2 class="w-4 h-4" />
-                </UiButton>
-              </div>
+              <TooltipProvider>
+                <div class="flex items-center justify-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0" @click="openEditor(batch, 'view')">
+                        <Eye class="w-4 h-4" />
+                      </UiButton>
+                    </TooltipTrigger>
+                    <TooltipContent>查看明细</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0" @click="openEditor(batch, 'edit')">
+                        <Pencil class="w-4 h-4" />
+                      </UiButton>
+                    </TooltipTrigger>
+                    <TooltipContent>编辑</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:text-destructive" @click="confirmDeleteBatch(batch)">
+                        <Trash2 class="w-4 h-4" />
+                      </UiButton>
+                    </TooltipTrigger>
+                    <TooltipContent>删除</TooltipContent>
+                  </Tooltip>
+                </div>
+              </TooltipProvider>
             </td>
           </tr>
           <tr v-if="batches.length === 0 && !loading">
-            <td colspan="8" class="p-8 text-center text-muted-foreground">
+            <td colspan="7" class="p-8 text-center text-muted-foreground">
               暂无数据，点击"新建"开始处理圆钢数据
             </td>
           </tr>
@@ -362,21 +364,21 @@ onMounted(() => {
             <span class="text-muted-foreground">总重量:</span>
             <span>{{ formatWeight(batch.totalWeight) }}</span>
           </div>
-          <div v-if="batch.loadingListNos.length > 0">
-            <span class="text-muted-foreground">装车单号:</span>
-            <span class="ml-1">{{ batch.loadingListNos.join(', ') }}</span>
-          </div>
-          <div v-if="batch.vehicleNos.length > 0">
-            <span class="text-muted-foreground">车号:</span>
-            <span class="ml-1">{{ batch.vehicleNos.join(', ') }}</span>
+          <div v-if="batch.loadingVehiclePairs && batch.loadingVehiclePairs.length > 0">
+            <span class="text-muted-foreground">装车单号/车号:</span>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <Badge v-for="pair in batch.loadingVehiclePairs" :key="pair" variant="secondary" class="text-xs">
+                {{ pair }}
+              </Badge>
+            </div>
           </div>
         </div>
         <div class="flex items-center justify-end gap-1 mt-2 pt-2 border-t">
-          <UiButton variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="openDetail(batch)">
+          <UiButton variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="openEditor(batch, 'view')">
             <Eye class="w-3.5 h-3.5 mr-1" />
             明细
           </UiButton>
-          <UiButton variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="openEdit(batch)">
+          <UiButton variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="openEditor(batch, 'edit')">
             <Pencil class="w-3.5 h-3.5 mr-1" />
             修改
           </UiButton>
@@ -393,9 +395,21 @@ onMounted(() => {
     </div>
 
     <!-- 分页 -->
-    <div v-if="total > limit" class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-      <div class="text-xs sm:text-sm text-muted-foreground">
-        共 {{ total }} 条
+    <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div class="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+        <span>共 {{ total }} 条</span>
+        <span class="mx-1">|</span>
+        <span>每页</span>
+        <Select :model-value="String(limit)" @update:model-value="handlePageSizeChange">
+          <SelectTrigger class="h-7 w-[70px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="size in pageSizeOptions" :key="size" :value="String(size)">
+              {{ size }} 条
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div class="flex items-center gap-2">
         <UiButton
@@ -406,11 +420,11 @@ onMounted(() => {
         >
           上一页
         </UiButton>
-        <span class="text-xs sm:text-sm">{{ page }} / {{ Math.ceil(total / limit) || 1 }}</span>
+        <span class="text-xs sm:text-sm">{{ page }} / {{ totalPages }}</span>
         <UiButton
           variant="outline"
           size="sm"
-          :disabled="page >= Math.ceil(total / limit)"
+          :disabled="page >= totalPages"
           @click="handlePageChange(page + 1)"
         >
           下一页
@@ -419,171 +433,64 @@ onMounted(() => {
     </div>
   </BasicPage>
 
-  <!-- 查看明细 Dialog -->
-  <UiDialog v-model:open="showDetailDialog">
-    <UiDialogContent class="w-[95vw] lg:w-[80vw] sm:max-w-none max-h-[85vh] flex flex-col">
-      <UiDialogHeader>
-        <UiDialogTitle>批次明细 - {{ detailBatch?.batchId.slice(-8) }}</UiDialogTitle>
+  <!-- 查看/编辑 Dialog (共用 LoadingListEditor) -->
+  <UiDialog v-model:open="showEditorDialog">
+    <UiDialogContent
+      :class="[
+        'flex flex-col sm:max-w-none transition-all duration-200',
+        editorMaximized ? 'w-[100vw] h-[100vh] rounded-none' : 'w-[95vw] lg:w-[85vw] h-[85vh]',
+      ]"
+    >
+      <!-- Maximize button (aligned with close button) -->
+      <UiTooltipProvider>
+        <UiTooltip>
+          <UiTooltipTrigger as-child>
+            <button
+              class="absolute top-4 right-12 rounded-xs opacity-70 transition-opacity hover:opacity-100 text-muted-foreground"
+              @click="editorMaximized = !editorMaximized"
+            >
+              <Minimize2 v-if="editorMaximized" class="w-4 h-4" />
+              <Maximize2 v-else class="w-4 h-4" />
+            </button>
+          </UiTooltipTrigger>
+          <UiTooltipContent>
+            {{ editorMaximized ? '还原' : '最大化' }}
+          </UiTooltipContent>
+        </UiTooltip>
+      </UiTooltipProvider>
+
+      <UiDialogHeader class="flex-shrink-0">
+        <UiDialogTitle>
+          {{ editorMode === 'view' ? '查看明细' : '编辑批次' }}
+        </UiDialogTitle>
         <UiDialogDescription>
-          创建人: {{ detailBatch?.createdBy }} | 创建时间: {{ formatDate(detailBatch?.createdAt) }} | 共 {{ detailTotal }} 条
+          创建人: {{ editorBatch?.createdBy }} | 创建时间: {{ formatDate(editorBatch?.createdAt) }}
         </UiDialogDescription>
       </UiDialogHeader>
 
-      <div class="flex-1 overflow-auto border rounded-lg">
-        <table class="text-sm w-full">
-          <thead class="bg-muted/50 sticky top-0">
-            <tr>
-              <th class="p-2 text-left whitespace-nowrap">捆号</th>
-              <th class="p-2 text-left whitespace-nowrap">订单号</th>
-              <th class="p-2 text-left whitespace-nowrap">项次</th>
-              <th class="p-2 text-right whitespace-nowrap">支数</th>
-              <th class="p-2 text-right whitespace-nowrap">重量</th>
-              <th class="p-2 text-right whitespace-nowrap">直径</th>
-              <th class="p-2 text-right whitespace-nowrap">长度</th>
-              <th class="p-2 text-left whitespace-nowrap">牌号</th>
-              <th class="p-2 text-left whitespace-nowrap">客户名称</th>
-              <th class="p-2 text-left whitespace-nowrap">装车单号</th>
-              <th class="p-2 text-left whitespace-nowrap">车号</th>
-              <th class="p-2 text-left whitespace-nowrap">合同号</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in detailRows" :key="row._id" class="border-t hover:bg-muted/30">
-              <td class="p-2">{{ row.bundleNo }}</td>
-              <td class="p-2">{{ row.orderNo }}</td>
-              <td class="p-2">{{ row.orderItemNo }}</td>
-              <td class="p-2 text-right">{{ row.quantity }}</td>
-              <td class="p-2 text-right">{{ formatWeight(row.weight) }}</td>
-              <td class="p-2 text-right">{{ row.thickness }}</td>
-              <td class="p-2 text-right">{{ row.length }}</td>
-              <td class="p-2">{{ row.brandNo }}</td>
-              <td class="p-2">{{ row.customerName }}</td>
-              <td class="p-2">{{ row.loadingListNo }}</td>
-              <td class="p-2">{{ row.vehicleNo }}</td>
-              <td class="p-2">{{ row.contractNo }}</td>
-            </tr>
-            <tr v-if="detailRows.length === 0 && !detailLoading">
-              <td colspan="12" class="p-4 text-center text-muted-foreground">暂无数据</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-if="editorLoading" class="flex-1 flex items-center justify-center py-12">
+        <UiSpinner class="mr-2" />
+        <span class="text-sm text-muted-foreground">加载中...</span>
       </div>
 
-      <!-- 明细分页 -->
-      <div v-if="detailTotal > detailLimit" class="flex items-center justify-between pt-2">
-        <span class="text-xs text-muted-foreground">共 {{ detailTotal }} 条</span>
-        <div class="flex items-center gap-2">
-          <UiButton variant="outline" size="sm" :disabled="detailPage <= 1" @click="handleDetailPageChange(detailPage - 1)">
-            上一页
-          </UiButton>
-          <span class="text-xs">{{ detailPage }} / {{ Math.ceil(detailTotal / detailLimit) || 1 }}</span>
-          <UiButton variant="outline" size="sm" :disabled="detailPage >= Math.ceil(detailTotal / detailLimit)" @click="handleDetailPageChange(detailPage + 1)">
-            下一页
-          </UiButton>
-        </div>
-      </div>
-    </UiDialogContent>
-  </UiDialog>
-
-  <!-- 修改 Dialog -->
-  <UiDialog v-model:open="showEditDialog">
-    <UiDialogContent class="w-[95vw] lg:w-[85vw] sm:max-w-none max-h-[85vh] flex flex-col">
-      <UiDialogHeader>
-        <UiDialogTitle>修改批次 - {{ editBatch?.batchId.slice(-8) }}</UiDialogTitle>
-        <UiDialogDescription>
-          点击行右侧编辑按钮修改记录，共 {{ editTotal }} 条
-        </UiDialogDescription>
-      </UiDialogHeader>
-
-      <div class="flex-1 overflow-auto border rounded-lg">
-        <table class="text-sm w-full">
-          <thead class="bg-muted/50 sticky top-0">
-            <tr>
-              <th class="p-2 text-left whitespace-nowrap">捆号</th>
-              <th class="p-2 text-left whitespace-nowrap">订单号</th>
-              <th class="p-2 text-left whitespace-nowrap">项次</th>
-              <th class="p-2 text-right whitespace-nowrap">支数</th>
-              <th class="p-2 text-right whitespace-nowrap">重量</th>
-              <th class="p-2 text-left whitespace-nowrap">客户名称</th>
-              <th class="p-2 text-left whitespace-nowrap">装车单号</th>
-              <th class="p-2 text-left whitespace-nowrap">车号</th>
-              <th class="p-2 text-left whitespace-nowrap">合同号</th>
-              <th class="p-2 text-center whitespace-nowrap">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in editRows" :key="row._id" class="border-t hover:bg-muted/30">
-              <template v-if="editingRowId === row._id">
-                <td class="p-2">{{ row.bundleNo }}</td>
-                <td class="p-2">{{ row.orderNo }}</td>
-                <td class="p-2">{{ row.orderItemNo }}</td>
-                <td class="p-1">
-                  <input v-model.number="editForm.quantity" type="number" class="w-16 border rounded px-1 py-0.5 text-sm text-right">
-                </td>
-                <td class="p-1">
-                  <input v-model.number="editForm.weight" type="number" step="0.01" class="w-20 border rounded px-1 py-0.5 text-sm text-right">
-                </td>
-                <td class="p-1">
-                  <input v-model="editForm.customerName" class="w-24 border rounded px-1 py-0.5 text-sm">
-                </td>
-                <td class="p-1">
-                  <input v-model="editForm.loadingListNo" class="w-24 border rounded px-1 py-0.5 text-sm">
-                </td>
-                <td class="p-1">
-                  <input v-model="editForm.vehicleNo" class="w-20 border rounded px-1 py-0.5 text-sm">
-                </td>
-                <td class="p-1">
-                  <input v-model="editForm.contractNo" class="w-24 border rounded px-1 py-0.5 text-sm">
-                </td>
-                <td class="p-2">
-                  <div class="flex items-center justify-center gap-1">
-                    <UiButton size="sm" class="h-6 px-2 text-xs" :disabled="savingRow" @click="saveEditRow">
-                      保存
-                    </UiButton>
-                    <UiButton variant="outline" size="sm" class="h-6 px-2 text-xs" @click="cancelEditRow">
-                      取消
-                    </UiButton>
-                  </div>
-                </td>
-              </template>
-              <template v-else>
-                <td class="p-2">{{ row.bundleNo }}</td>
-                <td class="p-2">{{ row.orderNo }}</td>
-                <td class="p-2">{{ row.orderItemNo }}</td>
-                <td class="p-2 text-right">{{ row.quantity }}</td>
-                <td class="p-2 text-right">{{ formatWeight(row.weight) }}</td>
-                <td class="p-2">{{ row.customerName }}</td>
-                <td class="p-2">{{ row.loadingListNo }}</td>
-                <td class="p-2">{{ row.vehicleNo }}</td>
-                <td class="p-2">{{ row.contractNo }}</td>
-                <td class="p-2">
-                  <div class="flex items-center justify-center">
-                    <UiButton variant="ghost" size="sm" class="h-7 w-7 p-0" title="编辑" @click="startEditRow(row)">
-                      <Pencil class="w-3.5 h-3.5" />
-                    </UiButton>
-                  </div>
-                </td>
-              </template>
-            </tr>
-            <tr v-if="editRows.length === 0 && !editLoading">
-              <td colspan="10" class="p-4 text-center text-muted-foreground">暂无数据</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="flex-1 overflow-hidden">
+        <LoadingListEditor
+          v-model="editorGroups"
+          v-model:checked="editorChecked"
+          :readonly="editorMode === 'view'"
+        />
       </div>
 
-      <!-- 编辑分页 -->
-      <div v-if="editTotal > editLimit" class="flex items-center justify-between pt-2">
-        <span class="text-xs text-muted-foreground">共 {{ editTotal }} 条</span>
-        <div class="flex items-center gap-2">
-          <UiButton variant="outline" size="sm" :disabled="editPage <= 1" @click="handleEditPageChange(editPage - 1)">
-            上一页
-          </UiButton>
-          <span class="text-xs">{{ editPage }} / {{ Math.ceil(editTotal / editLimit) || 1 }}</span>
-          <UiButton variant="outline" size="sm" :disabled="editPage >= Math.ceil(editTotal / editLimit)" @click="handleEditPageChange(editPage + 1)">
-            下一页
-          </UiButton>
-        </div>
+      <!-- 编辑模式的保存按钮 -->
+      <div v-if="editorMode === 'edit' && !editorLoading" class="flex-shrink-0 flex items-center justify-end gap-2 pt-3 border-t">
+        <UiButton variant="outline" size="sm" @click="showEditorDialog = false">
+          取消
+        </UiButton>
+        <UiButton size="sm" :disabled="editorSaving" @click="handleEditorSave">
+          <UiSpinner v-if="editorSaving" class="mr-2" />
+          <Save v-else class="w-4 h-4 mr-1" />
+          保存修改
+        </UiButton>
       </div>
     </UiDialogContent>
   </UiDialog>

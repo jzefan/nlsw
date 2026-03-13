@@ -1,12 +1,16 @@
-const Bill = require('../../models/Bill');
-const Invoice = require('../../models/Invoice');
-const Company = require('../../models/Company');
-const Warehouse = require('../../models/Warehouse');
-const Brand = require('../../models/Brand');
-const utils = require('../../controllers/utils');
-const fastcsv = require('fast-csv');
-const { buildTenantQuery, injectTenantId, isPlatformUser } = require('../../utils/tenant');
-const { pinyin } = require('pinyin-pro');
+const Bill = require("../../models/Bill");
+const Invoice = require("../../models/Invoice");
+const Company = require("../../models/Company");
+const Warehouse = require("../../models/Warehouse");
+const Brand = require("../../models/Brand");
+const utils = require("../../controllers/utils");
+const fastcsv = require("fast-csv");
+const {
+  buildTenantQuery,
+  injectTenantId,
+  isPlatformUser,
+} = require("../../utils/tenant");
+const { pinyin } = require("pinyin-pro");
 
 function pushArr(arr, elem) {
   if (elem && arr.indexOf(elem) < 0) {
@@ -19,7 +23,7 @@ function isInteger(n) {
 }
 
 function isEmpty(variable) {
-  return (typeof variable === 'undefined' || !variable || 0 === variable.length);
+  return typeof variable === "undefined" || !variable || 0 === variable.length;
 }
 
 exports.getBills = async (req, res) => {
@@ -30,7 +34,7 @@ exports.getBills = async (req, res) => {
 
     // Filters
     if (req.query.billNo) {
-      baseQuery.bill_no = { $regex: req.query.billNo, $options: 'i' };
+      baseQuery.bill_no = { $regex: req.query.billNo, $options: "i" };
     }
     if (req.query.orderNo) {
       baseQuery.order_no = req.query.orderNo; // Use exact match for performance
@@ -39,15 +43,15 @@ exports.getBills = async (req, res) => {
       baseQuery.billing_name = req.query.billingName;
     }
     if (req.query.brandNo) {
-      baseQuery.brand_no = { $regex: req.query.brandNo, $options: 'i' };
+      baseQuery.brand_no = { $regex: req.query.brandNo, $options: "i" };
     }
     if (req.query.contractNo) {
-      baseQuery.contract_no = { $regex: req.query.contractNo, $options: 'i' };
+      baseQuery.contract_no = { $regex: req.query.contractNo, $options: "i" };
     }
     if (req.query.status) {
       baseQuery.status = req.query.status;
     }
-    if (req.query.leftNumOnly === 'true') {
+    if (req.query.leftNumOnly === "true") {
       baseQuery.left_num = { $gt: 0 };
     }
     if (req.query.creater) {
@@ -76,19 +80,28 @@ exports.getBills = async (req, res) => {
       .lean();
 
     // 查询每个提单关联的运单信息（车船号/运单号）
-    const billIds = bills.map(b => b._id);
+    const billIds = bills.map((b) => b._id);
     if (billIds.length > 0) {
       const invoices = await Invoice.find(
-        buildTenantQuery(req, { 'bills.bill_id': { $in: billIds }, state: { $ne: '新建' } }),
-        { waybill_no: 1, vehicle_vessel_name: 1, 'bills.bill_id': 1, 'bills.vehicles.veh_name': 1, 'bills.vehicles.inner_waybill_no': 1 }
+        buildTenantQuery(req, {
+          "bills.bill_id": { $in: billIds },
+          state: { $ne: "新建" },
+        }),
+        {
+          waybill_no: 1,
+          vehicle_vessel_name: 1,
+          "bills.bill_id": 1,
+          "bills.vehicles.veh_name": 1,
+          "bills.vehicles.inner_waybill_no": 1,
+        },
       ).lean();
 
       // 构建 billId -> [{vehicle_vessel_name, waybill_no, veh_name?}] 映射
       const billDispatchMap = {};
       for (const inv of invoices) {
-        for (const b of (inv.bills || [])) {
+        for (const b of inv.bills || []) {
           const bid = String(b.bill_id);
-          if (!billIds.some(id => String(id) === bid)) continue;
+          if (!billIds.some((id) => String(id) === bid)) continue;
           if (!billDispatchMap[bid]) billDispatchMap[bid] = [];
 
           if (b.vehicles && b.vehicles.length > 0) {
@@ -115,15 +128,29 @@ exports.getBills = async (req, res) => {
       }
     }
 
+    // 兼容历史数据：camelCase 字段映射回 snake_case
+    for (const bill of bills) {
+      console.log("Original bill: sales_dep", bill.sale_dep);
+      if (!bill.sales_dep && bill.salesDep) bill.sales_dep = bill.salesDep;
+      if (!bill.ship_warehouse && bill.shipWarehouse)
+        bill.ship_warehouse = bill.shipWarehouse;
+      if (!bill.contract_no && bill.contractNo)
+        bill.contract_no = bill.contractNo;
+      if (!bill.bill_no && bill.billNo) bill.bill_no = bill.billNo;
+      if (!bill.billing_name && bill.billingName)
+        bill.billing_name = bill.billingName;
+      if (!bill.brand_no && bill.brandNo) bill.brand_no = bill.brandNo;
+    }
+
     res.json({
       ok: true,
       data: bills,
       total: count,
       page: page,
-      totalPages: Math.ceil(count / limit)
+      totalPages: Math.ceil(count / limit),
     });
   } catch (error) {
-    console.error('getBills error:', error);
+    console.error("getBills error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -134,18 +161,20 @@ const _pinyinCache = new Map(); // tenantId -> { names: Map<name, initials>, ts:
 const PINYIN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function getPinyinInitials(name) {
-  return pinyin(name, { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase();
+  return pinyin(name, { pattern: "first", toneType: "none", type: "array" })
+    .join("")
+    .toLowerCase();
 }
 
 exports.getBillingNames = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const search = (req.query.search || '').trim();
+    const search = (req.query.search || "").trim();
 
     const matchStage = {
       left_num: { $gt: 0 },
-      billing_name: { $exists: true, $nin: [null, ''] }
+      billing_name: { $exists: true, $nin: [null, ""] },
     };
 
     if (!isPlatformUser(req)) {
@@ -155,23 +184,23 @@ exports.getBillingNames = async (req, res) => {
     // Get all distinct billing names (small set, typically <200)
     const allNames = await Bill.aggregate([
       { $match: matchStage },
-      { $group: { _id: '$billing_name' } },
-      { $sort: { _id: 1 } }
+      { $group: { _id: "$billing_name" } },
+      { $sort: { _id: 1 } },
     ]);
 
-    let filtered = allNames.map(r => r._id);
+    let filtered = allNames.map((r) => r._id);
 
     if (search) {
       const searchLower = search.toLowerCase();
       // Get or build pinyin cache for this tenant
-      const cacheKey = String(req.tenantId || 'platform');
+      const cacheKey = String(req.tenantId || "platform");
       let cache = _pinyinCache.get(cacheKey);
       if (!cache || Date.now() - cache.ts > PINYIN_CACHE_TTL) {
         cache = { names: new Map(), ts: Date.now() };
         _pinyinCache.set(cacheKey, cache);
       }
 
-      filtered = filtered.filter(name => {
+      filtered = filtered.filter((name) => {
         // Match by Chinese substring
         if (name.toLowerCase().includes(searchLower)) return true;
         // Match by pinyin initials
@@ -189,31 +218,35 @@ exports.getBillingNames = async (req, res) => {
 
     res.json({
       ok: true,
-      data: data.map(name => ({ name })),
+      data: data.map((name) => ({ name })),
       total,
       page,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    console.error('getBillingNames error:', error);
+    console.error("getBillingNames error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
 
+/**
+ * 获取订单号列表（仅返回订单号，不含提单明细）
+ * GET /bills/orders
+ * Query: billingName, search, page, limit
+ */
 exports.getOrders = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20; // 每页订单数
-    const search = req.query.search || '';
+    const limit = parseInt(req.query.limit) || 20;
+    const search = req.query.search || "";
     const billingName = req.query.billingName;
 
-    // Default to last 2 years data for performance
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
     const matchStage = {
       left_num: { $gt: 0 },
-      create_date: { $gte: twoYearsAgo }
+      create_date: { $gte: twoYearsAgo },
     };
 
     if (billingName) {
@@ -221,8 +254,8 @@ exports.getOrders = async (req, res) => {
     }
     if (search) {
       matchStage.$or = [
-        { order_no: { $regex: search, $options: 'i' } },
-        { bill_no: { $regex: search, $options: 'i' } }
+        { order_no: { $regex: search, $options: "i" } },
+        { bill_no: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -230,59 +263,89 @@ exports.getOrders = async (req, res) => {
       matchStage.tenantId = req.tenantId;
     }
 
-    // Step 1: Lightweight aggregation — get distinct order_nos with pagination
     const [orderResult] = await Bill.aggregate([
       { $match: matchStage },
-      { $group: { _id: '$order_no' } },
+      { $group: { _id: "$order_no" } },
       { $sort: { _id: 1 } },
-      { $facet: {
-        metadata: [{ $count: 'total' }],
-        data: [{ $skip: (page - 1) * limit }, { $limit: limit }]
-      } }
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+        },
+      },
     ]);
 
-    const total = orderResult.metadata.length > 0 ? orderResult.metadata[0].total : 0;
-    const pageOrderNos = orderResult.data.map(r => r._id);
-
-    // Step 2: Fetch full bill details only for the current page's orders
-    let formattedOrders = [];
-    if (pageOrderNos.length > 0) {
-      const billMatch = { ...matchStage, order_no: { $in: pageOrderNos } };
-      const bills = await Bill.find(billMatch, {
-        _id: 1, order_no: 1, bill_no: 1, order_item_no: 1,
-        left_num: 1, block_num: 1, weight: 1,
-        thickness: 1, width: 1, len: 1,
-        ship_warehouse: 1, contract_no: 1, brand_no: 1, total_weight: 1
-      }).lean();
-
-      // Group bills by order_no
-      const orderMap = new Map();
-      for (const bill of bills) {
-        const key = bill.order_no;
-        if (!orderMap.has(key)) orderMap.set(key, []);
-        orderMap.get(key).push(bill);
-      }
-
-      formattedOrders = pageOrderNos.map(orderNo => ({
-        order_no: orderNo,
-        bills: (orderMap.get(orderNo) || []).sort((a, b) => {
-          const aItem = a.order_item_no || 0;
-          const bItem = b.order_item_no || 0;
-          if (aItem !== bItem) return aItem - bItem;
-          return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
-        })
-      }));
-    }
+    const total =
+      orderResult.metadata.length > 0 ? orderResult.metadata[0].total : 0;
+    const data = orderResult.data.map((r) => ({ order_no: r._id }));
 
     res.json({
       ok: true,
-      data: formattedOrders,
-      total: total,
-      page: page,
-      totalPages: Math.ceil(total / limit)
+      data,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    console.error('getOrders error:', error);
+    console.error("getOrders error:", error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
+ * 获取指定订单的提单列表
+ * GET /bills/order-bills
+ * Query: billingName, orderNo
+ */
+exports.getOrderBills = async (req, res) => {
+  try {
+    const { billingName, orderNo } = req.query;
+    if (!orderNo) {
+      return res.status(400).json({ ok: false, error: "缺少 orderNo 参数" });
+    }
+
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    const matchStage = {
+      order_no: orderNo,
+      left_num: { $gt: 0 },
+      create_date: { $gte: twoYearsAgo },
+    };
+
+    if (billingName) {
+      matchStage.billing_name = billingName;
+    }
+
+    if (!isPlatformUser(req)) {
+      matchStage.tenantId = req.tenantId;
+    }
+
+    const bills = await Bill.find(matchStage, {
+      _id: 1,
+      order_no: 1,
+      bill_no: 1,
+      order_item_no: 1,
+      left_num: 1,
+      block_num: 1,
+      weight: 1,
+      thickness: 1,
+      width: 1,
+      len: 1,
+      ship_warehouse: 1,
+      contract_no: 1,
+      brand_no: 1,
+      total_weight: 1,
+    })
+      .sort({ order_item_no: 1, bill_no: 1 })
+      .lean();
+
+    res.json({
+      ok: true,
+      data: bills,
+    });
+  } catch (error) {
+    console.error("getOrderBills error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };
@@ -299,40 +362,50 @@ exports.createBills = async (req, res) => {
       let order_no = row_data.orderNo || row_data.order_no;
       let order_item_no = row_data.orderItemNo || row_data.order_item_no;
       let bno = row_data.billNo || row_data.bill_no;
-      let order_combined = order_no + '-' + utils.leftPad(order_item_no, 3);
+      let order_combined = order_no + "-" + utils.leftPad(order_item_no, 3);
 
       // Validate billing_name is required
       let billing_name = row_data.billingName || row_data.billing_name;
-      if (!billing_name || billing_name.trim() === '') {
+      if (!billing_name || billing_name.trim() === "") {
         return res.status(400).json({
           ok: false,
-          error: `提单 ${order_combined}-${bno} 缺少开单名称，该字段为必填项`
+          error: `提单 ${order_combined}-${bno} 缺少开单名称，该字段为必填项`,
         });
       }
 
-      let bill = await Bill.findOne(buildTenantQuery(req, { order: order_combined, bill_no: bno })).exec();
+      let bill = await Bill.findOne(
+        buildTenantQuery(req, { order: order_combined, bill_no: bno }),
+      ).exec();
       if (!bill) {
-        bill = new Bill(injectTenantId(req, {
-          order: order_combined,
-          bill_no: bno,
-          order_no: order_no,
-          order_item_no: order_item_no,
-          billing_name: billing_name,
-          sale_dep: row_data.saleDep || row_data.sale_dep,
-          block_num: utils.getIntValue(row_data.blockNum || row_data.block_num),
-          total_weight: utils.getFloatValue(row_data.totalWeight || row_data.total_weight, 3),
+        bill = new Bill(
+          injectTenantId(req, {
+            order: order_combined,
+            bill_no: bno,
+            order_no: order_no,
+            order_item_no: order_item_no,
+            billing_name: billing_name,
+            sale_dep: row_data.saleDep || row_data.sale_dep,
+            block_num: utils.getIntValue(
+              row_data.blockNum || row_data.block_num,
+            ),
+            total_weight: utils.getFloatValue(
+              row_data.totalWeight || row_data.total_weight,
+              3,
+            ),
 
-          warehouse: row_data.warehouse,
-          ship_warehouse: row_data.shipWarehouse || row_data.ship_warehouse,
-          contract_no: row_data.contractNo || row_data.contract_no,
-          shipping_address: row_data.shippingAddress || row_data.shipping_address,
-          product_type: row_data.productType || row_data.product_type,
-          carrier: row_data.carrier,
-          creater: req.user ? req.user.userid : 'admin',
-          invoices: [],
-          customer_price: 0,
-          collection_price: 0
-        }));
+            warehouse: row_data.warehouse,
+            ship_warehouse: row_data.shipWarehouse || row_data.ship_warehouse,
+            contract_no: row_data.contractNo || row_data.contract_no,
+            shipping_address:
+              row_data.shippingAddress || row_data.shipping_address,
+            product_type: row_data.productType || row_data.product_type,
+            carrier: row_data.carrier,
+            creater: req.user ? req.user.userid : "admin",
+            invoices: [],
+            customer_price: 0,
+            collection_price: 0,
+          }),
+        );
 
         // Handle Brand
         let brandNo = row_data.brandNo || row_data.brand_no;
@@ -348,7 +421,7 @@ exports.createBills = async (req, res) => {
         let dimensions = row_data.dimensions;
         if (!isEmpty(dimensions)) {
           bill.len = bill.width = bill.thickness = 0;
-          let temp = dimensions.replace(/≠/, "").split('*');
+          let temp = dimensions.replace(/≠/, "").split("*");
           if (temp.length) {
             bill.thickness = utils.getFloatValue(temp[0], 0);
             if (temp.length === 2) {
@@ -367,9 +440,9 @@ exports.createBills = async (req, res) => {
         // Size Type: 保留原始值（定尺、双定尺、单定、非定尺等）
         let sizeType = row_data.sizeType || row_data.size_type;
         if (isEmpty(sizeType)) {
-          bill.size_type = '定尺';
-        } else if (sizeType === '单定尺') {
-          bill.size_type = '单定';
+          bill.size_type = "定尺";
+        } else if (sizeType === "单定尺") {
+          bill.size_type = "单定";
         } else {
           bill.size_type = sizeType;
         }
@@ -385,7 +458,14 @@ exports.createBills = async (req, res) => {
               weight = utils.getFloatValue(row_data.weight, 3);
             } else {
               if (bill.len > 0 && bill.width > 0 && bill.thickness > 0) {
-                weight = utils.toFixedNumber(bill.len * bill.width * bill.thickness * 7.85 * Math.pow(10, -9), 3);
+                weight = utils.toFixedNumber(
+                  bill.len *
+                    bill.width *
+                    bill.thickness *
+                    7.85 *
+                    Math.pow(10, -9),
+                  3,
+                );
               }
             }
 
@@ -402,13 +482,14 @@ exports.createBills = async (req, res) => {
             }
             bill.weight = bill.block_num > 0 ? weight : 0;
           }
-          bill.left_num = (bill.block_num > 0) ? bill.block_num : bill.total_weight;
-          
+          bill.left_num =
+            bill.block_num > 0 ? bill.block_num : bill.total_weight;
+
           await bill.save();
           createdCount++;
         }
       } else {
-        if (bill.status != '新建') {
+        if (bill.status != "新建") {
           allocatedData.push(bill);
         }
       }
@@ -421,7 +502,9 @@ exports.createBills = async (req, res) => {
     // Update Dictionaries
     for (let w of allWarehouse) {
       if (!w) continue;
-      let ware = await Warehouse.findOne(buildTenantQuery(req, { name: w })).exec();
+      let ware = await Warehouse.findOne(
+        buildTenantQuery(req, { name: w }),
+      ).exec();
       if (!ware) {
         ware = new Warehouse(injectTenantId(req, { name: w }));
         await ware.save();
@@ -429,7 +512,9 @@ exports.createBills = async (req, res) => {
     }
     for (let b of allBrandNo) {
       if (!b) continue;
-      let brand = await Brand.findOne(buildTenantQuery(req, { name: b })).exec();
+      let brand = await Brand.findOne(
+        buildTenantQuery(req, { name: b }),
+      ).exec();
       if (!brand) {
         brand = new Brand(injectTenantId(req, { name: b }));
         await brand.save();
@@ -437,7 +522,9 @@ exports.createBills = async (req, res) => {
     }
     for (let bn of allBillName) {
       if (!bn) continue;
-      let comp = await Company.findOne(buildTenantQuery(req, { name: bn })).exec();
+      let comp = await Company.findOne(
+        buildTenantQuery(req, { name: bn }),
+      ).exec();
       if (!comp) {
         comp = new Company(injectTenantId(req, { name: bn }));
         await comp.save();
@@ -446,7 +533,7 @@ exports.createBills = async (req, res) => {
 
     res.json({ ok: true, count: createdCount, allocatedData });
   } catch (err) {
-    console.error('createBills error:', err);
+    console.error("createBills error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 };
@@ -468,22 +555,64 @@ exports.updateBill = async (req, res) => {
     delete updateData._id;
 
     // Validate billing_name is required and not empty
-    if ('billing_name' in updateData) {
-      if (!updateData.billing_name || updateData.billing_name.trim() === '') {
+    if ("billing_name" in updateData) {
+      if (!updateData.billing_name || updateData.billing_name.trim() === "") {
         return res.status(400).json({
           ok: false,
-          error: '开单名称不能为空，该字段为必填项'
+          error: "开单名称不能为空，该字段为必填项",
         });
       }
 
-      let company = await Company.findOne(buildTenantQuery(req, { name: updateData.billing_name })).exec();
+      let company = await Company.findOne(
+        buildTenantQuery(req, { name: updateData.billing_name }),
+      ).exec();
       if (!company) {
-        await new Company(injectTenantId(req, { name: updateData.billing_name })).save();
+        await new Company(
+          injectTenantId(req, { name: updateData.billing_name }),
+        ).save();
       }
     }
 
-    await Bill.findOneAndUpdate(buildTenantQuery(req, { _id: id }), updateData).exec();
+    await Bill.findOneAndUpdate(
+      buildTenantQuery(req, { _id: id }),
+      updateData,
+    ).exec();
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+};
+
+// 批量更新提单
+exports.updateBillsBatch = async (req, res) => {
+  try {
+    const { ids, field, value } = req.body;
+    if (!ids || !ids.length || !field) {
+      return res.status(400).json({ ok: false, error: "缺少必要参数" });
+    }
+
+    // 只允许更新安全的字段
+    const allowedFields = [
+      "bill_no",
+      "billing_name",
+      "brand_no",
+      "contract_no",
+      "sales_dep",
+      "ship_warehouse",
+      "size_type",
+    ];
+    if (!allowedFields.includes(field)) {
+      return res
+        .status(400)
+        .json({ ok: false, error: `不允许批量更新字段: ${field}` });
+    }
+
+    const result = await Bill.updateMany(
+      buildTenantQuery(req, { _id: { $in: ids } }),
+      { $set: { [field]: value } },
+    );
+
+    res.json({ ok: true, count: result.modifiedCount });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -494,30 +623,41 @@ const buildQuery = (node) => {
     if (!node.conditions || !Array.isArray(node.conditions)) return {};
     const conditions = node.conditions
       .map(buildQuery)
-      .filter(c => c && Object.keys(c).length > 0);
-    
+      .filter((c) => c && Object.keys(c).length > 0);
+
     if (conditions.length === 0) return {};
-    return node.logic === 'AND' ? { $and: conditions } : { $or: conditions };
+    return node.logic === "AND" ? { $and: conditions } : { $or: conditions };
   } else {
     // Condition node
     if (!node.field || !node.operator) return {};
     const { field, operator, value } = node;
-    
+
     // Handle specific type conversions if necessary based on field
     // For now rely on Mongoose schema casting for numbers/dates
 
     switch (operator) {
-      case 'eq': return { [field]: value };
-      case 'neq': return { [field]: { $ne: value } };
-      case 'contains': return { [field]: { $regex: value, $options: 'i' } };
-      case 'not_contains': return { [field]: { $not: { $regex: value, $options: 'i' } } };
-      case 'gt': return { [field]: { $gt: Number(value) } };
-      case 'lt': return { [field]: { $lt: Number(value) } };
-      case 'gte': return { [field]: { $gte: Number(value) } };
-      case 'lte': return { [field]: { $lte: Number(value) } };
-      case 'is_empty': return { $or: [{ [field]: null }, { [field]: '' }] };
-      case 'is_not_empty': return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: '' } }] };
-      default: return {};
+      case "eq":
+        return { [field]: value };
+      case "neq":
+        return { [field]: { $ne: value } };
+      case "contains":
+        return { [field]: { $regex: value, $options: "i" } };
+      case "not_contains":
+        return { [field]: { $not: { $regex: value, $options: "i" } } };
+      case "gt":
+        return { [field]: { $gt: Number(value) } };
+      case "lt":
+        return { [field]: { $lt: Number(value) } };
+      case "gte":
+        return { [field]: { $gte: Number(value) } };
+      case "lte":
+        return { [field]: { $lte: Number(value) } };
+      case "is_empty":
+        return { $or: [{ [field]: null }, { [field]: "" }] };
+      case "is_not_empty":
+        return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: "" } }] };
+      default:
+        return {};
     }
   }
 };
@@ -525,7 +665,7 @@ const buildQuery = (node) => {
 exports.searchBills = async (req, res) => {
   try {
     const { queryTree, sort, page = 1, limit = 20 } = req.body;
-    
+
     let baseQuery = {};
     if (queryTree) {
       baseQuery = buildQuery(queryTree);
@@ -534,8 +674,8 @@ exports.searchBills = async (req, res) => {
 
     const sortObj = {};
     if (sort && Array.isArray(sort)) {
-      sort.forEach(s => {
-        sortObj[s.field] = s.order === 'asc' ? 1 : -1;
+      sort.forEach((s) => {
+        sortObj[s.field] = s.order === "asc" ? 1 : -1;
       });
     }
     // Default sort if empty
@@ -555,10 +695,10 @@ exports.searchBills = async (req, res) => {
       data: bills,
       total: count,
       page: page,
-      totalPages: Math.ceil(count / limit)
+      totalPages: Math.ceil(count / limit),
     });
   } catch (e) {
-    console.error('searchBills error:', e);
+    console.error("searchBills error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 };
@@ -574,25 +714,30 @@ exports.exportBills = async (req, res) => {
 
     const sortObj = {};
     if (sort && Array.isArray(sort)) {
-      sort.forEach(s => {
-        sortObj[s.field] = s.order === 'asc' ? 1 : -1;
+      sort.forEach((s) => {
+        sortObj[s.field] = s.order === "asc" ? 1 : -1;
       });
     } else {
       sortObj.create_date = -1;
     }
 
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=bills_export.csv');
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=bills_export.csv",
+    );
 
     const cursor = Bill.find(query).sort(sortObj).cursor();
-    
+
     const transformer = (doc) => {
       const row = {};
       if (columns && Array.isArray(columns)) {
-        columns.forEach(col => {
+        columns.forEach((col) => {
           let val = doc[col.field];
-          if (['create_date', 'shipping_date', 'settle_date'].includes(col.field)) {
-             val = val ? new Date(val).toLocaleDateString() : '';
+          if (
+            ["create_date", "shipping_date", "settle_date"].includes(col.field)
+          ) {
+            val = val ? new Date(val).toLocaleDateString() : "";
           }
           row[col.label] = val;
         });
@@ -603,9 +748,8 @@ exports.exportBills = async (req, res) => {
     cursor
       .pipe(fastcsv.format({ headers: true }).transform(transformer))
       .pipe(res);
-
   } catch (e) {
-    console.error('exportBills error:', e);
+    console.error("exportBills error:", e);
     res.status(500).end();
   }
 };

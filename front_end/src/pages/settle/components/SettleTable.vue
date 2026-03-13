@@ -221,7 +221,7 @@ function switchToOtherMode() {
             <th class="px-1.5 py-1.5 text-left min-w-[80px] border-r border-border/50 text-xs">
               状态
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs">
+            <th class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs whitespace-nowrap">
               订单号
             </th>
             <th class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs">
@@ -234,10 +234,10 @@ function switchToOtherMode() {
               车船/运单号
             </th>
             <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
-              发运块数
+              块数
             </th>
             <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
-              发运重量
+              发运量
             </th>
             <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
               单价
@@ -324,7 +324,7 @@ function switchToOtherMode() {
                 {{ getStatus(bill).text }}
               </span>
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
               {{ getOrderDisplay(bill) }}
             </td>
             <td class="px-1.5 py-1.5 border-r border-border/50">

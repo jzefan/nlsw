@@ -56,54 +56,54 @@ export interface HeaderInfo {
 
 // Table header mapping for round steel
 const roundSteelHeaderMap: Record<string, string> = {
-  '捆号': 'bundleNo',
-  '炉号': 'heatNo',
-  '订单编号': 'orderNo',
-  '订单号': 'orderNo',
-  '订单': 'orderNo',
-  '订单项次': 'orderItemNo',
-  '项次号': 'orderItemNo',
-  '项次': 'orderItemNo',
-  '重量': 'weight',
-  '厚度': 'diameter',
-  '直径': 'diameter',
-  '宽度': 'width',
-  '宽': 'width',
-  '长度': 'len',
-  '长': 'len',
-  '定尺': 'fixedLength',
-  '牌号': 'brandNo',
-  '钢号': 'brandNo',
-  '标准全名': 'brandNo',
-  '支数': 'quantity',
-  '数量': 'quantity',
-  '过磅重量': 'scaleWeight',
-  '客户名称': 'customerName',
-  '客户': 'customerName',
-  '现有货主': 'customerName',
-  '发货单位': 'customerName',
-  '合同号': 'contractNo',
-  '合同': 'contractNo',
-  '客户采购案号': 'contractNo',
-  '仓库': 'warehouse',
-  '发货仓库': 'warehouse',
-  '发货库别': 'warehouse',
-  '装车明细表': 'loadingListNo',
-  '装车单号': 'loadingListNo',
+  捆号: 'bundleNo',
+  炉号: 'heatNo',
+  订单编号: 'orderNo',
+  订单号: 'orderNo',
+  订单: 'orderNo',
+  订单项次: 'orderItemNo',
+  项次号: 'orderItemNo',
+  项次: 'orderItemNo',
+  重量: 'weight',
+  厚度: 'diameter',
+  直径: 'diameter',
+  宽度: 'width',
+  宽: 'width',
+  长度: 'len',
+  长: 'len',
+  定尺: 'fixedLength',
+  牌号: 'brandNo',
+  钢号: 'brandNo',
+  标准全名: 'brandNo',
+  支数: 'quantity',
+  数量: 'quantity',
+  过磅重量: 'scaleWeight',
+  客户名称: 'customerName',
+  客户: 'customerName',
+  现有货主: 'customerName',
+  发货单位: 'customerName',
+  合同号: 'contractNo',
+  合同: 'contractNo',
+  客户采购案号: 'contractNo',
+  仓库: 'warehouse',
+  发货仓库: 'warehouse',
+  发货库别: 'warehouse',
+  装车明细表: 'loadingListNo',
+  装车单号: 'loadingListNo',
 }
 
 // Table header mapping for plate
 const plateHeaderMap: Record<string, string> = {
   ...roundSteelHeaderMap,
-  '厚度': 'diameter', // 板材用厚度代替直径
-  '厚': 'diameter',
-  '宽度': 'width',
-  '宽': 'width',
-  '长度': 'len',
-  '长': 'len',
-  '定尺': 'fixedLength',
-  '块数': 'quantity',
-  '发运数': 'quantity',
+  厚度: 'diameter', // 板材用厚度代替直径
+  厚: 'diameter',
+  宽度: 'width',
+  宽: 'width',
+  长度: 'len',
+  长: 'len',
+  定尺: 'fixedLength',
+  块数: 'quantity',
+  发运数: 'quantity',
 }
 
 // Raw Excel data (all columns)
@@ -129,17 +129,26 @@ export interface ParsedFile {
 
 // Required fields for processing (these columns will be marked with checkmark)
 const requiredFields = new Set([
-  'bundleNo', 'orderNo', 'orderItemNo', 'brandNo', 'diameter', 'width', 'len', 'fixedLength',
-  'quantity', 'weight', 'customerName', 'contractNo', 'warehouse', 'loadingListNo',
+  'bundleNo',
+  'orderNo',
+  'orderItemNo',
+  'brandNo',
+  'diameter',
+  'width',
+  'len',
+  'fixedLength',
+  'quantity',
+  'weight',
+  'customerName',
+  'contractNo',
+  'warehouse',
+  'loadingListNo',
 ])
 
 /**
  * Parse ERP Excel file
  */
-export function parseERPExcel(
-  file: File,
-  type: 'round-steel' | 'plate' = 'round-steel',
-): Promise<ParsedFile> {
+export function parseERPExcel(file: File, type: 'round-steel' | 'plate' = 'round-steel'): Promise<ParsedFile> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -158,11 +167,16 @@ export function parseERPExcel(
 
         for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
           const row = jsonData[i]
-          if (row && row.some((cell: any) => cell && (
-            cell.toString().includes('订单')
-            || cell.toString().includes('捆号')
-            || cell.toString().includes('提单')
-          ))) {
+          if (
+            row &&
+            row.some(
+              (cell: any) =>
+                cell &&
+                (cell.toString().includes('订单') ||
+                  cell.toString().includes('捆号') ||
+                  cell.toString().includes('提单')),
+            )
+          ) {
             headerRow = i
             headers = row.map((cell: any) => cell?.toString().trim() || '')
             break
@@ -179,8 +193,7 @@ export function parseERPExcel(
         const otherCols: ColumnDef[] = []
 
         headers.forEach((header) => {
-          if (!header)
-            return
+          if (!header) return
           const mappedKey = headerMap[header]
           const isRequired = mappedKey ? requiredFields.has(mappedKey) : false
 
@@ -192,8 +205,7 @@ export function parseERPExcel(
 
           if (isRequired) {
             requiredCols.push(colDef)
-          }
-          else {
+          } else {
             otherCols.push(colDef)
           }
         })
@@ -207,8 +219,7 @@ export function parseERPExcel(
 
         for (let i = headerRow + 1; i < jsonData.length; i++) {
           const row = jsonData[i]
-          if (!row || row.every((cell: any) => !cell))
-            continue
+          if (!row || row.every((cell: any) => !cell)) continue
 
           // Store raw row data
           const rawRow: Record<string, any> = {}
@@ -261,8 +272,7 @@ export function parseERPExcel(
           },
           columnDefs,
         })
-      }
-      catch (err) {
+      } catch (err) {
         reject(err)
       }
     }
@@ -312,8 +322,7 @@ export function aggregateByOrderItem(data: ERPRawRow[]): AggregatedRow[] {
       const existing = map.get(key)!
       existing.quantity += row.quantity
       existing.totalWeight += row.weight || row.scaleWeight
-    }
-    else {
+    } else {
       map.set(key, {
         billNo: row.bundleNo,
         orderNo: row.orderNo,
@@ -376,8 +385,7 @@ function getTextWidth(text: string): number {
     const code = text.charCodeAt(i)
     if (code > 127) {
       width += 2
-    }
-    else {
+    } else {
       width += 1
     }
   }
@@ -483,7 +491,7 @@ export async function generateOutputExcel(header: HeaderInfo, groups: ContractGr
         row.orderItemNo,
         row.brandNo,
         row.spec,
-        row.unitWeight.toFixed(4),
+        row.unitWeight.toFixed(3),
         row.quantity,
         row.totalWeight.toFixed(3),
         row.warehouse,
@@ -561,7 +569,7 @@ export async function generateOutputExcel(header: HeaderInfo, groups: ContractGr
   updateColumnWidth(0, totalLabel)
 
   // Set column widths
-  worksheet.columns = columnWidths.map(width => ({ width }))
+  worksheet.columns = columnWidths.map((width) => ({ width }))
 
   // Generate filename with date
   const dateStr = new Date().toISOString().slice(0, 10)
@@ -600,10 +608,8 @@ export async function parseMultipleFiles(
 export function validateRequiredColumns(
   columnDefs: ColumnDef[],
   requiredMappedKeys: string[],
-): { valid: boolean, missingColumns: string[] } {
-  const presentKeys = new Set(
-    columnDefs.filter(c => c.mappedKey).map(c => c.mappedKey!),
-  )
+): { valid: boolean; missingColumns: string[] } {
+  const presentKeys = new Set(columnDefs.filter((c) => c.mappedKey).map((c) => c.mappedKey!))
   const missingColumns: string[] = []
 
   for (const key of requiredMappedKeys) {
@@ -617,9 +623,18 @@ export function validateRequiredColumns(
 
 // 圆钢 V2 必要列
 export const roundSteelV2RequiredKeys = [
-  'bundleNo', 'orderNo', 'orderItemNo', 'weight', 'diameter',
-  'width', 'len', 'brandNo', 'fixedLength', 'quantity',
-  'customerName', 'loadingListNo',
+  'bundleNo',
+  'orderNo',
+  'orderItemNo',
+  'weight',
+  'diameter',
+  'width',
+  'len',
+  'brandNo',
+  'fixedLength',
+  'quantity',
+  'customerName',
+  'loadingListNo',
 ]
 
 // 字段名称映射（用于显示缺失列提示）
@@ -642,6 +657,7 @@ export const fieldNameMap: Record<string, string> = {
  * 按装车单号分组后的聚合行（组内按 orderNo+orderItemNo+customerName 合并）
  */
 export interface LoadingListAggregatedRow {
+  _id?: string // DB row ID (for API-loaded data)
   bundleNo: string
   orderNo: string
   orderItemNo: string
@@ -697,8 +713,7 @@ export function groupByLoadingList(data: ERPRawRow[]): LoadingListGroup[] {
         const existing = aggMap.get(aggKey)!
         existing.quantity += row.quantity
         existing.weight += row.weight || row.scaleWeight
-      }
-      else {
+      } else {
         aggMap.set(aggKey, {
           bundleNo: row.bundleNo,
           orderNo: row.orderNo,
@@ -717,9 +732,7 @@ export function groupByLoadingList(data: ERPRawRow[]): LoadingListGroup[] {
       }
     }
 
-    const rows = Array.from(aggMap.values()).sort((a, b) =>
-      a.orderNo.localeCompare(b.orderNo),
-    )
+    const rows = Array.from(aggMap.values()).sort((a, b) => a.orderNo.localeCompare(b.orderNo))
 
     groups.push({
       loadingListNo,
@@ -746,9 +759,20 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
   // ===== Sheet1: 发货明细 =====
   const sheet1 = workbook.addWorksheet('发货明细')
   const sheet1Headers = [
-    '捆号', '订单号', '订单项次', '发运块数', '发运重量',
-    '厚度', '宽度', '长度', '牌号', '定尺',
-    '客户名称', '装车单号', '车船号', '合同号',
+    '捆号',
+    '订单号',
+    '订单项次',
+    '发运块数',
+    '发运重量',
+    '厚度',
+    '宽度',
+    '长度',
+    '牌号',
+    '定尺',
+    '客户名称',
+    '装车单号',
+    '车船号',
+    '合同号',
   ]
 
   const thinBorder: Partial<ExcelJS.Borders> = {
@@ -857,7 +881,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFA500' } }
   }
 
-  sheet1.columns = s1ColWidths.map(w => ({ width: w }))
+  sheet1.columns = s1ColWidths.map((w) => ({ width: w }))
 
   // ===== Sheet2: 合同汇总 =====
   const sheet2 = workbook.addWorksheet('合同汇总')
@@ -927,9 +951,15 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
 
     for (const row of cg.rows) {
       const values = [
-        row.billNo, row.orderNo, row.orderItemNo, row.brandNo,
-        row.spec, row.unitWeight.toFixed(4), row.quantity,
-        row.totalWeight.toFixed(3), row.contractNo,
+        row.billNo,
+        row.orderNo,
+        row.orderItemNo,
+        row.brandNo,
+        row.spec,
+        row.unitWeight.toFixed(3),
+        row.quantity,
+        row.totalWeight.toFixed(3),
+        row.contractNo,
       ]
       const dataRow = sheet2.getRow(s2Row)
       values.forEach((v, i) => {
@@ -959,7 +989,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
     s2Row += 2
   }
 
-  sheet2.columns = s2ColWidths.map(w => ({ width: w }))
+  sheet2.columns = s2ColWidths.map((w) => ({ width: w }))
 
   // 生成下载
   const dateStr = new Date().toISOString().slice(0, 10)

@@ -50,9 +50,7 @@ import { formatDate, formatDim, formatNumber, toExcelDate, toExcelNum } from '@/
 const { exportWithBufferPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 const companyName = computed(() => {
-  // 优先使用运单的开单名称（发货单抬头应属于运单所属公司）
-  if (invoiceDetail.value?.ship_name) return invoiceDetail.value.ship_name
-  // 独立部署模式：使用配置的公司名称
+  // 独立部署模式：使用 .env 中配置的公司名称
   if (authStore.isStandalone && authStore.standaloneCompany) return authStore.standaloneCompany
   // SaaS 模式：使用当前租户公司名称
   if (authStore.companyDisplayName) return authStore.companyDisplayName
@@ -116,9 +114,10 @@ async function searchInvoices(keyword: string, limit: number, page: number) {
       return {
         ok: true,
         data: result.data.map(item => ({
-          name: item.waybill_no,
-          desc: `${item.vehicle_vessel_name} | ${item.ship_name}`,
           ...item,
+          value: item.waybill_no,
+          name: item.waybill_no,
+          shipper: [item.shipper_name, item.transport_type, item.vehicle_vessel_name].filter(Boolean).join(' | '),
         })),
         total: result.total,
       }
@@ -719,50 +718,76 @@ async function handleExport() {
 
   // 表格数据
   const tableStartRow = rowNum
-  inv.bills.forEach((bill: any) => {
-    const billInfo = bill.bill_id || {}
 
-    // 数字列索引（厚度3, 宽度4, 长度5, 单重6, 发运数7, 发运重量8）
-    const numColIndices = new Set([3, 4, 5, 6, 7, 8])
+  // 数字列索引（厚度3, 宽度4, 长度5, 单重6, 发运数7, 发运重量8）
+  const numColIndices = new Set([3, 4, 5, 6, 7, 8])
 
-    const addDataRow = (data: any[]) => {
-      const dataRow = sheet.getRow(rowNum)
-      data.forEach((val, idx) => {
-        const cell = dataRow.getCell(idx + 1)
-        cell.value = val
-        cell.border = thinBorder
-        // 数字列右对齐
-        if (numColIndices.has(idx)) {
-          cell.alignment = { horizontal: 'right' }
-        }
-        // 牌号列自动换行
-        if (idx === 2) {
-          cell.alignment = { wrapText: true }
-        }
-        updateColumnWidth(idx, val)
-      })
-      rowNum++
-    }
+  // 交替背景色（用于船运按车分组）
+  const altFillA: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F7FF' } }
+  const altFillB: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F0' } }
 
-    if (bill.vehicles && bill.vehicles.length > 0) {
-      bill.vehicles.forEach((veh: any) => {
-        addDataRow([
-          billInfo.bill_no || '',
-          getOrderDisplay(billInfo),
-          billInfo.brand_no || '',
-          toExcelNum(billInfo.thickness),
-          toExcelNum(billInfo.width),
-          toExcelNum(billInfo.len),
-          toExcelNum(billInfo.weight),
-          toExcelNum(veh.send_num),
-          toExcelNum(getVehSendWeight(veh, billInfo)),
-          billInfo.ship_warehouse || '',
-          billInfo.contract_no || '',
-          veh.veh_name || ''
-        ])
-      })
-    }
-    else {
+  const addDataRow = (data: any[], fill?: ExcelJS.Fill) => {
+    const dataRow = sheet.getRow(rowNum)
+    data.forEach((val, idx) => {
+      const cell = dataRow.getCell(idx + 1)
+      cell.value = val
+      cell.border = thinBorder
+      if (fill) cell.fill = fill
+      if (numColIndices.has(idx)) {
+        cell.alignment = { horizontal: 'right' }
+      }
+      if (idx === 2) {
+        cell.alignment = { wrapText: true }
+      }
+      updateColumnWidth(idx, val)
+    })
+    rowNum++
+  }
+
+  // 判断是否为船运（有 vehicles 的提单）
+  const isVesselInvoice = inv.bills.some((bill: any) => bill.vehicles && bill.vehicles.length > 0)
+
+  if (isVesselInvoice) {
+    // 船运：展开所有 bill-vehicle 对，按 inner_waybill_no 排序
+    const flatRows: { billInfo: any; veh: any; innerWaybillNo: string }[] = []
+    inv.bills.forEach((bill: any) => {
+      const billInfo = bill.bill_id || {}
+      if (bill.vehicles && bill.vehicles.length > 0) {
+        bill.vehicles.forEach((veh: any) => {
+          flatRows.push({ billInfo, veh, innerWaybillNo: veh.inner_waybill_no || '' })
+        })
+      }
+    })
+    flatRows.sort((a, b) => a.innerWaybillNo.localeCompare(b.innerWaybillNo))
+
+    // 按 inner_waybill_no 分组交替背景色
+    let currentInnerNo = ''
+    let colorIndex = 0
+    flatRows.forEach((row) => {
+      if (row.innerWaybillNo !== currentInnerNo) {
+        if (currentInnerNo !== '') colorIndex++
+        currentInnerNo = row.innerWaybillNo
+      }
+      const fill = colorIndex % 2 === 0 ? altFillA : altFillB
+      addDataRow([
+        row.billInfo.bill_no || '',
+        getOrderDisplay(row.billInfo),
+        row.billInfo.brand_no || '',
+        toExcelNum(row.billInfo.thickness),
+        toExcelNum(row.billInfo.width),
+        toExcelNum(row.billInfo.len),
+        toExcelNum(row.billInfo.weight),
+        toExcelNum(row.veh.send_num),
+        toExcelNum(getVehSendWeight(row.veh, row.billInfo)),
+        row.billInfo.ship_warehouse || '',
+        row.billInfo.contract_no || '',
+        row.veh.veh_name || ''
+      ], fill)
+    })
+  } else {
+    // 车运：按原顺序输出
+    inv.bills.forEach((bill: any) => {
+      const billInfo = bill.bill_id || {}
       addDataRow([
         billInfo.bill_no || '',
         getOrderDisplay(billInfo),
@@ -777,8 +802,8 @@ async function handleExport() {
         billInfo.contract_no || '',
         '-'
       ])
-    }
-  })
+    })
+  }
 
   // 空行
   rowNum++
@@ -832,6 +857,37 @@ function getVehSendWeight(veh: any, billInfo: any) {
 function getBillSendWeight(bill: any) {
   return bill.weight || ((bill.num || 0) * getUnitWeight(bill.bill_id))
 }
+
+// 判断是否为船运（有 vehicles 的提单）
+const isVesselInvoice = computed(() => {
+  return invoiceDetail.value?.bills?.some((bill: any) => bill.vehicles && bill.vehicles.length > 0) ?? false
+})
+
+// 船运：展平并按 inner_waybill_no 排序的行数据
+const sortedVesselRows = computed(() => {
+  if (!isVesselInvoice.value || !invoiceDetail.value?.bills) return []
+  const rows: { billInfo: any; veh: any; innerWaybillNo: string }[] = []
+  invoiceDetail.value.bills.forEach((bill: any) => {
+    const billInfo = bill.bill_id || {}
+    if (bill.vehicles && bill.vehicles.length > 0) {
+      bill.vehicles.forEach((veh: any) => {
+        rows.push({ billInfo, veh, innerWaybillNo: veh.inner_waybill_no || '' })
+      })
+    }
+  })
+  rows.sort((a, b) => a.innerWaybillNo.localeCompare(b.innerWaybillNo))
+
+  // 标记每行所属的车辆颜色组
+  let currentInnerNo = ''
+  let colorIndex = 0
+  return rows.map((row) => {
+    if (row.innerWaybillNo !== currentInnerNo) {
+      if (currentInnerNo !== '') colorIndex++
+      currentInnerNo = row.innerWaybillNo
+    }
+    return { ...row, colorIndex }
+  })
+})
 
 // Calculate totals from bills
 const calculateTotals = computed(() => {
@@ -1001,64 +1057,43 @@ const calculateTotals = computed(() => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <template v-for="(bill, index) in invoiceDetail.bills" :key="index">
-              <!-- Check for vehicles to flatten rows -->
-              <template v-if="bill.vehicles && bill.vehicles.length > 0">
-                <TableRow v-for="(veh, vIndex) in bill.vehicles" :key="`${index}-${vIndex}`">
-                  <TableCell>{{ bill.bill_id?.bill_no }}</TableCell>
-                  <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
-                  <TableCell class="max-w-[240px] break-words whitespace-normal">{{ bill.bill_id?.brand_no }}</TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.thickness) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.width) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.len) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.weight) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ veh.send_num }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatNumber(getVehSendWeight(veh, bill.bill_id)) }}
-                  </TableCell>
-                  <TableCell>{{ bill.bill_id?.ship_warehouse }}</TableCell>
-                  <TableCell>{{ bill.bill_id?.contract_no }}</TableCell>
-                  <TableCell>{{ veh.veh_name }}</TableCell>
-                </TableRow>
-              </template>
-              <template v-else>
-                <TableRow>
-                  <TableCell>{{ bill.bill_id?.bill_no }}</TableCell>
-                  <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
-                  <TableCell class="max-w-[240px] break-words whitespace-normal">{{ bill.bill_id?.brand_no }}</TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.thickness) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.width) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatDim(bill.bill_id?.len) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatNumber(bill.bill_id?.weight) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ bill.num || 0 }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    {{ formatNumber(getBillSendWeight(bill)) }}
-                  </TableCell>
-                  <TableCell>{{ bill.bill_id?.ship_warehouse }}</TableCell>
-                  <TableCell>{{ bill.bill_id?.contract_no }}</TableCell>
-                  <TableCell>-</TableCell>
-                </TableRow>
-              </template>
+            <!-- 船运：按 inner_waybill_no 排序，交替背景 -->
+            <template v-if="isVesselInvoice">
+              <TableRow
+                v-for="(row, idx) in sortedVesselRows"
+                :key="idx"
+                :class="row.colorIndex % 2 === 0 ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-orange-50/50 dark:bg-orange-950/20'"
+              >
+                <TableCell>{{ row.billInfo?.bill_no }}</TableCell>
+                <TableCell>{{ getOrderDisplay(row.billInfo) }}</TableCell>
+                <TableCell class="max-w-[240px] break-words whitespace-normal">{{ row.billInfo?.brand_no }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(row.billInfo?.thickness) }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(row.billInfo?.width) }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(row.billInfo?.len) }}</TableCell>
+                <TableCell class="text-right">{{ formatNumber(row.billInfo?.weight) }}</TableCell>
+                <TableCell class="text-right">{{ row.veh.send_num }}</TableCell>
+                <TableCell class="text-right">{{ formatNumber(getVehSendWeight(row.veh, row.billInfo)) }}</TableCell>
+                <TableCell>{{ row.billInfo?.ship_warehouse }}</TableCell>
+                <TableCell>{{ row.billInfo?.contract_no }}</TableCell>
+                <TableCell>{{ row.veh.veh_name }}</TableCell>
+              </TableRow>
+            </template>
+            <!-- 车运：按原顺序 -->
+            <template v-else>
+              <TableRow v-for="(bill, index) in invoiceDetail.bills" :key="index">
+                <TableCell>{{ bill.bill_id?.bill_no }}</TableCell>
+                <TableCell>{{ getOrderDisplay(bill.bill_id) }}</TableCell>
+                <TableCell class="max-w-[240px] break-words whitespace-normal">{{ bill.bill_id?.brand_no }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(bill.bill_id?.thickness) }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(bill.bill_id?.width) }}</TableCell>
+                <TableCell class="text-right">{{ formatDim(bill.bill_id?.len) }}</TableCell>
+                <TableCell class="text-right">{{ formatNumber(bill.bill_id?.weight) }}</TableCell>
+                <TableCell class="text-right">{{ bill.num || 0 }}</TableCell>
+                <TableCell class="text-right">{{ formatNumber(getBillSendWeight(bill)) }}</TableCell>
+                <TableCell>{{ bill.bill_id?.ship_warehouse }}</TableCell>
+                <TableCell>{{ bill.bill_id?.contract_no }}</TableCell>
+                <TableCell>-</TableCell>
+              </TableRow>
             </template>
           </TableBody>
         </Table>

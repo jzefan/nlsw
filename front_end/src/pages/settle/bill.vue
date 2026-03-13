@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { CheckCircle, ChevronDown, ChevronUp, Download, Filter, Loader2, ShoppingCart, Trash2, Users, X } from 'lucide-vue-next'
+import {
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Filter,
+  Loader2,
+  ShoppingCart,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -77,7 +88,7 @@ const {
 } = useSettleBasket<SettleBill>({
   basketType: 'bill',
   isSameItem: isSameBill,
-  getPrice: (item: SettleBill) => settleMode.value === 'CUSTOMER' ? item.price : item.collection_price,
+  getPrice: (item: SettleBill) => (settleMode.value === 'CUSTOMER' ? item.price : item.collection_price),
   allItems: () => allBills.value,
 })
 
@@ -152,43 +163,72 @@ watch(settleMode, () => {
   }
 })
 
-// 从运单数据中提取过滤选项
+// 从运单数据中提取过滤选项（级联：每个下拉的可选项由其它已选条件决定）
 const filterOptions = computed(() => {
-  const billingNames = new Set<string>()
-  const vehicleNames = new Set<string>()
-  const shipFroms = new Set<string>()
-  const destinations = new Set<string>()
-  const orderNos = new Set<string>()
-  const billNos = new Set<string>()
-  const invNosMap = new Map<string, string>() // inv_no -> shipper
+  const fp = filterParams.value
 
-  allBills.value.forEach((bill) => {
-    if (bill.billing_name) billingNames.add(bill.billing_name)
-    if (bill.veh_ves_name) vehicleNames.add(bill.veh_ves_name)
-    if (bill.ship_from) shipFroms.add(bill.ship_from)
-    if (bill.ship_to) destinations.add(bill.ship_to)
-    if (bill.order_no) orderNos.add(bill.order_no)
-    if (bill.bill_no) billNos.add(bill.bill_no)
+  // 按除了 exclude 之外的所有已选条件过滤 allBills
+  function applyOtherFilters(exclude: string): SettleBill[] {
+    let filtered = allBills.value
+    if (exclude !== 'fName' && fp.fName && fp.fName.length > 0) {
+      filtered = filtered.filter((b) => fp.fName!.includes(b.billing_name))
+    }
+    if (exclude !== 'fVeh' && fp.fVeh && fp.fVeh.length > 0) {
+      filtered = filtered.filter((b) => fp.fVeh!.includes(b.veh_ves_name))
+    }
+    if (exclude !== 'fShipFrom' && fp.fShipFrom && fp.fShipFrom.length > 0) {
+      filtered = filtered.filter((b) => fp.fShipFrom!.includes(b.ship_from))
+    }
+    if (exclude !== 'fDest' && fp.fDest && fp.fDest.length > 0) {
+      filtered = filtered.filter((b) => fp.fDest!.includes(b.ship_to))
+    }
+    if (exclude !== 'fOrder' && fp.fOrder && fp.fOrder.length > 0) {
+      filtered = filtered.filter((b) => fp.fOrder!.includes(b.order_no))
+    }
+    if (exclude !== 'fBno' && fp.fBno && fp.fBno.length > 0) {
+      filtered = filtered.filter((b) => fp.fBno!.includes(b.bill_no))
+    }
+    if (exclude !== 'fInvNo' && fp.fInvNo && fp.fInvNo.length > 0) {
+      filtered = filtered.filter((b) => fp.fInvNo!.includes(b.inv_no))
+    }
+    return filtered
+  }
+
+  function uniqueSorted(bills: SettleBill[], getter: (b: SettleBill) => string): string[] {
+    const set = new Set<string>()
+    bills.forEach((b) => {
+      const v = getter(b)
+      if (v) set.add(v)
+    })
+    return Array.from(set).sort()
+  }
+
+  const forName = applyOtherFilters('fName')
+  const forVeh = applyOtherFilters('fVeh')
+  const forShipFrom = applyOtherFilters('fShipFrom')
+  const forDest = applyOtherFilters('fDest')
+  const forOrder = applyOtherFilters('fOrder')
+  const forBno = applyOtherFilters('fBno')
+  const forInvNo = applyOtherFilters('fInvNo')
+
+  // 运单号需要额外携带 shipper 信息
+  const invNosMap = new Map<string, string>()
+  forInvNo.forEach((bill) => {
     if (bill.inv_no && !invNosMap.has(bill.inv_no)) {
       invNosMap.set(bill.inv_no, bill.inv_shipper || '')
     }
   })
-
-  // 将运单号转换为对象数组，包含运单号和创建人
   const invNos = Array.from(invNosMap.entries())
-    .map(([invNo, shipper]) => ({
-      inv_no: invNo,
-      shipper,
-    }))
+    .map(([invNo, shipper]) => ({ inv_no: invNo, shipper }))
     .sort((a, b) => a.inv_no.localeCompare(b.inv_no))
 
   return {
-    billingNames: Array.from(billingNames).sort(),
-    vehicleNames: Array.from(vehicleNames).sort(),
-    shipFroms: Array.from(shipFroms).sort(),
-    destinations: Array.from(destinations).sort(),
-    orderNos: Array.from(orderNos).sort(),
-    billNos: Array.from(billNos).sort(),
+    billingNames: uniqueSorted(forName, (b) => b.billing_name),
+    vehicleNames: uniqueSorted(forVeh, (b) => b.veh_ves_name),
+    shipFroms: uniqueSorted(forShipFrom, (b) => b.ship_from),
+    destinations: uniqueSorted(forDest, (b) => b.ship_to),
+    orderNos: uniqueSorted(forOrder, (b) => b.order_no),
+    billNos: uniqueSorted(forBno, (b) => b.bill_no),
     invNos,
   }
 })
@@ -641,8 +681,16 @@ function handleExportFromBasket() {
 
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
   const columns = [
-    '开单名称', '运单号', '车船号', '始发地', '目的地',
-    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+    '开单名称',
+    '运单号',
+    '车船号',
+    '始发地',
+    '目的地',
+    '块数',
+    '发运量',
+    '单价',
+    '总价格',
+    '发货日期',
   ]
   const data: any[][] = [columns]
 
@@ -684,8 +732,17 @@ function handleExportFromPublicBaskets() {
 
   const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
   const columns = [
-    '用户', '开单名称', '运单号', '车船号', '始发地', '目的地',
-    '发运块数', '发运重量', '单价', '总价格', '发货日期',
+    '用户',
+    '开单名称',
+    '运单号',
+    '车船号',
+    '始发地',
+    '目的地',
+    '块数',
+    '发运量',
+    '单价',
+    '总价格',
+    '发货日期',
   ]
   const data: any[][] = [columns]
 
@@ -873,8 +930,8 @@ function handleExport() {
       { header: '开单名称', key: 'billing_name' },
       { header: '车船', key: 'veh_ves_name' },
       { header: '目的地', key: 'ship_to' },
-      { header: '发运块数', key: 'send_num', type: 'number' },
-      { header: '发运重量', key: 'send_weight', type: 'number' },
+      { header: '块数', key: 'send_num', type: 'number' },
+      { header: '发运量', key: 'send_weight', type: 'number' },
       { header: '单价', key: 'price' },
       { header: '总价格', key: 'total_price', type: 'number' },
       { header: '起始地', key: 'ship_from' },
@@ -1622,30 +1679,14 @@ function isBillSelected(bill: SettleBill): boolean {
                       @change="toggleSettle(settle)"
                     />
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.serial_number }}
-                  </td>
-                  <td class="px-2 py-2">
-                    {{ settle.billing_name }}
-                  </td>
-                  <td class="px-2 py-2">
-                    {{ settle.ship_to }}
-                  </td>
-                  <td class="px-2 py-2 text-right">
-                    {{ settle.ship_number }}
-                  </td>
-                  <td class="px-2 py-2 text-right">
-                    {{ (settle.ship_weight || 0).toFixed(3) }}
-                  </td>
-                  <td class="px-2 py-2 text-right">
-                    {{ (settle.price || 0).toFixed(2) }}
-                  </td>
-                  <td class="px-2 py-2">
-                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
-                  </td>
-                  <td class="px-2 py-2">
-                    {{ settle.settler || '-' }}
-                  </td>
+                  <td class="px-2 py-2">{{ settle.serial_number }}</td>
+                  <td class="px-2 py-2">{{ settle.billing_name }}</td>
+                  <td class="px-2 py-2">{{ settle.ship_to }}</td>
+                  <td class="px-2 py-2 text-right">{{ settle.ship_number }}</td>
+                  <td class="px-2 py-2 text-right">{{ (settle.ship_weight || 0).toFixed(3) }}</td>
+                  <td class="px-2 py-2 text-right">{{ (settle.price || 0).toFixed(2) }}</td>
+                  <td class="px-2 py-2">{{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}</td>
+                  <td class="px-2 py-2">{{ settle.settler || '-' }}</td>
                   <td class="px-2 py-2">
                     <span
                       class="px-2 py-0.5 rounded text-xs font-medium"
@@ -1755,7 +1796,11 @@ function isBillSelected(bill: SettleBill): boolean {
             />
           </div>
           <!-- 展开详情 -->
-          <div v-if="basketExpandedBills.has(`${item._id}_${item.inv_no}`)" class="border-t mt-2 pt-2 space-y-1 text-xs" @click.stop>
+          <div
+            v-if="basketExpandedBills.has(`${item._id}_${item.inv_no}`)"
+            class="border-t mt-2 pt-2 space-y-1 text-xs"
+            @click.stop
+          >
             <div>
               <span class="text-muted-foreground">运单号：</span>
               <span>{{ item.inv_no || '-' }}</span>
@@ -1782,7 +1827,7 @@ function isBillSelected(bill: SettleBill): boolean {
               <span>{{ item.send_num }}块</span>
             </div>
             <div>
-              <span class="text-muted-foreground">发运重量：</span>
+              <span class="text-muted-foreground">发运量：</span>
               <span class="font-medium">{{ item.send_weight.toFixed(3) }}吨</span>
             </div>
             <div>
@@ -1815,7 +1860,11 @@ function isBillSelected(bill: SettleBill): boolean {
           <div class="flex items-center gap-2 mb-0.5">
             <span class="font-medium text-sm">{{ item.bill_no }}</span>
             <span class="text-xs text-muted-foreground">{{ item.billing_name }}</span>
-            <span v-if="item._basketOwner" class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{{ item._basketOwner }}</span>
+            <span
+              v-if="item._basketOwner"
+              class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full"
+              >{{ item._basketOwner }}</span
+            >
           </div>
           <div class="flex items-center gap-3 text-xs text-muted-foreground">
             <span>{{ item.send_num }}块</span>

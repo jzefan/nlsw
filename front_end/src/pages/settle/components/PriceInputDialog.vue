@@ -54,8 +54,7 @@ watch(priceMode, (newMode, oldMode) => {
     if (newMode === 'bale') {
       // 单价 → 打包价
       priceValue.value = Number((priceValue.value * props.bill.send_weight).toFixed(2))
-    }
-    else {
+    } else {
       // 打包价 → 单价
       priceValue.value = Number((priceValue.value / props.bill.send_weight).toFixed(2))
     }
@@ -73,7 +72,7 @@ async function handleSave() {
 
   // 如果是打包价模式，需要转换为单价
   if (priceMode.value === 'bale' && finalPrice > 0) {
-    finalPrice = Number((finalPrice / props.bill.send_weight).toFixed(4))
+    finalPrice = Number((finalPrice / props.bill.send_weight).toFixed(3))
   }
 
   const data = [
@@ -92,8 +91,7 @@ async function handleSave() {
       // 更新本地数据
       if (props.settleMode === 'CUSTOMER') {
         props.bill.price = finalPrice
-      }
-      else {
+      } else {
         props.bill.collection_price = finalPrice
       }
       props.bill.incoming_price_remark = remark.value
@@ -101,15 +99,12 @@ async function handleSave() {
       toast.success('价格保存成功')
       emit('update:open', false)
       emit('saved')
-    }
-    else {
+    } else {
       toast.error(result.message || '保存失败')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '保存失败')
-  }
-  finally {
+  } finally {
     saving.value = false
   }
 }
@@ -159,21 +154,11 @@ function handleClose() {
           <label class="text-sm font-medium mb-2 block">输入方式</label>
           <div class="flex gap-4">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="priceMode"
-                type="radio"
-                value="unit"
-                class="h-4 w-4 text-primary focus:ring-primary"
-              >
+              <input v-model="priceMode" type="radio" value="unit" class="h-4 w-4 text-primary focus:ring-primary" />
               <span class="text-sm">每吨单价</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="priceMode"
-                type="radio"
-                value="bale"
-                class="h-4 w-4 text-primary focus:ring-primary"
-              >
+              <input v-model="priceMode" type="radio" value="bale" class="h-4 w-4 text-primary focus:ring-primary" />
               <span class="text-sm">打包价</span>
             </label>
           </div>
@@ -183,9 +168,7 @@ function handleClose() {
         <div>
           <label class="text-sm font-medium mb-2 block">
             {{ priceLabel }}
-            <span class="text-xs text-muted-foreground ml-2">
-              ({{ priceMode === 'unit' ? '元/吨' : '总价' }})
-            </span>
+            <span class="text-xs text-muted-foreground ml-2"> ({{ priceMode === 'unit' ? '元/吨' : '总价' }}) </span>
           </label>
           <div class="flex items-center gap-2">
             <UiInput
@@ -214,9 +197,7 @@ function handleClose() {
       </div>
 
       <UiDialogFooter>
-        <UiButton variant="outline" :disabled="saving" @click="handleClose">
-          取消
-        </UiButton>
+        <UiButton variant="outline" :disabled="saving" @click="handleClose"> 取消 </UiButton>
         <UiButton :disabled="saving" @click="handleSave">
           {{ saving ? '保存中...' : '确定' }}
         </UiButton>

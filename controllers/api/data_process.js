@@ -20,7 +20,7 @@ exports.saveShipmentDetail = async (req, res) => {
     }
 
     const batchId = new mongoose.Types.ObjectId().toString();
-    const createdBy = req.user ? req.user.username : 'unknown';
+    const createdBy = req.user ? (req.user.profile?.name || req.user.userid) : 'unknown';
 
     const docs = rows.map(row => injectTenantId(req, {
       batchId,
@@ -81,6 +81,15 @@ exports.getShipmentBatches = async (req, res) => {
           totalWeight: { $sum: '$weight' },
           loadingListNos: { $addToSet: '$loadingListNo' },
           vehicleNos: { $addToSet: '$vehicleNo' },
+          loadingVehiclePairs: {
+            $addToSet: {
+              $cond: [
+                { $or: [{ $ne: ['$loadingListNo', ''] }, { $ne: ['$vehicleNo', ''] }] },
+                { $concat: [{ $ifNull: ['$loadingListNo', ''] }, '/', { $ifNull: ['$vehicleNo', ''] }] },
+                null,
+              ],
+            },
+          },
         },
       },
       { $sort: { createdAt: -1 } },
@@ -109,6 +118,9 @@ exports.getShipmentBatches = async (req, res) => {
           },
           vehicleNos: {
             $filter: { input: '$vehicleNos', as: 'v', cond: { $ne: ['$$v', ''] } },
+          },
+          loadingVehiclePairs: {
+            $filter: { input: '$loadingVehiclePairs', as: 'v', cond: { $ne: ['$$v', null] } },
           },
         },
       },
