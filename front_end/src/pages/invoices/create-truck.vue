@@ -974,7 +974,7 @@ function isBillHighlighted(bill: InvoiceBill) {
             :model-value="form.shipName"
             :search-fn="searchBillingNames"
             placeholder="开单名称"
-            @update:model-value="handleShipNameChange"
+            @update:model-value="handleShipNameChange($event as string)"
           />
 
           <!-- 发货单位 -->
@@ -1002,7 +1002,7 @@ function isBillHighlighted(bill: InvoiceBill) {
             :search-fn="searchOrders"
             placeholder="订单号"
             :disabled="!form.shipName"
-            @update:model-value="handleOrderChange"
+            @update:model-value="handleOrderChange($event as string)"
           />
 
           <!-- 提单号 -->
@@ -1011,7 +1011,7 @@ function isBillHighlighted(bill: InvoiceBill) {
             :search-fn="searchBills"
             placeholder="提单号"
             :disabled="!selectedOrderNo"
-            @update:model-value="handleBillSelect"
+            @update:model-value="handleBillSelect($event as string)"
           />
         </div>
 

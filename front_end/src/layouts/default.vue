@@ -165,7 +165,7 @@ const breadcrumbs = computed(() => {
       </header>
       <SubscriptionBanner @open-payment="showPaymentQR = true" />
       <div class="overflow-auto grow min-h-0">
-        <div :class="cn('p-4 md:min-w-[1024px]', contentLayout === 'centered' ? 'container mx-auto ' : '')">
+        <div :class="cn('p-0 md:p-4 md:min-w-[1024px]', contentLayout === 'centered' ? 'container mx-auto ' : '')">
           <router-view />
         </div>
       </div>

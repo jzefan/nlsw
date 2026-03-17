@@ -92,36 +92,12 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     // 默认最多返回 5000 条，前端可以通过分页或日期范围缩小查询
     pipeline.push({ $limit: 5000 });
 
-    // 第四步：关联 bills 集合（使用 $lookup 替代 populate）
+    // 第四步：关联 bills 集合（使用 localField/foreignField 利用 _id 索引）
     pipeline.push({
       $lookup: {
         from: "bills",
-        let: { billIds: "$bills.bill_id" },
-        pipeline: [
-          {
-            $match: {
-              $expr: { $in: ["$_id", "$$billIds"] },
-            },
-          },
-          {
-            // 只选择必要字段，减少数据传输
-            $project: {
-              _id: 1,
-              order: 1,
-              bill_no: 1,
-              billing_name: 1,
-              block_num: 1,
-              total_weight: 1,
-              warehouse: 1,
-              ship_warehouse: 1,
-              brand_no: 1,
-              vehicles: 1,
-              contract_no: 1,
-              shipping_address: 1,
-              product_type: 1,
-            },
-          },
-        ],
+        localField: "bills.bill_id",
+        foreignField: "_id",
         as: "billDetails",
       },
     });
@@ -165,71 +141,57 @@ exports.getInvoiceSettleVessel = async (req, res) => {
 
     // 构建 vehPersonMap (只查询结果集中出现的车辆)
     const vehSet = new Set();
+    const allWaybillNos = [];
     invs.forEach((inv) => {
       // 主运单车船号
       if (inv.vehicle_vessel_name) vehSet.add(inv.vehicle_vessel_name);
-      // bills.vehicles 中的车船号
+      // 收集运单号（用于回执图片查询）
+      allWaybillNos.push(inv.waybill_no);
+      // bills.vehicles 中的车船号和内部运单号
       if (inv.bills && inv.bills.length > 0) {
         inv.bills.forEach((bill) => {
           if (bill.vehicles && bill.vehicles.length > 0) {
             bill.vehicles.forEach((veh) => {
               if (veh.veh_name) vehSet.add(veh.veh_name);
+              if (veh.inner_waybill_no) allWaybillNos.push(veh.inner_waybill_no);
             });
           }
         });
       }
     });
+
+    // 并行查询车辆信息和回执图片
+    const vehQuery = vehSet.size > 0
+      ? { name: { $in: Array.from(vehSet) } }
+      : null;
+    if (vehQuery && req.tenantId) vehQuery.tenantId = req.tenantId;
+
+    const imgQuery = allWaybillNos.length > 0
+      ? { waybill_no: { $in: allWaybillNos } }
+      : null;
+    if (imgQuery && req.tenantId) imgQuery.tenantId = req.tenantId;
+
+    const [vehs, imageWaybills] = await Promise.all([
+      vehQuery
+        ? Vehicle.find(vehQuery).select("name boss real_boss veh_category").lean().exec()
+        : [],
+      imgQuery
+        ? ReceiptImage.distinct("waybill_no", imgQuery)
+        : [],
+    ]);
 
     const vehPersonMap = {};
     const vehCategoryMap = {};
-    if (vehSet.size > 0) {
-      const vehQuery = { name: { $in: Array.from(vehSet) } };
-      if (req.tenantId) {
-        vehQuery.tenantId = req.tenantId;
+    vehs.forEach(function (veh) {
+      if (veh.boss && (veh.boss.includes(",") || veh.boss.includes("，"))) {
+        vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
+      } else if (veh.boss) {
+        vehPersonMap[veh.name] = veh.boss;
       }
-
-      const vehs = await Vehicle.find(vehQuery)
-        .select("name boss real_boss veh_category")
-        .lean()
-        .exec();
-
-      vehs.forEach(function (veh) {
-        if (veh.boss && (veh.boss.includes(",") || veh.boss.includes("，"))) {
-          vehPersonMap[veh.name] = { boss: veh.boss, real_boss: veh.real_boss };
-        } else if (veh.boss) {
-          vehPersonMap[veh.name] = veh.boss;
-        }
-        if (veh.veh_category) {
-          vehCategoryMap[veh.name] = veh.veh_category;
-        }
-      });
-    }
-
-    // 查询哪些运单号有回执图片
-    const allWaybillNos = [];
-    invs.forEach((inv) => {
-      allWaybillNos.push(inv.waybill_no);
-      if (inv.bills) {
-        inv.bills.forEach((bill) => {
-          if (bill.vehicles) {
-            bill.vehicles.forEach((veh) => {
-              if (veh.inner_waybill_no) {
-                allWaybillNos.push(veh.inner_waybill_no);
-              }
-            });
-          }
-        });
+      if (veh.veh_category) {
+        vehCategoryMap[veh.name] = veh.veh_category;
       }
     });
-
-    let imageWaybills = [];
-    if (allWaybillNos.length > 0) {
-      const imgQuery = { waybill_no: { $in: allWaybillNos } };
-      if (req.tenantId) {
-        imgQuery.tenantId = req.tenantId;
-      }
-      imageWaybills = await ReceiptImage.distinct("waybill_no", imgQuery);
-    }
 
     res.json({ ok: true, invs, vehPersonMap, vehCategoryMap, imageWaybills });
   } catch (error) {

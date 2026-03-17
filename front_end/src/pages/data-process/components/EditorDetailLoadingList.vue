@@ -304,7 +304,7 @@ function showFillHandle(rowIndex: number): boolean {
             placeholder="选择车船号"
             :search-fn="searchVehicles"
             class="w-52"
-            @update:model-value="emit('update-vehicle', groupIndex, $event)"
+            @update:model-value="emit('update-vehicle', groupIndex, $event as string)"
           />
           <span v-if="!group.vehicleNo" class="text-sm text-orange-500">请选择车号</span>
         </template>

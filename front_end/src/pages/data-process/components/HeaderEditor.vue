@@ -58,14 +58,14 @@ async function searchDestinations(search: string, limit: number, page: number) {
           :model-value="modelValue.billingName"
           placeholder="开单名称"
           :search-fn="searchCompanies"
-          @update:model-value="updateField('billingName', $event)"
+          @update:model-value="updateField('billingName', $event as string)"
         />
 
         <SearchableCombobox
           :model-value="modelValue.vehicle"
           placeholder="车船号"
           :search-fn="searchVehicles"
-          @update:model-value="updateField('vehicle', $event)"
+          @update:model-value="updateField('vehicle', $event as string)"
         />
 
         <UiInput
@@ -85,7 +85,7 @@ async function searchDestinations(search: string, limit: number, page: number) {
           :model-value="modelValue.destination"
           placeholder="目的地"
           :search-fn="searchDestinations"
-          @update:model-value="updateField('destination', $event)"
+          @update:model-value="updateField('destination', $event as string)"
         />
       </div>
     </UiCardContent>

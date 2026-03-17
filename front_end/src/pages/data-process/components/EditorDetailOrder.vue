@@ -245,7 +245,7 @@ function confirmVehicleBatch() {
               placeholder="选择车船号"
               :search-fn="searchVehicles"
               class="w-48 flex-shrink-0 ml-auto"
-              @update:model-value="vehicleFormMap[occ.loadingListNo] = $event"
+              @update:model-value="vehicleFormMap[occ.loadingListNo] = $event as string"
             />
           </div>
         </div>

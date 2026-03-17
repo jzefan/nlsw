@@ -207,17 +207,31 @@ const filterOptions = computed(() => {
     return filtered
   }
 
-  function uniqueSorted(records: any[], getter: (inv: any) => string): string[] {
+  function uniqueSorted(records: any[], getter: (inv: any) => string | string[]): string[] {
     const set = new Set<string>()
     records.forEach((inv) => {
       const v = getter(inv)
-      if (v) set.add(v)
+      if (Array.isArray(v)) {
+        v.forEach((item) => { if (item) set.add(item) })
+      } else if (v) {
+        set.add(v)
+      }
     })
     return Array.from(set).sort()
   }
 
   return {
-    vehicles: uniqueSorted(applyOtherFilters('vehicle'), (inv) => inv.vehicle_vessel_name),
+    vehicles: uniqueSorted(applyOtherFilters('vehicle'), (inv) => {
+      // 包含主运单车船号和子行车辆名称（到船的记录中，车辆名在 bills.vehicles 中）
+      const names: string[] = []
+      if (inv.vehicle_vessel_name) names.push(inv.vehicle_vessel_name)
+      inv.bills?.forEach((bill: any) => {
+        bill.vehicles?.forEach((veh: any) => {
+          if (veh.veh_name) names.push(veh.veh_name)
+        })
+      })
+      return names
+    }),
     billNames: uniqueSorted(applyOtherFilters('billName'), (inv) => inv.ship_name),
     origins: uniqueSorted(applyOtherFilters('origin'), (inv) => inv.ship_from),
     destinations: uniqueSorted(applyOtherFilters('destination'), (inv) => inv.ship_to),
@@ -262,6 +276,7 @@ function nextPage() {
 
 // 统计信息
 const totalWeight = ref(0)
+const totalSendWeight = ref(0)
 const totalAmount = ref(0)
 const prePayment = ref(0)
 const selectedTotalWeight = ref(0)
@@ -498,6 +513,7 @@ function disableEndDate(date: Date) {
 function buildTableData() {
   const data: any[] = []
   totalWeight.value = 0
+  totalSendWeight.value = 0
   totalAmount.value = 0
   prePayment.value = 0
   allReceiptOk.value = true
@@ -546,22 +562,30 @@ function buildTableData() {
     const isVessel = inv.bills?.some((bill: any) => bill.vehicles && bill.vehicles.length > 0)
     let vehObj = isVessel ? makeVehInfo(inv) : null
 
-    // 船运记录 + 车辆筛选：只保留匹配的车辆子行
+    // 车辆筛选
     let vehicleFiltered = false
-    if (vehicleFilter && isVessel && vehObj) {
-      const filteredVehObj: any = {}
-      Object.keys(vehObj).forEach((key) => {
-        if (vehObj[key].name === vehicleFilter) {
-          filteredVehObj[key] = vehObj[key]
+    if (vehicleFilter) {
+      if (isVessel && vehObj) {
+        // 船运记录：只保留匹配的车辆子行
+        const filteredVehObj: any = {}
+        Object.keys(vehObj).forEach((key) => {
+          if (vehObj[key].name === vehicleFilter) {
+            filteredVehObj[key] = vehObj[key]
+          }
+        })
+        // 如果该船下没有匹配的车，且船本身也不匹配，跳过该记录
+        if (Object.keys(filteredVehObj).length === 0 && inv.vehicle_vessel_name !== vehicleFilter) {
+          return
         }
-      })
-      // 如果该船下没有匹配的车，且船本身也不匹配，跳过该记录
-      if (Object.keys(filteredVehObj).length === 0 && inv.vehicle_vessel_name !== vehicleFilter) {
-        return
-      }
-      if (Object.keys(filteredVehObj).length > 0) {
-        vehObj = filteredVehObj
-        vehicleFiltered = true // 标记：船运主行不可结算
+        if (Object.keys(filteredVehObj).length > 0) {
+          vehObj = filteredVehObj
+          vehicleFiltered = true // 标记：船运主行不可结算
+        }
+      } else if (!isVessel) {
+        // 非船运（车运）记录：车船名称不匹配则跳过
+        if (inv.vehicle_vessel_name !== vehicleFilter) {
+          return
+        }
       }
     }
 
@@ -590,6 +614,13 @@ function buildTableData() {
       totalWeight.value += inv.total_weight
       prePayment.value += (inv.charge_cash || 0) + (inv.charge_oil || 0)
 
+      // 发运重量：车运且目的地不是到船 → 累加；船运 → 累加船的发运重量
+      if (!isVessel) {
+        totalSendWeight.value += inv.total_weight
+      } else {
+        totalSendWeight.value += inv.total_weight
+      }
+
       if (inv.receipt !== 1) allReceiptOk.value = false
       if (inv.vessel_price >= 0) allNotNeed.value = false
     }
@@ -611,6 +642,11 @@ function buildTableData() {
         }
         totalWeight.value += veh.weight
         prePayment.value += (veh.charge_cash || 0) + (veh.charge_oil || 0)
+
+        // 发运重量：到船的车运，船已结算时才累加
+        if (inv.vessel_settle_state === '已结算') {
+          totalSendWeight.value += veh.weight
+        }
 
         if (veh.receipt !== 1) allReceiptOk.value = false
         if (veh.price >= 0) allNotNeed.value = false
@@ -2206,6 +2242,9 @@ function handleUploadReceiptConfirm() {
         <span class="text-muted-foreground">
           重量: <strong class="text-foreground">{{ formatNumber(totalWeight) }}</strong>
         </span>
+        <span class="text-muted-foreground">
+          发运重量: <strong class="text-foreground">{{ formatNumber(totalSendWeight) }}</strong>
+        </span>
         <span v-if="hasPrivilegePrice" class="text-muted-foreground">
           合计金额: <strong class="text-foreground">¥{{ formatNumber(totalAmount) }}</strong>
         </span>
@@ -2240,6 +2279,9 @@ function handleUploadReceiptConfirm() {
           </span>
           <span class="text-muted-foreground">
             重量: <strong class="text-foreground">{{ formatSmart(totalWeight, '吨') }}</strong>
+          </span>
+          <span class="text-muted-foreground">
+            发运: <strong class="text-foreground">{{ formatSmart(totalSendWeight, '吨') }}</strong>
           </span>
           <span v-if="hasPrivilegePrice" class="text-muted-foreground">
             合计: <strong class="text-foreground">¥{{ formatSmart(totalAmount, '元') }}</strong>

@@ -105,16 +105,6 @@ async function handleQuery(resetPage = true) {
     page.value = 1
   }
 
-  if (
-    !showNotSent.value &&
-    filter.startDate &&
-    filter.endDate &&
-    new Date(filter.startDate) > new Date(filter.endDate)
-  ) {
-    toast.error('开始日期不能晚于结束日期')
-    return
-  }
-
   loading.value = true
   try {
     const params: any = {
@@ -684,16 +674,6 @@ watch(showNotSent, (val) => {
   }
 })
 
-// Date validation for DatePicker
-function disableStartDate(date: Date) {
-  if (!filter.endDate) return false
-  return date > new Date(filter.endDate)
-}
-
-function disableEndDate(date: Date) {
-  if (!filter.startDate) return false
-  return date < new Date(filter.startDate)
-}
 
 // Pagination
 function handlePageChange(p: number) {
@@ -865,8 +845,6 @@ function handlePageChange(p: number) {
           <DatePicker
             v-model="filter.startDate"
             placeholder="发货日期(开始)"
-            :disabled-date="disableStartDate"
-            disabled-hint="开始日期不能晚于结束日期"
             class="w-full"
           />
           <X
@@ -880,8 +858,6 @@ function handlePageChange(p: number) {
           <DatePicker
             v-model="filter.endDate"
             placeholder="发货日期(结束)"
-            :disabled-date="disableEndDate"
-            disabled-hint="结束日期不能早于开始日期"
             class="w-full"
           />
           <X

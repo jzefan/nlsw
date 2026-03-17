@@ -53,17 +53,19 @@ export function formatDate(date: string | Date | null | undefined, fallback: str
 }
 
 /**
- * 将日期字符串转换为 Date 对象（用于 Excel 导出）
+ * 将日期转换为字符串（用于 Excel 导出）
+ * 使用本地时间格式化，与表格显示保持一致，避免时区偏移问题
  * @param dateStr 日期字符串
- * @returns Date 对象或空字符串
+ * @returns 格式化的日期字符串或空字符串
  */
-export function toExcelDate(dateStr: string | Date | null | undefined): Date | string {
+export function toExcelDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return ''
   const d = dateStr instanceof Date ? dateStr : new Date(dateStr)
   if (isNaN(d.getTime())) return ''
-  // ExcelJS 按 UTC 格式化日期，需补偿时区偏移以确保显示北京时间
-  const offsetMs = d.getTimezoneOffset() * 60 * 1000
-  return new Date(d.getTime() - offsetMs)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /**

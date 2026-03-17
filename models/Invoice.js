@@ -106,5 +106,7 @@ invoiceSchema.index({ tenantId: 1, vehicle_vessel_name: 1, ship_date: -1 });
 invoiceSchema.index({ tenantId: 1, ship_name: 1, ship_date: -1 });
 invoiceSchema.index({ tenantId: 1, ship_to: 1 });
 invoiceSchema.index({ tenantId: 1, 'bills.bill_id': 1, ship_date: -1 });
+// 车船结算查询优化：按结算状态+日期范围筛选
+invoiceSchema.index({ tenantId: 1, vessel_settle_state: 1, ship_date: -1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);
