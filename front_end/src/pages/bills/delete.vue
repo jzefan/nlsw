@@ -6,7 +6,7 @@ import type { BillFilterValues } from '@/components/bill-filter.vue'
 import type { Bill } from '@/services/api/bill.api'
 
 import BillFilter from '@/components/bill-filter.vue'
-import { BasicPage } from '@/components/global-layout'
+import BasicHeader from '@/components/global-layout/basic-header.vue'
 import {
 
   deleteBills,
@@ -24,6 +24,7 @@ const selectedBills = ref<Bill[]>([])
 const total = ref(0)
 const page = ref(1)
 const limit = ref(20)
+const pageSizeOptions = [10, 15, 20, 30, 40, 50, 100]
 
 // 移动端卡片选中ID集合
 const selectedBillIds = computed(() => new Set(selectedBills.value.map(b => b._id!)))
@@ -342,9 +343,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <BasicPage title="删除提单" description="删除新建状态的提单">
-    <template #actions>
-      <div class="flex items-center gap-2">
+  <div class="flex flex-col" style="height: calc(100vh - 80px)">
+    <BasicHeader title="删除提单" description="删除新建状态的提单" class="shrink-0">
+      <template #actions>
+        <div class="flex items-center gap-2">
         <UiButton
           :variant="showFilter ? 'default' : 'outline'"
           size="sm"
@@ -362,10 +364,11 @@ onMounted(() => {
           刷新
         </UiButton>
       </div>
-    </template>
+      </template>
+    </BasicHeader>
 
     <!-- 提示 -->
-    <div class="mb-3 p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200 text-sm">
+    <div class="mb-2 p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200 text-sm shrink-0">
       只能删除状态为"新建"的提单，已配发或已结算的提单无法删除。
     </div>
 
@@ -376,13 +379,13 @@ onMounted(() => {
       :show-status="false"
       :show-left-num-only="false"
       :creater-options="userNames"
-      class="mb-3"
+      class="mb-2 shrink-0"
       @search="activeQuery = null; loadData()"
       @reset="resetFilters"
     />
 
     <!-- 当前查询条件显示 -->
-    <div v-if="activeQuery" class="mb-3 flex items-center gap-2">
+    <div v-if="activeQuery" class="mb-2 flex items-center gap-2 shrink-0">
       <span class="text-sm text-muted-foreground">当前查询:</span>
       <span class="inline-flex items-center gap-1 px-2 py-1 text-sm bg-primary/10 text-primary rounded-md">
         {{ activeQuery.label }}
@@ -397,7 +400,7 @@ onMounted(() => {
     </div>
 
     <!-- 工具栏 -->
-    <div class="mb-3 flex items-center gap-2">
+    <div class="mb-2 flex items-center gap-2 shrink-0">
       <UiButton
         variant="destructive"
         size="sm"
@@ -414,9 +417,10 @@ onMounted(() => {
     </div>
 
     <!-- 数据表格（桌面端） -->
-    <div class="hidden md:block border rounded-lg overflow-auto">
-      <table class="w-full text-sm min-w-[1024px]">
-        <thead class="bg-muted/50">
+    <div class="hidden md:flex md:flex-col border rounded-lg overflow-hidden flex-1 min-h-0">
+      <div class="overflow-auto flex-1">
+        <table class="w-full text-sm min-w-[1024px]">
+          <thead class="bg-muted/50 sticky top-0 z-10">
           <tr>
             <th class="p-2 text-left w-10 whitespace-nowrap">
               <button class="flex items-center focus:outline-none" @click="toggleSelectAll">
@@ -518,7 +522,7 @@ onMounted(() => {
               {{ bill.block_num }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(bill.total_weight, 2) }}
+              {{ formatNumber(bill.total_weight, 3) }}
             </td>
             <td class="p-2">
               {{ bill.ship_warehouse }}
@@ -539,12 +543,13 @@ onMounted(() => {
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
 
     <!-- 移动端卡片列表 -->
     <BillCardList
-      class="md:hidden"
+      class="md:hidden flex-1 min-h-0 overflow-auto"
       :bills="bills"
       :loading="loading"
       :selected-ids="selectedBillIds"
@@ -553,11 +558,21 @@ onMounted(() => {
     />
 
     <!-- 分页 -->
-    <div class="mt-4 flex flex-col md:flex-row items-center justify-between gap-2">
+    <div class="mt-2 flex flex-col md:flex-row items-center justify-between gap-2 shrink-0">
       <div class="text-sm text-muted-foreground">
         共 {{ total }} 条
       </div>
       <div class="flex items-center gap-2">
+        <UiSelect :model-value="String(limit)" @update:model-value="(v) => { limit = Number(v); handlePageChange(1) }">
+          <UiSelectTrigger class="w-24 h-8 text-xs">
+            <UiSelectValue />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem v-for="size in pageSizeOptions" :key="size" :value="String(size)">
+              {{ size }} 条/页
+            </UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
         <UiButton
           variant="outline"
           size="sm"
@@ -656,7 +671,7 @@ onMounted(() => {
         </UiDialogFooter>
       </UiDialogContent>
     </UiDialog>
-  </BasicPage>
+  </div>
 </template>
 
 <route lang="yaml">

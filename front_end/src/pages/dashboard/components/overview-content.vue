@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { toast } from 'vue-sonner'
+import { useAuthStore } from '@/stores/auth'
+import { isAdmin, hasPermission, PERMISSIONS } from '@/constants/permissions'
 import { Calendar, Download, RefreshCw, Loader2 } from 'lucide-vue-next'
 import ExcelJS from 'exceljs'
 import {
@@ -34,10 +36,19 @@ import OverviewChart from './overview-chart.vue'
 import TopList from './top-list.vue'
 import AllVehiclesTable from './all-vehicles-table.vue'
 
+const authStore = useAuthStore()
+const canDrillDown = computed(() =>
+  isAdmin(authStore.user?.privilege ?? []) || authStore.isOwner
+)
+const canSeeSettle = computed(() => {
+  const priv = authStore.user?.privilege ?? []
+  return hasPermission(priv, PERMISSIONS.CUST_SETTLE) || hasPermission(priv, PERMISSIONS.VESSEL_SETTLE)
+})
+
 const now = new Date()
 const currentYear = now.getFullYear()
-// Generate last 20 years
-const years = Array.from({ length: 20 }, (_, i) => (currentYear - i).toString())
+// Generate years from 2015 to current year
+const years = Array.from({ length: currentYear - 2015 + 1 }, (_, i) => (currentYear - i).toString())
 
 const startDate = ref(`${currentYear}-01`)
 const endDate = ref(`${currentYear}-12`)
@@ -535,10 +546,10 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           </div>
         </UiCardHeader>
         <UiCardContent>
-          <div class="text-3xl font-bold cursor-pointer hover:text-primary transition-colors" @click="drillDownInvoices">
+          <div class="text-3xl font-bold" :class="canDrillDown && 'cursor-pointer hover:text-primary transition-colors'" @click="canDrillDown && drillDownInvoices()">
             {{ stats.totalTonnage.toLocaleString() }} <span class="text-lg font-normal text-muted-foreground">吨</span>
           </div>
-          <div class="mt-3 space-y-2">
+          <div v-if="canSeeSettle" class="mt-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
               <span class="text-muted-foreground">未结算（车运到船）</span>
               <span class="font-medium text-yellow-700 dark:text-yellow-400">{{ stats.truckToShipUnsettledTonnage.toLocaleString() }} 吨</span>
@@ -583,7 +594,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           </div>
         </UiCardHeader>
         <UiCardContent>
-          <div class="text-3xl font-bold cursor-pointer hover:text-primary transition-colors" @click="drillDownBillingNames">
+          <div class="text-3xl font-bold" :class="canDrillDown && 'cursor-pointer hover:text-primary transition-colors'" @click="canDrillDown && drillDownBillingNames()">
             {{ stats.billingNameCount }} <span class="text-lg font-normal text-muted-foreground">个</span>
           </div>
           <p class="text-sm text-muted-foreground mt-3">
@@ -611,19 +622,19 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div class="flex items-center justify-between p-2 rounded-lg bg-background/50">
               <span class="text-muted-foreground">自有</span>
-              <span class="font-medium cursor-pointer hover:text-primary" @click="drillDownVehicle('own')">{{ stats.ownVehicleCount }}</span>
+              <span class="font-medium" :class="canDrillDown && 'cursor-pointer hover:text-primary'" @click="canDrillDown && drillDownVehicle('own')">{{ stats.ownVehicleCount }}</span>
             </div>
             <div class="flex items-center justify-between p-2 rounded-lg bg-background/50">
               <span class="text-muted-foreground">外挂</span>
-              <span class="font-medium cursor-pointer hover:text-primary" @click="drillDownVehicle('outsourced')">{{ stats.outsourcedVehicleCount }}</span>
+              <span class="font-medium" :class="canDrillDown && 'cursor-pointer hover:text-primary'" @click="canDrillDown && drillDownVehicle('outsourced')">{{ stats.outsourcedVehicleCount }}</span>
             </div>
             <div class="flex items-center justify-between p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20">
               <span class="text-blue-600">车运</span>
-              <span class="font-medium text-blue-700 dark:text-blue-400 cursor-pointer" @click="drillDownVehicle('truck')">{{ stats.truckTonnage.toLocaleString() }}吨</span>
+              <span class="font-medium text-blue-700 dark:text-blue-400" :class="canDrillDown && 'cursor-pointer'" @click="canDrillDown && drillDownVehicle('truck')">{{ stats.truckTonnage.toLocaleString() }}吨</span>
             </div>
             <div class="flex items-center justify-between p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20">
               <span class="text-indigo-600">船运</span>
-              <span class="font-medium text-indigo-700 dark:text-indigo-400 cursor-pointer" @click="drillDownVehicle('vessel')">{{ stats.vesselTonnage.toLocaleString() }}吨</span>
+              <span class="font-medium text-indigo-700 dark:text-indigo-400" :class="canDrillDown && 'cursor-pointer'" @click="canDrillDown && drillDownVehicle('vessel')">{{ stats.vesselTonnage.toLocaleString() }}吨</span>
             </div>
           </div>
         </UiCardContent>

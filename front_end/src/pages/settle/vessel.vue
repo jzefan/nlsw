@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
-import { Ban, Check, CheckCircle, CheckSquare, CirclePlus, Clock, Download, Eye, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Users, Wallet, X } from 'lucide-vue-next'
+import { Ban, Check, CheckCircle, CheckSquare, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CirclePlus, Clock, Download, Eye, Layers, List, Loader2, Printer, ShoppingCart, Filter, Settings2, Square, Users, Wallet, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useThrottleFn } from '@vueuse/core'
 import { toast } from 'vue-sonner'
@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -114,6 +115,7 @@ const {
 
 // 筛选表单
 const showFilter = ref(true)
+const showTruckToShip = ref(false)
 const filterForm = ref({
   vehicle: '',
   billName: '',
@@ -245,12 +247,15 @@ const imageWaybillsSet = ref<Set<string>>(new Set())
 const selectAll = ref(false)
 
 // 分页状态
+const usePagination = ref(true) // 是否分页展示
+const renderLoading = ref(false) // 切换全部时的渲染加载状态
 const currentPage = ref(1)
 const pageSize = ref(100)
 
 const totalPages = computed(() => Math.ceil(tableData.value.length / pageSize.value))
 
 const pagedData = computed(() => {
+  if (!usePagination.value) return tableData.value
   const start = (currentPage.value - 1) * pageSize.value
   return tableData.value.slice(start, start + pageSize.value)
 })
@@ -271,6 +276,20 @@ function previousPage() {
 function nextPage() {
   if (currentPage.value < totalPages.value) {
     currentPage.value++
+  }
+}
+
+function togglePagination() {
+  if (usePagination.value) {
+    // 切换到全部展示：先显示 loading，延迟让浏览器完成绘制后再渲染全部数据
+    renderLoading.value = true
+    setTimeout(() => {
+      usePagination.value = false
+      // 等 DOM 更新完成后关闭 loading
+      nextTick(() => { renderLoading.value = false })
+    }, 100)
+  } else {
+    usePagination.value = true
   }
 }
 
@@ -511,6 +530,7 @@ function disableEndDate(date: Date) {
 
 // 构建表格数据
 function buildTableData() {
+  currentPage.value = 1
   const data: any[] = []
   totalWeight.value = 0
   totalSendWeight.value = 0
@@ -625,8 +645,9 @@ function buildTableData() {
       if (inv.vessel_price >= 0) allNotNeed.value = false
     }
 
-    // 子行（车辆）
-    if (isVessel && vehObj) {
+    // 子行（车辆）—— 筛选船号时只显示船主行，不显示其下的车运子行
+    const vesselNameMatched = vehicleFilter && isVessel && inv.vehicle_vessel_name === vehicleFilter
+    if (isVessel && vehObj && !vesselNameMatched) {
       Object.keys(vehObj).forEach((key) => {
         const veh = vehObj[key]
         const subRow = buildSubRow(inv, veh, key, mainRow)
@@ -2039,63 +2060,63 @@ function handleUploadReceiptConfirm() {
                 <h4 class="font-medium text-sm mb-3">显示列</h4>
                 <div class="space-y-2 max-h-80 overflow-y-auto">
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColState" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColState" />
                     <span class="text-sm">状态</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColVehicle" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColVehicle" />
                     <span class="text-sm">车船号/运单号</span>
                   </label>
                   <label v-if="!hideCarrier" class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColCarrier" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColCarrier" />
                     <span class="text-sm">承运单位</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColBillName" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColBillName" />
                     <span class="text-sm">开单名称/发货单位</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColDestination" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColDestination" />
                     <span class="text-sm">起始→目的地</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColQuantity" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColQuantity" />
                     <span class="text-sm">发运数</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColWeight" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColWeight" />
                     <span class="text-sm">发运量</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColUnitPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColUnitPrice" />
                     <span class="text-sm">单价</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColTotalPrice" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColTotalPrice" />
                     <span class="text-sm">总价格</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColShipDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColShipDate" />
                     <span class="text-sm">发货日期</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColSettleDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColSettleDate" />
                     <span class="text-sm">结算日期</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColUnshipDate" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColUnshipDate" />
                     <span class="text-sm">卸船日期</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColDelayDays" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColDelayDays" />
                     <span class="text-sm">滞留天数</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColWaybillNo" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColWaybillNo" />
                     <span class="text-sm">运单号</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="showColTicketNo" type="checkbox" class="h-4 w-4 cursor-pointer" />
+                    <Checkbox v-model="showColTicketNo" />
                     <span class="text-sm">票号</span>
                   </label>
                 </div>
@@ -2236,17 +2257,14 @@ function handleUploadReceiptConfirm() {
 
       <!-- 统计信息行：桌面端 -->
       <div class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4">
-        <span class="text-muted-foreground">
+        <span class="text-muted-foreground text-xs">
           记录数: <strong class="text-foreground">{{ tableData.length }}</strong>
         </span>
-        <span class="text-muted-foreground">
+        <span class="text-muted-foreground text-xs">
           重量: <strong class="text-foreground">{{ formatNumber(totalWeight) }}</strong>
         </span>
         <span class="text-muted-foreground">
-          发运重量: <strong class="text-foreground">{{ formatNumber(totalSendWeight) }}</strong>
-        </span>
-        <span v-if="hasPrivilegePrice" class="text-muted-foreground">
-          合计金额: <strong class="text-foreground">¥{{ formatNumber(totalAmount) }}</strong>
+          合计: <strong class="text-foreground">{{ formatNumber(totalSendWeight) }}吨<template v-if="hasPrivilegePrice"> / ¥{{ formatNumber(totalAmount) }}</template></strong>
         </span>
         <template v-if="selectedTotalWeight > 0">
           <span class="text-primary font-medium">
@@ -2269,6 +2287,24 @@ function handleUploadReceiptConfirm() {
           <ShoppingCart class="w-4 h-4 mr-1" />
           加入结算篮 ({{ selectedRecords.length }})
         </UiButton>
+        <!-- 分页/全部切换 -->
+        <TooltipProvider :delay-duration="200">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                class="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                :class="{ 'ml-auto': !(canShowBasket && selectedRecords.length > 0) }"
+                :disabled="renderLoading"
+                @click="togglePagination"
+              >
+                <Loader2 v-if="renderLoading" class="w-4 h-4 animate-spin" />
+                <List v-else-if="usePagination" class="w-4 h-4" />
+                <Layers v-else class="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ usePagination ? '显示全部数据' : '分页显示' }}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <!-- 统计信息行：移动端 -->
@@ -2281,21 +2317,19 @@ function handleUploadReceiptConfirm() {
             重量: <strong class="text-foreground">{{ formatSmart(totalWeight, '吨') }}</strong>
           </span>
           <span class="text-muted-foreground">
-            发运: <strong class="text-foreground">{{ formatSmart(totalSendWeight, '吨') }}</strong>
-          </span>
-          <span v-if="hasPrivilegePrice" class="text-muted-foreground">
-            合计: <strong class="text-foreground">¥{{ formatSmart(totalAmount, '元') }}</strong>
+            合计: <strong class="text-foreground">{{ formatSmart(totalSendWeight, '吨') }}<template v-if="hasPrivilegePrice"> / ¥{{ formatSmart(totalAmount, '元') }}</template></strong>
           </span>
           <span v-if="selectedTotalWeight > 0" class="text-primary font-medium">
-            已选: {{ formatSmart(selectedTotalWeight, '吨') }}
-          </span>
-          <span v-if="selectedTotalWeight > 0 && hasPrivilegePrice" class="text-primary font-medium">
-            已选: ¥{{ formatSmart(selectedTotalAmount, '元') }}
+            已选: {{ formatSmart(selectedTotalWeight, '吨') }}<template v-if="hasPrivilegePrice"> / ¥{{ formatSmart(selectedTotalAmount, '元') }}</template>
           </span>
           <span v-if="showUnpayBlock" class="text-orange-600 font-medium">
             未付: ¥{{ formatSmart(totalAmount - prePayment, '元') }}
           </span>
         </div>
+        <label class="flex items-center gap-1.5 text-muted-foreground cursor-pointer select-none">
+          <Switch v-model:checked="showTruckToShip" class="scale-75" />
+          <span class="text-xs">显示车运到船</span>
+        </label>
         <!-- 加入结算篮按钮 -->
         <UiButton
           v-if="canShowBasket && selectedRecords.length > 0"
@@ -2313,12 +2347,12 @@ function handleUploadReceiptConfirm() {
       <div class="hidden lg:block flex-1 min-h-0 border rounded-lg overflow-auto relative">
         <!-- 加载遮罩 -->
         <div
-          v-if="loading"
+          v-if="loading || renderLoading"
           class="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-30"
         >
           <div class="flex items-center gap-2 text-muted-foreground">
             <Loader2 class="w-5 h-5 animate-spin" />
-            <span>加载中...</span>
+            <span>{{ renderLoading ? '数据渲染中...' : '加载中...' }}</span>
           </div>
         </div>
         <table class="w-full caption-bottom text-sm min-w-[1024px]">
@@ -2328,7 +2362,7 @@ function handleUploadReceiptConfirm() {
                 class="px-1 py-1.5 text-left flex items-center w-14 sticky top-0 bg-background z-20 shadow-sm"
                 nowrap
               >
-                <input v-model="selectAll" type="checkbox" class="h-4 w-4 cursor-pointer" @change="handleSelectAll" />
+                <Checkbox v-model="selectAll" @update:model-value="handleSelectAll" />
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger as-child>
@@ -2524,13 +2558,9 @@ function handleUploadReceiptConfirm() {
                 @click="handleRowClick(row)"
               >
                 <TableCell class="px-1.5 py-1.5 flex items-center" nowrap>
-                  <input
-                    v-model="row.selected"
-                    type="checkbox"
-                    class="h-4 w-4"
-                    :class="(isInBasket(row) || row.vehicleFiltered) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                  <Checkbox
+                    :model-value="row.selected || isInBasket(row)"
                     :disabled="isInBasket(row) || row.vehicleFiltered"
-                    :checked="row.selected || isInBasket(row)"
                     @click.stop="handleRowSelect(row)"
                   />
                   <TooltipProvider>
@@ -2716,13 +2746,9 @@ function handleUploadReceiptConfirm() {
                 @click="handleSubRowClick(row)"
               >
                 <TableCell class="px-1.5 py-1.5 pl-6 flex items-center" nowrap>
-                  <input
-                    v-model="row.selected"
-                    type="checkbox"
-                    class="h-4 w-4"
-                    :class="isInBasket(row) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+                  <Checkbox
+                    :model-value="row.selected || isInBasket(row)"
                     :disabled="isInBasket(row)"
-                    :checked="row.selected || isInBasket(row)"
                     @click.stop="handleSubRowSelect(row)"
                   />
                   <TooltipProvider>
@@ -2877,6 +2903,36 @@ function handleUploadReceiptConfirm() {
         </table>
       </div>
 
+      <!-- 分页控制 -->
+      <div v-if="usePagination && tableData.length > 0" class="flex items-center justify-between px-2 py-2 text-sm">
+        <span class="text-muted-foreground">
+          共 {{ tableData.length }} 条，第 {{ currentPage }}/{{ totalPages }} 页
+        </span>
+        <div class="flex items-center gap-2">
+          <select
+            :value="pageSize"
+            class="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            @change="pageSize = Number(($event.target as HTMLSelectElement).value); currentPage = 1"
+          >
+            <option v-for="size in [50, 100, 200, 500]" :key="size" :value="size">{{ size }}条/页</option>
+          </select>
+          <div class="flex items-center gap-1">
+            <UiButton variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage <= 1" @click="goToPage(1)">
+              <ChevronsLeft class="h-4 w-4" />
+            </UiButton>
+            <UiButton variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage <= 1" @click="previousPage()">
+              <ChevronLeft class="h-4 w-4" />
+            </UiButton>
+            <UiButton variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage >= totalPages" @click="nextPage()">
+              <ChevronRight class="h-4 w-4" />
+            </UiButton>
+            <UiButton variant="outline" size="icon" class="h-8 w-8" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">
+              <ChevronsRight class="h-4 w-4" />
+            </UiButton>
+          </div>
+        </div>
+      </div>
+
       <!-- 移动端卡片视图 -->
       <div class="lg:hidden space-y-2 flex-1 min-h-0 overflow-auto relative">
         <!-- 加载遮罩 -->
@@ -2944,12 +3000,10 @@ function handleUploadReceiptConfirm() {
 
             <!-- 正常状态 -->
             <template v-else>
-              <input
-                v-model="row.selected"
-                type="checkbox"
-                class="h-4 w-4 shrink-0"
-                :class="row.vehicleFiltered ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+              <Checkbox
+                :model-value="row.selected"
                 :disabled="row.vehicleFiltered"
+                class="shrink-0"
                 @click.stop="handleRowSelect(row)"
               />
               <span
@@ -3042,10 +3096,9 @@ function handleUploadReceiptConfirm() {
 
             <!-- 正常状态 -->
             <template v-else>
-              <input
-                v-model="row.selected"
-                type="checkbox"
-                class="h-4 w-4 shrink-0 cursor-pointer"
+              <Checkbox
+                :model-value="row.selected"
+                class="shrink-0"
                 @click.stop="handleSubRowSelect(row)"
               />
               <span
@@ -3093,32 +3146,6 @@ function handleUploadReceiptConfirm() {
             </template>
           </div>
         </template>
-      </div>
-
-      <!-- 分页 -->
-      <div v-if="tableData.length > pageSize" class="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 px-2">
-        <div class="text-sm text-muted-foreground">
-          显示 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, tableData.length) }} 条，共
-          {{ tableData.length }} 条
-        </div>
-        <div class="flex items-center gap-2">
-          <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage"> 上一页 </UiButton>
-          <div class="flex items-center gap-1">
-            <span class="text-sm">第</span>
-            <input
-              type="number"
-              :value="currentPage"
-              :min="1"
-              :max="totalPages"
-              class="w-16 px-2 py-1 text-sm text-center border rounded"
-              @change="goToPage(($event.target as HTMLInputElement).valueAsNumber)"
-            />
-            <span class="text-sm">/ {{ totalPages }} 页</span>
-          </div>
-          <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
-            下一页
-          </UiButton>
-        </div>
       </div>
 
       <!-- 对话框组件 -->

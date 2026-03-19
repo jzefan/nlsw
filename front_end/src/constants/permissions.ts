@@ -16,6 +16,7 @@ export const PERMISSIONS = {
   SEE_PRICE: 'seePrice',
   CUST_SETTLE: 'custSettle',
   VESSEL_SETTLE: 'vesselSettle',
+  DELETE_INVOICE: 'deleteInvoice',
 } as const
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS]
@@ -32,6 +33,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   seePrice: '查看价格',
   custSettle: '客户结算',
   vesselSettle: '车船结算',
+  deleteInvoice: '删除运单',
 }
 
 export function isAdmin(privilege: string[]): boolean {

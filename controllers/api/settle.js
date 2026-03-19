@@ -116,9 +116,11 @@ exports.getSettleBills = async (req, res) => {
     const {
       fName,
       fVeh,
+      fShipFrom,
       fDest,
       fOrder,
       fBno,
+      fInvNo,
       fDate1,
       fDate2,
       fType,
@@ -153,6 +155,11 @@ exports.getSettleBills = async (req, res) => {
       matchConditions.push({ vehicle_vessel_name: { $in: fVeh } });
     }
 
+    // 起始地过滤
+    if (fShipFrom && Array.isArray(fShipFrom) && fShipFrom.length > 0) {
+      matchConditions.push({ ship_from: { $in: fShipFrom } });
+    }
+
     // 目的地过滤
     if (fDest && Array.isArray(fDest) && fDest.length > 0) {
       matchConditions.push({ ship_to: { $in: fDest } });
@@ -178,46 +185,92 @@ exports.getSettleBills = async (req, res) => {
         $match: matchConditions.length > 0 ? { $and: matchConditions } : {},
       },
 
-      // 第二步：展开 bills 数组
+      // 第二步：只保留后续需要的运单字段，减少内存占用
+      {
+        $project: {
+          waybill_no: 1,
+          ship_name: 1,
+          ship_customer: 1,
+          vehicle_vessel_name: 1,
+          ship_to: 1,
+          ship_from: 1,
+          ship_date: 1,
+          shipper: 1,
+          bills: 1,
+          createdAt: 1,
+        },
+      },
+
+      // 第三步：展开 bills 数组
       { $unwind: { path: "$bills", preserveNullAndEmptyArrays: false } },
 
-      // 第三步：lookup 提单信息（一次性获取所有关联数据）
+      // 第四步：lookup 提单（unwind 后 bills.bill_id 是单值，用 localField/foreignField 走 _id 索引）
       {
         $lookup: {
           from: "bills",
-          let: { billId: "$bills.bill_id" },
-          pipeline: [
-            { $match: { $expr: { $eq: ["$_id", "$$billId"] } } },
-            {
-              $project: {
-                _id: 1,
-                bill_no: 1,
-                order_no: 1,
-                order_item_no: 1,
-                thickness: 1,
-                width: 1,
-                len: 1,
-                weight: 1,
-                contract_no: 1,
-                ship_warehouse: 1,
-                collection_price: 1,
-                incoming_price_remark: 1,
-                settle_flag: 1,
-                invoices: 1,
-              },
-            },
-          ],
+          localField: "bills.bill_id",
+          foreignField: "_id",
           as: "billInfo",
         },
       },
 
-      // 第四步：展开 billInfo（应该只有一个）
+      // 第五步：展开 billInfo（只有一个匹配）
       { $unwind: { path: "$billInfo", preserveNullAndEmptyArrays: false } },
 
-      // 第五步：按发货日期降序排序
+      // 第六步：在管道内提取 price 和 inv_settle_flag
+      {
+        $addFields: {
+          _invInfo: {
+            $let: {
+              vars: {
+                matched: {
+                  $filter: {
+                    input: { $ifNull: ["$billInfo.invoices", []] },
+                    as: "inv",
+                    cond: { $eq: ["$$inv.inv_no", "$waybill_no"] },
+                  },
+                },
+              },
+              in: { $arrayElemAt: ["$$matched", 0] },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          _price: {
+            $let: {
+              vars: {
+                vehMatched: {
+                  $filter: {
+                    input: { $ifNull: ["$_invInfo.vehicles", []] },
+                    as: "v",
+                    cond: { $eq: ["$$v.veh_name", "$vehicle_vessel_name"] },
+                  },
+                },
+              },
+              in: {
+                $cond: {
+                  if: { $gt: [{ $size: "$$vehMatched" }, 0] },
+                  then: {
+                    $ifNull: [
+                      { $arrayElemAt: ["$$vehMatched.veh_price", 0] },
+                      0,
+                    ],
+                  },
+                  else: { $ifNull: ["$_invInfo.price", 0] },
+                },
+              },
+            },
+          },
+          _inv_settle_flag: { $ifNull: ["$_invInfo.inv_settle_flag", 0] },
+        },
+      },
+
+      // 第七步：按发货日期降序排序
       { $sort: { ship_date: -1, createdAt: -1 } },
 
-      // 第六步：构造输出格式
+      // 第八步：构造输出格式
       {
         $project: {
           _id: "$billInfo._id",
@@ -239,60 +292,46 @@ exports.getSettleBills = async (req, res) => {
           width: "$billInfo.width",
           len: "$billInfo.len",
           contract_no: "$billInfo.contract_no",
-          collection_price: "$billInfo.collection_price",
-          incoming_price_remark: "$billInfo.incoming_price_remark",
+          price: "$_price",
+          collection_price: { $ifNull: ["$billInfo.collection_price", 0] },
+          incoming_price_remark: {
+            $ifNull: ["$billInfo.incoming_price_remark", ""],
+          },
+          inv_settle_flag: "$_inv_settle_flag",
           settle_flag: "$billInfo.settle_flag",
           status: "$bills.status",
           bill_weight: "$billInfo.weight",
-          billInvoices: "$billInfo.invoices",
         },
       },
     ];
 
-    const results = await Invoice.aggregate(pipeline).exec();
+    const results = await Invoice.aggregate(pipeline)
+      .allowDiskUse(true)
+      .exec();
 
-    // 处理结果
+    // 过滤集合（用 Set 加速）
+    const fOrderSet =
+      fOrder && Array.isArray(fOrder) && fOrder.length > 0
+        ? new Set(fOrder)
+        : null;
+    const fBnoSet =
+      fBno && Array.isArray(fBno) && fBno.length > 0 ? new Set(fBno) : null;
+    const fInvNoSet =
+      fInvNo && Array.isArray(fInvNo) && fInvNo.length > 0 ? new Set(fInvNo) : null;
+
+    // 处理结果（price 和 inv_settle_flag 已在管道内计算）
     const bills = [];
 
     for (const item of results) {
-      // 订单号过滤（在聚合后过滤，因为订单号在嵌套文档中）
-      if (fOrder && Array.isArray(fOrder) && fOrder.length > 0) {
-        if (!fOrder.includes(item.order_no)) continue;
-      }
-
+      // 订单号过滤
+      if (fOrderSet && !fOrderSet.has(item.order_no)) continue;
       // 提单号过滤
-      if (fBno && Array.isArray(fBno) && fBno.length > 0) {
-        if (!fBno.includes(item.bill_no)) continue;
-      }
-
-      // 从 billInvoices 中查找客户价格和结算状态（统一处理船运和车运）
-      let price = 0;
-      let inv_settle_flag = 0;
-
-      if (item.billInvoices) {
-        const invInfo = item.billInvoices.find(
-          (inv) => inv.inv_no === item.inv_no,
-        );
-        if (invInfo) {
-          price = invInfo.price || 0;
-          inv_settle_flag = invInfo.inv_settle_flag || 0;
-
-          // 从 vehicles 中查找具体车辆的价格
-          if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-            const vehInfo = invInfo.vehicles.find(
-              (v) => v.veh_name === item.veh_ves_name,
-            );
-            if (vehInfo) {
-              price = vehInfo.veh_price || 0;
-            }
-          }
-        }
-      }
+      if (fBnoSet && !fBnoSet.has(item.bill_no)) continue;
+      // 运单号过滤
+      if (fInvNoSet && !fInvNoSet.has(item.inv_no)) continue;
 
       // 单块重（用于定尺提单：重量为0时按 块数*单重 计算）
       const unitWeight = item.bill_weight || 0;
-
-      // 每个提单-运单组合生成一条记录（不按车辆展开）
       const sendNum = item.send_num || 0;
       const sendWeight = item.send_weight || sendNum * unitWeight;
 
@@ -316,10 +355,10 @@ exports.getSettleBills = async (req, res) => {
         width: item.width,
         len: item.len,
         contract_no: item.contract_no,
-        price,
-        collection_price: item.collection_price || 0,
-        incoming_price_remark: item.incoming_price_remark || "",
-        inv_settle_flag,
+        price: item.price,
+        collection_price: item.collection_price,
+        incoming_price_remark: item.incoming_price_remark,
+        inv_settle_flag: item.inv_settle_flag,
         status: item.status,
       });
     }

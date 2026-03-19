@@ -69,7 +69,7 @@ exports.getVesselRevenueData = async (req, res) => {
 
     // 5. Process Each Invoice
     for (const inv of db_invs) {
-      const monthStr = new Date(inv.ship_date).format('yyyy-MM');
+      const monthStr = utils.toFinancialMonth(inv.ship_date);
       const mIdx = months.indexOf(monthStr);
       if (mIdx < 0) continue;
 

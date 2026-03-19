@@ -69,6 +69,7 @@ const permissionOptions = [
   { id: 'seePrice', label: '查看价格' },
   { id: 'custSettle', label: '客户结算' },
   { id: 'vesselSettle', label: '车船结算' },
+  { id: 'deleteInvoice', label: '删除运单' },
 ]
 
 // 权限状态
@@ -83,6 +84,7 @@ const permissions = ref({
   seePrice: false,
   custSettle: false,
   vesselSettle: false,
+  deleteInvoice: false,
 })
 
 // 用户名重复检查
@@ -195,6 +197,7 @@ function resetPermissions() {
     seePrice: false,
     custSettle: false,
     vesselSettle: false,
+    deleteInvoice: false,
   }
 }
 
@@ -217,6 +220,7 @@ function parsePrivilege(privilege: string[]) {
   permissions.value.seePrice = privilege.includes('seePrice')
   permissions.value.custSettle = privilege.includes('custSettle')
   permissions.value.vesselSettle = privilege.includes('vesselSettle')
+  permissions.value.deleteInvoice = privilege.includes('deleteInvoice')
 }
 
 // 生成权限数组
@@ -235,6 +239,7 @@ function generatePrivilege(): string[] {
   if (permissions.value.seePrice) result.push('seePrice')
   if (permissions.value.custSettle) result.push('custSettle')
   if (permissions.value.vesselSettle) result.push('vesselSettle')
+  if (permissions.value.deleteInvoice) result.push('deleteInvoice')
 
   return result
 }
@@ -252,6 +257,7 @@ function onAdminChange(checked: boolean) {
     permissions.value.seePrice = false
     permissions.value.custSettle = false
     permissions.value.vesselSettle = false
+    permissions.value.deleteInvoice = false
   } else {
     permissions.value.admin = false
   }
@@ -862,6 +868,25 @@ onMounted(() => {
                   @change="permissions.vesselSettle = ($event.target as HTMLInputElement).checked"
                 />
                 <span class="text-sm">车船结算</span>
+              </label>
+
+              <!-- 删除运单 -->
+              <label
+                class="flex items-center gap-2 p-2 border rounded-lg transition-all"
+                :class="{
+                  'bg-primary/10 border-primary': permissions.deleteInvoice,
+                  'hover:border-primary/50 cursor-pointer': !permissions.admin,
+                  'opacity-50 cursor-not-allowed': permissions.admin,
+                }"
+              >
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  :checked="permissions.deleteInvoice"
+                  :disabled="permissions.admin"
+                  @change="permissions.deleteInvoice = ($event.target as HTMLInputElement).checked"
+                />
+                <span class="text-sm">删除运单</span>
               </label>
             </div>
           </div>

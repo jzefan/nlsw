@@ -365,6 +365,7 @@ exports.getIntegratedQuery = async function (req, res) {
         if (bName) obj["$and"].push({ billing_name: { $in: query.fName } });
         if (bBNo) obj["$and"].push({ bill_no: { $regex: new RegExp(query.fBno, 'gi') } });
         if (bOrder) obj["$and"].push({ order_no: { $regex: new RegExp(query.fOrder, 'gi') } });
+        if (bDate) obj["$and"].push({ create_date: { $gte: new Date(qDate.s), $lte: new Date(qDate.e) } });
         obj["$and"].push({ status: { $ne: '已配发' } });
         obj["$and"].push({ status: { $ne: '已结算' } });
         obj["$and"].push({ status: { $ne: '待配发' } });

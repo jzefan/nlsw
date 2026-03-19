@@ -6,7 +6,10 @@ import {
   ChevronUp,
   Download,
   Filter,
+  List,
   Loader2,
+  Search,
+  Settings2,
   ShoppingCart,
   Trash2,
   Users,
@@ -18,7 +21,10 @@ import { toast } from 'vue-sonner'
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getCompanies } from '@/services/api/data-dict.api'
 import { getSettleBills, markNotRequireSettle, settleBills } from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
 import { sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
@@ -34,6 +40,7 @@ import SettleFilter from './components/SettleFilter.vue'
 import SettleTable from './components/SettleTable.vue'
 import PublicBasketsDialog from './components/PublicBasketsDialog.vue'
 import SettleBasket from './components/SettleBasket.vue'
+import SettleDetailDialog from './components/SettleDetailDialog.vue'
 import { useSettleBasket } from './composables/useSettleBasket'
 import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
@@ -50,9 +57,44 @@ const viewTab = ref<'unsettled' | 'settled'>('unsettled') // 视图标签：未�
 const allBills = ref<SettleBill[]>([])
 const displayBills = ref<SettleBill[]>([])
 const selectedBills = ref<SettleBill[]>([])
-const loading = ref(true) // 初始显示loading，数据加载完成后自动关闭
+const loading = ref(false) // 不自动加载数据，等用户点击查询
+const dataLoaded = ref(false) // 是否已执行过主查询
+const allBillingNames = ref<string[]>([]) // 全量开单名称（从 API 加载）
 const showFilter = ref(true) // 默认显示过滤器
 const showNonSettle = ref(false)
+
+// 列显示控制（默认全部显示）
+const showColStatus = ref(true)
+const showColOrderNo = ref(true)
+const showColBillNo = ref(true)
+const showColBillingName = ref(true)
+const showColVehicle = ref(true)
+const showColNum = ref(true)
+const showColWeight = ref(true)
+const showColUnitPrice = ref(true)
+const showColTotalPrice = ref(true)
+const showColRoute = ref(true)
+const showColWarehouse = ref(true)
+const showColShipDate = ref(true)
+const showColShipper = ref(true)
+const showColSpec = ref(true)
+
+const columnVisibility = computed(() => ({
+  status: showColStatus.value,
+  orderNo: showColOrderNo.value,
+  billNo: showColBillNo.value,
+  billingName: showColBillingName.value,
+  vehicle: showColVehicle.value,
+  num: showColNum.value,
+  weight: showColWeight.value,
+  unitPrice: showColUnitPrice.value,
+  totalPrice: showColTotalPrice.value,
+  route: showColRoute.value,
+  warehouse: showColWarehouse.value,
+  shipDate: showColShipDate.value,
+  shipper: showColShipper.value,
+  spec: showColSpec.value,
+}))
 
 // 判断两个提单是否相同
 function isSameBill(bill1: SettleBill, bill2: SettleBill): boolean {
@@ -124,6 +166,8 @@ const settleFilterRef = ref<{ resetFilter: () => void } | null>(null)
 // 已结算列表状态
 const settledRecords = ref<SettleRecord[]>([])
 const selectedSettles = ref<SettleRecord[]>([])
+const showDetailDialog = ref(false)
+const detailSettle = ref<SettleRecord | null>(null)
 
 // 过滤参数
 const filterParams = ref<SettleFilterParams>({
@@ -133,26 +177,23 @@ const filterParams = ref<SettleFilterParams>({
 })
 
 // 页面初始化
-onMounted(() => {
-  // 过滤器组件会自动初始化日期并触发 applyFilter
+onMounted(async () => {
   loadBasket()
+  // 加载全量开单名称列表（供筛选下拉用）
+  try {
+    const result = await getCompanies({ limit: 9999 })
+    if (result.ok) {
+      allBillingNames.value = result.data.map((c: any) => c.name).filter((n: string) => n).sort()
+    }
+  } catch { /* ignore */ }
 })
 
-// 监听 tab 切换，实时获取数据
-watch(
-  viewTab,
-  (newTab) => {
-    if (newTab === 'settled') {
-      loadSettledRecords()
-    } else if (newTab === 'unsettled') {
-      // 重新加载未结算数据
-      if (filterParams.value.fDate1 && filterParams.value.fDate2) {
-        loadData(filterParams.value.fDate1, filterParams.value.fDate2)
-      }
-    }
-  },
-  { immediate: true },
-)
+// 监听 tab 切换（未结算 tab 不自动加载，需用户点击查询）
+watch(viewTab, (newTab) => {
+  if (newTab === 'settled') {
+    loadSettledRecords()
+  }
+})
 
 // 监听结算模式切换，重新加载当前 tab 的数据
 watch(settleMode, () => {
@@ -163,75 +204,85 @@ watch(settleMode, () => {
   }
 })
 
-// 从运单数据中提取过滤选项（级联：每个下拉的可选项由其它已选条件决定）
-const filterOptions = computed(() => {
-  const fp = filterParams.value
-
-  // 按除了 exclude 之外的所有已选条件过滤 allBills
-  function applyOtherFilters(exclude: string): SettleBill[] {
-    let filtered = allBills.value
-    if (exclude !== 'fName' && fp.fName && fp.fName.length > 0) {
-      filtered = filtered.filter((b) => fp.fName!.includes(b.billing_name))
-    }
-    if (exclude !== 'fVeh' && fp.fVeh && fp.fVeh.length > 0) {
-      filtered = filtered.filter((b) => fp.fVeh!.includes(b.veh_ves_name))
-    }
-    if (exclude !== 'fShipFrom' && fp.fShipFrom && fp.fShipFrom.length > 0) {
-      filtered = filtered.filter((b) => fp.fShipFrom!.includes(b.ship_from))
-    }
-    if (exclude !== 'fDest' && fp.fDest && fp.fDest.length > 0) {
-      filtered = filtered.filter((b) => fp.fDest!.includes(b.ship_to))
-    }
-    if (exclude !== 'fOrder' && fp.fOrder && fp.fOrder.length > 0) {
-      filtered = filtered.filter((b) => fp.fOrder!.includes(b.order_no))
-    }
-    if (exclude !== 'fBno' && fp.fBno && fp.fBno.length > 0) {
-      filtered = filtered.filter((b) => fp.fBno!.includes(b.bill_no))
-    }
-    if (exclude !== 'fInvNo' && fp.fInvNo && fp.fInvNo.length > 0) {
-      filtered = filtered.filter((b) => fp.fInvNo!.includes(b.inv_no))
-    }
-    return filtered
-  }
-
-  function uniqueSorted(bills: SettleBill[], getter: (b: SettleBill) => string): string[] {
-    const set = new Set<string>()
-    bills.forEach((b) => {
-      const v = getter(b)
-      if (v) set.add(v)
-    })
-    return Array.from(set).sort()
-  }
-
-  const forName = applyOtherFilters('fName')
-  const forVeh = applyOtherFilters('fVeh')
-  const forShipFrom = applyOtherFilters('fShipFrom')
-  const forDest = applyOtherFilters('fDest')
-  const forOrder = applyOtherFilters('fOrder')
-  const forBno = applyOtherFilters('fBno')
-  const forInvNo = applyOtherFilters('fInvNo')
-
-  // 运单号需要额外携带 shipper 信息
-  const invNosMap = new Map<string, string>()
-  forInvNo.forEach((bill) => {
-    if (bill.inv_no && !invNosMap.has(bill.inv_no)) {
-      invNosMap.set(bill.inv_no, bill.inv_shipper || '')
+// 按结算状态过滤后的基础数据（传给 SettleFilter 作为二级筛选的数据源）
+const baseBills = computed(() => {
+  const flag = settleMode.value === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG
+  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
+  return allBills.value.filter((bill) => {
+    const price = bill[priceField]
+    if (showNonSettle.value) {
+      return price === -1
+    } else {
+      return (bill.inv_settle_flag & flag) !== flag && price >= 0
     }
   })
-  const invNos = Array.from(invNosMap.entries())
-    .map(([invNo, shipper]) => ({ inv_no: invNo, shipper }))
-    .sort((a, b) => a.inv_no.localeCompare(b.inv_no))
-
-  return {
-    billingNames: uniqueSorted(forName, (b) => b.billing_name),
-    vehicleNames: uniqueSorted(forVeh, (b) => b.veh_ves_name),
-    shipFroms: uniqueSorted(forShipFrom, (b) => b.ship_from),
-    destinations: uniqueSorted(forDest, (b) => b.ship_to),
-    orderNos: uniqueSorted(forOrder, (b) => b.order_no),
-    billNos: uniqueSorted(forBno, (b) => b.bill_no),
-    invNos,
-  }
 })
+
+// 按结算状态过滤（用于对后端返回的数组做前端过滤）
+function applySettleFilter(bills: SettleBill[]): SettleBill[] {
+  const flag = settleMode.value === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG
+  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
+  return bills.filter((bill) => {
+    const price = bill[priceField]
+    if (showNonSettle.value) {
+      return price === -1
+    } else {
+      return (bill.inv_settle_flag & flag) !== flag && price >= 0
+    }
+  })
+}
+
+// 重新应用过滤（结算状态 + 二级筛选条件），用于模式切换、showNonSettle 变化等
+function applyFrontendFilter() {
+  let bills = applySettleFilter(allBills.value)
+  const sets = buildFilterSets(filterParams.value)
+  const hasSecondary = sets.fVeh || sets.fShipFrom || sets.fDest || sets.fOrder || sets.fBno || sets.fInvNo
+  if (hasSecondary) {
+    bills = bills.filter((bill) => matchesFilter(bill, sets))
+  }
+  displayBills.value = bills
+  selectedBills.value = []
+  currentPage.value = 1
+}
+
+// 将过滤条件数组转为 Set，提升 includes 查找为 O(1)
+function toSet(arr: string[] | undefined): Set<string> | null {
+  return arr && arr.length > 0 ? new Set(arr) : null
+}
+
+// 检测某条记录是否匹配指定的过滤条件（跳过 exclude 字段）
+interface FilterSets {
+  fName: Set<string> | null
+  fVeh: Set<string> | null
+  fShipFrom: Set<string> | null
+  fDest: Set<string> | null
+  fOrder: Set<string> | null
+  fBno: Set<string> | null
+  fInvNo: Set<string> | null
+}
+
+function buildFilterSets(fp: SettleFilterParams): FilterSets {
+  return {
+    fName: toSet(fp.fName),
+    fVeh: toSet(fp.fVeh),
+    fShipFrom: toSet(fp.fShipFrom),
+    fDest: toSet(fp.fDest),
+    fOrder: toSet(fp.fOrder),
+    fBno: toSet(fp.fBno),
+    fInvNo: toSet(fp.fInvNo),
+  }
+}
+
+function matchesFilter(bill: SettleBill, sets: FilterSets, exclude?: string): boolean {
+  if (exclude !== 'fName' && sets.fName && !sets.fName.has(bill.billing_name)) return false
+  if (exclude !== 'fVeh' && sets.fVeh && !sets.fVeh.has(bill.veh_ves_name)) return false
+  if (exclude !== 'fShipFrom' && sets.fShipFrom && !sets.fShipFrom.has(bill.ship_from)) return false
+  if (exclude !== 'fDest' && sets.fDest && !sets.fDest.has(bill.ship_to)) return false
+  if (exclude !== 'fOrder' && sets.fOrder && !sets.fOrder.has(bill.order_no)) return false
+  if (exclude !== 'fBno' && sets.fBno && !sets.fBno.has(bill.bill_no)) return false
+  if (exclude !== 'fInvNo' && sets.fInvNo && !sets.fInvNo.has(bill.inv_no)) return false
+  return true
+}
 
 // 统计信息
 const statistics = computed(() => {
@@ -255,9 +306,6 @@ const statistics = computed(() => {
     totalAmount,
   }
 })
-
-// 初始加载状态（仅首次打开页面时显示加载图标）
-const isInitialLoading = computed(() => loading.value && allBills.value.length === 0)
 
 // 已结算记录统计信息
 const settledStatistics = computed(() => {
@@ -299,33 +347,10 @@ const otherModeHasData = computed(() => {
   const flag = otherMode === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG
   const priceField = otherMode === 'CUSTOMER' ? 'price' : 'collection_price'
 
-  // 应用相同的前端过滤条件
-  let filtered = allBills.value
+  const sets = buildFilterSets(filterParams.value)
 
-  if (filterParams.value.fName && filterParams.value.fName.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fName!.includes(bill.billing_name))
-  }
-  if (filterParams.value.fVeh && filterParams.value.fVeh.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fVeh!.includes(bill.veh_ves_name))
-  }
-  if (filterParams.value.fShipFrom && filterParams.value.fShipFrom.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fShipFrom!.includes(bill.ship_from))
-  }
-  if (filterParams.value.fDest && filterParams.value.fDest.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fDest!.includes(bill.ship_to))
-  }
-  if (filterParams.value.fOrder && filterParams.value.fOrder.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fOrder!.includes(bill.order_no))
-  }
-  if (filterParams.value.fBno && filterParams.value.fBno.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fBno!.includes(bill.bill_no))
-  }
-  if (filterParams.value.fInvNo && filterParams.value.fInvNo.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fInvNo!.includes(bill.inv_no))
-  }
-
-  // 检查另一个模式下是否有未结算的数据
-  return filtered.some((bill) => {
+  return allBills.value.some((bill) => {
+    if (!matchesFilter(bill, sets)) return false
     const price = bill[priceField]
     if (showNonSettle.value) {
       return price === -1
@@ -338,11 +363,7 @@ const otherModeHasData = computed(() => {
 // 分页计算
 const totalPages = computed(() => Math.ceil(displayBills.value.length / pageSize.value))
 
-const pagedBills = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return displayBills.value.slice(start, end)
-})
+const pagedBills = computed(() => displayBills.value)
 
 // 切换结算模式
 function switchMode(mode: SettleMode) {
@@ -368,21 +389,23 @@ function switchViewTab(tab: 'unsettled' | 'settled') {
   }
 }
 
-// 从后端加载数据（仅日期范围）
-async function loadData(startDate?: string, endDate?: string) {
+// 从后端加载数据
+async function loadData(params: SettleFilterParams) {
   loading.value = true
   try {
     const result = await getSettleBills({
-      fDate1: startDate,
-      fDate2: endDate,
-      fType: 'invoice-first',
+      ...params,
       selfOwned: isSelfOwnedMode.value ? 1 : undefined,
     })
     if (result.ok) {
-      allBills.value = result.bills.sort((a, b) => {
+      const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
         return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
       })
-      applyFrontendFilter()
+      // allBills 存主条件结果（用于下拉选项），displayBills 存当前展示结果
+      allBills.value = sorted
+      displayBills.value = applySettleFilter(sorted)
+      selectedBills.value = []
+      currentPage.value = 1
     } else {
       toast.error('获取数据失败')
     }
@@ -393,84 +416,67 @@ async function loadData(startDate?: string, endDate?: string) {
   }
 }
 
-// 前端过滤
-function applyFrontendFilter() {
-  let filtered = allBills.value
 
-  // 开单名称过滤
-  if (filterParams.value.fName && filterParams.value.fName.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fName!.includes(bill.billing_name))
-  }
+// 判断主条件（开单名称+日期）是否变化
+const lastPrimaryName = ref<string[] | undefined>()
+const lastPrimaryDate1 = ref<string | undefined>()
+const lastPrimaryDate2 = ref<string | undefined>()
 
-  // 车船过滤
-  if (filterParams.value.fVeh && filterParams.value.fVeh.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fVeh!.includes(bill.veh_ves_name))
-  }
-
-  // 起始地过滤
-  if (filterParams.value.fShipFrom && filterParams.value.fShipFrom.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fShipFrom!.includes(bill.ship_from))
-  }
-
-  // 目的地过滤
-  if (filterParams.value.fDest && filterParams.value.fDest.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fDest!.includes(bill.ship_to))
-  }
-
-  // 订单号过滤
-  if (filterParams.value.fOrder && filterParams.value.fOrder.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fOrder!.includes(bill.order_no))
-  }
-
-  // 提单号过滤
-  if (filterParams.value.fBno && filterParams.value.fBno.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fBno!.includes(bill.bill_no))
-  }
-
-  // 运单号过滤
-  if (filterParams.value.fInvNo && filterParams.value.fInvNo.length > 0) {
-    filtered = filtered.filter((bill) => filterParams.value.fInvNo!.includes(bill.inv_no))
-  }
-
-  // 根据结算模式和状态过滤
-  const flag = settleMode.value === 'CUSTOMER' ? CUSTOMER_SETTLE_FLAG : COLLECTION_SETTLE_FLAG
-  const priceField = settleMode.value === 'CUSTOMER' ? 'price' : 'collection_price'
-
-  displayBills.value = filtered.filter((bill) => {
-    const price = bill[priceField]
-
-    if (showNonSettle.value) {
-      // 只显示不需要结算的记录
-      return price === -1
-    } else {
-      // 显示未结算的记录（排除已结算和不需要结算的）
-      return (bill.inv_settle_flag & flag) !== flag && price >= 0
-    }
-  })
-
-  selectedBills.value = []
-  currentPage.value = 1
+function isPrimaryChanged(params: SettleFilterParams): boolean {
+  const nameStr = JSON.stringify(params.fName ?? [])
+  const lastStr = JSON.stringify(lastPrimaryName.value ?? [])
+  return nameStr !== lastStr
+    || params.fDate1 !== lastPrimaryDate1.value
+    || params.fDate2 !== lastPrimaryDate2.value
 }
 
-// 应用过滤（由子组件调用）
-function applyFilter(params: SettleFilterParams) {
-  const dateChanged = filterParams.value.fDate1 !== params.fDate1 || filterParams.value.fDate2 !== params.fDate2
-
+// 每次查询都调后端
+async function handleQuery(params: SettleFilterParams) {
+  const primaryChanged = isPrimaryChanged(params)
   filterParams.value = params
 
-  if (dateChanged) {
-    // 日期变化，重新加载数据
-    loadData(params.fDate1, params.fDate2)
+  if (primaryChanged) {
+    // 主条件变了：先用主条件加载全量数据（供下拉选项），然后加载带二级筛选的展示数据
+    // 由于主条件变化时二级筛选已被清空，两次查询参数相同，只需一次请求
+    lastPrimaryName.value = params.fName
+    lastPrimaryDate1.value = params.fDate1
+    lastPrimaryDate2.value = params.fDate2
+    await loadData(params)
   } else {
-    // 其他条件变化，只做前端过滤
-    applyFrontendFilter()
+    // 主条件没变：只用全部参数加载展示数据，不更新 allBills（下拉选项不变）
+    loading.value = true
+    try {
+      const result = await getSettleBills({
+        ...params,
+        selfOwned: isSelfOwnedMode.value ? 1 : undefined,
+      })
+      if (result.ok) {
+        // 不更新 allBills（保持下拉选项），只更新 displayBills
+        const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
+          return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
+        })
+        displayBills.value = applySettleFilter(sorted)
+        selectedBills.value = []
+        currentPage.value = 1
+      } else {
+        toast.error('获取数据失败')
+      }
+    } catch (error: any) {
+      toast.error(error.message || '获取数据失败')
+    } finally {
+      loading.value = false
+    }
   }
+
+  dataLoaded.value = true
 }
 
-// 更新显示的提单列表（现在使用前端过滤）
-function updateDisplayBills() {
-  applyFrontendFilter()
-  refreshBasketBills() // 同时刷新结算篮中的数据
+// 更新显示的提单列表（重新调后端获取最新数据，保持当前筛选条件）
+async function updateDisplayBills() {
+  if (dataLoaded.value) {
+    await handleQuery(filterParams.value)
+  }
+  refreshBasketBills()
 }
 
 // 分页控制函数
@@ -1036,6 +1042,16 @@ async function handleDeleteSettle() {
   }
 }
 
+// 查看结算明细
+function handleShowDetail() {
+  if (selectedSettles.value.length !== 1) {
+    toast.warning('请选择一条记录')
+    return
+  }
+  detailSettle.value = selectedSettles.value[0]
+  showDetailDialog.value = true
+}
+
 // 切换已结算记录选择
 function toggleSettle(settle: SettleRecord) {
   const index = selectedSettles.value.findIndex((s) => s._id === settle._id)
@@ -1226,6 +1242,16 @@ function isBillSelected(bill: SettleBill): boolean {
           </template>
           <template v-else>
             <UiButton
+              variant="outline"
+              size="icon"
+              class="shrink-0 h-8 w-8"
+              title="查看结算明细"
+              :disabled="selectedSettles.length !== 1"
+              @click="handleShowDetail"
+            >
+              <List class="w-4 h-4" />
+            </UiButton>
+            <UiButton
               variant="destructive"
               size="icon"
               class="shrink-0 h-8 w-8"
@@ -1336,6 +1362,10 @@ function isBillSelected(bill: SettleBill): boolean {
 
           <!-- 已结算操作按钮 -->
           <template v-else>
+            <UiButton variant="outline" size="sm" :disabled="selectedSettles.length !== 1" @click="handleShowDetail">
+              <List class="w-4 h-4 mr-1" />
+              查看结算明细
+            </UiButton>
             <UiButton
               variant="destructive"
               size="sm"
@@ -1356,30 +1386,33 @@ function isBillSelected(bill: SettleBill): boolean {
       <TabsContent value="unsettled" class="space-y-4">
         <!-- 过滤器 -->
         <SettleFilter
-          v-if="showFilter"
+          v-show="showFilter"
           ref="settleFilterRef"
           v-model:show-non-settle="showNonSettle"
           :class="{ 'pointer-events-none opacity-50': loading }"
           :settle-mode="settleMode"
-          :billing-names="filterOptions.billingNames"
-          :vehicle-names="filterOptions.vehicleNames"
-          :ship-froms="filterOptions.shipFroms"
-          :destinations="filterOptions.destinations"
-          :order-nos="filterOptions.orderNos"
-          :bill-nos="filterOptions.billNos"
-          :inv-nos="filterOptions.invNos"
-          @apply="applyFilter"
+          :loading="loading"
+          :data-loaded="dataLoaded"
+          :all-billing-names="allBillingNames"
+          :bills="baseBills"
+          @query="handleQuery"
         />
 
-        <!-- 初始加载指示器 -->
-        <div v-if="isInitialLoading" class="flex flex-col items-center justify-center py-20">
+        <!-- 加载中 -->
+        <div v-if="loading" class="flex flex-col items-center justify-center py-20">
           <Loader2 class="w-8 h-8 animate-spin text-primary mb-2" />
           <span class="text-muted-foreground text-sm">正在加载数据...</span>
         </div>
 
+        <!-- 未查询提示 -->
+        <div v-else-if="!dataLoaded" class="flex flex-col items-center justify-center py-20">
+          <Search class="w-8 h-8 text-muted-foreground/50 mb-2" />
+          <span class="text-muted-foreground text-sm">请选择开单名称和日期范围，点击查询</span>
+        </div>
+
         <!-- 汇总统计信息：桌面端 -->
         <div
-          v-if="!isInitialLoading"
+          v-if="dataLoaded && !loading"
           class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm"
           :class="{ 'pointer-events-none opacity-50': loading }"
         >
@@ -1420,12 +1453,83 @@ function isBillSelected(bill: SettleBill): boolean {
               <label for="show-non-settle-main" class="text-sm cursor-pointer whitespace-nowrap"> 不需要结算 </label>
             </div>
             <UiButton variant="outline" size="sm" @click="handleResetFilter"> 重置 </UiButton>
+            <Popover>
+              <PopoverTrigger as-child>
+                <UiButton variant="outline" size="sm">
+                  <Settings2 class="w-4 h-4 mr-1" />
+                  列设置
+                </UiButton>
+              </PopoverTrigger>
+              <PopoverContent class="w-56" align="end">
+                <div class="space-y-2">
+                  <h4 class="font-medium text-sm mb-3">显示列</h4>
+                  <div class="space-y-2 max-h-80 overflow-y-auto">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColStatus" />
+                      <span class="text-sm">状态</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColOrderNo" />
+                      <span class="text-sm">订单号</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColBillNo" />
+                      <span class="text-sm">提单号</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColBillingName" />
+                      <span class="text-sm">开单名称</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColVehicle" />
+                      <span class="text-sm">车船/运单号</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColNum" />
+                      <span class="text-sm">块数</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColWeight" />
+                      <span class="text-sm">发运量</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColUnitPrice" />
+                      <span class="text-sm">单价</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColTotalPrice" />
+                      <span class="text-sm">总价格</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColRoute" />
+                      <span class="text-sm">始发→目的地</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColWarehouse" />
+                      <span class="text-sm">发货仓库</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColShipDate" />
+                      <span class="text-sm">发货日期</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColShipper" />
+                      <span class="text-sm">发货人</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColSpec" />
+                      <span class="text-sm">规格</span>
+                    </label>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
         <!-- 汇总统计信息：移动端 -->
         <div
-          v-if="!isInitialLoading"
+          v-if="dataLoaded && !loading"
           class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm space-y-2"
           :class="{ 'pointer-events-none opacity-50': loading }"
         >
@@ -1470,19 +1574,20 @@ function isBillSelected(bill: SettleBill): boolean {
         <!-- 数据表格：桌面端 -->
         <div class="hidden lg:block">
           <SettleTable
-            v-if="!isInitialLoading"
+            v-if="dataLoaded && !loading"
             v-model:selected="selectedBills"
             :bills="pagedBills"
             :settle-mode="settleMode"
             :loading="loading"
             :other-mode-has-data="otherModeHasData"
             :basket-bills="basketBills"
+            :column-visibility="columnVisibility"
             @switch-mode="switchMode"
           />
         </div>
 
         <!-- 数据卡片：移动端 -->
-        <div v-if="!isInitialLoading" class="lg:hidden space-y-2">
+        <div v-if="dataLoaded && !loading" class="lg:hidden space-y-2">
           <div
             v-if="pagedBills.length === 0 && !loading"
             class="border rounded-lg p-8 text-center text-muted-foreground"
@@ -1542,38 +1647,6 @@ function isBillSelected(bill: SettleBill): boolean {
           </div>
         </div>
 
-        <!-- 分页 -->
-        <div
-          v-if="displayBills.length > pageSize"
-          class="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 px-2"
-        >
-          <div class="text-sm text-muted-foreground">
-            显示 {{ (currentPage - 1) * pageSize + 1 }}-{{
-              Math.min(currentPage * pageSize, displayBills.length)
-            }}
-            条，共 {{ displayBills.length }} 条
-          </div>
-          <div class="flex items-center gap-2">
-            <UiButton variant="outline" size="sm" :disabled="currentPage === 1" @click="previousPage">
-              上一页
-            </UiButton>
-            <div class="flex items-center gap-1">
-              <span class="text-sm">第</span>
-              <input
-                type="number"
-                :value="currentPage"
-                :min="1"
-                :max="totalPages"
-                class="w-16 px-2 py-1 text-sm text-center border rounded"
-                @change="goToPage(($event.target as HTMLInputElement).valueAsNumber)"
-              />
-              <span class="text-sm">/ {{ totalPages }} 页</span>
-            </div>
-            <UiButton variant="outline" size="sm" :disabled="currentPage === totalPages" @click="nextPage">
-              下一页
-            </UiButton>
-          </div>
-        </div>
 
         <!-- 价格输入对话框 -->
         <PriceInputDialog
@@ -1893,6 +1966,9 @@ function isBillSelected(bill: SettleBill): boolean {
         </div>
       </div>
     </Teleport>
+
+    <!-- 结算明细对话框 -->
+    <SettleDetailDialog v-model:open="showDetailDialog" :settle="detailSettle" />
 
     <!-- 导出对话框 -->
     <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />

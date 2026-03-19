@@ -152,6 +152,16 @@
  *   - Android: layout viewport 随键盘缩小，fixed 元素自动重定位
  *          --visual-vt 为 0, --visual-vh 为缩小后的高度，公式同样成立
  */
+/* 隐藏 number 输入框的上下箭头按钮 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 @media (max-width: 767px) {
   [data-slot="dialog-content"] {
     top: calc(var(--visual-vt, 0px) + var(--visual-vh, 100dvh) / 2) !important;

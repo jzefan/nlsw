@@ -6,19 +6,48 @@ import { formatDate } from '@/utils/format'
 
 import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from '../types'
 
-const props = defineProps<{
+export interface ColumnVisibility {
+  status: boolean
+  orderNo: boolean
+  billNo: boolean
+  billingName: boolean
+  vehicle: boolean
+  num: boolean
+  weight: boolean
+  unitPrice: boolean
+  totalPrice: boolean
+  route: boolean
+  warehouse: boolean
+  shipDate: boolean
+  shipper: boolean
+  spec: boolean
+}
+
+const props = withDefaults(defineProps<{
   bills: SettleBill[]
   settleMode: SettleMode
   loading: boolean
   otherModeHasData: boolean
   selected: SettleBill[]
   basketBills?: SettleBill[]
-}>()
+  columnVisibility?: ColumnVisibility
+}>(), {
+  columnVisibility: () => ({
+    status: true, orderNo: true, billNo: true, billingName: true,
+    vehicle: true, num: true, weight: true, unitPrice: true,
+    totalPrice: true, route: true, warehouse: true, shipDate: true,
+    shipper: true, spec: true,
+  }),
+})
 
 const emit = defineEmits<{
   (e: 'update:selected', bills: SettleBill[]): void
   (e: 'switch-mode', mode: SettleMode): void
 }>()
+
+const visibleColCount = computed(() =>
+  1 + Object.values(props.columnVisibility).filter(Boolean).length
+)
 
 // 可选的提单（排除已在结算篮中的）
 const selectableBills = computed(() => {
@@ -218,46 +247,46 @@ function switchToOtherMode() {
                 @change="toggleAll"
               >
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[80px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.status" class="px-1.5 py-1.5 text-left min-w-[80px] border-r border-border/50 text-xs">
               状态
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs whitespace-nowrap">
+            <th v-if="columnVisibility.orderNo" class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs whitespace-nowrap">
               订单号
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.billNo" class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs">
               提单号
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.billingName" class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
               开单名称
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.vehicle" class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
               车船/运单号
             </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.num" class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
               块数
             </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.weight" class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
               发运量
             </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.unitPrice" class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
               单价
             </th>
-            <th class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.totalPrice" class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
               总价格
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[120px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.route" class="px-1.5 py-1.5 text-left min-w-[120px] border-r border-border/50 text-xs">
               始发→目的地
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.warehouse" class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs">
               发货仓库
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[90px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.shipDate" class="px-1.5 py-1.5 text-left min-w-[90px] border-r border-border/50 text-xs">
               发货日期
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs">
+            <th v-if="columnVisibility.shipper" class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs">
               发货人
             </th>
-            <th class="px-1.5 py-1.5 text-left min-w-[85px] text-xs">
+            <th v-if="columnVisibility.spec" class="px-1.5 py-1.5 text-left min-w-[85px] text-xs">
               规格
             </th>
           </tr>
@@ -265,14 +294,14 @@ function switchToOtherMode() {
         <tbody>
           <!-- 加载状态 -->
           <tr v-if="loading">
-            <td colspan="17" class="p-8 text-center text-muted-foreground">
+            <td :colspan="visibleColCount" class="p-8 text-center text-muted-foreground">
               加载中...
             </td>
           </tr>
 
           <!-- 空状态 -->
           <tr v-else-if="bills.length === 0">
-            <td colspan="17" class="p-8 text-center">
+            <td :colspan="visibleColCount" class="p-8 text-center">
               <div class="flex flex-col items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
@@ -319,15 +348,15 @@ function switchToOtherMode() {
                 @change="toggleBill(bill)"
               >
             </td>
-            <td class="px-1.5 py-1.5 text-xs border-r border-border/50">
+            <td v-if="columnVisibility.status" class="px-1.5 py-1.5 text-xs border-r border-border/50">
               <span class="px-2 py-0.5 rounded text-xs font-medium" :class="getStatus(bill).class">
                 {{ getStatus(bill).text }}
               </span>
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
+            <td v-if="columnVisibility.orderNo" class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
               {{ getOrderDisplay(bill) }}
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.billNo" class="px-1.5 py-1.5 border-r border-border/50">
               <div class="flex items-center gap-1.5">
                 <span>{{ bill.bill_no }}</span>
                 <span
@@ -339,44 +368,44 @@ function switchToOtherMode() {
                 </span>
               </div>
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
+            <td v-if="columnVisibility.billingName" class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
               <div v-if="bill.ship_customer" class="leading-tight">
                 <div class="font-medium">{{ bill.billing_name }}</div>
                 <div class="text-muted-foreground text-[11px]">{{ bill.ship_customer }}</div>
               </div>
               <span v-else>{{ bill.billing_name }}</span>
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.vehicle" class="px-1.5 py-1.5 border-r border-border/50">
               <div class="leading-tight">
                 <div class="font-medium">{{ bill.veh_ves_name }}</div>
                 <div class="text-muted-foreground text-[11px]">{{ bill.inv_no }}</div>
               </div>
             </td>
-            <td class="px-1.5 py-1.5 text-center border-r border-border/50">
+            <td v-if="columnVisibility.num" class="px-1.5 py-1.5 text-center border-r border-border/50">
               {{ bill.send_num || '' }}
             </td>
-            <td class="px-1.5 py-1.5 text-center font-mono border-r border-border/50">
+            <td v-if="columnVisibility.weight" class="px-1.5 py-1.5 text-center font-mono border-r border-border/50">
               {{ bill.send_weight.toFixed(3) }}
             </td>
-            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50" :class="getPriceDisplay(getPrice(bill)).class">
+            <td v-if="columnVisibility.unitPrice" class="px-1.5 py-1.5 font-mono text-center border-r border-border/50" :class="getPriceDisplay(getPrice(bill)).class">
               {{ getPriceDisplay(getPrice(bill)).text }}
             </td>
-            <td class="px-1.5 py-1.5 font-mono text-center border-r border-border/50">
+            <td v-if="columnVisibility.totalPrice" class="px-1.5 py-1.5 font-mono text-center border-r border-border/50">
               {{ getTotalPrice(bill) }}
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.route" class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.ship_from }}→{{ bill.ship_to }}
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.warehouse" class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.ship_warehouse || '-' }}
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.shipDate" class="px-1.5 py-1.5 border-r border-border/50">
               {{ formatDate(bill.inv_ship_date) }}
             </td>
-            <td class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.shipper" class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.inv_shipper || '-' }}
             </td>
-            <td class="px-1.5 py-1.5 text-xs">
+            <td v-if="columnVisibility.spec" class="px-1.5 py-1.5 text-xs">
               {{ getSpecDisplay(bill) }}
             </td>
           </tr>

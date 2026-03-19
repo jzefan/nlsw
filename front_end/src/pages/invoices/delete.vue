@@ -5,7 +5,7 @@ import { toast } from 'vue-sonner'
 import { BasicPage } from '@/components/global-layout'
 import { deleteInvoice, getInvoiceDetail, getInvoiceList } from '@/services/api/invoice.api'
 import { useAuthStore } from '@/stores/auth'
-import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
+import { isAdmin as isAdminPrivilege, hasPermission, PERMISSIONS } from '@/constants/permissions'
 import { formatDate, formatNumber } from '@/utils/format'
 
 const authStore = useAuthStore()
@@ -25,8 +25,13 @@ const invoiceListLimit = ref(20)
 const selectedInvoice = ref<any | null>(null)
 const invoiceDetail = ref<any | null>(null)
 
-// 判断是否是管理员
-const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
+const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []) || authStore.isOwner)
+
+// 判断是否有删除权限（管理员、owner 或有删除运单权限）
+const canDelete = computed(() => {
+  const priv = authStore.user?.privilege ?? []
+  return isAdminPrivilege(priv) || authStore.isOwner || hasPermission(priv, PERMISSIONS.DELETE_INVOICE)
+})
 
 // 监听showMyOnly变化，自动刷新列表
 watch(showMyOnly, async () => {
@@ -102,6 +107,11 @@ async function selectInvoice(invoice: any, event?: MouseEvent) {
 
 // 删除运单
 async function handleDelete() {
+  if (!canDelete.value) {
+    toast.error('您没有删除运单的权限')
+    return
+  }
+
   if (!selectedInvoice.value || !invoiceDetail.value) {
     toast.warning('请先选择要删除的运单')
     return
@@ -349,12 +359,13 @@ onMounted(() => {
             <UiButton
               variant="destructive"
               size="sm"
-              :disabled="!selectedInvoice || loading || selectedInvoice?.state === '已结算'"
+              :disabled="!canDelete || !selectedInvoice || loading || selectedInvoice?.state === '已结算'"
               @click="handleDelete"
             >
               <Trash2 class="w-4 h-4 mr-1" />
               删除运单
             </UiButton>
+            <span v-if="!canDelete" class="text-xs text-muted-foreground">无删除权限</span>
           </div>
 
           <div v-if="detailLoading" class="p-12 text-center text-muted-foreground">

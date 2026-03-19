@@ -321,13 +321,10 @@ exports.getCustomerChartData = async function (req, res) {
       });
     }
 
-    // 建立运单号到月份索引的映射
+    // 建立运单号到月份索引的映射（使用财务月）
     for (var i = 0, len = db_invs.length; i < len; ++i) {
       var inv = db_invs[i];
-      var shipDate = new Date(inv.ship_date);
-      var year = shipDate.getFullYear();
-      var month = (shipDate.getMonth() + 1).toString().padStart(2, '0');
-      var dateStr = year + '-' + month;
+      var dateStr = utils.toFinancialMonth(inv.ship_date);
 
       var monthIdx = months.indexOf(dateStr);
       invNoObj[inv.waybill_no] = { index: monthIdx };

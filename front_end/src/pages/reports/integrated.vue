@@ -2,7 +2,7 @@
 // @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 
-import { Download, FileSpreadsheet, RefreshCcw, Search, X } from 'lucide-vue-next'
+import { Download, FileSpreadsheet, RefreshCcw, Search, Settings2, X } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { computed, h, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
@@ -20,7 +20,9 @@ import { generateVueTable } from '@/components/data-table/use-generate-vue-table
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/ui/date-picker'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
 import { getIntegratedQuery } from '@/services/api/report.api'
 import { useAuthStore } from '@/stores/auth'
@@ -123,7 +125,7 @@ async function handleQuery(resetPage = true) {
       limit: limit.value,
     }
 
-    if (!showNotSent.value && filter.startDate && filter.endDate) {
+    if (filter.startDate && filter.endDate) {
       // Ensure ISO format as backend expects
       params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
       params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
@@ -235,10 +237,10 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
         return h(Badge, { variant, class: className }, () => status)
       },
     },
-    { header: '订单号', accessorFn: (row) => getOrder(row.order_no, row.order_item_no) },
-    // ... existing code ...
+    { id: 'orderNo', header: '订单号', accessorFn: (row) => getOrder(row.order_no, row.order_item_no) },
     { header: '提单号', accessorKey: 'bill_no' },
     {
+      id: 'billingName',
       header: '开单名称',
       accessorFn: (row) => (row.ship_customer ? `${row.billing_name}/${row.ship_customer}` : row.billing_name),
     },
@@ -261,10 +263,13 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
     },
     { header: '目的地', accessorKey: 'ship_to' },
     {
+      id: 'sendNum',
       header: '发运块数',
       accessorFn: (row) => (showNotSent.value ? 0 : row.send_num),
+      meta: { fixedWidth: '80px' },
     },
     {
+      id: 'sendWeight',
       header: '发运重量',
       accessorFn: (row) => {
         if (showNotSent.value) {
@@ -273,23 +278,24 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
         return row.send_weight
       },
       cell: ({ getValue }) => Number(getValue()).toFixed(3),
+      meta: { fixedWidth: '90px' },
     },
   ]
 
   // Privilege Check for Price Columns
   if (canSeePrice.value) {
     cols.push(
-      { header: '客户单价', accessorKey: 'price' },
-      { header: '南钢单价', accessorKey: 'collection_price' },
-      { header: '应付单价', accessorKey: 'veh_ves_price' },
+      { header: '客户单价', accessorKey: 'price', meta: { fixedWidth: '80px' } },
+      { header: '南钢单价', accessorKey: 'collection_price', meta: { fixedWidth: '80px' } },
+      { header: '应付单价', accessorKey: 'veh_ves_price', meta: { fixedWidth: '80px' } },
     )
   }
 
   cols.push(
-    { header: '发货日期', accessorFn: (row) => formatDate(row.inv_ship_date || '') },
-    { header: '发货人', accessorKey: 'inv_shipper' },
-    { header: '运单号', accessorKey: 'inv_no' },
-    { header: '发货仓库', accessorKey: 'ship_warehouse' },
+    { id: 'shipDate', header: '发货日期', accessorFn: (row) => formatDate(row.inv_ship_date || ''), meta: { fixedWidth: '100px' } },
+    { header: '发货人', accessorKey: 'inv_shipper', meta: { fixedWidth: '70px' } },
+    { header: '运单号', accessorKey: 'inv_no', cell: ({ getValue }) => h('span', { class: 'text-xs whitespace-nowrap' }, getValue() as string) },
+    { header: '发货仓库', accessorKey: 'ship_warehouse', meta: { fixedWidth: '80px' } },
     {
       header: '牌号',
       accessorKey: 'brand_no',
@@ -297,14 +303,14 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
       maxSize: 240,
       cell: ({ getValue }) => h('span', { class: 'block max-w-[240px] break-words whitespace-normal' }, getValue() as string),
     },
-    { header: '规格', accessorFn: (row) => `${row.thickness}*${row.width}*${row.len}` },
-    { header: '尺寸', accessorKey: 'size_type' },
-    { header: '总块数', accessorKey: 'block_num' },
-    { header: '总重量', accessorKey: 'total_weight', cell: ({ getValue }) => Number(getValue()).toFixed(3) },
+    { id: 'spec', header: '规格', accessorFn: (row) => `${row.thickness}*${row.width}*${row.len}`, meta: { fixedWidth: '100px' } },
+    { header: '尺寸', accessorKey: 'size_type', meta: { fixedWidth: '60px' } },
+    { header: '总块数', accessorKey: 'block_num', meta: { fixedWidth: '70px' } },
+    { header: '总重量', accessorKey: 'total_weight', cell: ({ getValue }) => Number(getValue()).toFixed(3), meta: { fixedWidth: '90px' } },
     { header: '合同号', accessorKey: 'contract_no' },
-    { header: '销售部门', accessorKey: 'sales_dep' },
-    { header: '创建日期', accessorFn: (row) => formatDate(row.create_date) },
-    { header: '创建人', accessorKey: 'creater' },
+    { header: '销售部门', accessorKey: 'sales_dep', meta: { fixedWidth: '80px' } },
+    { id: 'createDate', header: '创建日期', accessorFn: (row) => formatDate(row.create_date), meta: { fixedWidth: '100px' } },
+    { header: '创建人', accessorKey: 'creater', meta: { fixedWidth: '70px' } },
   )
 
   return cols
@@ -355,7 +361,7 @@ async function handleExport() {
       isExport: true,
     }
 
-    if (!showNotSent.value && filter.startDate && filter.endDate) {
+    if (filter.startDate && filter.endDate) {
       params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
       params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
     }
@@ -476,7 +482,7 @@ async function handleExportAccount() {
       isExport: true,
     }
 
-    if (!showNotSent.value && filter.startDate && filter.endDate) {
+    if (filter.startDate && filter.endDate) {
       params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
       params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
     }
@@ -663,14 +669,9 @@ watch(showNotSent, (val) => {
     filter.vehicle = ''
     filter.destination = ''
     filter.origin = ''
-    filter.startDate = ''
-    filter.endDate = ''
     filter.customer = ''
     filter.vehicleMode = ''
   } else {
-    // Restore default date range
-    filter.startDate = dayjs().subtract(1, 'month').format('YYYY-MM-DD')
-    filter.endDate = dayjs().format('YYYY-MM-DD')
   }
 })
 
@@ -893,7 +894,7 @@ function handlePageChange(p: number) {
     </div>
 
     <!-- Summary -->
-    <div class="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground border p-3 rounded bg-muted/10">
+    <div class="mb-4 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-muted-foreground border p-3 rounded bg-muted/10">
       <!-- 全部合计 -->
       <span>
         记录总数: <strong class="text-foreground">{{ total }}</strong>
@@ -918,10 +919,39 @@ function handlePageChange(p: number) {
         {{ showNotSent ? '未配发重量(当前页)' : '发运重量(当前页)' }}:
         <strong class="text-foreground">{{ pageWeight.toFixed(3) }}</strong>
       </span>
+      <!-- 列设置 -->
+      <div class="ml-auto">
+        <Popover>
+          <PopoverTrigger as-child>
+            <UiButton variant="outline" size="sm">
+              <Settings2 class="w-4 h-4 mr-1" />
+              列设置
+            </UiButton>
+          </PopoverTrigger>
+          <PopoverContent class="w-56" align="end">
+            <div class="space-y-2">
+              <h4 class="font-medium text-sm mb-3">显示列</h4>
+              <div class="space-y-2 max-h-80 overflow-y-auto">
+                <label
+                  v-for="col in table.getAllLeafColumns()"
+                  :key="col.id"
+                  class="flex items-center gap-2 cursor-pointer"
+                >
+                  <Checkbox
+                    :model-value="col.getIsVisible()"
+                    @update:model-value="col.toggleVisibility(!!$event)"
+                  />
+                  <span class="text-sm">{{ col.columnDef.header }}</span>
+                </label>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
 
     <!-- Table -->
-    <div class="border rounded-md overflow-auto">
+    <div class="border rounded-md overflow-auto compact-table">
       <DataTable
         :table="table"
         :columns="columns"
@@ -949,3 +979,18 @@ function handlePageChange(p: number) {
 meta:
   auth: true
 </route>
+
+<style scoped>
+.compact-table :deep(table) {
+  table-layout: auto;
+}
+.compact-table :deep(td) {
+  padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+}
+.compact-table :deep(th) {
+  padding: 0.25rem 0.5rem;
+  height: 2rem;
+  white-space: nowrap;
+}
+</style>

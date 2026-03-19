@@ -5,7 +5,7 @@ import { toast } from 'vue-sonner'
 
 import type { OrderPlan } from '@/services/api/plan.api'
 
-import { BasicPage } from '@/components/global-layout'
+import BasicHeader from '@/components/global-layout/basic-header.vue'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { formatDate, formatNumber } from '@/utils/format'
@@ -29,7 +29,8 @@ const plans = ref<OrderPlan[]>([])
 const selectedPlans = ref<OrderPlan[]>([])
 const total = ref(0)
 const page = ref(1)
-const limit = ref(20)
+const limit = ref(10)
+const pageSizeOptions = [10, 15, 20, 30, 40, 50, 100]
 const summary = ref({ totalWeight: 0, leftWeight: 0, sentWeight: 0 })
 
 // 筛选条件
@@ -178,6 +179,7 @@ async function saveEdit() {
       consigner: editForm.value.consigner,
       contractNo: editForm.value.contractNo,
       charge: editForm.value.charge,
+      entryTime: editingPlan.value.entry_time ? String(editingPlan.value.entry_time) : undefined,
     })
     if (result.ok) {
       toast.success('更新成功')
@@ -371,9 +373,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <BasicPage title="计划列表" description="订单计划管理">
-    <template #actions>
-      <div class="flex items-center gap-2">
+  <div class="flex flex-col" style="height: calc(100vh - 80px)">
+    <BasicHeader title="计划列表" description="订单计划管理" class="shrink-0">
+      <template #actions>
+        <div class="flex items-center gap-2">
         <UiButton
           :variant="showFilter ? 'default' : 'outline'"
           size="sm"
@@ -391,10 +394,11 @@ onMounted(() => {
           新建计划
         </UiButton>
       </div>
-    </template>
+      </template>
+    </BasicHeader>
 
     <!-- 筛选区域 -->
-    <div v-if="showFilter" class="mb-3 p-3 border rounded-lg bg-muted/50">
+    <div v-if="showFilter" class="mb-2 p-3 border rounded-lg bg-muted/50 shrink-0">
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2">
         <UiInput v-model="filters.orderNo" placeholder="订单号" class="col-span-2 sm:col-span-1 lg:w-36" />
         <SearchableCombobox v-model="filters.customerName" :search-fn="searchCompanies" placeholder="客户名称" class="col-span-2 sm:col-span-1 lg:w-36" />
@@ -432,7 +436,7 @@ onMounted(() => {
     </div>
 
     <!-- 工具栏 -->
-    <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shrink-0">
       <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto pb-1 sm:pb-0">
         <UiButton
           variant="outline"
@@ -482,9 +486,10 @@ onMounted(() => {
     </div>
 
     <!-- 桌面端表格 -->
-    <div class="hidden lg:block border rounded-lg overflow-x-auto">
-      <table class="text-sm min-w-[1024px]">
-        <thead class="bg-muted/50">
+    <div class="hidden lg:flex lg:flex-col border rounded-lg overflow-hidden flex-1 min-h-0">
+      <div class="overflow-auto flex-1">
+        <table class="text-sm min-w-[1024px]">
+          <thead class="bg-muted/50 sticky top-0 z-10">
           <tr>
             <th class="p-2 text-left w-10 whitespace-nowrap">
               <button class="focus:outline-none" @click="toggleSelectAll">
@@ -534,7 +539,7 @@ onMounted(() => {
             <th class="p-2 text-right whitespace-nowrap">
               接单价
             </th>
-            <th class="p-2 text-left whitespace-nowrap">
+            <th class="p-2 text-left whitespace-nowrap min-w-[100px]">
               录单时间
             </th>
             <th class="p-2 text-center whitespace-nowrap">
@@ -560,14 +565,14 @@ onMounted(() => {
               {{ plan.order_no }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(plan.order_weight, 2) }}
+              {{ formatNumber(plan.order_weight, 3) }}
             </td>
             <td class="p-2 text-right">
-              {{ formatNumber(plan.order_weight - plan.left_weight, 2) }}
+              {{ formatNumber(plan.order_weight - plan.left_weight, 3) }}
             </td>
             <td class="p-2 text-right">
               <span :class="plan.left_weight > 0.001 ? 'text-blue-600' : 'text-green-600'">
-                {{ formatNumber(plan.left_weight, 2) }}
+                {{ formatNumber(plan.left_weight, 3) }}
               </span>
             </td>
             <td class="p-2 min-w-[120px]">
@@ -601,7 +606,11 @@ onMounted(() => {
               {{ formatNumber(plan.receiving_charge, 2) }}
             </td>
             <td class="p-2">
-              {{ formatDate(plan.entry_time) }}
+              <template v-if="plan.entry_time">
+                <div>{{ formatDate(plan.entry_time).split(' ')[0] }}</div>
+                <div v-if="formatDate(plan.entry_time).split(' ')[1]" class="text-muted-foreground text-xs">{{ formatDate(plan.entry_time).split(' ')[1] }}</div>
+              </template>
+              <template v-else>-</template>
             </td>
             <td class="p-2 text-center">
               <UiBadge :variant="plan.status === 0 ? 'default' : 'secondary'">
@@ -615,11 +624,12 @@ onMounted(() => {
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
 
     <!-- 移动端卡片列表 -->
-    <div class="lg:hidden space-y-2">
+    <div class="lg:hidden space-y-2 flex-1 min-h-0 overflow-auto">
       <!-- 全选 -->
       <div class="flex items-center gap-2 p-2 border rounded-lg bg-muted/30">
         <button class="focus:outline-none" @click="toggleSelectAll">
@@ -660,16 +670,16 @@ onMounted(() => {
             <div class="flex items-center gap-4 mt-2 text-sm">
               <div>
                 <span class="text-muted-foreground">订单:</span>
-                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight, 2) }}</span>
+                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight, 3) }}</span>
               </div>
               <div>
                 <span class="text-muted-foreground">已发:</span>
-                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight - plan.left_weight, 2) }}</span>
+                <span class="font-medium ml-1">{{ formatNumber(plan.order_weight - plan.left_weight, 3) }}</span>
               </div>
               <div>
                 <span class="text-muted-foreground">未发:</span>
                 <span class="font-medium ml-1" :class="plan.left_weight > 0.001 ? 'text-blue-600' : 'text-green-600'">
-                  {{ formatNumber(plan.left_weight, 2) }}
+                  {{ formatNumber(plan.left_weight, 3) }}
                 </span>
               </div>
             </div>
@@ -743,7 +753,7 @@ onMounted(() => {
     </div>
 
     <!-- 分页和统计 -->
-    <div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shrink-0">
       <div class="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
         共 {{ total }} 条 |
         订单量 <span class="font-medium">{{ formatNumber(summary.totalWeight, 2) }}</span> |
@@ -751,6 +761,16 @@ onMounted(() => {
         未发 <span class="font-medium">{{ formatNumber(summary.leftWeight, 2) }}</span>
       </div>
       <div class="flex items-center justify-center gap-2">
+        <UiSelect :model-value="String(limit)" @update:model-value="(v) => { limit = Number(v); page = 1; loadData() }">
+          <UiSelectTrigger class="w-24 h-8 text-xs">
+            <UiSelectValue />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem v-for="size in pageSizeOptions" :key="size" :value="String(size)">
+              {{ size }} 条/页
+            </UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
         <UiButton
           variant="outline"
           size="sm"
@@ -852,7 +872,7 @@ onMounted(() => {
     </UiDialog>
     <!-- 导出对话框 -->
     <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
-  </BasicPage>
+  </div>
 </template>
 
 <route lang="yaml">

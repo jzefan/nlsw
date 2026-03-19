@@ -1,5 +1,18 @@
 <script setup lang="ts">
-import { Download, Image, Loader2, Maximize2, Minimize2, Printer, Trash2, Upload as UploadIcon, X as XIcon, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import {
+  Download,
+  Image,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Printer,
+  RotateCw,
+  Trash2,
+  Upload as UploadIcon,
+  X as XIcon,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
@@ -36,15 +49,20 @@ const currentWno = ref('')
 const fullImageUrl = ref('')
 const fullImageFilename = ref('')
 
-// 缩放状态
+// 缩放与旋转状态
 const zoomLevel = ref(1)
+const rotateDeg = ref(0)
 const imageNaturalWidth = ref(0)
 const isMaximized = ref(false)
 
-// 图片宽度样式：用 naturalWidth * zoomLevel 计算像素宽度
-const imageWidthStyle = computed(() => {
+// 图片样式：缩放 + 旋转
+const imageTransformStyle = computed(() => {
   if (imageNaturalWidth.value <= 0) return {}
-  return { width: `${Math.round(imageNaturalWidth.value * zoomLevel.value)}px` }
+  return {
+    width: `${Math.round(imageNaturalWidth.value * zoomLevel.value)}px`,
+    transform: `rotate(${rotateDeg.value}deg)`,
+    transition: 'transform 0.3s ease',
+  }
 })
 
 // 全屏对话框的动态 class
@@ -52,7 +70,7 @@ const fullImageDialogClass = computed(() => {
   if (isMaximized.value) {
     return 'w-[100vw] h-[100vh] max-w-none max-h-none rounded-none flex flex-col p-0 overflow-hidden'
   }
-  return 'max-w-[98vw] max-h-[98vh] w-[90vw] h-[85vh] flex flex-col p-0 overflow-hidden'
+  return '!max-w-[80vw] max-h-[92vh] w-[80vw] h-[92vh] flex flex-col p-0 overflow-hidden'
 })
 
 // 删除相关状态
@@ -81,22 +99,18 @@ async function open(wno: string) {
 
     if (response.ok && response.images && response.images.length > 0) {
       images.value = response.images
-    }
-    else {
+    } else {
       toast.warning('该运单暂无回执图片')
     }
-  }
-  catch (error: any) {
+  } catch (error: any) {
     console.error('获取回执图片列表失败:', error)
 
     if (error.response?.status === 404) {
       toast.warning('未找到回执图片')
-    }
-    else {
+    } else {
       toast.error(error.message || '获取回执图片列表失败')
     }
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
@@ -106,6 +120,7 @@ function handleImageClick(image: ReceiptImage) {
   fullImageUrl.value = url
   fullImageFilename.value = image.original_filename
   zoomLevel.value = 1
+  rotateDeg.value = 0
   isMaximized.value = false
 
   // 用临时 Image 对象读取原始尺寸
@@ -131,6 +146,10 @@ function resetZoom() {
   zoomLevel.value = 1
 }
 
+function rotateRight() {
+  rotateDeg.value = (rotateDeg.value + 90) % 360
+}
+
 function toggleMaximize() {
   isMaximized.value = !isMaximized.value
 }
@@ -142,14 +161,12 @@ function handleWheel(e: WheelEvent) {
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes === 0)
-    return '0 Bytes'
+  if (bytes === 0) return '0 Bytes'
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${Math.round((bytes / k ** i) * 100) / 100} ${sizes[i]}`
 }
-
 
 function handleClose(open: boolean) {
   if (!open) {
@@ -175,19 +192,17 @@ async function confirmDelete() {
     toast.success('删除成功')
 
     // 从列表中移除
-    images.value = images.value.filter(img => img.id !== imageToDelete.id)
+    images.value = images.value.filter((img) => img.id !== imageToDelete.id)
 
     // 如果全部删除完了，关闭对话框并通知父组件
     if (images.value.length === 0) {
       visible.value = false
     }
     emit('confirm')
-  }
-  catch (error: any) {
+  } catch (error: any) {
     console.error('删除回执图片失败:', error)
     toast.error(error.message || '删除失败')
-  }
-  finally {
+  } finally {
     deleting.value = false
     showDeleteDialog.value = false
     pendingDeleteImage.value = null
@@ -207,8 +222,7 @@ async function downloadImage(event: MouseEvent, image: ReceiptImage) {
     a.download = image.original_filename
     a.click()
     URL.revokeObjectURL(blobUrl)
-  }
-  catch {
+  } catch {
     toast.error('下载失败')
   }
 }
@@ -225,8 +239,7 @@ async function downloadCurrentImage() {
     a.download = fullImageFilename.value
     a.click()
     URL.revokeObjectURL(blobUrl)
-  }
-  catch {
+  } catch {
     toast.error('下载失败')
   }
 }
@@ -258,7 +271,10 @@ function printCurrentImage() {
     <body><img src="${fullImageUrl.value}" /></body></html>`)
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 300)
+  setTimeout(() => {
+    win.print()
+    win.close()
+  }, 300)
 }
 
 // 打印全部图片（每张一页）
@@ -267,9 +283,12 @@ function printAll() {
     toast.warning('没有可打印的图片')
     return
   }
-  const imgsHtml = images.value.map(img =>
-    `<div class="page"><img src="${settleApi.getReceiptImageUrl(img.id)}" /><p class="name">${img.original_filename}</p></div>`,
-  ).join('')
+  const imgsHtml = images.value
+    .map(
+      (img) =>
+        `<div class="page"><img src="${settleApi.getReceiptImageUrl(img.id)}" /><p class="name">${img.original_filename}</p></div>`,
+    )
+    .join('')
   const win = window.open('', '_blank')
   if (!win) {
     toast.error('打印失败：请在浏览器中允许弹出窗口')
@@ -284,14 +303,17 @@ function printAll() {
     <body>${imgsHtml}</body></html>`)
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 300)
+  setTimeout(() => {
+    win.print()
+    win.close()
+  }, 300)
 }
 
 // 上传更多
 const showUploadArea = ref(false)
 const uploading = ref(false)
 const uploadFileInputRef = ref<HTMLInputElement>()
-const uploadPreviewImages = ref<Array<{ file: File, url: string }>>([])
+const uploadPreviewImages = ref<Array<{ file: File; url: string }>>([])
 
 const MAX_FILES = 9
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
@@ -351,7 +373,7 @@ async function handleUploadConfirm() {
   uploading.value = true
   try {
     const formData = new FormData()
-    uploadPreviewImages.value.forEach(p => formData.append('images', p.file))
+    uploadPreviewImages.value.forEach((p) => formData.append('images', p.file))
     formData.append('inv_no', currentWno.value)
     await settleApi.uploadReceiptImg(formData)
     toast.success(`成功上传 ${uploadPreviewImages.value.length} 张图片`)
@@ -369,11 +391,9 @@ async function handleUploadConfirm() {
     }
     loading.value = false
     emit('confirm')
-  }
-  catch (error: any) {
+  } catch (error: any) {
     toast.error(error.message || '上传失败')
-  }
-  finally {
+  } finally {
     uploading.value = false
   }
 }
@@ -383,7 +403,7 @@ defineExpose({ open })
 
 <template>
   <Dialog :open="visible" @update:open="handleClose">
-    <DialogContent class="sm:max-w-[800px] max-h-[90vh] flex flex-col">
+    <DialogContent class="!max-w-[80vw] max-h-[90vh] flex flex-col">
       <DialogHeader>
         <DialogTitle>查看回执清单图片 ({{ images.length }}张)</DialogTitle>
       </DialogHeader>
@@ -392,9 +412,7 @@ defineExpose({ open })
         <!-- 加载中 -->
         <div v-if="loading" class="text-center p-10">
           <Loader2 class="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p class="text-muted-foreground text-sm">
-            正在加载图片列表...
-          </p>
+          <p class="text-muted-foreground text-sm">正在加载图片列表...</p>
         </div>
 
         <!-- 图片网格 -->
@@ -433,7 +451,7 @@ defineExpose({ open })
                 :src="settleApi.getReceiptImageUrl(image.id)"
                 :alt="image.original_filename"
                 class="w-full h-full object-cover"
-              >
+              />
 
               <!-- 点击提示覆盖层 -->
               <div
@@ -460,9 +478,7 @@ defineExpose({ open })
         <!-- 空状态 -->
         <div v-else class="text-center p-16">
           <Image class="h-16 w-16 text-muted-foreground/50 mx-auto mb-4" />
-          <p class="text-muted-foreground text-sm">
-            暂无回执图片
-          </p>
+          <p class="text-muted-foreground text-sm">暂无回执图片</p>
         </div>
 
         <!-- 上传更多区域 -->
@@ -486,7 +502,7 @@ defineExpose({ open })
               multiple
               class="hidden"
               @change="handleUploadFileSelect"
-            >
+            />
             <UploadIcon class="h-8 w-8 text-primary mb-2" />
             <p class="text-sm font-medium text-foreground">点击或拖拽上传图片</p>
             <p class="text-xs text-muted-foreground mt-1">
@@ -501,9 +517,11 @@ defineExpose({ open })
               :key="'upload-' + index"
               class="relative aspect-square border rounded-lg overflow-hidden group"
             >
-              <img :src="preview.url" :alt="preview.file.name" class="w-full h-full object-cover">
+              <img :src="preview.url" :alt="preview.file.name" class="w-full h-full object-cover" />
               <div class="absolute top-1 right-1 bg-blue-500 text-white text-xs px-2 py-0.5 rounded">新</div>
-              <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div
+                class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+              >
                 <Button variant="destructive" size="sm" @click.stop="removeUploadPreview(index)">
                   <XIcon class="h-3 w-3 mr-1" />
                   删除
@@ -539,9 +557,7 @@ defineExpose({ open })
             <Download class="h-4 w-4 mr-2" />
             下载全部
           </Button>
-          <Button variant="outline" @click="visible = false">
-            关闭
-          </Button>
+          <Button variant="outline" @click="visible = false"> 关闭 </Button>
         </div>
       </DialogFooter>
     </DialogContent>
@@ -556,19 +572,44 @@ defineExpose({ open })
         </DialogTitle>
         <div class="flex items-center gap-1 ml-2">
           <!-- 缩放控件 -->
-          <Button variant="ghost" size="icon" class="h-8 w-8" title="缩小 (滚轮)" :disabled="zoomLevel <= 0.25" @click="zoomOut">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8"
+            title="缩小 (滚轮)"
+            :disabled="zoomLevel <= 0.25"
+            @click="zoomOut"
+          >
             <ZoomOut class="h-4 w-4" />
           </Button>
           <span
             class="text-xs text-muted-foreground min-w-[3rem] text-center cursor-pointer select-none"
             title="点击还原 100%"
             @click="resetZoom"
-          >{{ Math.round(zoomLevel * 100) }}%</span>
-          <Button variant="ghost" size="icon" class="h-8 w-8" title="放大 (滚轮)" :disabled="zoomLevel >= 5" @click="zoomIn">
+            >{{ Math.round(zoomLevel * 100) }}%</span
+          >
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8"
+            title="放大 (滚轮)"
+            :disabled="zoomLevel >= 5"
+            @click="zoomIn"
+          >
             <ZoomIn class="h-4 w-4" />
           </Button>
+          <!-- <div class="w-px h-4 bg-border mx-1 shrink-0" />
+          <Button variant="ghost" size="icon" class="h-8 w-8" title="向右旋转90°" @click="rotateRight">
+            <RotateCw class="h-4 w-4" />
+          </Button> -->
           <div class="w-px h-4 bg-border mx-1 shrink-0" />
-          <Button variant="ghost" size="icon" class="h-8 w-8" :title="isMaximized ? '还原窗口' : '最大化'" @click="toggleMaximize">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8"
+            :title="isMaximized ? '还原窗口' : '最大化'"
+            @click="toggleMaximize"
+          >
             <Minimize2 v-if="isMaximized" class="h-4 w-4" />
             <Maximize2 v-else class="h-4 w-4" />
           </Button>
@@ -589,10 +630,10 @@ defineExpose({ open })
           :src="fullImageUrl"
           :alt="fullImageFilename"
           class="rounded-md shadow-md m-4 block"
-          :style="imageWidthStyle"
+          :style="imageTransformStyle"
           title="双击还原 100%"
           @dblclick="resetZoom"
-        >
+        />
       </div>
     </DialogContent>
   </Dialog>

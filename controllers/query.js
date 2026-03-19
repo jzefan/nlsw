@@ -354,7 +354,7 @@ exports.getVesselRevenueData = async function (req, res) {
   for (let i = 0; i < db_invs.length; ++i) {
     let db_inv = db_invs[i];
 
-    let date = db_inv.ship_date.format("yyyy-MM");
+    let date = utils.toFinancialMonth(db_inv.ship_date);
     let invIdxObj = {
       index: months.indexOf(date),
       fixed_cost: cost[date],
@@ -1571,7 +1571,7 @@ exports.getCustomerChartData = async function (req, res) {
       }
 
       var idx = -1;
-      var date = new Date(inv.ship_date).format("yyyy-MM");
+      var date = utils.toFinancialMonth(inv.ship_date);
       for (var m = 0; m < months.length; ++m) {
         if (date === months[m]) {
           idx = m;

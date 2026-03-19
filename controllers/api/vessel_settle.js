@@ -279,6 +279,7 @@ exports.settleVessel = async (req, res) => {
             innerSettle.date = date;
           }
         });
+        invoice.markModified('inner_settle');
         await invoice.save();
       }
     }
@@ -327,6 +328,7 @@ exports.settleVesselPay = async (req, res) => {
             }
           }
         });
+        invoice.markModified('inner_settle');
         await invoice.save();
       }
     }
@@ -365,6 +367,7 @@ exports.updateVesselDelayInfo = async (req, res) => {
           innerSettle.charge_oil = unshipData.charge_oil;
         } else if (partInd === 2) innerSettle.receipt = unshipData.receipt;
         else if (partInd === 3) innerSettle.remark = unshipData.remark;
+        invoice.markModified('inner_settle');
       } else {
         if (partInd === 0) Object.assign(invoice, unshipData);
         else if (partInd === 1) {
@@ -419,6 +422,7 @@ exports.settleVesselNotNeeded = async (req, res) => {
           innerSettle.state = "未结算";
           innerSettle.date = null;
         }
+        invoice.markModified('inner_settle');
       } else {
         if (notNeeded) {
           invoice.vessel_price = -1;
@@ -562,6 +566,7 @@ exports.uploadReceiptImg = [
           invoice.inner_settle.push(innerSettle);
         }
         innerSettle.receipt = 1;
+        invoice.markModified('inner_settle');
       } else {
         // 主运单
         invoice.receipt = 1;
@@ -986,6 +991,7 @@ exports.toggleVesselReceipt = async (req, res) => {
         invoice.inner_settle.push(innerSettle);
       }
       innerSettle.receipt = receipt;
+      invoice.markModified('inner_settle');
     } else {
       // 主运单 - 取消回执时，检查是否已结算或已付款
       if (receipt === 0) {

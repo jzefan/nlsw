@@ -263,19 +263,29 @@ function formatDateRange(start?: Date, end?: Date) {
 // 日期范围字符串（供移动端使用）
 const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
 
+// 根据发货日期计算所属财务月（上月26日~当月25日 → 当月）
+function toFinancialMonth(date: Date): string {
+  const d = new Date(date)
+  if (d.getDate() >= 26) {
+    d.setMonth(d.getMonth() + 1)
+  }
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  return `${y}-${m.toString().padStart(2, '0')}`
+}
+
 function getMonthsList(start: Date, end: Date) {
-  const list = []
-  const current = new Date(start)
-  const last = new Date(end)
-  
-  // Reset to start of month to avoid issues
-  current.setDate(1)
-  
-  while (current < last) {
-    const y = current.getFullYear()
-    const m = current.getMonth() + 1
-    list.push(`${y}-${m.toString().padStart(2, '0')}`)
-    current.setMonth(current.getMonth() + 1)
+  const startFm = toFinancialMonth(start)
+  const endFm = toFinancialMonth(end)
+  const [sy, sm] = startFm.split('-').map(Number)
+  const [ey, em] = endFm.split('-').map(Number)
+
+  const list: string[] = []
+  let cy = sy, cm = sm
+  while (cy < ey || (cy === ey && cm <= em)) {
+    list.push(`${cy}-${cm.toString().padStart(2, '0')}`)
+    cm++
+    if (cm > 12) { cm = 1; cy++ }
   }
   return list
 }
@@ -367,11 +377,8 @@ function handleDateConfirm() {
     const year = parseInt(startYear.value)
 
     // 财务年：上年12月26日 00:00:00 到本年12月25日 23:59:59
-    const s = new Date(year - 1, 11, 26, 0, 0, 0)
-    const e = new Date(year, 11, 25, 23, 59, 59)
-
-    startDate.value = s
-    endDate.value = e
+    startDate.value = new Date(year - 1, 11, 26, 0, 0, 0)
+    endDate.value = new Date(year, 11, 25, 23, 59, 59)
   } else {
     // Custom mode: already set via DatePickers
     if (!startDate.value || !endDate.value) {
@@ -379,7 +386,17 @@ function handleDateConfirm() {
       return
     }
   }
-  
+
+  // 统一截止到当前财务月（不显示未来月份）
+  const nowFm = toFinancialMonth(new Date())
+  const [fmY, fmM] = nowFm.split('-').map(Number)
+  const maxEnd = new Date(fmY, fmM - 1, 25, 23, 59, 59)
+  if (endDate.value! > maxEnd) {
+    endDate.value = maxEnd
+  }
+
+  if (startDate.value! > endDate.value!) { toast.error('所选区间超出当前财务月，无可用数据'); return }
+
   showDateDialog.value = false
   fetchData()
 }
@@ -689,43 +706,58 @@ function openExportSelectDialog() {
 }
 
 // 确认导出
-function confirmDetailExport() {
+async function confirmDetailExport() {
   if (exportSelectedCustomers.value.length === 0) {
     toast.error('请选择要导出的客户')
     return
   }
 
-  // 筛选选中客户的数据
   const filteredData = detailData.value.filter(item =>
     exportSelectedCustomers.value.includes(item.name)
   )
 
-  const data = filteredData.map(item => ({
-    '订单号': item.order,
-    '提单号': item.bill_no,
-    '开单名称': item.name,
-    '车船号': item.veh_ves_name,
-    '目的地': item.ship_to,
-    '代收价格': item.coll_price,
-    '客户价格': item.price,
-    '价格': item.tot_price,
-    '发运块数': item.send_num,
-    '发运重量': item.send_weight,
-    '发货日期': new Date(item.ship_date).toLocaleDateString(),
-    '运单号': item.inv_no,
-    '发货仓库': item.warehouse,
-    '规格': item.spec,
-    '牌号': item.brand_no,
-    '合同号': item.contract_no
-  }))
+  const headers = ['订单号', '提单号', '开单名称', '车船号', '目的地', '代收价格', '客户价格', '价格', '发运块数', '发运重量', '发货日期', '运单号', '发货仓库', '规格', '牌号', '合同号']
 
-  const ws = XLSX.utils.json_to_sheet(data)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '明细数据')
-  XLSX.writeFile(wb, `明细数据_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('明细数据')
 
-  showExportSelectDialog.value = false
-  toast.success(`已导出 ${filteredData.length} 条数据`)
+  sheet.addRow(headers)
+  sheet.getRow(1).font = { bold: true }
+
+  filteredData.forEach(item => {
+    sheet.addRow([
+      item.order, item.bill_no, item.name, item.veh_ves_name, item.ship_to,
+      item.coll_price, item.price, item.tot_price, item.send_num, item.send_weight,
+      item.ship_date ? new Date(item.ship_date).toLocaleDateString() : '',
+      item.inv_no, item.warehouse, item.spec, item.brand_no, item.contract_no,
+    ])
+  })
+
+  // 自动列宽
+  sheet.columns.forEach((col, i) => {
+    let maxLen = headers[i].length * 2
+    col.eachCell?.({ includeEmpty: false }, (cell) => {
+      const len = String(cell.value || '').length
+      if (len > maxLen) maxLen = len
+    })
+    col.width = Math.min(maxLen + 2, 40)
+  })
+
+  try {
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `明细数据_${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    showExportSelectDialog.value = false
+    toast.success(`已导出 ${filteredData.length} 条数据`)
+  } catch (error: any) {
+    console.error('Export error:', error)
+    toast.error('导出失败', { description: error.message })
+  }
 }
 
 function toggleExportCustomer(name: string) {

@@ -6,7 +6,6 @@ process.env.TZ = "Asia/Shanghai";
 
 require("dotenv").config({ path: process.env.ENV_FILE || ".env" });
 
-const schedule = require("node-schedule");
 var express = require("express");
 var cookieParser = require("cookie-parser");
 var compress = require("compression");
@@ -32,8 +31,6 @@ var passport = require("passport");
 var connectAssets = require("connect-assets");
 var routes = require("./routes");
 var routesApi = require("./routes_api");
-let ReceiptImg = require("./models/Receipt");
-let ArchivedReceiptImg = require("./models/ArchivedReceiptImg");
 
 const dataCfg = require("./controllers/cache");
 const { migrateAllUsers } = require("./utils/privilege-migration");
@@ -182,37 +179,8 @@ app.use(function (req, res, next) {
 routesApi(app);
 routes(app);
 
-// 定时任务，每天早上3点执行
-let rule = new schedule.RecurrenceRule();
-rule.hour = 16;
-rule.minute = 28;
-
-let job = schedule.scheduleJob(rule, async () => {
-  const halfYearAgo = new Date();
-  halfYearAgo.setMonth(halfYearAgo.getMonth() - 6);
-  console.log("start archive data...", halfYearAgo);
-
-  const cursor = await ReceiptImg.find({
-    create_time: { $lt: halfYearAgo },
-  }).exec();
-
-  for (const doc of cursor) {
-    const archivedDoc = new ArchivedReceiptImg({
-      inv_no: doc.inv_no,
-      status: doc.status,
-      data: doc.data,
-      contentType: doc.contentType,
-      create_time: doc.create_time,
-      creator: doc.creator,
-    });
-
-    await archivedDoc.save();
-    await ReceiptImg.deleteOne({ _id: doc._id });
-  }
-  console.log("end archive data...", halfYearAgo);
-});
-
 // SaaS 定时任务：每天凌晨3点自动暂停已过期的租户
+const schedule = require("node-schedule");
 const { isSaas } = require('./utils/deploy-mode');
 const Tenant = require('./models/Tenant');
 

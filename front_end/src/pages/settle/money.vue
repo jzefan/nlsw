@@ -425,6 +425,7 @@ function handleExport() {
     { header: '结算日期', key: 'settle_date' },
     { header: '开票号', key: 'ticket_no' },
     { header: '开票日期', key: 'ticket_date' },
+    { header: '开票人', key: 'ticket_person' },
     ...(displayMode.value === 'money'
       ? [
           { header: '回款日期', key: 'return_money_date' },
@@ -445,6 +446,7 @@ function handleExport() {
     settle_date: toExcelDate(settle.settle_date),
     ticket_no: settle.ticket_no || '-',
     ticket_date: toExcelDate(settle.ticket_date),
+    ticket_person: settle.ticket_person || '-',
     return_money_date: toExcelDate(settle.return_money_date),
     return_person: settle.return_person || '-',
     status: settle.status,
@@ -728,7 +730,7 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">实收</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
                   <th class="px-2 py-2 text-left" style="max-width: 260px; min-width: 100px">开票号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票人/日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
@@ -757,7 +759,7 @@ async function handleShowDetail() {
                       @change="toggleSettle(settle)"
                     />
                   </td>
-                  <td class="px-2 py-2">
+                  <td class="px-2 py-2 text-xs">
                     {{ settle.serial_number }}
                   </td>
                   <td class="px-2 py-2 whitespace-nowrap">
@@ -792,13 +794,14 @@ async function handleShowDetail() {
                     {{ formatNumber(settle.real_price || settle.price || 0, 2) }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
+                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD') }}
                   </td>
                   <td class="px-2 py-2 truncate" style="max-width: 260px" :title="settle.ticket_no || '-'">
                     {{ settle.ticket_no || '-' }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD HH:mm') : '-' }}
+                  <td class="px-2 py-1">
+                    <div>{{ settle.ticket_person || '-' }}</div>
+                    <div class="text-xs text-muted-foreground">{{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD') : '-' }}</div>
                   </td>
                   <td class="px-2 py-2">
                     <span class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
@@ -948,18 +951,17 @@ async function handleShowDetail() {
                   <th class="px-2 py-2 text-right" style="min-width: 80px">实收</th>
                   <th class="px-2 py-2 text-left" style="min-width: 100px">结算日期</th>
                   <th class="px-2 py-2 text-left" style="max-width: 260px; min-width: 100px">开票号</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票日期</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 100px">回款日期</th>
-                  <th class="px-2 py-2 text-left" style="min-width: 80px">回款人</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">开票人/日期</th>
+                  <th class="px-2 py-2 text-left" style="min-width: 100px">回款人/日期</th>
                   <th class="px-2 py-2 text-left" style="min-width: 80px">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading">
-                  <td colspan="14" class="p-8 text-center text-muted-foreground">加载中...</td>
+                  <td colspan="13" class="p-8 text-center text-muted-foreground">加载中...</td>
                 </tr>
                 <tr v-else-if="displaySettles.length === 0">
-                  <td colspan="14" class="p-8 text-center text-muted-foreground">没有数据</td>
+                  <td colspan="13" class="p-8 text-center text-muted-foreground">没有数据</td>
                 </tr>
                 <tr
                   v-for="settle in pagedSettles"
@@ -979,7 +981,7 @@ async function handleShowDetail() {
                       @change="toggleSettle(settle)"
                     />
                   </td>
-                  <td class="px-2 py-2">
+                  <td class="px-2 py-2 text-xs">
                     {{ settle.serial_number }}
                   </td>
                   <td class="px-2 py-2 whitespace-nowrap">
@@ -1014,19 +1016,18 @@ async function handleShowDetail() {
                     {{ formatNumber(settle.real_price || settle.price || 0, 2) }}
                   </td>
                   <td class="px-2 py-2">
-                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD HH:mm') }}
+                    {{ dayjs(settle.settle_date).format('YYYY-MM-DD') }}
                   </td>
                   <td class="px-2 py-2 truncate" style="max-width: 260px" :title="settle.ticket_no || '-'">
                     {{ settle.ticket_no || '-' }}
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD HH:mm') : '-' }}
+                  <td class="px-2 py-1">
+                    <div>{{ settle.ticket_person || '-' }}</div>
+                    <div class="text-xs text-muted-foreground">{{ settle.ticket_date ? dayjs(settle.ticket_date).format('YYYY-MM-DD') : '-' }}</div>
                   </td>
-                  <td class="px-2 py-2">
-                    {{ settle.return_money_date ? dayjs(settle.return_money_date).format('YYYY-MM-DD HH:mm') : '-' }}
-                  </td>
-                  <td class="px-2 py-2">
-                    {{ settle.return_person || '-' }}
+                  <td class="px-2 py-1">
+                    <div>{{ settle.return_person || '-' }}</div>
+                    <div class="text-xs text-muted-foreground">{{ settle.return_money_date ? dayjs(settle.return_money_date).format('YYYY-MM-DD') : '-' }}</div>
                   </td>
                   <td class="px-2 py-2">
                     <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">

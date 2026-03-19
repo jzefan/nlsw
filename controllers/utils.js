@@ -273,3 +273,15 @@ exports.isExist = function(variable) {
 exports.isEmpty = function(variable) {
   return (typeof variable === 'undefined' || !variable || 0 === variable.length);
 };
+
+/**
+ * 财务月：上月26日~当月25日 → 当月
+ * 例：2024-12-28 → "2025-01"，2025-01-20 → "2025-01"
+ */
+exports.toFinancialMonth = function(date) {
+  var d = new Date(date);
+  if (d.getDate() >= 26) d.setMonth(d.getMonth() + 1);
+  var y = d.getFullYear();
+  var m = (d.getMonth() + 1).toString().padStart(2, '0');
+  return y + '-' + m;
+};

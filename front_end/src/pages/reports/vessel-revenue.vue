@@ -155,16 +155,30 @@ const summaryTotals = computed(() => {
 })
 
 // Methods
+// 根据发货日期计算所属财务月（上月26日~当月25日 → 当月）
+function toFinancialMonth(date: Date): string {
+  const d = new Date(date)
+  if (d.getDate() >= 26) {
+    d.setMonth(d.getMonth() + 1)
+  }
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  return `${y}-${m.toString().padStart(2, '0')}`
+}
+
 function getMonthsList(start: Date, end: Date) {
-  const list = []
-  const current = new Date(start)
-  const last = new Date(end)
-  current.setDate(1)
-  while (current < last) {
-    const y = current.getFullYear()
-    const m = current.getMonth() + 1
-    list.push(`${y}-${m.toString().padStart(2, '0')}`)
-    current.setMonth(current.getMonth() + 1)
+  // 用财务月起止来生成月份列表
+  const startFm = toFinancialMonth(start)
+  const endFm = toFinancialMonth(end)
+  const [sy, sm] = startFm.split('-').map(Number)
+  const [ey, em] = endFm.split('-').map(Number)
+
+  const list: string[] = []
+  let cy = sy, cm = sm
+  while (cy < ey || (cy === ey && cm <= em)) {
+    list.push(`${cy}-${cm.toString().padStart(2, '0')}`)
+    cm++
+    if (cm > 12) { cm = 1; cy++ }
   }
   return list
 }
@@ -226,6 +240,17 @@ function handleDateConfirm() {
   } else {
     if (!startDate.value || !endDate.value) { toast.error('请选择日期范围'); return }
   }
+
+  // 统一截止到当前财务月（不显示未来月份）
+  const nowFm = toFinancialMonth(new Date())
+  const [fmY, fmM] = nowFm.split('-').map(Number)
+  const maxEnd = new Date(fmY, fmM - 1, 25, 23, 59, 59)
+  if (endDate.value! > maxEnd) {
+    endDate.value = maxEnd
+  }
+
+  if (startDate.value! > endDate.value!) { toast.error('所选区间超出当前财务月，无可用数据'); return }
+
   showDateDialog.value = false
   fetchData()
 }
