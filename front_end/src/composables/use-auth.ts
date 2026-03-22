@@ -2,6 +2,7 @@ import { storeToRefs } from 'pinia'
 
 import { useAxios } from '@/composables/use-axios'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { encryptPassword } from '@/utils/crypto'
 
 export function useAuth() {
@@ -9,6 +10,7 @@ export function useAuth() {
   const { axiosInstance } = useAxios()
 
   const authStore = useAuthStore()
+  const themeStore = useThemeStore()
   const { isLogin, user } = storeToRefs(authStore)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -59,6 +61,7 @@ export function useAuth() {
         if (response.data.features) {
           authStore.setFeatures(response.data.features)
         }
+        themeStore.hydrateFromServer(response.data.user?.preferences)
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -110,6 +113,7 @@ export function useAuth() {
         if (response.data.features) {
           authStore.setFeatures(response.data.features)
         }
+        themeStore.hydrateFromServer(response.data.user?.preferences)
 
         const redirect = router.currentRoute.value.query.redirect as string
         if (!redirect || redirect.startsWith('//')) {
@@ -147,6 +151,7 @@ export function useAuth() {
         if (response.data.features) {
           authStore.setFeatures(response.data.features)
         }
+        themeStore.hydrateFromServer(response.data.user?.preferences)
         return true
       }
     }

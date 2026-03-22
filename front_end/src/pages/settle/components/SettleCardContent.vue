@@ -35,7 +35,13 @@ defineProps<Props>()
     <!-- 行3：起始地→目的地 + 发货日期 -->
     <div class="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
       <span>{{ shipFrom }} → {{ shipTo }}</span>
-      <span class="ml-auto shrink-0">{{ shipDate }}</span>
+      <span class="ml-auto shrink-0 text-right leading-tight">
+        <template v-if="shipDate && shipDate.includes(' ')">
+          <div>{{ shipDate.split(' ')[0] }}</div>
+          <div>{{ shipDate.split(' ')[1] }}</div>
+        </template>
+        <template v-else>{{ shipDate }}</template>
+      </span>
     </div>
     <!-- 行4：发运重量 + 单价 → 总价 -->
     <div class="flex items-center gap-3 mt-0.5 text-xs">

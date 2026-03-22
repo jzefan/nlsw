@@ -5,12 +5,14 @@ import { storeToRefs } from 'pinia'
 import { useAxios } from '@/composables/use-axios'
 import pinia from '@/plugins/pinia/setup'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 
 let isAuthChecked = false
 
 export function authGuard(router: Router) {
   router.beforeEach(async (to, _from) => {
     const authStore = useAuthStore(pinia)
+    const themeStore = useThemeStore(pinia)
     const { isLogin } = storeToRefs(authStore)
 
     // 首次加载时检查服务器端 session 状态
@@ -30,6 +32,7 @@ export function authGuard(router: Router) {
           if (response.data.features) {
             authStore.setFeatures(response.data.features)
           }
+          themeStore.hydrateFromServer(response.data.user?.preferences)
         }
       }
       catch (e) {

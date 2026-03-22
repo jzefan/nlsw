@@ -175,6 +175,13 @@ function getStrValue(val: any) {
   return val === undefined || val === null ? '' : val
 }
 
+function toExcelDateTimeMinute(date: string | Date | null | undefined) {
+  if (!date) return ''
+  const d = dayjs(date)
+  if (!d.isValid()) return ''
+  return d.format('YYYY-MM-DD HH:mm')
+}
+
 
 // Columns
 const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
@@ -436,7 +443,7 @@ async function handleExport() {
           row.push(toExcelNum(bill.collection_price))
           row.push(toExcelNum(bill.veh_ves_price))
         }
-        row.push(toExcelDate(bill.inv_ship_date))
+        row.push(toExcelDateTimeMinute(bill.inv_ship_date))
         row.push(bill.inv_shipper)
         row.push(bill.inv_no)
       }
@@ -603,7 +610,7 @@ async function handleExportAccount() {
         toExcelNum(bill.send_weight),
         toExcelNum(bill.block_num),
         toExcelNum(tWeight),
-        toExcelDate(bill.inv_ship_date),
+        toExcelDateTimeMinute(bill.inv_ship_date),
         bill.inv_shipper,
         bill.inv_no,
         bill.ship_warehouse,

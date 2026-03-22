@@ -45,13 +45,13 @@ watch(open, async (val) => {
           if (bill.invoices && bill.invoices.length > 0) {
             for (const inv of bill.invoices) {
               if (inv.inv_no === settleBill.inv_no) {
+                vessel = inv.veh_ves_name || ''
+                shipTo = inv.ship_to
                 if (result.settle.settle_type === '客户结算') {
-                  vessel = inv.veh_ves_name
                   price = inv.price || 0
                 } else if (result.settle.settle_type === '代收代付结算') {
                   price = bill.collection_price || 0
                 }
-                shipTo = inv.ship_to
                 break
               }
             }

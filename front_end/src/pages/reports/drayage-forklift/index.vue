@@ -2,13 +2,12 @@
 // @ts-nocheck
 import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { Edit, FileDown, Plus, Trash2 } from 'lucide-vue-next'
+import { CheckSquare, Edit, FileDown, Plus, Square, Trash2 } from 'lucide-vue-next'
 
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -69,6 +68,17 @@ function toggleSelect(row: DrayageForklift) {
 function isSelected(row: DrayageForklift) {
   return selectedRows.value.some(item => item.month === row.month)
 }
+
+// 汇总数据来源：有选中则用选中行，否则用全部数据
+const summaryRows = computed(() => selectedRows.value.length > 0 ? selectedRows.value : data.value)
+
+const summary = computed(() => {
+  const rows = summaryRows.value
+  return {
+    drayage: rows.reduce((s, r) => s + (r.drayage || 0), 0),
+    forklift: rows.reduce((s, r) => s + (r.forklift || 0), 0),
+  }
+})
 
 async function loadData() {
   loading.value = true
@@ -171,9 +181,24 @@ onMounted(() => {
     </template>
 
     <div class="py-4">
-      <!-- 统计信息 -->
-      <div v-if="selectedRows.length > 0" class="mb-4 text-sm text-muted-foreground">
-        已选择 {{ selectedRows.length }} 条记录
+      <!-- 统计信息（固定显示，避免行跳动） -->
+      <div class="flex items-center gap-4 text-sm px-1 mb-4">
+        <span class="text-muted-foreground">
+          <span v-if="selectedRows.length > 0">
+            已选择 <span class="font-medium text-foreground">{{ selectedRows.length }}</span> 条 /
+          </span>
+          共 <span class="font-medium text-foreground">{{ data.length }}</span> 条记录
+        </span>
+        <span class="text-muted-foreground">|</span>
+        <span class="text-muted-foreground">
+          {{ selectedRows.length > 0 ? '选中' : '' }}短驳：
+          <span class="font-bold text-red-500">{{ formatNumber(summary.drayage, 2) }}</span>
+        </span>
+        <span class="text-muted-foreground">|</span>
+        <span class="text-muted-foreground">
+          {{ selectedRows.length > 0 ? '选中' : '' }}叉车：
+          <span class="font-bold text-red-500">{{ formatNumber(summary.forklift, 2) }}</span>
+        </span>
       </div>
 
       <!-- 表格 -->
@@ -208,14 +233,12 @@ onMounted(() => {
               v-for="row in data"
               :key="row.month"
               class="cursor-pointer"
-              :class="{ 'bg-muted/50': isSelected(row) }"
+              :class="{ 'bg-blue-50 border-l-2 border-l-blue-500': isSelected(row) }"
               @click="toggleSelect(row)"
             >
-              <TableCell @click.stop>
-                <Checkbox
-                  :checked="isSelected(row)"
-                  @update:checked="toggleSelect(row)"
-                />
+              <TableCell @click.stop @click="toggleSelect(row)">
+                <CheckSquare v-if="isSelected(row)" class="w-4 h-4 text-blue-500" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
               </TableCell>
               <TableCell class="font-medium">
                 {{ row.month }}

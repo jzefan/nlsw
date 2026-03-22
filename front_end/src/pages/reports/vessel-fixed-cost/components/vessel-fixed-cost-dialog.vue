@@ -30,7 +30,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { upsertVesselFixedCost, getVesselFixedCost, type VesselFixedCost } from '@/services/api/vessel-fixed-cost.api'
-import { getVehicles } from '@/services/api/data-dict.api'
 import AsyncCombobox from '@/components/common/AsyncCombobox.vue'
 
 const props = defineProps<{
@@ -128,15 +127,6 @@ watch(() => props.open, (newVal) => {
   }
 })
 
-// Search vehicles
-async function searchVehicles(keyword: string) {
-  const res = await getVehicles({ search: keyword, type: '车', limit: 20 })
-  if (res.ok) {
-    return res.data.map(v => ({ label: v.name, value: v.name }))
-  }
-  return []
-}
-
 // Check if exists
 async function checkExists(name: string, month: string) {
   if (isEdit.value && name === props.editData?.name && month === props.editData?.month) return false
@@ -209,7 +199,8 @@ const onSubmit = handleSubmit(async (values) => {
                 <AsyncCombobox
                   :model-value="values.name"
                   @update:model-value="setValues({ name: $event })"
-                  :search-fn="searchVehicles"
+                  api-endpoint="/vehicles/search"
+                  :query-params="{ type: '车' }"
                   placeholder="选择车船"
                   :disabled="isEdit"
                 />

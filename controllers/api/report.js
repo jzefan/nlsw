@@ -64,7 +64,9 @@ function copyBill(bill, binv, veh, selfOwnedVehs) {
     obj.inv_no = veh.inner_waybill_no;
     obj.veh_ves_name = veh.veh_name;
     obj.send_num = veh.send_num;
-    obj.send_weight = veh.send_weight;
+    obj.send_weight = veh.send_weight > 0
+      ? veh.send_weight
+      : (bill.block_num > 0 ? (veh.send_num || 0) * (bill.weight || 0) : 0);
     obj.price = veh.veh_price;
     obj.ship_to = binv.veh_ves_name;
     obj.ship_from = veh.veh_ship_from;
@@ -592,7 +594,24 @@ exports.getIntegratedQuery = async function (req, res) {
             inv_no: '$binv.vehicles.inner_waybill_no',
             veh_ves_name: '$binv.vehicles.veh_name',
             send_num: { $ifNull: ['$binv.vehicles.send_num', 0] },
-            send_weight: { $ifNull: ['$binv.vehicles.send_weight', 0] },
+            send_weight: {
+              $cond: {
+                if: { $gt: [{ $ifNull: ['$binv.vehicles.send_weight', 0] }, 0] },
+                then: '$binv.vehicles.send_weight',
+                else: {
+                  $cond: {
+                    if: { $gt: [{ $ifNull: ['$billDoc.block_num', 0] }, 0] },
+                    then: {
+                      $multiply: [
+                        { $ifNull: ['$billDoc.weight', 0] },
+                        { $ifNull: ['$binv.vehicles.send_num', 0] }
+                      ]
+                    },
+                    else: 0
+                  }
+                }
+              }
+            },
             price: '$binv.vehicles.veh_price',
             ship_to: '$binv.veh_ves_name',
             ship_from: '$binv.vehicles.veh_ship_from',
@@ -611,7 +630,13 @@ exports.getIntegratedQuery = async function (req, res) {
               }
             },
             price: '$binv.price',
-            veh_ves_price: '$binv.veh_ves_price',
+            veh_ves_price: {
+              $cond: {
+                if: { $gt: [{ $ifNull: ['$vessel_price', 0] }, 0] },
+                then: '$vessel_price',
+                else: '$binv.veh_ves_price'
+              }
+            },
             ship_to: '$binv.ship_to',
             ship_from: '$binv.ship_from',
           }});
@@ -742,5 +767,23 @@ exports.getInvoiceReport = async function (req, res) {
   } catch (err) {
     console.error("getInvoiceReport error:", err);
     res.json({ ok: false, error: err.message });
+  }
+};
+
+exports.getInvoiceShippers = async function (req, res) {
+  try {
+    const shippers = await Invoice.distinct('shipper', buildTenantQuery(req, {
+      shipper: { $exists: true, $nin: [null, ''] },
+    }));
+
+    res.json({
+      ok: true,
+      data: shippers
+        .filter(Boolean)
+        .sort((a, b) => String(a).localeCompare(String(b), 'zh-Hans-CN')),
+    });
+  } catch (err) {
+    console.error('getInvoiceShippers error:', err);
+    res.status(500).json({ ok: false, message: err.message });
   }
 };

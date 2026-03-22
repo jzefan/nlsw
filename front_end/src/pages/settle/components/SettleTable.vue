@@ -399,7 +399,7 @@ function switchToOtherMode() {
             <td v-if="columnVisibility.warehouse" class="px-1.5 py-1.5 border-r border-border/50">
               {{ bill.ship_warehouse || '-' }}
             </td>
-            <td v-if="columnVisibility.shipDate" class="px-1.5 py-1.5 border-r border-border/50">
+            <td v-if="columnVisibility.shipDate" class="px-1.5 py-1.5 border-r border-border/50 whitespace-nowrap">
               {{ formatDate(bill.inv_ship_date) }}
             </td>
             <td v-if="columnVisibility.shipper" class="px-1.5 py-1.5 border-r border-border/50">

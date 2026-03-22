@@ -21,6 +21,16 @@ import { toast } from 'vue-sonner'
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -389,33 +399,6 @@ function switchViewTab(tab: 'unsettled' | 'settled') {
   }
 }
 
-// 从后端加载数据
-async function loadData(params: SettleFilterParams) {
-  loading.value = true
-  try {
-    const result = await getSettleBills({
-      ...params,
-      selfOwned: isSelfOwnedMode.value ? 1 : undefined,
-    })
-    if (result.ok) {
-      const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
-        return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
-      })
-      // allBills 存主条件结果（用于下拉选项），displayBills 存当前展示结果
-      allBills.value = sorted
-      displayBills.value = applySettleFilter(sorted)
-      selectedBills.value = []
-      currentPage.value = 1
-    } else {
-      toast.error('获取数据失败')
-    }
-  } catch (error: any) {
-    toast.error(error.message || '获取数据失败')
-  } finally {
-    loading.value = false
-  }
-}
-
 
 // 判断主条件（开单名称+日期）是否变化
 const lastPrimaryName = ref<string[] | undefined>()
@@ -430,18 +413,77 @@ function isPrimaryChanged(params: SettleFilterParams): boolean {
     || params.fDate2 !== lastPrimaryDate2.value
 }
 
+// 大数据量提醒
+const LARGE_DATA_THRESHOLD = 5000
+const showLargeDataWarning = ref(false)
+const largeDataCount = ref(0)
+const pendingQueryParams = ref<SettleFilterParams | null>(null)
+const pendingQueryIsPrimary = ref(false)
+
+// 用户确认加载大数据量：跳过阈值检查，直接展示已获取的数据
+function confirmLoadLargeData() {
+  if (pendingQueryParams.value) {
+    applyLoadedData(pendingQueryParams.value, pendingQueryIsPrimary.value)
+    pendingQueryParams.value = null
+  }
+}
+
+// 将已获取的数据应用到视图
+function applyLoadedData(params: SettleFilterParams, primaryChanged: boolean) {
+  if (primaryChanged) {
+    displayBills.value = applySettleFilter(allBills.value)
+  } else {
+    displayBills.value = applySettleFilter(allBills.value)
+  }
+  selectedBills.value = []
+  currentPage.value = 1
+  dataLoaded.value = true
+}
+
 // 每次查询都调后端
 async function handleQuery(params: SettleFilterParams) {
   const primaryChanged = isPrimaryChanged(params)
   filterParams.value = params
 
   if (primaryChanged) {
-    // 主条件变了：先用主条件加载全量数据（供下拉选项），然后加载带二级筛选的展示数据
-    // 由于主条件变化时二级筛选已被清空，两次查询参数相同，只需一次请求
     lastPrimaryName.value = params.fName
     lastPrimaryDate1.value = params.fDate1
     lastPrimaryDate2.value = params.fDate2
-    await loadData(params)
+    // 主条件变了：加载全量数据
+    loading.value = true
+    try {
+      const result = await getSettleBills({
+        ...params,
+        selfOwned: isSelfOwnedMode.value ? 1 : undefined,
+      })
+      if (result.ok) {
+        const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
+          return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
+        })
+        allBills.value = sorted
+
+        // 数据已拿到，检查过滤后的数量是否超过阈值
+        const filtered = applySettleFilter(sorted)
+        if (filtered.length > LARGE_DATA_THRESHOLD) {
+          largeDataCount.value = filtered.length
+          pendingQueryParams.value = params
+          pendingQueryIsPrimary.value = true
+          loading.value = false
+          showLargeDataWarning.value = true
+          return
+        }
+
+        displayBills.value = filtered
+        selectedBills.value = []
+        currentPage.value = 1
+      } else {
+        toast.error('获取数据失败')
+      }
+    } catch (error: any) {
+      toast.error(error.message || '获取数据失败')
+    } finally {
+      loading.value = false
+    }
   } else {
     // 主条件没变：只用全部参数加载展示数据，不更新 allBills（下拉选项不变）
     loading.value = true
@@ -451,11 +493,24 @@ async function handleQuery(params: SettleFilterParams) {
         selfOwned: isSelfOwnedMode.value ? 1 : undefined,
       })
       if (result.ok) {
-        // 不更新 allBills（保持下拉选项），只更新 displayBills
         const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
           return new Date(b.inv_ship_date).getTime() - new Date(a.inv_ship_date).getTime()
         })
-        displayBills.value = applySettleFilter(sorted)
+
+        // 数据已拿到，检查过滤后的数量是否超过阈值
+        const filtered = applySettleFilter(sorted)
+        if (filtered.length > LARGE_DATA_THRESHOLD) {
+          // 暂存数据到 allBills 备用，但不展示
+          largeDataCount.value = filtered.length
+          pendingQueryParams.value = params
+          pendingQueryIsPrimary.value = false
+          loading.value = false
+          showLargeDataWarning.value = true
+          // 暂存 sorted 到 allBills 以便确认后使用（二级筛选场景下不更新 allBills）
+          return
+        }
+
+        displayBills.value = filtered
         selectedBills.value = []
         currentPage.value = 1
       } else {
@@ -1638,7 +1693,7 @@ function isBillSelected(bill: SettleBill): boolean {
                 :billing-name="bill.ship_customer ? `${bill.billing_name}/${bill.ship_customer}` : bill.billing_name"
                 :ship-from="bill.ship_from"
                 :ship-to="bill.ship_to"
-                :ship-date="bill.inv_ship_date ? dayjs(bill.inv_ship_date).format('MM-DD HH:mm') : ''"
+                :ship-date="bill.inv_ship_date ? dayjs(bill.inv_ship_date).format('YYYY-MM-DD HH:mm:ss') : ''"
                 :weight="`${bill.send_weight.toFixed(3)}吨`"
                 :price="getCardPrice(bill)"
                 :price-class="getCardPriceClass(bill)"
@@ -1972,6 +2027,22 @@ function isBillSelected(bill: SettleBill): boolean {
 
     <!-- 导出对话框 -->
     <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
+
+    <!-- 大数据量提醒对话框 -->
+    <AlertDialog v-model:open="showLargeDataWarning">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>数据量较大</AlertDialogTitle>
+          <AlertDialogDescription>
+            当前查询条件匹配到约 {{ largeDataCount }} 条记录，加载可能较慢且浏览器可能卡顿，请谨慎操作。建议缩小日期范围或增加筛选条件。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction @click="confirmLoadLargeData()">确定查询</AlertDialogAction>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </BasicPage>
 </template>
 

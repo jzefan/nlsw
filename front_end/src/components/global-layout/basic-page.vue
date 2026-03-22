@@ -13,6 +13,9 @@ defineProps<LayoutHeaderProps>()
       :description="description"
       :sticky="sticky"
     >
+      <template #header-actions>
+        <slot name="header-actions" />
+      </template>
       <template #actions>
         <slot name="actions" />
       </template>

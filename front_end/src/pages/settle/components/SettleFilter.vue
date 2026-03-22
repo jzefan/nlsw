@@ -295,8 +295,7 @@ watch(() => props.showNonSettle, () => {
 </script>
 
 <template>
-  <div class="p-3 border rounded-lg bg-muted/50 space-y-2">
-    <!-- 第一行：开单名称、订单号、提单号 -->
+  <div class="p-3 border rounded-lg bg-muted/50">
     <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
       <SearchableCombobox
         v-model="billingName"
@@ -315,9 +314,6 @@ watch(() => props.showNonSettle, () => {
         placeholder="提单号"
         multiple
       />
-    </div>
-    <!-- 第二行：车船号、起始地、目的地 -->
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
       <SearchableCombobox
         v-model="vehicles"
         :search-fn="searchVehicles"
@@ -336,9 +332,6 @@ watch(() => props.showNonSettle, () => {
         placeholder="目的地"
         multiple
       />
-    </div>
-    <!-- 第三行：运单号（对齐车船号）、起始日期（对齐起始地）、结束日期+查询（对齐目的地） -->
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
       <SearchableCombobox
         v-model="invNos"
         :search-fn="searchInvNos"
@@ -351,26 +344,23 @@ watch(() => props.showNonSettle, () => {
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
       />
-      <div class="flex items-center gap-2">
-        <DatePicker
-          v-model="endDate"
-          class="flex-1 min-w-0"
-          placeholder="结束日期"
-          :disabled-date="disableEndDate"
-          disabled-hint="结束日期不能早于开始日期"
-        />
-        <UiButton
-          variant="default"
-          size="sm"
-          class="h-9 shrink-0"
-          :disabled="loading"
-          @click="handleSearch"
-        >
-          <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
-          <Search v-else class="w-4 h-4 mr-1" />
-          查询
-        </UiButton>
-      </div>
+      <DatePicker
+        v-model="endDate"
+        placeholder="结束日期"
+        :disabled-date="disableEndDate"
+        disabled-hint="结束日期不能早于开始日期"
+      />
+      <UiButton
+        variant="default"
+        size="sm"
+        class="h-9"
+        :disabled="loading"
+        @click="handleSearch"
+      >
+        <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
+        <Search v-else class="w-4 h-4 mr-1" />
+        查询
+      </UiButton>
     </div>
   </div>
 </template>

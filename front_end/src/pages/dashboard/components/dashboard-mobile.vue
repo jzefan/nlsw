@@ -31,7 +31,7 @@ import {
 import { VisAxis, VisStackedBar, VisXYContainer } from '@unovis/vue'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useAuthStore } from '@/stores/auth'
-import { hasPermission, PERMISSIONS } from '@/constants/permissions'
+import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 import {
   getDashboardStatistics,
   getDashboardInvoiceDetails,
@@ -148,30 +148,44 @@ const xDomain = computed(() => [-0.5, chartData.value.length - 0.5])
 type FeatureItem = { title: string; icon: any; url: string; color: string; bgColor: string }
 
 const quickFeatures = computed<FeatureItem[]>(() => {
-  const items: FeatureItem[] = []
+  const isAdminUser = isAdmin(privilege.value)
+  const isOperator = !isAdminUser && hasPermission(privilege.value, PERMISSIONS.OPERATOR)
 
-  if (hasPermission(privilege.value, PERMISSIONS.OPERATOR)) {
-    items.push(
+  if (isAdminUser) {
+    // 管理员：客户营业额, 车船营业额, 配发-车运, 配发-船运, 综合查询, 结算, 车船结算, 新建计划
+    return [
+      { title: '客户营业额', icon: TrendingUp, url: '/reports/customer-revenue', color: 'text-fuchsia-600', bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/30' },
+      { title: '车船营业额', icon: Ship, url: '/reports/vessel-revenue', color: 'text-cyan-600', bgColor: 'bg-cyan-50 dark:bg-cyan-900/30' },
+      { title: '配发-车运', icon: Truck, url: '/invoices/create-truck', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
+      { title: '配发-船运', icon: Ship, url: '/invoices/create-ship', color: 'text-indigo-600', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
+      { title: '综合查询', icon: TrendingUp, url: '/reports/integrated', color: 'text-rose-600', bgColor: 'bg-rose-50 dark:bg-rose-900/30' },
+      { title: '结算', icon: Receipt, url: '/settle/bill', color: 'text-amber-600', bgColor: 'bg-amber-50 dark:bg-amber-900/30' },
+      { title: '车船结算', icon: Ship, url: '/settle/vessel', color: 'text-teal-600', bgColor: 'bg-teal-50 dark:bg-teal-900/30' },
+      { title: '新建计划', icon: ClipboardList, url: '/plans/create', color: 'text-purple-600', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+    ]
+  }
+
+  if (isOperator) {
+    // 一般业务员：配发-车运, 配发-船运, 新建提单, 综合查询
+    return [
       { title: '配发-车运', icon: Truck, url: '/invoices/create-truck', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
       { title: '配发-船运', icon: Ship, url: '/invoices/create-ship', color: 'text-indigo-600', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
       { title: '新建提单', icon: FileText, url: '/bills/create', color: 'text-emerald-600', bgColor: 'bg-emerald-50 dark:bg-emerald-900/30' },
-      { title: '新建计划', icon: ClipboardList, url: '/plans/create', color: 'text-purple-600', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
-    )
+      { title: '综合查询', icon: TrendingUp, url: '/reports/integrated', color: 'text-rose-600', bgColor: 'bg-rose-50 dark:bg-rose-900/30' },
+    ]
   }
 
-  if (hasPermission(privilege.value, PERMISSIONS.CUST_SETTLE)) {
-    items.push(
-      { title: '结算', icon: Receipt, url: '/settle/bill', color: 'text-amber-600', bgColor: 'bg-amber-50 dark:bg-amber-900/30' },
-      { title: '开票', icon: CreditCard, url: '/settle/ticket', color: 'text-orange-600', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
-    )
-  }
-
-  items.push(
+  // 其它权限：配发-车运, 配发-船运, 结算, 车船结算, 综合查询, 开票, 回款, 运单报告
+  return [
+    { title: '配发-车运', icon: Truck, url: '/invoices/create-truck', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
+    { title: '配发-船运', icon: Ship, url: '/invoices/create-ship', color: 'text-indigo-600', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
+    { title: '结算', icon: Receipt, url: '/settle/bill', color: 'text-amber-600', bgColor: 'bg-amber-50 dark:bg-amber-900/30' },
+    { title: '车船结算', icon: Ship, url: '/settle/vessel', color: 'text-teal-600', bgColor: 'bg-teal-50 dark:bg-teal-900/30' },
     { title: '综合查询', icon: TrendingUp, url: '/reports/integrated', color: 'text-rose-600', bgColor: 'bg-rose-50 dark:bg-rose-900/30' },
-    { title: '基础数据', icon: Database, url: '/data/vehicles', color: 'text-cyan-600', bgColor: 'bg-cyan-50 dark:bg-cyan-900/30' },
-  )
-
-  return items
+    { title: '开票', icon: CreditCard, url: '/settle/ticket', color: 'text-orange-600', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+    { title: '回款', icon: RmbIcon, url: '/settle/money', color: 'text-green-600', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+    { title: '运单报表', icon: BarChart3, url: '/reports/invoice', color: 'text-pink-600', bgColor: 'bg-pink-50 dark:bg-pink-900/30' },
+  ]
 })
 
 // All features - grouped by category for expanded view

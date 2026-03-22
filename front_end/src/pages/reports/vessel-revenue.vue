@@ -3,10 +3,12 @@
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import ExcelJS from 'exceljs'
-import { Download, Filter, Search } from 'lucide-vue-next'
+import { Download, Filter, Loader2, Search } from 'lucide-vue-next'
 import { VisAxis, VisGroupedBar, VisXYContainer } from '@unovis/vue'
 
+import ExportDialog from '@/components/export-dialog.vue'
 import { useDevice } from '@/composables/use-device'
+import { useExport } from '@/composables/use-export'
 import VesselRevenueMobile from './components/VesselRevenueMobile.vue'
 import type { ChartConfig } from '@/components/ui/chart'
 import {
@@ -44,6 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DatePicker, MonthPicker } from '@/components/ui/date-picker'
+import { formatDate, toExcelNum } from '@/utils/format'
 import {
   getVesselRevenue,
   getVesselDetail,
@@ -51,9 +54,11 @@ import {
   type VesselDetailItem,
   type VesselSummaryItem
 } from '@/services/api/vessel-statistics.api'
+import { PAGE_SIZES } from '@/constants/pagination'
 
 // 设备检测
 const { isMobile } = useDevice()
+const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // State
 const loading = ref(false)
@@ -114,10 +119,16 @@ const formattedEndDate = computed({
 const showSummaryDialog = ref(false)
 const showDetailDialog = ref(false)
 const detailLoading = ref(false)
+const detailExporting = ref(false)
 const summaryItems = ref<Record<string, VesselSummaryItem>>({})
-const detailItems = ref<Record<string, VesselDetailItem[]>>({})
-const vehNameList = ref<string[]>([])
+const detailRows = ref<VesselDetailItem[]>([])
 const detailTitle = ref('')
+const detailVehType = ref<'自有' | '外挂'>('外挂')
+const detailVehMode = ref<'全部' | '车' | '船'>('全部')
+const detailPage = ref(1)
+const detailLimit = ref(50)
+const detailTotal = ref(0)
+const detailTotalPages = computed(() => Math.max(1, Math.ceil(detailTotal.value / detailLimit.value)))
 
 // Chart Config - 固定显示金额
 const chartConfig = {
@@ -158,11 +169,15 @@ const summaryTotals = computed(() => {
 // 根据发货日期计算所属财务月（上月26日~当月25日 → 当月）
 function toFinancialMonth(date: Date): string {
   const d = new Date(date)
+  let y = d.getFullYear()
+  let m = d.getMonth() + 1
   if (d.getDate() >= 26) {
-    d.setMonth(d.getMonth() + 1)
+    m += 1
+    if (m > 12) {
+      m = 1
+      y += 1
+    }
   }
-  const y = d.getFullYear()
-  const m = d.getMonth() + 1
   return `${y}-${m.toString().padStart(2, '0')}`
 }
 
@@ -197,8 +212,8 @@ async function fetchData() {
     }
 
     const res = await getVesselRevenue({
-      fDate1: startDate.value.toISOString(),
-      fDate2: endDate.value.toISOString(),
+      fDate1: toLocalDateTimeString(startDate.value),
+      fDate2: toLocalDateTimeString(endDate.value),
       fMonths: getMonthsList(startDate.value, endDate.value)
     })
     if (res.ok) {
@@ -268,28 +283,49 @@ function formatNum(val: number) {
   return val.toFixed(3)
 }
 
+// 格式化为本地时间字符串（与综合查询保持一致，避免时区偏差）
+function toLocalDateTimeString(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  const s = String(date.getSeconds()).padStart(2, '0')
+  return `${y}-${m}-${d} ${h}:${min}:${s}`
+}
+
 // Drill-down Detail Handlers
 async function openDrillDown(type: '自有' | '外挂', mode: 'summary' | 'detail') {
   if (!startDate.value || !endDate.value) { toast.error('请先查询数据'); return }
   
   detailTitle.value = `${type}车船费用${mode === 'summary' ? '统计' : '清单'}`
+  detailVehType.value = type
+  if (mode === 'detail') {
+    detailVehMode.value = '全部'
+    detailPage.value = 1
+  }
   detailLoading.value = true
   if (mode === 'summary') showSummaryDialog.value = true
   else showDetailDialog.value = true
 
   try {
     const res = await getVesselDetail({
-      fDate1: startDate.value.toISOString(),
-      fDate2: endDate.value.toISOString(),
+      fDate1: toLocalDateTimeString(startDate.value),
+      fDate2: toLocalDateTimeString(endDate.value),
       fVehType: type,
-      fSummary: mode === 'summary' ? 'YES' : 'NO'
+      fSummary: mode === 'summary' ? 'YES' : 'NO',
+      fVehMode: mode === 'detail' && detailVehMode.value !== '全部' ? detailVehMode.value : undefined,
+      page: mode === 'detail' ? detailPage.value : undefined,
+      limit: mode === 'detail' ? detailLimit.value : undefined,
     })
     
     if (res.ok) {
       if (mode === 'summary') summaryItems.value = res.summary_data || {}
       else {
-        detailItems.value = res.vessel_detail || {}
-        vehNameList.value = res.vehNameList || []
+        detailRows.value = res.rows || []
+        detailTotal.value = res.total || 0
+        detailPage.value = res.page || detailPage.value
+        detailLimit.value = res.limit || detailLimit.value
       }
     } else {
       toast.error('获取明细失败')
@@ -299,6 +335,175 @@ async function openDrillDown(type: '自有' | '外挂', mode: 'summary' | 'detai
   } finally {
     detailLoading.value = false
   }
+}
+
+async function reloadDetailList() {
+  if (!showDetailDialog.value || !startDate.value || !endDate.value) return
+
+  detailLoading.value = true
+  try {
+    const res = await getVesselDetail({
+      fDate1: toLocalDateTimeString(startDate.value),
+      fDate2: toLocalDateTimeString(endDate.value),
+      fVehType: detailVehType.value,
+      fSummary: 'NO',
+      fVehMode: detailVehMode.value !== '全部' ? detailVehMode.value : undefined,
+      page: detailPage.value,
+      limit: detailLimit.value,
+    })
+
+    if (res.ok) {
+      detailRows.value = res.rows || []
+      detailTotal.value = res.total || 0
+      detailPage.value = res.page || detailPage.value
+      detailLimit.value = res.limit || detailLimit.value
+    } else {
+      toast.error('获取明细失败')
+    }
+  } catch (e) {
+    console.error(e)
+    toast.error('获取明细失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+watch(detailVehMode, async (val, prev) => {
+  if (val === prev || !showDetailDialog.value) return
+  detailPage.value = 1
+  await reloadDetailList()
+})
+
+watch(detailLimit, async (val, prev) => {
+  if (val === prev || !showDetailDialog.value) return
+  detailPage.value = 1
+  await reloadDetailList()
+})
+
+async function handleDetailPageChange(nextPage: number) {
+  if (nextPage < 1 || nextPage > detailTotalPages.value || nextPage === detailPage.value) return
+  detailPage.value = nextPage
+  await reloadDetailList()
+}
+
+function handleDetailPageSizeChange(value: string) {
+  const nextLimit = Number(value)
+  if (!Number.isFinite(nextLimit) || nextLimit <= 0) return
+  detailLimit.value = nextLimit
+}
+
+async function fetchAllDetailRowsForExport() {
+  if (!startDate.value || !endDate.value) return []
+
+  const pageSize = 500
+  let page = 1
+  let total = 0
+  const allRows: VesselDetailItem[] = []
+
+  while (page === 1 || allRows.length < total) {
+    const res = await getVesselDetail({
+      fDate1: toLocalDateTimeString(startDate.value),
+      fDate2: toLocalDateTimeString(endDate.value),
+      fVehType: detailVehType.value,
+      fSummary: 'NO',
+      fVehMode: detailVehMode.value !== '全部' ? detailVehMode.value : undefined,
+      page,
+      limit: pageSize,
+    })
+
+    if (!res.ok) {
+      throw new Error('获取导出数据失败')
+    }
+
+    const pageRows = res.rows || []
+    total = res.total || 0
+    allRows.push(...pageRows)
+
+    if (pageRows.length === 0) break
+    page += 1
+  }
+
+  return allRows
+}
+
+function handleExportSummaryDetail() {
+  const rows = Object.entries(summaryItems.value).map(([vname, item]) => ({
+    vname,
+    weight: toExcelNum(item.weight),
+    amount: toExcelNum(item.amount),
+    contact: item.contact || '',
+  }))
+
+  if (rows.length === 0) {
+    toast.error('没有可导出的数据')
+    return
+  }
+
+  exportWithPicker({
+    fileName: `${detailTitle.value || '车船费用统计'}_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: '车船费用统计',
+    columns: [
+      { header: '车船号', key: 'vname' },
+      { header: '吨位', key: 'weight', type: 'number' },
+      { header: '金额', key: 'amount', type: 'number' },
+      { header: '车船联系人', key: 'contact' },
+    ],
+    data: rows,
+  })
+}
+
+async function handleExportDetailList() {
+  detailExporting.value = true
+  try {
+    const allDetailRows = await fetchAllDetailRowsForExport()
+    const rows = allDetailRows.map(item => ({
+      vname: item.vname || '',
+      name: item.name || '',
+      ship_from: item.ship_from || '',
+      ship_to: item.ship_to || '',
+      price: toExcelNum(item.price),
+      single_price: toExcelNum(item.single_price),
+      send_num: toExcelNum(item.send_num),
+      send_weight: toExcelNum(item.send_weight),
+      ship_date: formatDate(item.ship_date, ''),
+      advance_charge: `${item.advance_mode || ''}: ${formatDateValue(item.advance_charge)}`,
+      delay_day: toExcelNum(item.delay_day),
+    }))
+
+    if (rows.length === 0) {
+      toast.error('没有可导出的数据')
+      return
+    }
+
+    exportWithPicker({
+      fileName: `${detailTitle.value || '车船费用清单'}_${detailVehMode.value}_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: '车船费用清单',
+      columns: [
+        { header: '车船号', key: 'vname' },
+        { header: '客户名称/单位', key: 'name' },
+        { header: '起始地', key: 'ship_from' },
+        { header: '目的地', key: 'ship_to' },
+        { header: '总价', key: 'price', type: 'number' },
+        { header: '单价', key: 'single_price', type: 'number' },
+        { header: '发运块数', key: 'send_num', type: 'number' },
+        { header: '发运重量', key: 'send_weight', type: 'number' },
+        { header: '发货日期', key: 'ship_date' },
+        { header: '预付', key: 'advance_charge' },
+        { header: '滞留天数', key: 'delay_day', type: 'number' },
+      ],
+      data: rows,
+    })
+  } catch (e) {
+    console.error(e)
+    toast.error('导出失败')
+  } finally {
+    detailExporting.value = false
+  }
+}
+
+function formatDateValue(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === '') return '0'
+  return String(value)
 }
 
 // Date Linkage logic
@@ -985,7 +1190,7 @@ async function handleExport() {
           </Table>
         </div>
         <DialogFooter class="mt-2">
-          <Button variant="outline" @click="() => {}" class="shadow-sm">
+          <Button variant="outline" @click="handleExportSummaryDetail" :disabled="Object.keys(summaryItems).length === 0" class="shadow-sm">
             <Download class="w-4 h-4 mr-2" />
             导出Excel
           </Button>
@@ -1001,8 +1206,30 @@ async function handleExport() {
           <DialogTitle>{{ detailTitle }}</DialogTitle>
           <DialogDescription>车船费用明细清单</DialogDescription>
         </DialogHeader>
+        <div class="flex items-center gap-3">
+          <Label class="shrink-0">类型筛选</Label>
+          <Select v-model="detailVehMode">
+            <SelectTrigger class="w-[180px]">
+              <SelectValue placeholder="全部车船" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="全部">全部车船</SelectItem>
+              <SelectItem value="车">仅车</SelectItem>
+              <SelectItem value="船">仅船</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900">
-          <Table>
+          <div v-if="detailLoading" class="flex h-full min-h-[240px] items-center justify-center">
+            <div class="flex items-center gap-2 text-muted-foreground">
+              <Loader2 class="h-4 w-4 animate-spin" />
+              <span>正在加载数据...</span>
+            </div>
+          </div>
+          <div v-else-if="detailRows.length === 0" class="flex h-full min-h-[240px] items-center justify-center text-muted-foreground">
+            没有明细数据
+          </div>
+          <Table v-else>
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>车船号</TableHead><TableHead>客户名称/单位</TableHead><TableHead>起始地</TableHead><TableHead>目的地</TableHead>
@@ -1011,27 +1238,48 @@ async function handleExport() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <template v-for="vname in vehNameList" :key="vname">
-                <TableRow v-for="(item, idx) in detailItems[vname]" :key="`${vname}-${idx}`">
-                  <TableCell>{{ vname }}</TableCell><TableCell>{{ item.name }}</TableCell><TableCell>{{ item.ship_from }}</TableCell><TableCell>{{ item.ship_to }}</TableCell>
+              <TableRow v-for="(item, idx) in detailRows" :key="`${item.vname}-${idx}-${item.ship_date}`">
+                  <TableCell>{{ item.vname }}</TableCell><TableCell>{{ item.name }}</TableCell><TableCell>{{ item.ship_from }}</TableCell><TableCell>{{ item.ship_to }}</TableCell>
                   <TableCell>{{ formatNum(item.price) }}</TableCell><TableCell>{{ formatNum(item.single_price) }}</TableCell>
                   <TableCell>{{ item.send_num }}</TableCell><TableCell>{{ formatNum(item.send_weight) }}</TableCell>
                   <TableCell>{{ new Date(item.ship_date).toLocaleDateString() }}</TableCell>
                   <TableCell>{{ item.advance_mode }}: {{ formatNum(item.advance_charge) }}</TableCell><TableCell>{{ item.delay_day }}</TableCell>
-                </TableRow>
-              </template>
+              </TableRow>
             </TableBody>
           </Table>
         </div>
+        <div v-if="detailTotal > 0" class="flex items-center justify-between gap-3 border rounded-md px-4 py-3 text-sm">
+          <div class="text-muted-foreground">
+            共 {{ detailTotal }} 条 | 第 {{ detailPage }} 页 / 共 {{ detailTotalPages }} 页
+          </div>
+          <div class="flex items-center gap-3">
+            <Select :model-value="String(detailLimit)" @update:model-value="handleDetailPageSizeChange">
+              <SelectTrigger class="h-8 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="pageSize in PAGE_SIZES.filter(size => size >= 20)" :key="pageSize" :value="String(pageSize)">
+                  {{ pageSize }}条/页
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" :disabled="detailPage <= 1 || detailLoading" @click="handleDetailPageChange(1)">首页</Button>
+            <Button variant="outline" size="sm" :disabled="detailPage <= 1 || detailLoading" @click="handleDetailPageChange(detailPage - 1)">上一页</Button>
+            <Button variant="outline" size="sm" :disabled="detailPage >= detailTotalPages || detailLoading" @click="handleDetailPageChange(detailPage + 1)">下一页</Button>
+            <Button variant="outline" size="sm" :disabled="detailPage >= detailTotalPages || detailLoading" @click="handleDetailPageChange(detailTotalPages)">末页</Button>
+          </div>
+        </div>
         <DialogFooter class="mt-2">
-          <Button variant="outline" @click="() => {}" class="shadow-sm">
+          <Button variant="outline" @click="handleExportDetailList" :disabled="detailLoading || detailExporting || detailTotal === 0" class="shadow-sm">
             <Download class="w-4 h-4 mr-2" />
-            导出Excel
+            {{ detailExporting ? '导出中...' : '导出Excel' }}
           </Button>
           <Button @click="showDetailDialog = false">关闭</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
 </template>
 
 <style scoped>

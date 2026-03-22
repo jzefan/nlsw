@@ -266,11 +266,15 @@ const dateRange = computed(() => formatDateRange(startDate.value, endDate.value)
 // 根据发货日期计算所属财务月（上月26日~当月25日 → 当月）
 function toFinancialMonth(date: Date): string {
   const d = new Date(date)
+  let y = d.getFullYear()
+  let m = d.getMonth() + 1
   if (d.getDate() >= 26) {
-    d.setMonth(d.getMonth() + 1)
+    m += 1
+    if (m > 12) {
+      m = 1
+      y += 1
+    }
   }
-  const y = d.getFullYear()
-  const m = d.getMonth() + 1
   return `${y}-${m.toString().padStart(2, '0')}`
 }
 

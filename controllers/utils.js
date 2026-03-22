@@ -280,8 +280,15 @@ exports.isEmpty = function(variable) {
  */
 exports.toFinancialMonth = function(date) {
   var d = new Date(date);
-  if (d.getDate() >= 26) d.setMonth(d.getMonth() + 1);
   var y = d.getFullYear();
-  var m = (d.getMonth() + 1).toString().padStart(2, '0');
+  var m = d.getMonth() + 1;
+  if (d.getDate() >= 26) {
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  m = m.toString().padStart(2, '0');
   return y + '-' + m;
 };

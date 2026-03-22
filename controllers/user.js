@@ -89,6 +89,7 @@ exports.postLogin = async function (req, res, next) {
             name: user.profile.name,
             privilege: user.privilege,
             role: userRole,
+            preferences: user.preferences || {},
           };
 
           // Look up tenant for non-platform users
@@ -698,6 +699,7 @@ exports.postPhoneLogin = async function (req, res, next) {
           name: user.profile.name,
           privilege: user.privilege,
           role: userRole,
+          preferences: user.preferences || {},
         };
 
         // Look up tenant for non-platform users

@@ -1,7 +1,17 @@
 <script setup lang="ts" generic="T extends Record<string, any>">
 import { Download, Globe, Lock, ShoppingCart, Trash2, X } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 interface Props {
   open: boolean
@@ -48,6 +58,7 @@ const defaultStatistics = computed(() => ({
 }))
 
 const stats = computed(() => props.statistics || defaultStatistics.value)
+const showClearConfirm = ref(false)
 
 // 关闭面板
 function close() {
@@ -64,10 +75,12 @@ function handleClear() {
   if (props.items.length === 0)
     return
 
-  const confirmed = window.confirm('确定要清空结算篮吗？')
-  if (confirmed) {
-    emit('clear')
-  }
+  showClearConfirm.value = true
+}
+
+function handleConfirmClear() {
+  emit('clear')
+  showClearConfirm.value = false
 }
 
 // 结算
@@ -108,6 +121,23 @@ defineSlots<{
 
 <template>
   <Teleport to="body">
+    <AlertDialog v-model:open="showClearConfirm">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>清空结算篮</AlertDialogTitle>
+          <AlertDialogDescription>
+            确定要清空当前结算篮吗？此操作会移除结算篮中的全部记录。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogAction @click="handleConfirmClear">
+            确定清空
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <Transition name="basket-fade">
       <div
         v-if="isOpen"

@@ -105,10 +105,22 @@ export interface InvoiceReportResponse {
   prices: Record<string, InvoicePriceSummary>
 }
 
+export interface InvoiceShippersResponse {
+  ok: boolean
+  data: string[]
+}
+
 // 运输价格报表
 export async function getInvoiceReport(params: InvoiceReportFilter) {
   const response = await axiosInstance.get<InvoiceReportResponse>('/report/invoice_report', {
     params,
+    timeout: 30000,
+  })
+  return response.data
+}
+
+export async function getInvoiceShippers() {
+  const response = await axiosInstance.get<InvoiceShippersResponse>('/report/invoice_shippers', {
     timeout: 30000,
   })
   return response.data
@@ -120,5 +132,4 @@ export async function getWaybillDetail(wno: string) {
   })
   return response.data
 }
-
 

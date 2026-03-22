@@ -41,7 +41,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="flex-1 min-w-0" @click.stop="$emit('toggle-card-expand')">
+  <div class="flex-1 min-w-0">
     <!-- 行1：名称 + 状态 + 预付 + 备注 + 展开箭头 -->
     <div class="flex items-center gap-2 pr-10">
       <span class="font-medium text-sm truncate">{{ name }}</span>
@@ -84,7 +84,8 @@ defineEmits<{
       <!-- 卡片展开箭头 -->
       <component
         :is="cardExpanded ? ChevronUp : ChevronDown"
-        class="ml-auto h-4 w-4 text-muted-foreground shrink-0"
+        class="ml-auto h-4 w-4 text-muted-foreground shrink-0 cursor-pointer"
+        @click.stop="$emit('toggle-card-expand')"
       />
     </div>
 

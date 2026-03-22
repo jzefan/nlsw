@@ -36,6 +36,7 @@
     "pinyin-pro": "^3.28.0",
     "pug": "^3.0.3",
     "serve-favicon": "^2.5.1",
+    "ua-parser-js": "^2.0.9",
     "underscore": "^1.13.7"
   }
 }

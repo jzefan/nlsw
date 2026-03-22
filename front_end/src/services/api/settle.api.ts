@@ -92,6 +92,8 @@ export async function getInvoiceSettleVessel(params: {
   fReceipt?: number
   fAmount?: string
   fWeight?: string
+  page?: number
+  pageSize?: number
 }) {
   const response = await axiosInstance.get<{
     ok: boolean
@@ -99,6 +101,8 @@ export async function getInvoiceSettleVessel(params: {
     vehPersonMap?: Record<string, any>
     vehCategoryMap?: Record<string, string>
     imageWaybills?: string[]
+    totalCount?: number
+    summaryRecords?: any[]
   }>('/get_invoice_settle_vellel', { params })
   return response.data
 }

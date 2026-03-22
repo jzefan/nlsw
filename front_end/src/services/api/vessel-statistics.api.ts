@@ -41,6 +41,9 @@ export interface VesselAllocationParams {
   fDate2: string
   fVehType: '自有' | '外挂'
   fSummary: 'YES' | 'NO'
+  fVehMode?: '车' | '船'
+  page?: number
+  limit?: number
 }
 
 export interface VesselSummaryItem {
@@ -50,6 +53,7 @@ export interface VesselSummaryItem {
 }
 
 export interface VesselDetailItem {
+  vname: string
   name: string
   ship_from: string
   ship_to: string
@@ -76,8 +80,10 @@ export async function getVesselDetail(params: VesselAllocationParams) {
   const response = await axiosInstance.get<{ 
     ok: boolean, 
     summary_data?: Record<string, VesselSummaryItem>,
-    vessel_detail?: Record<string, VesselDetailItem[]>,
-    vehNameList?: string[]
+    rows?: VesselDetailItem[],
+    total?: number,
+    page?: number,
+    limit?: number
   }>('/statistics/vessel/detail', {
     params,
   })

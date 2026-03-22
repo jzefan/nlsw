@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useDebounceFn } from '@vueuse/core'
-import axios from 'axios'
+import { useAxios } from '@/composables/use-axios'
+
+const { axiosInstance: axios } = useAxios()
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 
@@ -157,12 +159,16 @@ watch(
               v-for="(item, index) in items"
               :key="item?._id || item?.name || index"
               :value="item ? item[labelField || 'name'] : ''"
+              :class="cn(
+                modelValue === (item ? item[valueField || 'name'] : '')
+                  && 'bg-primary/10 text-primary font-medium'
+              )"
               @select="() => handleSelect(item)"
             >
               <Check
                 :class="
                   cn(
-                    'mr-0 h-4 w-4',
+                    'mr-0 h-4 w-4 shrink-0 text-primary',
                     modelValue === (item ? item[valueField || 'name'] : '') ? 'opacity-100' : 'opacity-0',
                   )
                 "

@@ -2,14 +2,14 @@
 // @ts-nocheck
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Edit, FileDown, Plus, Search, Trash2 } from 'lucide-vue-next'
+import { CheckSquare, Edit, FileDown, Plus, Search, Square, Trash2 } from 'lucide-vue-next'
 
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
+import MonthPicker from '@/components/ui/date-picker/MonthPicker.vue'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -78,6 +78,28 @@ function toggleSelect(row: VesselFixedCost) {
 function isSelected(row: VesselFixedCost) {
   return selectedRows.value.some(item => item.name === row.name && item.month === row.month)
 }
+
+// 汇总数据来源：有选中则用选中行，否则用全部数据
+const summaryRows = computed(() => selectedRows.value.length > 0 ? selectedRows.value : data.value)
+
+const summary = computed(() => {
+  const rows = summaryRows.value
+  return {
+    total: rows.reduce((s, r) => s + (r.total || 0), 0),
+    fittings: rows.reduce((s, r) => s + (r.fittings || 0), 0),
+    repair: rows.reduce((s, r) => s + (r.repair || 0), 0),
+    annual_survey: rows.reduce((s, r) => s + (r.annual_survey || 0), 0),
+    salary: rows.reduce((s, r) => s + (r.salary || 0), 0),
+    oil: rows.reduce((s, r) => s + (r.oil || 0), 0),
+    toll: rows.reduce((s, r) => s + (r.toll || 0), 0),
+    fine: rows.reduce((s, r) => s + (r.fine || 0), 0),
+    ic: rows.reduce((s, r) => s + (r.ic || 0), 0),
+    hc: rows.reduce((s, r) => s + (r.hc || 0), 0),
+    pcc: rows.reduce((s, r) => s + (r.pcc || 0), 0),
+    aux: rows.reduce((s, r) => s + (r.aux || 0), 0),
+    other: rows.reduce((s, r) => s + (r.other || 0), 0),
+  }
+})
 
 // Reset selection when tab changes
 watch(activeTab, () => {
@@ -252,7 +274,7 @@ onMounted(() => {
 
           <div class="flex items-center gap-2">
             <Label>月份</Label>
-            <Input v-model="searchMonth" type="month" class="w-[150px] h-9" />
+            <MonthPicker v-model="searchMonth" placeholder="选择月份" class="w-[150px] h-9" />
           </div>
 
           <Button size="sm" @click="loadData">
@@ -262,9 +284,19 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 统计信息 -->
-      <div v-if="selectedRows.length > 0" class="text-sm text-muted-foreground">
-        已选择 {{ selectedRows.length }} 条记录
+      <!-- 统计信息（固定显示，避免行跳动） -->
+      <div class="flex items-center gap-4 text-sm px-1">
+        <span class="text-muted-foreground">
+          <span v-if="selectedRows.length > 0">
+            已选择 <span class="font-medium text-foreground">{{ selectedRows.length }}</span> 条 /
+          </span>
+          共 <span class="font-medium text-foreground">{{ data.length }}</span> 条记录
+        </span>
+        <span class="text-muted-foreground">|</span>
+        <span class="text-muted-foreground">
+          {{ selectedRows.length > 0 ? '选中合计' : '合计' }}：
+          <span class="font-bold text-red-500">{{ formatNumber(summary.total, 2) }}</span>
+        </span>
       </div>
 
       <!-- 表格 -->
@@ -308,14 +340,12 @@ onMounted(() => {
               v-for="row in data"
               :key="`${row.name}-${row.month}`"
               class="cursor-pointer"
-              :class="{ 'bg-muted/50': isSelected(row) }"
+              :class="{ 'bg-blue-50 border-l-2 border-l-blue-500': isSelected(row) }"
               @click="toggleSelect(row)"
             >
-              <TableCell @click.stop>
-                <Checkbox
-                  :checked="isSelected(row)"
-                  @update:checked="toggleSelect(row)"
-                />
+              <TableCell @click.stop @click="toggleSelect(row)">
+                <CheckSquare v-if="isSelected(row)" class="w-4 h-4 text-blue-500" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
               </TableCell>
               <TableCell class="font-medium">{{ row.month }}</TableCell>
               <TableCell>{{ row.name }}</TableCell>
@@ -367,14 +397,12 @@ onMounted(() => {
               v-for="row in data"
               :key="`${row.name}-${row.month}`"
               class="cursor-pointer"
-              :class="{ 'bg-muted/50': isSelected(row) }"
+              :class="{ 'bg-blue-50 border-l-2 border-l-blue-500': isSelected(row) }"
               @click="toggleSelect(row)"
             >
-              <TableCell @click.stop>
-                <Checkbox
-                  :checked="isSelected(row)"
-                  @update:checked="toggleSelect(row)"
-                />
+              <TableCell @click.stop @click="toggleSelect(row)">
+                <CheckSquare v-if="isSelected(row)" class="w-4 h-4 text-blue-500" />
+                <Square v-else class="w-4 h-4 text-muted-foreground" />
               </TableCell>
               <TableCell class="font-medium">{{ row.month }}</TableCell>
               <TableCell class="text-right font-mono">{{ formatNumber(row.ic, 2) }}</TableCell>

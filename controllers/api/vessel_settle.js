@@ -26,8 +26,8 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       selfOwned,
     } = req.query;
 
-    // 构建聚合管道
-    const pipeline = [];
+    const page = parseInt(req.query.page) || 0;
+    const pageSize = parseInt(req.query.pageSize) || 50;
 
     // 第一步：匹配条件（租户过滤必须在最前面）
     const matchStage = { state: { $ne: "新建" } };
@@ -83,71 +83,121 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       matchStage.selfOwned = { $ne: 1 };
     }
 
-    pipeline.push({ $match: matchStage });
-
-    // 第二步：按发货日期降序排序
-    pipeline.push({ $sort: { ship_date: -1 } });
-
-    // 第三步：限制结果数量（防止一次性返回太多数据）
-    // 默认最多返回 5000 条，前端可以通过分页或日期范围缩小查询
-    pipeline.push({ $limit: 5000 });
-
-    // 第四步：关联 bills 集合（使用 localField/foreignField 利用 _id 索引）
-    pipeline.push({
-      $lookup: {
-        from: "bills",
-        localField: "bills.bill_id",
-        foreignField: "_id",
-        as: "billDetails",
+    // $lookup + $addFields + $project 阶段（复用）
+    const lookupStages = [
+      {
+        $lookup: {
+          from: "bills",
+          localField: "bills.bill_id",
+          foreignField: "_id",
+          as: "billDetails",
+        },
       },
-    });
-
-    // 第五步：合并 bills 数据到原有的 bills 数组
-    pipeline.push({
-      $addFields: {
-        bills: {
-          $map: {
-            input: "$bills",
-            as: "bill",
-            in: {
-              $mergeObjects: [
-                "$$bill",
-                {
-                  $arrayElemAt: [
-                    {
-                      $filter: {
-                        input: "$billDetails",
-                        cond: { $eq: ["$$this._id", "$$bill.bill_id"] },
+      {
+        $addFields: {
+          bills: {
+            $map: {
+              input: "$bills",
+              as: "bill",
+              in: {
+                $mergeObjects: [
+                  "$$bill",
+                  {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: "$billDetails",
+                          cond: { $eq: ["$$this._id", "$$bill.bill_id"] },
+                        },
                       },
-                    },
-                    0,
-                  ],
-                },
-              ],
+                      0,
+                    ],
+                  },
+                ],
+              },
             },
           },
         },
       },
-    });
+      { $project: { billDetails: 0 } },
+    ];
 
-    // 第六步：移除临时字段
-    pipeline.push({ $project: { billDetails: 0 } });
+    let invs;
+    let totalCount = 0;
+    let summaryRecords = null;
 
-    // 执行聚合查询
-    const invs = await Invoice.aggregate(pipeline).exec();
+    const matchAndSort = [
+      { $match: matchStage },
+      { $sort: { ship_date: -1 } },
+    ];
 
-    // Debug logging: show result count
-    console.log("[getInvoiceSettleVessel] Found", invs.length, "invoices");
+    if (page > 0) {
+      // 分页模式：3 个独立查询并行执行，避免 $facet 单文档超 16MB 限制
+      const skip = (page - 1) * pageSize;
+
+      const [pageResult, countResult, summaryResult] = await Promise.all([
+        // 1. 当前页数据（带 $lookup）
+        Invoice.aggregate([
+          ...matchAndSort,
+          { $skip: skip },
+          { $limit: pageSize },
+          ...lookupStages,
+        ]).exec(),
+        // 2. 总记录数
+        Invoice.aggregate([
+          { $match: matchStage },
+          { $count: "totalCount" },
+        ]).exec(),
+        // 3. 轻量汇总数据：不做 $lookup，只取汇总需要的字段
+        Invoice.aggregate([
+          ...matchAndSort,
+          { $project: {
+            total_weight: 1,
+            vessel_price: 1,
+            charge_cash: 1,
+            charge_oil: 1,
+            vessel_settle_state: 1,
+            receipt: 1,
+            vehicle_vessel_name: 1,
+            ship_customer: 1,
+            ship_name: 1,
+            ship_from: 1,
+            ship_to: 1,
+            waybill_no: 1,
+            "bills.vehicles.veh_name": 1,
+            "bills.vehicles.send_weight": 1,
+            "bills.vehicles.send_num": 1,
+            "bills.vehicles.veh_price": 1,
+            "bills.vehicles.inner_waybill_no": 1,
+            "bills.vehicles.veh_ship_from": 1,
+            inner_settle: 1,
+          }},
+        ]).exec(),
+      ]);
+
+      invs = pageResult;
+      totalCount = countResult[0]?.totalCount || 0;
+      summaryRecords = summaryResult;
+
+      console.log("[getInvoiceSettleVessel] Page", page, "of", Math.ceil(totalCount / pageSize), "- showing", invs.length, "of", totalCount, "invoices");
+    } else {
+      // 全量模式
+      invs = await Invoice.aggregate([
+        ...matchAndSort,
+        ...lookupStages,
+      ]).exec();
+      console.log("[getInvoiceSettleVessel] Found", invs.length, "invoices");
+    }
 
     // 构建 vehPersonMap (只查询结果集中出现的车辆)
+    // 分页模式下需要从 summaryRecords 收集所有车辆，从 invs 收集当前页的运单号
     const vehSet = new Set();
     const allWaybillNos = [];
+
+    // 从当前页数据收集运单号（用于回执图片查询）和车辆
     invs.forEach((inv) => {
-      // 主运单车船号
       if (inv.vehicle_vessel_name) vehSet.add(inv.vehicle_vessel_name);
-      // 收集运单号（用于回执图片查询）
       allWaybillNos.push(inv.waybill_no);
-      // bills.vehicles 中的车船号和内部运单号
       if (inv.bills && inv.bills.length > 0) {
         inv.bills.forEach((bill) => {
           if (bill.vehicles && bill.vehicles.length > 0) {
@@ -159,6 +209,22 @@ exports.getInvoiceSettleVessel = async (req, res) => {
         });
       }
     });
+
+    // 分页模式下，从 summaryRecords 也收集车辆（用于承运单位筛选）
+    if (summaryRecords) {
+      summaryRecords.forEach((inv) => {
+        if (inv.vehicle_vessel_name) vehSet.add(inv.vehicle_vessel_name);
+        if (inv.bills && inv.bills.length > 0) {
+          inv.bills.forEach((bill) => {
+            if (bill.vehicles && bill.vehicles.length > 0) {
+              bill.vehicles.forEach((veh) => {
+                if (veh.veh_name) vehSet.add(veh.veh_name);
+              });
+            }
+          });
+        }
+      });
+    }
 
     // 并行查询车辆信息和回执图片
     const vehQuery = vehSet.size > 0
@@ -193,7 +259,13 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       }
     });
 
-    res.json({ ok: true, invs, vehPersonMap, vehCategoryMap, imageWaybills });
+    const responseData = { ok: true, invs, vehPersonMap, vehCategoryMap, imageWaybills };
+    if (page > 0) {
+      responseData.totalCount = totalCount;
+      responseData.summaryRecords = summaryRecords;
+    }
+
+    res.json(responseData);
   } catch (error) {
     console.error("查询失败:", error);
     res.status(500).json({ ok: false, message: "查询失败" });

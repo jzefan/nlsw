@@ -96,7 +96,7 @@ exports.getTenantUsers = async (req, res) => {
     const { tenantId } = req.params;
 
     const users = await User.find({ tenantId, role: { $ne: 'platform' } })
-      .select('userid profile.name profile.phone title privilege role status lastLoginAt createDate')
+      .select('userid profile.name profile.phone title privilege role status lastLoginAt lastLoginIp lastLoginDevice createDate')
       .sort({ createDate: -1 })
       .lean();
 

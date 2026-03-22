@@ -53,6 +53,7 @@ exports.getMe = async (req, res) => {
       phone: req.user.profile?.phone || '',
       privilege,
       role: req.user.role || 'member',
+      preferences: req.user.preferences || {},
     };
 
     // 租户上下文 (平台用户返回 null)
@@ -205,6 +206,53 @@ exports.postUserMgr = async (req, res) => {
   } catch (error) {
     console.error('用户管理操作失败:', error);
     res.json({ ok: false, message: error.message });
+  }
+};
+
+// 更新用户界面偏好
+const VALID_THEMES = ['zinc', 'red', 'rose', 'orange', 'green', 'blue', 'yellow', 'violet'];
+const VALID_RADII = [0, 0.25, 0.5, 0.75, 1];
+const VALID_LAYOUTS = ['full', 'centered'];
+
+exports.updatePreferences = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ ok: false, message: '未登录' });
+    }
+
+    const { theme, radius, contentLayout } = req.body;
+    const update = {};
+
+    if (theme !== undefined) {
+      if (theme !== '' && !VALID_THEMES.includes(theme)) {
+        return res.status(400).json({ ok: false, message: '无效的主题' });
+      }
+      update['preferences.theme'] = theme;
+    }
+
+    if (radius !== undefined) {
+      if (radius !== -1 && !VALID_RADII.includes(radius)) {
+        return res.status(400).json({ ok: false, message: '无效的圆角值' });
+      }
+      update['preferences.radius'] = radius;
+    }
+
+    if (contentLayout !== undefined) {
+      if (contentLayout !== '' && !VALID_LAYOUTS.includes(contentLayout)) {
+        return res.status(400).json({ ok: false, message: '无效的布局' });
+      }
+      update['preferences.contentLayout'] = contentLayout;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.json({ ok: true });
+    }
+
+    await User.updateOne({ _id: req.user._id }, { $set: update });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('更新用户偏好失败:', error);
+    res.status(500).json({ ok: false, message: '更新偏好失败' });
   }
 };
 

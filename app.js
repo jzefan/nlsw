@@ -133,11 +133,34 @@ app.use(passport.session());
 const { tenantContext } = require("./middleware/tenantContext");
 app.use(tenantContext);
 
-// 自定义 morgan token: 用户名、URL 中文解码
+// 自定义 morgan token: 用户名、URL 中文解码、IP、设备信息
+const UAParser = require("ua-parser-js");
 logger.token("user", (req) => (req.user ? req.user.userid : "-"));
 logger.token("decoded-url", (req) => decodeURIComponent(req.originalUrl || req.url));
+logger.token("client-ip", (req) => {
+  return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || "-";
+});
+logger.token("device", (req) => {
+  const ua = req.headers["user-agent"];
+  if (!ua) return "-";
+  const parser = new UAParser(ua);
+  const os = parser.getOS();
+  const device = parser.getDevice();
+  const browser = parser.getBrowser();
+  const parts = [];
+  if (device.vendor && device.model) {
+    parts.push(`${device.vendor} ${device.model}`);
+  }
+  if (os.name) {
+    parts.push(os.version ? `${os.name}/${os.version}` : os.name);
+  }
+  if (browser.name) {
+    parts.push(browser.name);
+  }
+  return parts.length > 0 ? parts.join(" ") : "-";
+});
 app.use(
-  logger(":method :decoded-url :status :response-time ms - :user")
+  logger(":method :decoded-url :status :response-time ms - :user :client-ip :device")
 );
 
 const { migrateArrayToBinary } = require("./utils/privilege-migration");

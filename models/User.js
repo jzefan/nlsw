@@ -47,7 +47,16 @@ var userSchema = new mongoose.Schema({
     default: 'active'
   },
   lastLoginAt: Date,
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  lastLoginIp: String,
+  lastLoginDevice: String,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // 用户界面偏好（持久化到服务端）
+  preferences: {
+    theme: { type: String, default: '' },
+    radius: { type: Number, default: -1 },
+    contentLayout: { type: String, default: '' },
+  }
 });
 
 // 复合唯一索引：同一租户内 userid 唯一

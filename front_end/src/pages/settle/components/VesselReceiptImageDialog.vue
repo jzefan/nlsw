@@ -13,7 +13,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { formatDate } from '@/utils/format'
@@ -54,23 +54,45 @@ const zoomLevel = ref(1)
 const rotateDeg = ref(0)
 const imageNaturalWidth = ref(0)
 const isMaximized = ref(false)
+const panX = ref(0)
+const panY = ref(0)
+const isDraggingImage = ref(false)
+const dragStartX = ref(0)
+const dragStartY = ref(0)
+const dragOriginX = ref(0)
+const dragOriginY = ref(0)
 
 // 图片样式：缩放 + 旋转
 const imageTransformStyle = computed(() => {
   if (imageNaturalWidth.value <= 0) return {}
   return {
     width: `${Math.round(imageNaturalWidth.value * zoomLevel.value)}px`,
-    transform: `rotate(${rotateDeg.value}deg)`,
-    transition: 'transform 0.3s ease',
+    maxWidth: 'none',
+    height: 'auto',
+    transform: `translate(${panX.value}px, ${panY.value}px) rotate(${rotateDeg.value}deg)`,
+    transition: isDraggingImage.value ? 'none' : 'width 0.2s ease, transform 0.3s ease',
   }
 })
 
 // 全屏对话框的动态 class
 const fullImageDialogClass = computed(() => {
   if (isMaximized.value) {
-    return 'w-[100vw] h-[100vh] max-w-none max-h-none rounded-none flex flex-col p-0 overflow-hidden'
+    return '!top-0 !left-0 !right-0 !bottom-0 !translate-x-0 !translate-y-0 !w-screen !h-screen !max-w-none sm:!max-w-none !max-h-none rounded-none border-0 flex flex-col p-0 overflow-hidden m-0'
   }
   return '!max-w-[80vw] max-h-[92vh] w-[80vw] h-[92vh] flex flex-col p-0 overflow-hidden'
+})
+
+const fullImageDialogStyle = computed(() => {
+  if (!isMaximized.value) return undefined
+  return {
+    width: `${window.innerWidth}px`,
+    height: `${window.innerHeight}px`,
+    top: '0',
+    left: '0',
+    right: '0',
+    bottom: '0',
+    transform: 'none',
+  }
 })
 
 // 删除相关状态
@@ -122,6 +144,9 @@ function handleImageClick(image: ReceiptImage) {
   zoomLevel.value = 1
   rotateDeg.value = 0
   isMaximized.value = false
+  panX.value = 0
+  panY.value = 0
+  isDraggingImage.value = false
 
   // 用临时 Image 对象读取原始尺寸
   const tempImg = new window.Image()
@@ -144,6 +169,8 @@ function zoomOut() {
 
 function resetZoom() {
   zoomLevel.value = 1
+  panX.value = 0
+  panY.value = 0
 }
 
 function rotateRight() {
@@ -159,6 +186,36 @@ function handleWheel(e: WheelEvent) {
   if (e.deltaY < 0) zoomIn()
   else zoomOut()
 }
+
+function handleImageMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return
+  isDraggingImage.value = true
+  dragStartX.value = e.clientX
+  dragStartY.value = e.clientY
+  dragOriginX.value = panX.value
+  dragOriginY.value = panY.value
+}
+
+function handleWindowMouseMove(e: MouseEvent) {
+  if (!isDraggingImage.value) return
+  panX.value = dragOriginX.value + (e.clientX - dragStartX.value)
+  panY.value = dragOriginY.value + (e.clientY - dragStartY.value)
+}
+
+function stopImageDrag() {
+  isDraggingImage.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('mousemove', handleWindowMouseMove)
+  window.addEventListener('mouseup', stopImageDrag)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', handleWindowMouseMove)
+  window.removeEventListener('mouseup', stopImageDrag)
+  stopImageDrag()
+})
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes'
@@ -565,7 +622,7 @@ defineExpose({ open })
 
   <!-- 放大查看对话框 -->
   <Dialog :open="showFullImage" @update:open="(val) => (showFullImage = val)">
-    <DialogContent :class="fullImageDialogClass" :show-close-button="false">
+    <DialogContent :class="fullImageDialogClass" :style="fullImageDialogStyle" :show-close-button="false">
       <DialogHeader class="px-4 py-3 border-b flex flex-row items-center justify-between shrink-0">
         <DialogTitle class="flex-1 truncate" :title="fullImageFilename">
           {{ fullImageFilename }}
@@ -598,10 +655,10 @@ defineExpose({ open })
           >
             <ZoomIn class="h-4 w-4" />
           </Button>
-          <!-- <div class="w-px h-4 bg-border mx-1 shrink-0" />
+          <div class="w-px h-4 bg-border mx-1 shrink-0" />
           <Button variant="ghost" size="icon" class="h-8 w-8" title="向右旋转90°" @click="rotateRight">
             <RotateCw class="h-4 w-4" />
-          </Button> -->
+          </Button>
           <div class="w-px h-4 bg-border mx-1 shrink-0" />
           <Button
             variant="ghost"
@@ -629,10 +686,14 @@ defineExpose({ open })
           v-if="fullImageUrl"
           :src="fullImageUrl"
           :alt="fullImageFilename"
-          class="rounded-md shadow-md m-4 block"
+          class="rounded-md shadow-md m-4 block select-none"
+          :class="isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'"
           :style="imageTransformStyle"
           title="双击还原 100%"
+          draggable="false"
           @dblclick="resetZoom"
+          @dragstart.prevent
+          @mousedown.prevent="handleImageMouseDown"
         />
       </div>
     </DialogContent>

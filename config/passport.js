@@ -6,6 +6,28 @@ var Tenant = require('../models/Tenant');
 var secrets = require('./secrets');
 var { decryptPassword, isEncryptedPassword } = require('../utils/crypto');
 var { isStandalone } = require('../utils/deploy-mode');
+var UAParser = require('ua-parser-js');
+
+/**
+ * 解析请求中的 IP 地址和设备信息
+ */
+function parseLoginMeta(req) {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+  const ua = req.headers['user-agent'] || '';
+  let device = '';
+  if (ua) {
+    const parser = new UAParser(ua);
+    const os = parser.getOS();
+    const dev = parser.getDevice();
+    const browser = parser.getBrowser();
+    const parts = [];
+    if (dev.vendor && dev.model) parts.push(`${dev.vendor} ${dev.model}`);
+    if (os.name) parts.push(os.version ? `${os.name}/${os.version}` : os.name);
+    if (browser.name) parts.push(browser.name);
+    device = parts.join(' ');
+  }
+  return { ip, device };
+}
 
 passport.serializeUser(function(user, done) {
   done(null, user.id);
@@ -102,8 +124,11 @@ passport.use(new LocalStrategy(
       console.log('Passport Strategy: Password match:', isMatch);
 
       if (isMatch) {
-        // 更新最后登录时间
+        // 更新最后登录时间、IP、设备
+        const meta = parseLoginMeta(req);
         user.lastLoginAt = new Date();
+        user.lastLoginIp = meta.ip;
+        user.lastLoginDevice = meta.device;
         await user.save();
         return done(null, user);
       } else {
@@ -179,8 +204,11 @@ passport.use('phone-local', new LocalStrategy(
       console.log('Phone Login Strategy: Password match:', isMatch);
 
       if (isMatch) {
-        // 更新最后登录时间
+        // 更新最后登录时间、IP、设备
+        const meta = parseLoginMeta(req);
         user.lastLoginAt = new Date();
+        user.lastLoginIp = meta.ip;
+        user.lastLoginDevice = meta.device;
         await user.save();
         return done(null, user);
       } else {

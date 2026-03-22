@@ -28,10 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { DatePicker } from '@/components/ui/date-picker'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
-import { getInvoiceReport, getWaybillDetail } from '@/services/api/report.api'
-import { useAxios } from '@/composables/use-axios'
-
-const { axiosInstance } = useAxios()
+import { getInvoiceReport, getInvoiceShippers, getWaybillDetail } from '@/services/api/report.api'
 
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
@@ -40,6 +37,7 @@ const loading = ref(false)
 const invoices = ref<any[]>([])
 const pricesMap = ref<Record<string, any>>({})
 const selectedWaybillNo = ref<string | null>(null)
+const cachedShippers = ref<string[]>([])
 
 // Filters
 const filter = reactive({
@@ -67,21 +65,30 @@ async function searchVehiclesFn(search: string, limit: number, page: number) {
 async function searchDestinationsFn(search: string, limit: number, page: number) {
   return getDestinations({ search, limit, page })
 }
-async function searchUsers(search: string, limit: number, page: number) {
-  const res = await axiosInstance.get('/users')
-  if (res.data.ok) {
-    const users = res.data.data.map((u: any) => ({
-      name: u.userid,
-      desc: u.profile?.name || '',
-    }))
-    // Basic local filtering for demo as the endpoint returns all
-    const filtered = users.filter((u: any) => 
-      u.name.toLowerCase().includes(search.toLowerCase()) || 
-      u.desc.toLowerCase().includes(search.toLowerCase())
-    )
-    return { ok: true, data: filtered.slice((page - 1) * limit, page * limit), total: filtered.length }
+
+async function loadShippersIfNeeded() {
+  if (cachedShippers.value.length > 0) return
+  const res = await getInvoiceShippers()
+  if (res.ok) {
+    cachedShippers.value = res.data || []
   }
-  return { ok: false, data: [], total: 0 }
+}
+
+async function searchShippers(search: string, limit: number, page: number) {
+  await loadShippersIfNeeded()
+
+  let filtered = cachedShippers.value
+  if (search) {
+    const keyword = search.toLowerCase()
+    filtered = filtered.filter(name => name.toLowerCase().includes(keyword))
+  }
+
+  const start = (page - 1) * limit
+  return {
+    ok: true,
+    data: filtered.slice(start, start + limit).map(name => ({ name })),
+    total: filtered.length,
+  }
 }
 
 // Actions
@@ -266,7 +273,7 @@ function disableEndDate(date: Date) {
         />
         <SearchableCombobox
           v-model="filter.shipper"
-          :search-fn="searchUsers"
+          :search-fn="searchShippers"
           placeholder="发货人"
           class="w-full h-9"
         />
