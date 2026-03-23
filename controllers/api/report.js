@@ -24,7 +24,7 @@ function getStartEndDate(start, end, isDay) {
 }
 
 // Helper to copy bill properties
-function copyBill(bill, binv, veh, selfOwnedVehs) {
+function copyBill(bill, binv, veh, vehMap) {
   const obj = {
     _id: bill._id,
     bill_no: bill.bill_no,
@@ -81,9 +81,14 @@ function copyBill(bill, binv, veh, selfOwnedVehs) {
     obj.ship_from = binv.ship_from;
   }
 
-  // 标记车船类型
-  if (selfOwnedVehs && selfOwnedVehs.length > 0 && obj.veh_ves_name) {
-    obj.veh_mode = selfOwnedVehs.indexOf(obj.veh_ves_name) >= 0 ? '自有' : '外挂';
+  // 标记车船类型：自有车/自有船/外挂车/外挂船
+  if (vehMap && obj.veh_ves_name && vehMap[obj.veh_ves_name]) {
+    const vi = vehMap[obj.veh_ves_name];
+    const category = vi.category || '外挂';
+    const type = vi.type || '车';
+    obj.veh_mode = category + type;
+  } else if (obj.veh_ves_name) {
+    obj.veh_mode = '外挂';
   } else {
     obj.veh_mode = '';
   }
@@ -134,7 +139,7 @@ async function applySettleStatus(req, rows) {
 }
 
 // Helper to construct bill array (kept for invoice-first mode)
-function getBillArray(bills, invs, settles, vehList, mode, selfOwnedVehs) {
+function getBillArray(bills, invs, settles, vehList, mode, vehMap) {
   const statObj = {};
   settles.forEach(function (settle) {
     settle.bills.forEach(function (sbill) {
@@ -178,20 +183,20 @@ function getBillArray(bills, invs, settles, vehList, mode, selfOwnedVehs) {
         bill.inv_settle_flag = binv.inv_settle_flag;
         if (mode === 0) {
           if (!b || vehList.indexOf(binv.veh_ves_name) >= 0) {
-            copied.push(copyBill(bill, binv, null, selfOwnedVehs));
+            copied.push(copyBill(bill, binv, null, vehMap));
           }
         } else if (mode === 1) {
           binv.vehicles.forEach(function (veh) {
             if (!b || vehList.indexOf(veh.veh_name) >= 0) {
-              copied.push(copyBill(bill, binv, veh, selfOwnedVehs));
+              copied.push(copyBill(bill, binv, veh, vehMap));
             }
           })
         } else {
           if (!b || vehList.indexOf(binv.veh_ves_name) >= 0) {
-            copied.push(copyBill(bill, binv, null, selfOwnedVehs));
+            copied.push(copyBill(bill, binv, null, vehMap));
             binv.vehicles.forEach(function (veh) {
               if (!b || vehList.indexOf(veh.veh_name) >= 0) {
-                copied.push(copyBill(bill, binv, veh, selfOwnedVehs));
+                copied.push(copyBill(bill, binv, veh, vehMap));
               }
             })
           }
@@ -358,8 +363,12 @@ exports.getIntegratedQuery = async function (req, res) {
       var showUnsend = (utils.isExist(query.fShowUnsend) && (query.fShowUnsend == 1)) ? true : false;
       var bc = !utils.isEmpty(query.fCustomerName);
 
-      const vehList = await Vehicle.find(buildTenantQuery(req, { veh_category: '自有' })).select('name').lean().exec();
-      var vehs = utils.getAllList(false, vehList, "name", "");
+      const allVehList = await Vehicle.find(buildTenantQuery(req, {})).select('name veh_category veh_type').lean().exec();
+      // vehMap: { name -> { category, type } } 用于标记车船类型
+      const vehMap = {};
+      allVehList.forEach(v => { vehMap[v.name] = { category: v.veh_category, type: v.veh_type }; });
+      // vehs: 自有车船名称列表（保留用于车船过滤逻辑）
+      var vehs = allVehList.filter(v => v.veh_category === '自有').map(v => v.name);
 
       if (showUnsend) {
         // ── 未配发模式：简单 Bill 查询，无需 Invoice join ──
@@ -440,7 +449,7 @@ exports.getIntegratedQuery = async function (req, res) {
           .lean()
           .exec();
 
-        const combined = getBillArray(matchedBills, invoices, settles, query.fVeh ? query.fVeh : [], showVehicles, vehs);
+        const combined = getBillArray(matchedBills, invoices, settles, query.fVeh ? query.fVeh : [], showVehicles, vehMap);
         const total = combined.length;
         const totalSendNum = combined.reduce((sum, b) => sum + (b.send_num || 0), 0);
         const totalSendWeight = combined.reduce((sum, b) => {
@@ -545,11 +554,24 @@ exports.getIntegratedQuery = async function (req, res) {
 
         // 9) 投影为输出格式（复现 copyBill 逻辑）
         const vehModeField = showVehicles === 1 ? '$binv.vehicles.veh_name' : '$binv.veh_ves_name';
-        const vehModeExpr = vehs.length > 0
+        // 构建分类数组：自有车/自有船/外挂车/外挂船
+        const selfOwnedCarNames = allVehList.filter(v => v.veh_category === '自有' && v.veh_type === '车').map(v => v.name);
+        const selfOwnedShipNames = allVehList.filter(v => v.veh_category === '自有' && v.veh_type === '船').map(v => v.name);
+        const outsourcedShipNames = allVehList.filter(v => v.veh_category === '外挂' && v.veh_type === '船').map(v => v.name);
+        const vehModeExpr = allVehList.length > 0
           ? {
               $cond: {
                 if: { $and: [{ $ne: [vehModeField, ''] }, { $ne: [vehModeField, null] }] },
-                then: { $cond: { if: { $in: [vehModeField, { $literal: vehs }] }, then: '自有', else: '外挂' } },
+                then: {
+                  $switch: {
+                    branches: [
+                      { case: { $in: [vehModeField, { $literal: selfOwnedCarNames }] }, then: '自有车' },
+                      { case: { $in: [vehModeField, { $literal: selfOwnedShipNames }] }, then: '自有船' },
+                      { case: { $in: [vehModeField, { $literal: outsourcedShipNames }] }, then: '外挂船' },
+                    ],
+                    default: '外挂车'
+                  }
+                },
                 else: ''
               }
             }

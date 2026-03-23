@@ -33,7 +33,53 @@ function buildCustomerNameExpr() {
   };
 }
 
+function buildMainRecordSinglePriceExpr() {
+  // 应付单价优先级：vessel_price（Invoice 级别） > veh_ves_price（提单级别）
+  // vessel_price 存在时需根据 price_mode 换算：
+  //   price_mode=0（每吨）: 单价 = vessel_price
+  //   price_mode=1（打包）: 单价 = vessel_price / total_weight
+  return {
+    $cond: [
+      { $gt: [{ $ifNull: ["$vessel_price", 0] }, 0] },
+      {
+        $cond: [
+          { $eq: [{ $ifNull: ["$price_mode", 0] }, 1] },
+          // 打包模式：单价 = vessel_price / total_weight
+          {
+            $cond: [
+              { $gt: [{ $ifNull: ["$total_weight", 0] }, 0] },
+              { $divide: ["$vessel_price", "$total_weight"] },
+              0,
+            ],
+          },
+          // 每吨模式：单价 = vessel_price
+          "$vessel_price",
+        ],
+      },
+      // 无 vessel_price 时 fallback 到提单级别的 veh_ves_price
+      { $ifNull: ["$billDoc.invoices.veh_ves_price", 0] },
+    ],
+  };
+}
+
+function buildReceivableSinglePriceExpr() {
+  return {
+    $add: [
+      { $ifNull: ["$billDoc.invoices.price", 0] },
+      {
+        $cond: [
+          { $gt: [{ $ifNull: ["$billDoc.collection_price", 0] }, 0] },
+          { $ifNull: ["$billDoc.collection_price", 0] },
+          0,
+        ],
+      },
+    ],
+  };
+}
+
 function buildMainDetailPipeline(invMatch, vehNames) {
+  const mainSinglePriceExpr = buildMainRecordSinglePriceExpr();
+  const receivableSinglePriceExpr = buildReceivableSinglePriceExpr();
   const sendWeightExpr = {
     $cond: [
       { $gt: [{ $ifNull: ["$billDoc.block_num", 0] }, 0] },
@@ -81,13 +127,18 @@ function buildMainDetailPipeline(invMatch, vehNames) {
         name: buildCustomerNameExpr(),
         ship_from: { $ifNull: ["$ship_from", ""] },
         ship_to: "$ship_to",
-        price: {
-          $multiply: [
-            { $ifNull: ["$billDoc.invoices.veh_ves_price", 0] },
-            sendWeightExpr,
-          ],
+        receivable_price: {
+          $multiply: [receivableSinglePriceExpr, sendWeightExpr],
         },
-        single_price: { $ifNull: ["$billDoc.invoices.veh_ves_price", 0] },
+        receivable_single_price: receivableSinglePriceExpr,
+        price: {
+          $multiply: [mainSinglePriceExpr, sendWeightExpr],
+        },
+        single_price: mainSinglePriceExpr,
+        payable_price: {
+          $multiply: [mainSinglePriceExpr, sendWeightExpr],
+        },
+        payable_single_price: mainSinglePriceExpr,
         send_num: { $ifNull: ["$billDoc.invoices.num", 0] },
         send_weight: sendWeightExpr,
         ship_date: "$ship_date",
@@ -102,6 +153,7 @@ function buildMainDetailPipeline(invMatch, vehNames) {
 }
 
 function buildInnerDetailPipeline(invMatch, vehNames) {
+  const receivableSinglePriceExpr = buildReceivableSinglePriceExpr();
   const innerWeightExpr = {
     $cond: [
       { $gt: [{ $ifNull: ["$billDoc.invoices.vehicles.send_weight", 0] }, 0] },
@@ -178,6 +230,10 @@ function buildInnerDetailPipeline(invMatch, vehNames) {
           $ifNull: ["$billDoc.invoices.vehicles.veh_ship_from", ""],
         },
         ship_to: "$vehicle_vessel_name",
+        receivable_price: {
+          $multiply: [receivableSinglePriceExpr, innerWeightExpr],
+        },
+        receivable_single_price: receivableSinglePriceExpr,
         price: {
           $multiply: [
             { $ifNull: ["$billDoc.invoices.vehicles.veh_price", 0] },
@@ -185,6 +241,13 @@ function buildInnerDetailPipeline(invMatch, vehNames) {
           ],
         },
         single_price: { $ifNull: ["$billDoc.invoices.vehicles.veh_price", 0] },
+        payable_price: {
+          $multiply: [
+            { $ifNull: ["$billDoc.invoices.vehicles.veh_price", 0] },
+            innerWeightExpr,
+          ],
+        },
+        payable_single_price: { $ifNull: ["$billDoc.invoices.vehicles.veh_price", 0] },
         send_num: { $ifNull: ["$billDoc.invoices.vehicles.send_num", 0] },
         send_weight: innerWeightExpr,
         ship_date: "$ship_date",
@@ -311,7 +374,9 @@ exports.getVesselRevenueData = async (req, res) => {
     });
 
     const db_invs = await Invoice.find(invQuery)
-      .select("waybill_no vehicle_vessel_name ship_date bills total_weight")
+      .select(
+        "waybill_no vehicle_vessel_name ship_date bills total_weight vessel_price price_mode selfOwned",
+      )
       .lean()
       .exec();
 
@@ -374,6 +439,14 @@ exports.getVesselRevenueData = async (req, res) => {
 
         const vehPayable =
           invInBill.veh_ves_price > 0 ? invInBill.veh_ves_price * weight : 0;
+        const hasInnerVehicles =
+          invInBill.vehicles && invInBill.vehicles.length > 0;
+        const customerDeliveryPayable =
+          inv.vessel_price > 0 ? inv.vessel_price * weight : vehPayable;
+
+        // console.log(
+        //   `Processing Bill ${bill._id} for Invoice ${inv.waybill_no}: revenue=${revenue}, vehPayable=${vehPayable}, customerDeliveryPayable=${customerDeliveryPayable}, vehCategory=${vehCategory}, hasInnerVehicles=${hasInnerVehicles}`,
+        // );
 
         if (isShip) {
           meta.hasShip = true;
@@ -383,9 +456,12 @@ exports.getVesselRevenueData = async (req, res) => {
           if (vehCategory === "自有") {
             data.vsOwnWeight += weight;
             data.vsOwnIncome += revenue;
+            // 船运自有应付：使用提单级别的 veh_ves_price（vessel_price 在 step 6.4 处理）
+            data.vsOwnDeposit += vehPayable;
           } else if (vehCategory === "外挂") {
             data.vsNonOwnWeight += weight;
             data.vsNonOwnIncome += revenue;
+            // 船运外挂应付：使用提单级别的 veh_ves_price（vessel_price 在 step 6.5 处理）
             data.vsNonOwnDeposit += vehPayable;
           }
 
@@ -408,14 +484,48 @@ exports.getVesselRevenueData = async (req, res) => {
           if (vehCategory === "自有") {
             data.vhOwnWeight += weight;
             data.vhOwnIncome += revenue;
+            data.vhOwnDeposit += customerDeliveryPayable;
             if (invInBill.veh_ves_name)
               meta.selfTruckNames.add(invInBill.veh_ves_name);
           } else if (vehCategory === "外挂") {
             data.vhNonOwnWeight += weight;
             data.vhNonOwnIncome += revenue;
-            data.vhNonOwnDeposit += vehPayable;
+            data.vhNonOwnDeposit += customerDeliveryPayable;
           }
         }
+      }
+    }
+
+    // 6.5 Calculate ship payable from invoice-level vessel_price
+    // 船运应付在 Invoice 级别计算（不重复：step 6 中 vehPayable 基于 veh_ves_price，通常为 0）
+    for (const inv of db_invs) {
+      if (!inv.vessel_price || inv.vessel_price <= 0) continue;
+
+      const vehInfo = vehObject[inv.vehicle_vessel_name] || {};
+      const vehCategory = vehInfo.category;
+      const isShip =
+        vehInfo.type === "船" ||
+        (vehInfo.type !== "车" &&
+          inv.bills &&
+          inv.bills.some((b) => b.vehicles && b.vehicles.length > 0));
+
+      if (!isShip) continue;
+
+      const monthStr = utils.toFinancialMonth(inv.ship_date);
+      const mIdx = months.indexOf(monthStr);
+      if (mIdx < 0) continue;
+
+      const data = resultData[mIdx];
+      // price_mode: 0=每吨, 1=打包
+      const shipPayable =
+        inv.price_mode === 1
+          ? inv.vessel_price
+          : inv.vessel_price * (inv.total_weight || 0);
+
+      if (vehCategory === "自有") {
+        data.vsOwnDeposit += shipPayable;
+      } else if (vehCategory === "外挂") {
+        data.vsNonOwnDeposit += shipPayable;
       }
     }
 
@@ -532,14 +642,26 @@ exports.getVesselAllocationDetail = async (req, res) => {
       res.json({ ok: true, summary_data: summaryData });
     } else {
       const unionPipeline = buildDetailUnionPipeline(invQuery, vehNames);
-      const countResult = await Invoice.aggregate([
+
+      // 一次查询同时获取总数和汇总金额
+      const summaryResult = await Invoice.aggregate([
         ...unionPipeline,
-        { $count: "total" },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            totalSendWeight: { $sum: "$send_weight" },
+            totalReceivable: { $sum: "$receivable_price" },
+            totalPayable: { $sum: "$payable_price" },
+          },
+        },
       ])
         .allowDiskUse(true)
         .exec();
 
-      const total = countResult[0]?.total || 0;
+      const agg = summaryResult[0] || {};
+      const total = agg.total || 0;
+
       const rows = await Invoice.aggregate([
         ...unionPipeline,
         {
@@ -570,6 +692,9 @@ exports.getVesselAllocationDetail = async (req, res) => {
         total,
         page,
         limit,
+        totalSendWeight: utils.toFixedNumber(agg.totalSendWeight || 0, 3),
+        totalReceivable: utils.toFixedNumber(agg.totalReceivable || 0, 3),
+        totalPayable: utils.toFixedNumber(agg.totalPayable || 0, 3),
       });
     }
   } catch (error) {

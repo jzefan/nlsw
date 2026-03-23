@@ -361,26 +361,26 @@ $(function () {
       }
 
       if (hasOrder) {
-        if (choice === SWITCH_WARE) {
-          var findSameOrder = false;
-          for (var i = 0; i < validData.length; ++i) {
-            var valid = validData[i];
-            if (valid.bill_no === row_data.bill_no && valid.order === row_data.order) {
-              valid.block_num = (+valid.block_num) + (+row_data.block_num);
-              valid.weight = (+valid.weight) + (+row_data.block_num);
-              valid.total_weight = (+valid.total_weight) + (+row_data.total_weight);
-              findSameOrder = true;
-              break;
+        // 合并相同订单号+项次号+提单号的记录（累加块数和总重量）
+        var findSameOrder = false;
+        for (var i = 0; i < validData.length; ++i) {
+          var valid = validData[i];
+          if (valid.bill_no === row_data.bill_no && valid.order === row_data.order) {
+            valid.block_num = (+valid.block_num) + (+row_data.block_num);
+            valid.total_weight = (+valid.total_weight) + (+row_data.total_weight);
+            // 厚宽长都不为0时，单重 = 总重量 / 块数
+            if (+valid.thickness > 0 && +valid.width > 0 && +valid.block_len > 0 && +valid.block_num > 0) {
+              valid.weight = valid.total_weight / valid.block_num;
             }
+            findSameOrder = true;
+            break;
           }
+        }
 
-          if (!findSameOrder) {
-            if (existSources) {
-              row_data.ship_warehouse = "转外库";
-            }
-            validData.push(row_data);
+        if (!findSameOrder) {
+          if (choice === SWITCH_WARE && existSources) {
+            row_data.ship_warehouse = "转外库";
           }
-        } else {
           validData.push(row_data);
         }
       }

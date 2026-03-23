@@ -500,7 +500,11 @@ async function handleOrderChange(orderNo: string) {
   let bills = billsCache.value.get(orderNo)
   if (!bills) {
     try {
-      const result = await getOrderBills(form.value.billingName, orderNo)
+      const result = await getOrderBills(
+        form.value.billingName,
+        orderNo,
+        isExistingInvoice.value ? waybillNo.value : undefined,
+      )
       if (result.ok && result.data) {
         bills = result.data
         billsCache.value.set(orderNo, bills)
@@ -513,27 +517,29 @@ async function handleOrderChange(orderNo: string) {
     }
   }
 
-  // 过滤掉已无剩余量的
+  // 过滤掉已无剩余量的（当前运单已确认的提单不过滤）
+  // 修改运单时，已确认的提单 ID 集合（这些提单即使 left_num 为 0 也应该保留在下拉列表中）
+  const confirmedBillIds = isExistingInvoice.value
+    ? new Set(confirmedBills.value.map((cb) => cb._id))
+    : new Set<string>()
+
   currentOrderBills.value = bills.filter((b: any) => {
+    // 修改运单时，当前运单已确认的提单始终保留
+    if (confirmedBillIds.has(b._id)) return true
+
     const isBlock = b.block_num > 0
     const baseLeft = b.left_num ?? 0
 
     if (isBlock) {
-      const confirmedSendNum = confirmedBills.value
-        .filter((cb) => cb._id === b._id)
-        .reduce((sum, cb) => sum + cb.send_num, 0)
       const pendingSendNum = pendingBills.value
         .filter((pb) => pb._id === b._id)
         .reduce((sum, pb) => sum + pb.send_num, 0)
-      return baseLeft - confirmedSendNum - pendingSendNum > 0
+      return baseLeft - pendingSendNum > 0
     } else {
-      const confirmedSendWeight = confirmedBills.value
-        .filter((cb) => cb._id === b._id)
-        .reduce((sum, cb) => sum + (cb.send_weight || 0), 0)
       const pendingSendWeight = pendingBills.value
         .filter((pb) => pb._id === b._id)
         .reduce((sum, pb) => sum + (pb.send_weight || 0), 0)
-      return baseLeft - confirmedSendWeight - pendingSendWeight > 0.001
+      return baseLeft - pendingSendWeight > 0.001
     }
   })
 }
@@ -557,7 +563,8 @@ function addBillToPending(bill: any) {
   }
 
   const isBlock = bill.block_num > 0
-  const baseLeft = bill.left_num || bill.left || 0
+  // 使用 getBaseLeft 获取正确的原始剩余量（修改运单时会还原本运单扣减前的值）
+  const baseLeft = getBaseLeft(bill._id)
   let leftNum = 0
 
   if (isBlock) {
@@ -890,7 +897,11 @@ async function saveInvoice(state: string) {
         // 重新加载当前选中的订单的提单
         if (selectedOrderNo.value) {
           try {
-            const freshResult = await getOrderBills(form.value.billingName, selectedOrderNo.value)
+            const freshResult = await getOrderBills(
+              form.value.billingName,
+              selectedOrderNo.value,
+              isExistingInvoice.value ? waybillNo.value : undefined,
+            )
             if (freshResult.ok && freshResult.data) {
               billsCache.value.set(selectedOrderNo.value, freshResult.data)
 

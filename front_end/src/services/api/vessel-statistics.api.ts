@@ -57,8 +57,12 @@ export interface VesselDetailItem {
   name: string
   ship_from: string
   ship_to: string
+  receivable_price: number
+  receivable_single_price: number
   price: number
   single_price: number
+  payable_price: number
+  payable_single_price: number
   send_num: number
   send_weight: number
   ship_date: string
@@ -77,13 +81,16 @@ export async function getVesselRevenue(params: VesselRevenueParams) {
 }
 
 export async function getVesselDetail(params: VesselAllocationParams) {
-  const response = await axiosInstance.get<{ 
-    ok: boolean, 
+  const response = await axiosInstance.get<{
+    ok: boolean,
     summary_data?: Record<string, VesselSummaryItem>,
     rows?: VesselDetailItem[],
     total?: number,
     page?: number,
-    limit?: number
+    limit?: number,
+    totalSendWeight?: number,
+    totalReceivable?: number,
+    totalPayable?: number,
   }>('/statistics/vessel/detail', {
     params,
   })

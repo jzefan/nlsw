@@ -344,23 +344,26 @@ watch(() => props.showNonSettle, () => {
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
       />
-      <DatePicker
-        v-model="endDate"
-        placeholder="结束日期"
-        :disabled-date="disableEndDate"
-        disabled-hint="结束日期不能早于开始日期"
-      />
-      <UiButton
-        variant="default"
-        size="sm"
-        class="h-9"
-        :disabled="loading"
-        @click="handleSearch"
-      >
-        <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
-        <Search v-else class="w-4 h-4 mr-1" />
-        查询
-      </UiButton>
+      <div class="flex gap-2">
+        <DatePicker
+          v-model="endDate"
+          placeholder="结束日期"
+          :disabled-date="disableEndDate"
+          disabled-hint="结束日期不能早于开始日期"
+          class="flex-1 min-w-0"
+        />
+        <UiButton
+          variant="default"
+          size="sm"
+          class="h-9 shrink-0"
+          :disabled="loading"
+          @click="handleSearch"
+        >
+          <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
+          <Search v-else class="w-4 h-4 mr-1" />
+          查询
+        </UiButton>
+      </div>
     </div>
   </div>
 </template>

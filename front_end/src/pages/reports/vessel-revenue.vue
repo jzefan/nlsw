@@ -46,7 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DatePicker, MonthPicker } from '@/components/ui/date-picker'
-import { formatDate, toExcelNum } from '@/utils/format'
+import { formatDate, formatNumber, toExcelNum } from '@/utils/format'
 import {
   getVesselRevenue,
   getVesselDetail,
@@ -58,7 +58,7 @@ import { PAGE_SIZES } from '@/constants/pagination'
 
 // 设备检测
 const { isMobile } = useDevice()
-const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+const { exportWithPicker, exportWithBufferPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // State
 const loading = ref(false)
@@ -129,6 +129,36 @@ const detailPage = ref(1)
 const detailLimit = ref(50)
 const detailTotal = ref(0)
 const detailTotalPages = computed(() => Math.max(1, Math.ceil(detailTotal.value / detailLimit.value)))
+const isOutsourcedDetail = computed(() => detailVehType.value === '外挂')
+const detailMonth = ref('全部')
+const detailSendWeight = ref(0)
+const detailReceivable = ref(0)
+const detailPayable = ref(0)
+
+// 可选月份列表（从已查询的 statisticsData 中提取）
+const detailMonthOptions = computed(() => {
+  return statisticsData.value.map(d => d.month)
+})
+
+// 根据选择的月份计算对应的财务月日期范围
+function getMonthDateRange(month: string): { fDate1: string, fDate2: string } {
+  if (month === '全部' || !startDate.value || !endDate.value) {
+    return {
+      fDate1: toLocalDateTimeString(startDate.value!),
+      fDate2: toLocalDateTimeString(endDate.value!),
+    }
+  }
+  const [y, m] = month.split('-').map(Number)
+  // 财务月：上月26日 ~ 本月25日
+  const s = m === 1
+    ? new Date(y - 1, 11, 26, 0, 0, 0)
+    : new Date(y, m - 2, 26, 0, 0, 0)
+  const e = new Date(y, m - 1, 25, 23, 59, 59)
+  return {
+    fDate1: toLocalDateTimeString(s),
+    fDate2: toLocalDateTimeString(e),
+  }
+}
 
 // Chart Config - 固定显示金额
 const chartConfig = {
@@ -279,10 +309,6 @@ function formatDateRange(start?: Date, end?: Date) {
 // 日期范围字符串（供移动端使用）
 const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
 
-function formatNum(val: number) {
-  return val.toFixed(3)
-}
-
 // 格式化为本地时间字符串（与综合查询保持一致，避免时区偏差）
 function toLocalDateTimeString(date: Date): string {
   const y = date.getFullYear()
@@ -302,6 +328,7 @@ async function openDrillDown(type: '自有' | '外挂', mode: 'summary' | 'detai
   detailVehType.value = type
   if (mode === 'detail') {
     detailVehMode.value = '全部'
+    detailMonth.value = '全部'
     detailPage.value = 1
   }
   detailLoading.value = true
@@ -309,9 +336,10 @@ async function openDrillDown(type: '自有' | '外挂', mode: 'summary' | 'detai
   else showDetailDialog.value = true
 
   try {
+    const dateRange = getMonthDateRange(detailMonth.value)
     const res = await getVesselDetail({
-      fDate1: toLocalDateTimeString(startDate.value),
-      fDate2: toLocalDateTimeString(endDate.value),
+      fDate1: dateRange.fDate1,
+      fDate2: dateRange.fDate2,
       fVehType: type,
       fSummary: mode === 'summary' ? 'YES' : 'NO',
       fVehMode: mode === 'detail' && detailVehMode.value !== '全部' ? detailVehMode.value : undefined,
@@ -326,6 +354,9 @@ async function openDrillDown(type: '自有' | '外挂', mode: 'summary' | 'detai
         detailTotal.value = res.total || 0
         detailPage.value = res.page || detailPage.value
         detailLimit.value = res.limit || detailLimit.value
+        detailSendWeight.value = res.totalSendWeight || 0
+        detailReceivable.value = res.totalReceivable || 0
+        detailPayable.value = res.totalPayable || 0
       }
     } else {
       toast.error('获取明细失败')
@@ -342,9 +373,10 @@ async function reloadDetailList() {
 
   detailLoading.value = true
   try {
+    const dateRange = getMonthDateRange(detailMonth.value)
     const res = await getVesselDetail({
-      fDate1: toLocalDateTimeString(startDate.value),
-      fDate2: toLocalDateTimeString(endDate.value),
+      fDate1: dateRange.fDate1,
+      fDate2: dateRange.fDate2,
       fVehType: detailVehType.value,
       fSummary: 'NO',
       fVehMode: detailVehMode.value !== '全部' ? detailVehMode.value : undefined,
@@ -357,6 +389,9 @@ async function reloadDetailList() {
       detailTotal.value = res.total || 0
       detailPage.value = res.page || detailPage.value
       detailLimit.value = res.limit || detailLimit.value
+      detailSendWeight.value = res.totalSendWeight || 0
+      detailReceivable.value = res.totalReceivable || 0
+      detailPayable.value = res.totalPayable || 0
     } else {
       toast.error('获取明细失败')
     }
@@ -369,6 +404,12 @@ async function reloadDetailList() {
 }
 
 watch(detailVehMode, async (val, prev) => {
+  if (val === prev || !showDetailDialog.value) return
+  detailPage.value = 1
+  await reloadDetailList()
+})
+
+watch(detailMonth, async (val, prev) => {
   if (val === prev || !showDetailDialog.value) return
   detailPage.value = 1
   await reloadDetailList()
@@ -461,8 +502,12 @@ async function handleExportDetailList() {
       name: item.name || '',
       ship_from: item.ship_from || '',
       ship_to: item.ship_to || '',
-      price: toExcelNum(item.price),
-      single_price: toExcelNum(item.single_price),
+      receivable_price: toExcelNum(item.receivable_price ?? 0),
+      receivable_single_price: toExcelNum(item.receivable_single_price ?? 0),
+      price: toExcelNum(item.price ?? 0),
+      single_price: toExcelNum(item.single_price ?? 0),
+      payable_price: toExcelNum(item.payable_price ?? 0),
+      payable_single_price: toExcelNum(item.payable_single_price ?? 0),
       send_num: toExcelNum(item.send_num),
       send_weight: toExcelNum(item.send_weight),
       ship_date: formatDate(item.ship_date, ''),
@@ -475,23 +520,92 @@ async function handleExportDetailList() {
       return
     }
 
-    exportWithPicker({
+    const columns = [
+      { header: '车船号', key: 'vname' },
+      { header: '客户名称/单位', key: 'name' },
+      { header: '起始地', key: 'ship_from' },
+      { header: '目的地', key: 'ship_to' },
+      ...(isOutsourcedDetail.value
+        ? [
+            { header: '应收总价', key: 'receivable_price', type: 'number' as const, fill: 'FFDCFCE7' },
+            { header: '应收单价', key: 'receivable_single_price', type: 'number' as const, fill: 'FFE0F2FE' },
+            { header: '应付总价', key: 'payable_price', type: 'number' as const, fill: 'FFFFEDD5' },
+            { header: '应付单价', key: 'payable_single_price', type: 'number' as const, fill: 'FFFFE4E6' },
+          ]
+        : [
+            { header: '总价', key: 'price', type: 'number' as const, fill: 'FFFFEDD5' },
+            { header: '单价', key: 'single_price', type: 'number' as const, fill: 'FFE0F2FE' },
+          ]),
+      { header: '发运块数', key: 'send_num', type: 'number' as const },
+      { header: '发运重量', key: 'send_weight', type: 'number' as const },
+      { header: '发货日期', key: 'ship_date' },
+      { header: '预付', key: 'advance_charge' },
+      { header: '滞留天数', key: 'delay_day', type: 'number' as const },
+    ]
+
+    exportWithBufferPicker({
       fileName: `${detailTitle.value || '车船费用清单'}_${detailVehMode.value}_${new Date().toISOString().slice(0, 10)}`,
-      sheetName: '车船费用清单',
-      columns: [
-        { header: '车船号', key: 'vname' },
-        { header: '客户名称/单位', key: 'name' },
-        { header: '起始地', key: 'ship_from' },
-        { header: '目的地', key: 'ship_to' },
-        { header: '总价', key: 'price', type: 'number' },
-        { header: '单价', key: 'single_price', type: 'number' },
-        { header: '发运块数', key: 'send_num', type: 'number' },
-        { header: '发运重量', key: 'send_weight', type: 'number' },
-        { header: '发货日期', key: 'ship_date' },
-        { header: '预付', key: 'advance_charge' },
-        { header: '滞留天数', key: 'delay_day', type: 'number' },
-      ],
-      data: rows,
+      generateBuffer: async () => {
+        const workbook = new ExcelJS.Workbook()
+        const sheet = workbook.addWorksheet('车船费用清单')
+
+        const thinBorder: Partial<ExcelJS.Borders> = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        }
+        const headerFill: ExcelJS.Fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF3F4F6' },
+        }
+        const getTextWidth = (value: any) => {
+          const text = String(value ?? '')
+          return [...text].reduce((sum, char) => sum + (char.charCodeAt(0) > 127 ? 2 : 1), 0)
+        }
+        const colWidths = columns.map(col => getTextWidth(col.header))
+
+        const headerRow = sheet.addRow(columns.map(col => col.header))
+        headerRow.height = 22
+        headerRow.eachCell((cell, colNumber) => {
+          const col = columns[colNumber - 1]
+          cell.font = { bold: true, size: 11 }
+          cell.alignment = { vertical: 'middle', horizontal: 'center' }
+          cell.border = thinBorder
+          cell.fill = col.fill
+            ? { type: 'pattern', pattern: 'solid', fgColor: { argb: col.fill } }
+            : headerFill
+          colWidths[colNumber - 1] = Math.max(colWidths[colNumber - 1], getTextWidth(cell.value))
+        })
+
+        rows.forEach((row) => {
+          const excelRow = sheet.addRow(columns.map(col => row[col.key]))
+          excelRow.eachCell((cell, colNumber) => {
+            const col = columns[colNumber - 1]
+            cell.border = thinBorder
+            cell.alignment = {
+              vertical: 'middle',
+              horizontal: col.type === 'number' ? 'right' : 'left',
+            }
+            if (col.fill) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: col.fill } }
+            }
+            colWidths[colNumber - 1] = Math.max(colWidths[colNumber - 1], getTextWidth(cell.value))
+          })
+        })
+
+        sheet.columns = colWidths.map(width => ({
+          width: Math.max(10, width + 2),
+        }))
+        sheet.autoFilter = {
+          from: { row: 1, column: 1 },
+          to: { row: 1, column: columns.length },
+        }
+        sheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+        return workbook.xlsx.writeBuffer()
+      },
     })
   } catch (e) {
     console.error(e)
@@ -1022,41 +1136,41 @@ async function handleExport() {
               <TableRow class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors">
                 <TableCell rowspan="2" class="text-center border font-medium align-middle bg-gray-50/50 dark:bg-gray-800/30">{{ item.month }}</TableCell>
                 <TableCell class="text-center border bg-indigo-50/50 dark:bg-indigo-900/20 text-xs font-bold text-indigo-700 dark:text-indigo-400">船运</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vsTotal) }}</TableCell>
-                <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vsRevenue) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vsOwnWeight) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vsOwnIncome) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vsOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vsOwnProfit) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vsNonOwnWeight) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vsNonOwnIncome) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vsNonOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vsProfit) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vsFixedCost) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vsTotal) }}</TableCell>
+                <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vsRevenue) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vsOwnWeight) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vsOwnIncome) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vsOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vsOwnProfit) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vsNonOwnWeight) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vsNonOwnIncome) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vsNonOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vsProfit) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vsFixedCost) }}</TableCell>
                 <TableCell class="text-right border">-</TableCell>
                 <TableCell class="text-right border">-</TableCell>
                 <TableCell class="text-right border font-bold" :class="item.vsOwnProfit + item.vsProfit - item.vsFixedCost >= 0 ? 'text-red-600' : 'text-green-600'">
-                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vsOwnProfit + item.vsProfit - item.vsFixedCost) }}
+                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vsOwnProfit + item.vsProfit - item.vsFixedCost) }}
                 </TableCell>
               </TableRow>
               <!-- Truck Row -->
               <TableRow class="hover:bg-amber-50/30 dark:hover:bg-amber-900/10 transition-colors">
                 <TableCell class="text-center border bg-amber-50/50 dark:bg-amber-900/20 text-xs font-bold text-amber-700 dark:text-amber-400">车运</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vhTotal) }}</TableCell>
-                <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vhRevenue) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vhOwnWeight) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vhOwnIncome) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vhOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vhOwnProfit) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(item.vhNonOwnWeight) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vhNonOwnIncome) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vhNonOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vhProfit) }}</TableCell>
-                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.vhFixedCost) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.drayage) }}</TableCell>
-                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNum(item.forklift) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vhTotal) }}</TableCell>
+                <TableCell class="text-right border font-bold text-orange-600"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vhRevenue) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vhOwnWeight) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vhOwnIncome) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vhOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vhOwnProfit) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(item.vhNonOwnWeight) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vhNonOwnIncome) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vhNonOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border font-bold"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vhProfit) }}</TableCell>
+                <TableCell class="text-right border text-red-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.vhFixedCost) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.drayage) }}</TableCell>
+                <TableCell class="text-right border text-blue-600"><span class="text-xs mr-0.5">¥</span>{{ formatNumber(item.forklift) }}</TableCell>
                 <TableCell class="text-right border font-bold" :class="item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift >= 0 ? 'text-red-600' : 'text-green-600'">
-                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift) }}
+                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(item.vhOwnProfit + item.vhProfit - item.vhFixedCost + item.drayage + item.forklift) }}
                 </TableCell>
               </TableRow>
             </template>
@@ -1068,40 +1182,40 @@ async function handleExport() {
                   <span class="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm">总计</span>
                 </TableCell>
                 <TableCell class="text-center border text-xs text-indigo-700 dark:text-indigo-400">船运</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vsTotal) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsRevenue) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vsOwnWeight) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsOwnIncome) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsOwnProfit) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vsNonOwnWeight) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsNonOwnIncome) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsNonOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsProfit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsFixedCost) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vsTotal) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsRevenue) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vsOwnWeight) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsOwnIncome) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsOwnProfit) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vsNonOwnWeight) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsNonOwnIncome) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsNonOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsProfit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsFixedCost) }}</TableCell>
                 <TableCell class="text-right border">-</TableCell>
                 <TableCell class="text-right border">-</TableCell>
                 <TableCell class="text-right border" :class="summaryTotals.vsNetProfit >= 0 ? 'text-red-600' : 'text-green-600'">
-                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vsNetProfit) }}
+                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vsNetProfit) }}
                 </TableCell>
               </TableRow>
               <TableRow class="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-800/50 dark:to-gray-800/50 font-bold">
                 <TableCell class="text-center border text-xs text-amber-700 dark:text-amber-400">车运</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vhTotal) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhRevenue) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vhOwnWeight) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhOwnIncome) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhOwnProfit) }}</TableCell>
-                <TableCell class="text-right border">{{ formatNum(summaryTotals.vhNonOwnWeight) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhNonOwnIncome) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhNonOwnDeposit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhProfit) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhFixedCost) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.drayage) }}</TableCell>
-                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.forklift) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vhTotal) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhRevenue) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vhOwnWeight) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhOwnIncome) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhOwnProfit) }}</TableCell>
+                <TableCell class="text-right border">{{ formatNumber(summaryTotals.vhNonOwnWeight) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhNonOwnIncome) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhNonOwnDeposit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhProfit) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhFixedCost) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.drayage) }}</TableCell>
+                <TableCell class="text-right border"><span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.forklift) }}</TableCell>
                 <TableCell class="text-right border" :class="summaryTotals.vhNetProfit >= 0 ? 'text-red-600' : 'text-green-600'">
-                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNum(summaryTotals.vhNetProfit) }}
+                  <span class="text-xs mr-0.5 font-normal">¥</span>{{ formatNumber(summaryTotals.vhNetProfit) }}
                 </TableCell>
               </TableRow>
             </template>
@@ -1182,8 +1296,8 @@ async function handleExport() {
             <TableBody>
               <TableRow v-for="(item, vname) in summaryItems" :key="vname">
                 <TableCell>{{ vname }}</TableCell>
-                <TableCell>{{ formatNum(item.weight) }}</TableCell>
-                <TableCell>{{ formatNum(item.amount) }}</TableCell>
+                <TableCell>{{ formatNumber(item.weight) }}</TableCell>
+                <TableCell>{{ formatNumber(item.amount) }}</TableCell>
                 <TableCell>{{ item.contact }}</TableCell>
               </TableRow>
             </TableBody>
@@ -1206,10 +1320,20 @@ async function handleExport() {
           <DialogTitle>{{ detailTitle }}</DialogTitle>
           <DialogDescription>车船费用明细清单</DialogDescription>
         </DialogHeader>
-        <div class="flex items-center gap-3">
-          <Label class="shrink-0">类型筛选</Label>
+        <div class="flex items-center gap-3 flex-wrap">
+          <Label class="shrink-0">月份</Label>
+          <Select v-model="detailMonth">
+            <SelectTrigger class="w-[140px]">
+              <SelectValue placeholder="全部月份" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="全部">全部月份</SelectItem>
+              <SelectItem v-for="m in detailMonthOptions" :key="m" :value="m">{{ m }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Label class="shrink-0">类型</Label>
           <Select v-model="detailVehMode">
-            <SelectTrigger class="w-[180px]">
+            <SelectTrigger class="w-[140px]">
               <SelectValue placeholder="全部车船" />
             </SelectTrigger>
             <SelectContent>
@@ -1218,8 +1342,23 @@ async function handleExport() {
               <SelectItem value="船">仅船</SelectItem>
             </SelectContent>
           </Select>
+          <template v-if="detailTotal > 0 && isOutsourcedDetail">
+            <span class="ml-auto" />
+            <span class="text-muted-foreground text-xs">{{ detailTotal }}条</span>
+            <span class="text-muted-foreground text-xs">吨位: <strong>{{ formatNumber(detailSendWeight) }}</strong></span>
+            <span class="text-green-700 dark:text-green-400 text-xs">应收: <strong>¥{{ formatNumber(detailReceivable) }}</strong></span>
+            <span class="text-orange-700 dark:text-orange-400 text-xs">应付: <strong>¥{{ formatNumber(detailPayable) }}</strong></span>
+            <span class="text-xs" :class="detailReceivable - detailPayable >= 0 ? 'text-blue-600' : 'text-red-600'">利润: <strong>¥{{ formatNumber(detailReceivable - detailPayable) }}</strong></span>
+          </template>
         </div>
-        <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900">
+        <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900 relative">
+          <!-- 导出遮罩 -->
+          <div v-if="detailExporting" class="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div class="flex flex-col items-center gap-3">
+              <Loader2 class="h-8 w-8 animate-spin text-primary" />
+              <span class="text-sm text-muted-foreground">正在导出数据，请稍候...</span>
+            </div>
+          </div>
           <div v-if="detailLoading" class="flex h-full min-h-[240px] items-center justify-center">
             <div class="flex items-center gap-2 text-muted-foreground">
               <Loader2 class="h-4 w-4 animate-spin" />
@@ -1233,17 +1372,34 @@ async function handleExport() {
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>车船号</TableHead><TableHead>客户名称/单位</TableHead><TableHead>起始地</TableHead><TableHead>目的地</TableHead>
-                <TableHead>总价</TableHead><TableHead>单价</TableHead><TableHead>发运块数</TableHead><TableHead>发运重量</TableHead>
+                <template v-if="isOutsourcedDetail">
+                  <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收总价</TableHead>
+                  <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收单价</TableHead>
+                  <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付总价</TableHead>
+                  <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付单价</TableHead>
+                </template>
+                <template v-else>
+                  <TableHead>总价</TableHead><TableHead>单价</TableHead>
+                </template>
+                <TableHead>发运块数</TableHead><TableHead>发运重量</TableHead>
                 <TableHead>发货日期</TableHead><TableHead>预付</TableHead><TableHead>滞留天数</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="(item, idx) in detailRows" :key="`${item.vname}-${idx}-${item.ship_date}`">
                   <TableCell>{{ item.vname }}</TableCell><TableCell>{{ item.name }}</TableCell><TableCell>{{ item.ship_from }}</TableCell><TableCell>{{ item.ship_to }}</TableCell>
-                  <TableCell>{{ formatNum(item.price) }}</TableCell><TableCell>{{ formatNum(item.single_price) }}</TableCell>
-                  <TableCell>{{ item.send_num }}</TableCell><TableCell>{{ formatNum(item.send_weight) }}</TableCell>
+                  <template v-if="isOutsourcedDetail">
+                    <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_price ?? 0) }}</TableCell>
+                    <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_single_price ?? 0) }}</TableCell>
+                    <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_price ?? 0) }}</TableCell>
+                    <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_single_price ?? 0) }}</TableCell>
+                  </template>
+                  <template v-else>
+                    <TableCell>{{ formatNumber(item.price ?? 0) }}</TableCell><TableCell>{{ formatNumber(item.single_price ?? 0) }}</TableCell>
+                  </template>
+                  <TableCell>{{ item.send_num }}</TableCell><TableCell>{{ formatNumber(item.send_weight) }}</TableCell>
                   <TableCell>{{ new Date(item.ship_date).toLocaleDateString() }}</TableCell>
-                  <TableCell>{{ item.advance_mode }}: {{ formatNum(item.advance_charge) }}</TableCell><TableCell>{{ item.delay_day }}</TableCell>
+                  <TableCell>{{ item.advance_mode }}: {{ formatNumber(item.advance_charge) }}</TableCell><TableCell>{{ item.delay_day }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>

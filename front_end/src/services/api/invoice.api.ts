@@ -141,10 +141,10 @@ export async function getBillsByBillingName(billingName: string, search?: string
 }
 
 // 获取指定订单的提单列表
-export async function getOrderBills(billingName: string, orderNo: string) {
-  const response = await axiosInstance.get('/bills/order-bills', {
-    params: { billingName, orderNo },
-  })
+export async function getOrderBills(billingName: string, orderNo: string, waybillNo?: string) {
+  const params: Record<string, string> = { billingName, orderNo }
+  if (waybillNo) params.waybillNo = waybillNo
+  const response = await axiosInstance.get('/bills/order-bills', { params })
   return response.data as { ok: boolean, data: any[] }
 }
 

@@ -295,11 +295,11 @@ exports.getOrders = async (req, res) => {
 /**
  * 获取指定订单的提单列表
  * GET /bills/order-bills
- * Query: billingName, orderNo
+ * Query: billingName, orderNo, waybillNo (可选，修改运单时传入以包含已配发的提单)
  */
 exports.getOrderBills = async (req, res) => {
   try {
-    const { billingName, orderNo } = req.query;
+    const { billingName, orderNo, waybillNo } = req.query;
     if (!orderNo) {
       return res.status(400).json({ ok: false, error: "缺少 orderNo 参数" });
     }
@@ -307,21 +307,7 @@ exports.getOrderBills = async (req, res) => {
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
-    const matchStage = {
-      order_no: orderNo,
-      left_num: { $gt: 0 },
-      create_date: { $gte: twoYearsAgo },
-    };
-
-    if (billingName) {
-      matchStage.billing_name = billingName;
-    }
-
-    if (!isPlatformUser(req)) {
-      matchStage.tenantId = req.tenantId;
-    }
-
-    const bills = await Bill.find(matchStage, {
+    const projection = {
       _id: 1,
       order_no: 1,
       bill_no: 1,
@@ -336,9 +322,55 @@ exports.getOrderBills = async (req, res) => {
       contract_no: 1,
       brand_no: 1,
       total_weight: 1,
-    })
+    };
+
+    const baseMatch = {
+      order_no: orderNo,
+      create_date: { $gte: twoYearsAgo },
+    };
+
+    if (billingName) {
+      baseMatch.billing_name = billingName;
+    }
+
+    if (!isPlatformUser(req)) {
+      baseMatch.tenantId = req.tenantId;
+    }
+
+    // 查询有剩余量的提单
+    const bills = await Bill.find(
+      { ...baseMatch, left_num: { $gt: 0 } },
+      projection,
+    )
       .sort({ order_item_no: 1, bill_no: 1 })
       .lean();
+
+    // 修改运单时，还需包含该运单已配发但 left_num 为 0 的提单
+    if (waybillNo) {
+      const existingBillIds = new Set(bills.map((b) => b._id.toString()));
+
+      const invoiceQuery = { waybill_no: waybillNo };
+      if (!isPlatformUser(req)) {
+        invoiceQuery.tenantId = req.tenantId;
+      }
+      const invoice = await Invoice.findOne(invoiceQuery, { bills: 1 }).lean();
+
+      if (invoice && invoice.bills) {
+        const invoiceBillIds = invoice.bills
+          .map((ib) => ib.bill_id)
+          .filter((id) => id && !existingBillIds.has(id.toString()));
+
+        if (invoiceBillIds.length > 0) {
+          const extraBills = await Bill.find(
+            { _id: { $in: invoiceBillIds }, ...baseMatch },
+            projection,
+          )
+            .sort({ order_item_no: 1, bill_no: 1 })
+            .lean();
+          bills.push(...extraBills);
+        }
+      }
+    }
 
     res.json({
       ok: true,

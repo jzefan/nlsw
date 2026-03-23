@@ -267,6 +267,19 @@ function mergeDuplicates(data: BillCreateData[]): BillCreateData[] {
     }
   }
 
+  // 累加后重新计算单重：厚宽长都不为0时，单重 = 总重量 / 块数
+  for (const bill of merged) {
+    if (
+      bill.blockNum && bill.blockNum > 0 &&
+      bill.totalWeight && bill.totalWeight > 0 &&
+      bill.thickness && bill.thickness > 0 &&
+      bill.width && bill.width > 0 &&
+      bill.len && bill.len > 0
+    ) {
+      bill.weight = bill.totalWeight / bill.blockNum
+    }
+  }
+
   return merged
 }
 

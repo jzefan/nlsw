@@ -78,6 +78,32 @@ export function useExport() {
     }
   }
 
+  function getCellDisplayText(value: any) {
+    if (value instanceof Date) return 'yyyy-mm-dd hh:mm'
+    return String(value ?? '')
+  }
+
+  function getDisplayWidth(value: any) {
+    const text = getCellDisplayText(value)
+    return [...text].reduce((sum, char) => {
+      return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
+    }, 0)
+  }
+
+  function buildColumnWidths(matrix: any[][]) {
+    if (matrix.length === 0) return []
+    const columnCount = Math.max(...matrix.map(row => row.length))
+    return Array.from({ length: columnCount }, (_, colIdx) => {
+      let maxWidth = 0
+      matrix.forEach((row) => {
+        maxWidth = Math.max(maxWidth, getDisplayWidth(row[colIdx]))
+      })
+      return {
+        wch: Math.max(8, maxWidth + 2),
+      }
+    })
+  }
+
   /**
    * 生成工作簿（从列定义）
    */
@@ -117,19 +143,7 @@ export function useExport() {
     applyDateFormats(ws)
 
     // 自动调整列宽
-    const colWidths = columns.map((col, idx) => {
-      let maxWidth = col.header.length
-      rows.forEach((row) => {
-        const cellValue = String(row[idx] ?? '')
-        // 计算中文字符宽度（中文字符算2个宽度）
-        const width = [...cellValue].reduce((sum, char) => {
-          return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
-        }, 0)
-        maxWidth = Math.max(maxWidth, width)
-      })
-      return { wch: Math.min(maxWidth + 2, 60) }
-    })
-    ws['!cols'] = colWidths
+    ws['!cols'] = buildColumnWidths(aoa)
 
     // 创建工作簿
     const wb = XLSX.utils.book_new()
@@ -148,21 +162,7 @@ export function useExport() {
     applyDateFormats(ws)
 
     // 自动调整列宽
-    if (aoa.length > 0) {
-      const colWidths = aoa[0].map((_, colIdx) => {
-        let maxWidth = 0
-        aoa.forEach((row) => {
-          const cellValue = row[colIdx]
-          const str = cellValue instanceof Date ? 'yyyy-mm-dd hh:mm' : String(cellValue ?? '')
-          const width = [...str].reduce((sum, char) => {
-            return sum + (char.charCodeAt(0) > 127 ? 2 : 1)
-          }, 0)
-          maxWidth = Math.max(maxWidth, width)
-        })
-        return { wch: Math.min(maxWidth + 2, 60) }
-      })
-      ws['!cols'] = colWidths
-    }
+    ws['!cols'] = buildColumnWidths(aoa)
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1')

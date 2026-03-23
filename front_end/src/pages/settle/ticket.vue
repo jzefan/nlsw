@@ -7,8 +7,6 @@ import { toast } from 'vue-sonner'
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
-import { DatePicker } from '@/components/ui/date-picker'
-import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { deleteSettle, getSettleList, updateTicket } from '@/services/api/ticket.api'
 
@@ -17,6 +15,8 @@ import type { DisplayMode, SettleRecord, SettleType } from './ticket-types'
 
 import SettleDetailDialog from './components/SettleDetailDialog.vue'
 import SettleModeTabs from './components/SettleModeTabs.vue'
+import SettleRecordFilter from './components/SettleRecordFilter.vue'
+import type { SettleRecordFilterParams } from './components/SettleRecordFilter.vue'
 
 const route = useRoute()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
@@ -49,16 +49,18 @@ const displaySettles = ref<SettleRecord[]>([])
 const selectedSettles = ref<SettleRecord[]>([])
 const loading = ref(false)
 const showFilter = ref(false)
+const ticketFilterRef = ref<InstanceType<typeof SettleRecordFilter> | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(50)
 
-// 过滤参数
-const filterBillingName = ref('')
-const filterSerialNumber = ref('')
-const filterShipTo = ref('')
-const defaultDateRange = getDefaultDateRange()
-const filterTicketDateStart = ref<string>(defaultDateRange.start)
-const filterTicketDateEnd = ref<string>(defaultDateRange.end)
+// 过滤参数（由 SettleRecordFilter 组件管理并通过事件传递）
+const currentFilterParams = ref<SettleRecordFilterParams>({
+  billingName: '',
+  serialNumber: '',
+  shipTo: '',
+  startDate: getDefaultDateRange().start,
+  endDate: getDefaultDateRange().end,
+})
 
 // 开票对话框状态
 const showTicketDialog = ref(false)
@@ -99,44 +101,32 @@ async function loadData() {
 
 // 更新显示的结算列表
 function updateDisplaySettles() {
-  if (
-    filterTicketDateStart.value &&
-    filterTicketDateEnd.value &&
-    new Date(filterTicketDateStart.value) > new Date(filterTicketDateEnd.value)
-  ) {
-    toast.error('开始日期不能晚于结束日期')
-    return
-  }
-
+  const fp = currentFilterParams.value
   let filtered = allSettles.value
 
-  // 应用过滤条件
-  if (filterBillingName.value) {
-    filtered = filtered.filter((s) => s.billing_name === filterBillingName.value)
+  if (fp.billingName) {
+    filtered = filtered.filter((s) => s.billing_name === fp.billingName)
   }
-  if (filterSerialNumber.value) {
-    filtered = filtered.filter((s) => s.serial_number === filterSerialNumber.value)
+  if (fp.serialNumber) {
+    filtered = filtered.filter((s) => s.serial_number === fp.serialNumber)
   }
-  if (filterShipTo.value) {
-    filtered = filtered.filter((s) => s.ship_to === filterShipTo.value)
+  if (fp.shipTo) {
+    filtered = filtered.filter((s) => s.ship_to === fp.shipTo)
   }
 
-  // 日期过滤（未开票用 settle_date，已开票用 ticket_date）
-  if (filterTicketDateStart.value && filterTicketDateEnd.value) {
+  if (fp.startDate && fp.endDate) {
     filtered = filtered.filter((s) => {
       const dateValue = displayMode.value === 'ticket' ? s.ticket_date : s.settle_date
       if (!dateValue) return false
       const d = new Date(dateValue)
-      const startDate = new Date(filterTicketDateStart.value)
-      const endDate = new Date(filterTicketDateEnd.value)
+      const startDate = new Date(fp.startDate)
+      const endDate = new Date(fp.endDate)
       startDate.setHours(0, 0, 0, 0)
       endDate.setHours(23, 59, 59, 999)
       return d >= startDate && d <= endDate
     })
   }
 
-  // 按日期降序排列（最新的在前面）
-  // 使用 [...filtered] 避免原地修改 allSettles
   displaySettles.value = [...filtered].sort((a, b) => {
     const dateA = new Date(a.ticket_date || a.settle_date || 0).getTime()
     const dateB = new Date(b.ticket_date || b.settle_date || 0).getTime()
@@ -146,6 +136,11 @@ function updateDisplaySettles() {
   currentPage.value = 1
 }
 
+function handleFilterChange(params: SettleRecordFilterParams) {
+  currentFilterParams.value = params
+  updateDisplaySettles()
+}
+
 // 分页
 const totalPages = computed(() => Math.ceil(displaySettles.value.length / pageSize.value))
 const pagedSettles = computed(() => {
@@ -153,34 +148,7 @@ const pagedSettles = computed(() => {
   return displaySettles.value.slice(start, start + pageSize.value)
 })
 
-// 重置过滤条件
-function resetFilter() {
-  filterBillingName.value = ''
-  filterSerialNumber.value = ''
-  filterShipTo.value = ''
-  const defaultRange = getDefaultDateRange()
-  filterTicketDateStart.value = defaultRange.start
-  filterTicketDateEnd.value = defaultRange.end
-  updateDisplaySettles()
-}
-
-function disableStartDate(date: Date) {
-  if (filterTicketDateEnd.value) {
-    const end = new Date(filterTicketDateEnd.value)
-    end.setHours(23, 59, 59, 999)
-    return date > end
-  }
-  return false
-}
-
-function disableEndDate(date: Date) {
-  if (filterTicketDateStart.value) {
-    const start = new Date(filterTicketDateStart.value)
-    start.setHours(0, 0, 0, 0)
-    return date < start
-  }
-  return false
-}
+// resetFilter 由 SettleRecordFilter 组件内部处理
 
 // 是否全选
 const allSelected = computed(() => {
@@ -229,47 +197,7 @@ function switchDisplayMode(mode: DisplayMode) {
   }
 }
 
-// 从数据中提取过滤选项
-const filterOptions = computed(() => {
-  const billingNames = new Set<string>()
-  const serialNumbers = new Set<string>()
-  const shipTos = new Set<string>()
-
-  allSettles.value.forEach((settle) => {
-    if (settle.billing_name) billingNames.add(settle.billing_name)
-    if (settle.serial_number) serialNumbers.add(settle.serial_number)
-    if (settle.ship_to) shipTos.add(settle.ship_to)
-  })
-
-  return {
-    billingNames: Array.from(billingNames).sort(),
-    serialNumbers: Array.from(serialNumbers).sort(),
-    shipTos: Array.from(shipTos).sort(),
-  }
-})
-
-// 本地搜索过滤选项（用于 SearchableCombobox 的分页搜索）
-function localFilterSearch(items: string[], search: string, limit: number, page: number) {
-  let filtered = items
-  if (search) {
-    filtered = filtered.filter((item) => item.toLowerCase().includes(search.toLowerCase()))
-  }
-  const start = (page - 1) * limit
-  const data = filtered.slice(start, start + limit).map((item) => ({ name: item }))
-  return Promise.resolve({ ok: true as const, data, total: filtered.length })
-}
-
-function searchFilterBillingNames(search: string, limit: number, page: number) {
-  return localFilterSearch(filterOptions.value.billingNames, search, limit, page)
-}
-
-function searchFilterSerialNumbers(search: string, limit: number, page: number) {
-  return localFilterSearch(filterOptions.value.serialNumbers, search, limit, page)
-}
-
-function searchFilterShipTos(search: string, limit: number, page: number) {
-  return localFilterSearch(filterOptions.value.shipTos, search, limit, page)
-}
+// 过滤选项由 SettleRecordFilter 组件内部管理
 
 // 统计信息
 const statistics = computed(() => {
@@ -567,54 +495,7 @@ function handleShowDetail() {
       </SettleModeTabs>
 
       <TabsContent value="settle" class="space-y-4">
-        <!-- 过滤器 -->
-        <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
-            <SearchableCombobox
-              v-model="filterBillingName"
-              :search-fn="searchFilterBillingNames"
-              placeholder="开单名称"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <SearchableCombobox
-              v-model="filterSerialNumber"
-              :search-fn="searchFilterSerialNumbers"
-              placeholder="结算号"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <SearchableCombobox
-              v-model="filterShipTo"
-              :search-fn="searchFilterShipTos"
-              placeholder="目的地"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <DatePicker
-              v-model="filterTicketDateStart"
-              placeholder="起始日期"
-              :disabled-date="disableStartDate"
-              disabled-hint="开始日期不能晚于结束日期"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <DatePicker
-              v-model="filterTicketDateEnd"
-              placeholder="结束日期"
-              :disabled-date="disableEndDate"
-              disabled-hint="结束日期不能早于开始日期"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter"> 重置 </UiButton>
-          </div>
-        </div>
+        <SettleRecordFilter ref="ticketFilterRef" v-if="showFilter" :records="allSettles" @filter="handleFilterChange" />
 
         <!-- 汇总统计信息 -->
         <div
@@ -791,54 +672,7 @@ function handleShowDetail() {
 
       <!-- 已开票 Tab -->
       <TabsContent value="ticket" class="space-y-4">
-        <!-- 过滤器 -->
-        <div v-if="showFilter" class="border rounded-lg p-2 bg-muted/30">
-          <div class="grid grid-cols-2 md:grid-cols-[repeat(5,1fr)_80px] gap-2">
-            <SearchableCombobox
-              v-model="filterBillingName"
-              :search-fn="searchFilterBillingNames"
-              placeholder="开单名称"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <SearchableCombobox
-              v-model="filterSerialNumber"
-              :search-fn="searchFilterSerialNumbers"
-              placeholder="结算号"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <SearchableCombobox
-              v-model="filterShipTo"
-              :search-fn="searchFilterShipTos"
-              placeholder="目的地"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <DatePicker
-              v-model="filterTicketDateStart"
-              placeholder="起始日期"
-              :disabled-date="disableStartDate"
-              disabled-hint="开始日期不能晚于结束日期"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <DatePicker
-              v-model="filterTicketDateEnd"
-              placeholder="结束日期"
-              :disabled-date="disableEndDate"
-              disabled-hint="结束日期不能早于开始日期"
-              class="h-8 text-sm w-full"
-              @update:model-value="updateDisplaySettles"
-            />
-
-            <UiButton variant="outline" size="sm" class="h-8" @click="resetFilter"> 重置 </UiButton>
-          </div>
-        </div>
+        <SettleRecordFilter ref="ticketFilterRef" v-if="showFilter" :records="allSettles" @filter="handleFilterChange" />
 
         <!-- 汇总统计信息 -->
         <div

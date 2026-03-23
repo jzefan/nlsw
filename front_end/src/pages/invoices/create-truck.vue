@@ -435,7 +435,11 @@ async function handleOrderChange(orderNo: string) {
   let bills = billsCache.value.get(orderNo)
   if (!bills) {
     try {
-      const result = await getOrderBills(form.value.shipName, orderNo)
+      const result = await getOrderBills(
+        form.value.shipName,
+        orderNo,
+        isExistingInvoice.value ? waybillNo.value : undefined,
+      )
       if (result.ok && result.data) {
         bills = result.data
         billsCache.value.set(orderNo, bills)
@@ -656,7 +660,11 @@ async function saveInvoice(state: string) {
         // 重新加载当前选中的订单的提单
         if (selectedOrderNo.value) {
           try {
-            const freshResult = await getOrderBills(form.value.shipName, selectedOrderNo.value)
+            const freshResult = await getOrderBills(
+              form.value.shipName,
+              selectedOrderNo.value,
+              isExistingInvoice.value ? waybillNo.value : undefined,
+            )
             if (freshResult.ok && freshResult.data) {
               billsCache.value.set(selectedOrderNo.value, freshResult.data)
 

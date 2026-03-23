@@ -4,7 +4,7 @@ import type { ColumnDef } from '@tanstack/vue-table'
 
 import { Download, FileSpreadsheet, RefreshCcw, Search, Settings2, X } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
-import { computed, h, reactive, ref, watch } from 'vue'
+import { computed, h, reactive, ref, toRef, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import type { IntegratedQueryBill } from '@/services/api/report.api'
 
@@ -41,7 +41,7 @@ const bills = ref<IntegratedQueryBill[]>([])
 const showNotSent = ref(false)
 const showDestForVessel = ref(false)
 const page = ref(1)
-const limit = ref(20)
+const limit = ref(10)
 const total = ref(0)
 
 // Filters
@@ -306,9 +306,7 @@ const columns = computed<ColumnDef<IntegratedQueryBill>[]>(() => {
     {
       header: '牌号',
       accessorKey: 'brand_no',
-      size: 240,
-      maxSize: 240,
-      cell: ({ getValue }) => h('span', { class: 'block max-w-[240px] break-words whitespace-normal' }, getValue() as string),
+      cell: ({ getValue }) => h('span', { class: 'block whitespace-normal line-clamp-2', style: 'min-width:180px' }, getValue() as string),
     },
     { id: 'spec', header: '规格', accessorFn: (row) => `${row.thickness}*${row.width}*${row.len}`, meta: { fixedWidth: '100px' } },
     { header: '尺寸', accessorKey: 'size_type', meta: { fixedWidth: '60px' } },
@@ -341,10 +339,22 @@ const pageWeight = computed(() =>
 )
 
 // Data Table Helper
-const table = generateVueTable({
-  data: bills,
-  columns: columns.value,
-})
+const serverPagination = computed(() => ({
+  page: page.value,
+  pageSize: limit.value,
+  total: total.value,
+  onPageChange: handlePageChange,
+  onPageSizeChange: (s: number) => {
+    limit.value = s
+    handlePageChange(1)
+  },
+}))
+
+const table = generateVueTable(reactive({
+  data: toRef(bills),
+  columns,
+  serverPagination,
+}))
 
 // Export
 const { exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
@@ -964,16 +974,7 @@ function handlePageChange(p: number) {
         :columns="columns"
         :data="bills"
         :loading="loading"
-        :server-pagination="{
-          page,
-          pageSize: limit,
-          total,
-          onPageChange: handlePageChange,
-          onPageSizeChange: (s) => {
-            limit = s
-            handlePageChange(1)
-          },
-        }"
+        :server-pagination="serverPagination"
       />
     </div>
   </BasicPage>

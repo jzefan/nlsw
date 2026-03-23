@@ -51,6 +51,8 @@ import SettleTable from './components/SettleTable.vue'
 import PublicBasketsDialog from './components/PublicBasketsDialog.vue'
 import SettleBasket from './components/SettleBasket.vue'
 import SettleDetailDialog from './components/SettleDetailDialog.vue'
+import SettleRecordFilter from './components/SettleRecordFilter.vue'
+import type { SettleRecordFilterParams } from './components/SettleRecordFilter.vue'
 import { useSettleBasket } from './composables/useSettleBasket'
 import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
@@ -174,10 +176,13 @@ const currentBill = ref<SettleBill | null>(null)
 const settleFilterRef = ref<{ resetFilter: () => void } | null>(null)
 
 // 已结算列表状态
-const settledRecords = ref<SettleRecord[]>([])
+const allSettledRecords = ref<SettleRecord[]>([])   // 全量（未过滤）
+const settledRecords = ref<SettleRecord[]>([])       // 过滤后
 const selectedSettles = ref<SettleRecord[]>([])
 const showDetailDialog = ref(false)
 const detailSettle = ref<SettleRecord | null>(null)
+const showSettledFilter = ref(true)
+const settledFilterRef = ref<InstanceType<typeof SettleRecordFilter> | null>(null)
 
 // 过滤参数
 const filterParams = ref<SettleFilterParams>({
@@ -205,7 +210,7 @@ watch(viewTab, (newTab) => {
   }
 })
 
-// 监听结算模式切换，重新加载当前 tab 的数据
+// 监听结算模式切换，重新加载当前 tab 的数据（保留筛选条件）
 watch(settleMode, () => {
   if (viewTab.value === 'settled') {
     loadSettledRecords()
@@ -1052,6 +1057,7 @@ async function loadSettledRecords() {
       selfOwned: isSelfOwnedMode.value ? '1' : '0',
     })
     if (result.ok) {
+      allSettledRecords.value = result.settles
       settledRecords.value = result.settles
     } else {
       toast.error('获取已结算记录失败')
@@ -1062,6 +1068,37 @@ async function loadSettledRecords() {
   } finally {
     loading.value = false
   }
+}
+
+// 已结算记录过滤
+function handleSettledFilter(params: SettleRecordFilterParams) {
+  let filtered = allSettledRecords.value
+
+  if (params.billingName) {
+    filtered = filtered.filter(s => s.billing_name === params.billingName)
+  }
+  if (params.serialNumber) {
+    filtered = filtered.filter(s => s.serial_number === params.serialNumber)
+  }
+  if (params.shipTo) {
+    filtered = filtered.filter(s => s.ship_to === params.shipTo)
+  }
+  if (params.startDate && params.endDate) {
+    filtered = filtered.filter(s => {
+      if (!s.settle_date) return false
+      const d = new Date(s.settle_date)
+      const start = new Date(params.startDate)
+      const end = new Date(params.endDate)
+      start.setHours(0, 0, 0, 0)
+      end.setHours(23, 59, 59, 999)
+      return d >= start && d <= end
+    })
+  }
+
+  settledRecords.value = [...filtered].sort((a, b) => {
+    return new Date(b.settle_date || 0).getTime() - new Date(a.settle_date || 0).getTime()
+  })
+  selectedSettles.value = []
 }
 
 // 删除结算
@@ -1438,7 +1475,7 @@ function isBillSelected(bill: SettleBill): boolean {
         </TabsList>
       </div>
 
-      <TabsContent value="unsettled" class="space-y-4">
+      <TabsContent value="unsettled" class="space-y-4" force-mount v-show="viewTab === 'unsettled'">
         <!-- 过滤器 -->
         <SettleFilter
           v-show="showFilter"
@@ -1722,7 +1759,10 @@ function isBillSelected(bill: SettleBill): boolean {
       </TabsContent>
 
       <!-- 已结算视图 -->
-      <TabsContent value="settled" class="space-y-4">
+      <TabsContent value="settled" class="space-y-4" force-mount v-show="viewTab === 'settled'">
+        <!-- 过滤器 -->
+        <SettleRecordFilter ref="settledFilterRef" v-if="showSettledFilter" :records="allSettledRecords" @filter="handleSettledFilter" />
+
         <!-- 汇总统计：桌面端 -->
         <div class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
           <span class="text-muted-foreground"
