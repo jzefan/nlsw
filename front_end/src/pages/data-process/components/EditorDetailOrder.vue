@@ -1,11 +1,63 @@
 <script setup lang="ts">
 import { ClipboardPaste, FileText, Truck } from 'lucide-vue-next'
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { getVehicles } from '@/services/api/data-dict.api'
+import { getOrderBills } from '@/services/api/invoice.api'
 
 import type { UniqueOrder } from './EditorLeftPanel.vue'
+
+// 色号选项
+const COLOR_LIST = ['白', '红', '蓝', '绿', '黄']
+const colorOptions = (() => {
+  const opts: string[] = []
+  for (const c of COLOR_LIST) opts.push(c)
+  for (const c1 of COLOR_LIST) {
+    for (const c2 of COLOR_LIST) {
+      opts.push(`${c1}/${c2}`)
+    }
+  }
+  return opts
+})()
+
+// 提单号缓存（按订单号）
+const billOptionsCache = ref<Record<string, string[]>>({})
+
+async function loadBillOptions(orderNo: string) {
+  if (billOptionsCache.value[orderNo]) {
+    // 缓存已存在，仍然尝试自动选中
+    autoSelectSingleBill(orderNo)
+    return
+  }
+  try {
+    const result = await getOrderBills('', orderNo, undefined, true)
+    if (result.ok && result.data) {
+      const billNos = [...new Set(result.data.map((b: any) => b.bill_no).filter(Boolean))]
+      billOptionsCache.value = { ...billOptionsCache.value, [orderNo]: billNos }
+      await nextTick()
+      autoSelectSingleBill(orderNo)
+    }
+  } catch {
+    billOptionsCache.value = { ...billOptionsCache.value, [orderNo]: [] }
+  }
+}
+
+// 只有一个提单时，自动为所有未选提单的项次赋值（批量更新，避免多次 emit 互相覆盖）
+function autoSelectSingleBill(orderNo: string) {
+  const billNos = billOptionsCache.value[orderNo]
+  if (!billNos || billNos.length !== 1) return
+  const billNo = billNos[0]
+  const updates: Array<{ orderItemNo: string, field: string, value: string }> = []
+  for (const item of props.order.items) {
+    if (!item.billNo) {
+      updates.push({ orderItemNo: item.orderItemNo, field: 'billNo', value: billNo })
+    }
+  }
+  if (updates.length > 0) {
+    emit('batch-update-item-field', props.order.key, updates)
+  }
+}
 
 const props = defineProps<{
   order: UniqueOrder
@@ -16,7 +68,16 @@ const emit = defineEmits<{
   (e: 'update-contract-no', orderKey: string, contractNo: string): void
   (e: 'update-vehicle-no', orderKey: string, vehicleNo: string): void
   (e: 'update-vehicle-no-map', orderKey: string, map: Record<string, string>): void
+  (e: 'update-item-field', orderKey: string, orderItemNo: string, field: string, value: string): void
+  (e: 'batch-update-item-field', orderKey: string, updates: Array<{ orderItemNo: string, field: string, value: string }>): void
 }>()
+
+// 切换订单时自动加载提单列表（如果只有一个提单则自动选中）
+watch(() => props.order.orderNo, (orderNo) => {
+  if (orderNo && !props.readonly) {
+    loadBillOptions(orderNo)
+  }
+}, { immediate: true })
 
 // Contract number batch state
 const contractBatchValue = ref('')
@@ -132,13 +193,14 @@ function confirmVehicleBatch() {
           <thead>
             <tr class="bg-muted/50 text-muted-foreground">
               <th class="px-3 py-2 text-left font-medium whitespace-nowrap">项次号</th>
-              <th class="px-3 py-2 text-left font-medium whitespace-nowrap">牌号</th>
-              <th class="px-3 py-2 text-right font-medium whitespace-nowrap">厚/直径</th>
-              <th class="px-3 py-2 text-right font-medium whitespace-nowrap">宽</th>
-              <th class="px-3 py-2 text-right font-medium whitespace-nowrap">长</th>
+              <th class="px-3 py-2 text-left font-medium whitespace-nowrap">规格</th>
               <th class="px-3 py-2 text-right font-medium whitespace-nowrap">件数</th>
               <th class="px-3 py-2 text-right font-medium whitespace-nowrap">重量(吨)</th>
+              <th class="px-3 py-2 text-left font-medium whitespace-nowrap">捆号</th>
+              <th class="px-3 py-2 text-left font-medium whitespace-nowrap">提单号</th>
+              <th class="px-3 py-2 text-left font-medium whitespace-nowrap">牌号</th>
               <th class="px-3 py-2 text-left font-medium whitespace-nowrap">合同号</th>
+              <th class="px-3 py-2 text-left font-medium whitespace-nowrap bg-green-50 dark:bg-green-950/30">色号</th>
               <th class="px-3 py-2 text-right font-medium whitespace-nowrap">装车单数</th>
             </tr>
           </thead>
@@ -149,12 +211,25 @@ function confirmVehicleBatch() {
               class="border-t hover:bg-muted/30 transition-colors"
             >
               <td class="px-3 py-2 font-medium">{{ item.orderItemNo }}</td>
-              <td class="px-3 py-2">{{ item.brandNo }}</td>
-              <td class="px-3 py-2 text-right">{{ item.thickness }}</td>
-              <td class="px-3 py-2 text-right">{{ item.width }}</td>
-              <td class="px-3 py-2 text-right">{{ item.length }}</td>
+              <td class="px-3 py-2 whitespace-nowrap">{{ item.thickness }}*{{ item.width }}*{{ item.length }}</td>
               <td class="px-3 py-2 text-right">{{ item.totalQuantity }}</td>
               <td class="px-3 py-2 text-right">{{ item.totalWeight.toFixed(3) }}</td>
+              <td class="px-3 py-2 text-xs text-muted-foreground">{{ item.bundleNo }}</td>
+              <td class="px-3 py-2">
+                <template v-if="!readonly">
+                  <select
+                    class="w-full h-7 px-1 text-xs bg-transparent border rounded outline-none min-w-[100px]"
+                    :value="item.billNo || ''"
+                    @focus="loadBillOptions(order.orderNo)"
+                    @change="emit('update-item-field', order.key, item.orderItemNo, 'billNo', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">选择提单</option>
+                    <option v-for="bn in (billOptionsCache[order.orderNo] || [])" :key="bn" :value="bn">{{ bn }}</option>
+                  </select>
+                </template>
+                <template v-else>{{ item.billNo || '-' }}</template>
+              </td>
+              <td class="px-3 py-2">{{ item.brandNo }}</td>
               <td class="px-3 py-2">
                 <template v-if="item.contractNo">
                   <span class="text-green-600 dark:text-green-400">{{ item.contractNo }}</span>
@@ -162,6 +237,22 @@ function confirmVehicleBatch() {
                 <UiBadge v-else variant="outline" class="text-[10px] h-4 px-1 text-orange-500 border-orange-300">
                   无合同号
                 </UiBadge>
+              </td>
+              <td class="px-3 py-2 bg-green-50/50 dark:bg-green-950/20">
+                <template v-if="!readonly">
+                  <select
+                    class="w-full h-7 px-1 text-xs bg-transparent border rounded outline-none min-w-[80px]"
+                    :value="item.colorMark || ''"
+                    :disabled="!item.contractNo"
+                    :class="{ 'opacity-40 cursor-not-allowed': !item.contractNo }"
+                    :title="!item.contractNo ? '请先填写合同号' : ''"
+                    @change="emit('update-item-field', order.key, item.orderItemNo, 'colorMark', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">-</option>
+                    <option v-for="c in colorOptions" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                </template>
+                <template v-else>{{ item.colorMark || '-' }}</template>
               </td>
               <td class="px-3 py-2 text-right">{{ item.occurrences.length }}</td>
             </tr>
@@ -222,29 +313,30 @@ function confirmVehicleBatch() {
 
     <!-- Batch Vehicle Dialog (per loading list) -->
     <UiDialog v-model:open="showVehicleBatchDialog">
-      <UiDialogContent class="max-w-lg">
+      <UiDialogContent class="max-w-4xl">
         <UiDialogHeader>
           <UiDialogTitle class="text-base">设置车船号</UiDialogTitle>
           <UiDialogDescription>
             为订单 {{ order.orderNo }} 所在的每个装车单设置车船号
           </UiDialogDescription>
         </UiDialogHeader>
-        <div class="py-2 space-y-3 max-h-[40vh] overflow-y-auto">
+        <div class="py-2 space-y-3 max-h-[50vh] overflow-y-auto">
           <div
             v-for="occ in allOccurrences()"
             :key="occ.loadingListNo"
             class="flex items-center gap-3 text-sm"
           >
-            <div class="flex items-center gap-1.5 min-w-0">
+            <div class="flex items-center gap-1.5 shrink-0">
               <Truck class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-              <span class="font-medium truncate">{{ occ.loadingListNo }}</span>
+              <span class="font-medium">{{ occ.loadingListNo }}</span>
             </div>
             <span class="text-xs text-muted-foreground whitespace-nowrap">{{ occ.totalQuantity }}件 {{ occ.totalWeight.toFixed(3) }}t</span>
+            <div class="flex-1" />
             <SearchableCombobox
               :model-value="vehicleFormMap[occ.loadingListNo] || ''"
               placeholder="选择车船号"
               :search-fn="searchVehicles"
-              class="w-48 flex-shrink-0 ml-auto"
+              class="w-56 shrink-0"
               @update:model-value="vehicleFormMap[occ.loadingListNo] = $event as string"
             />
           </div>

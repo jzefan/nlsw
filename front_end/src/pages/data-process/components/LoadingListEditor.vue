@@ -64,7 +64,10 @@ const uniqueOrders = computed<UniqueOrder[]>(() => {
           thickness: row.thickness,
           width: row.width,
           length: row.length,
+          bundleNo: row.bundleNo,
+          billNo: row.billNo || '',
           contractNo: row.contractNo,
+          colorMark: row.colorMark || '',
           occurrences: [],
           totalQuantity: 0,
           totalWeight: 0,
@@ -78,10 +81,11 @@ const uniqueOrders = computed<UniqueOrder[]>(() => {
       order.totalQuantity += row.quantity
       order.totalWeight += row.weight
 
-      // Use the first non-empty contractNo found
-      if (!item.contractNo && row.contractNo) {
-        item.contractNo = row.contractNo
-      }
+      // Use the first non-empty values found
+      if (!item.contractNo && row.contractNo) item.contractNo = row.contractNo
+      if (!item.billNo && row.billNo) item.billNo = row.billNo
+      if (!item.colorMark && row.colorMark) item.colorMark = row.colorMark
+      if (!item.bundleNo && row.bundleNo) item.bundleNo = row.bundleNo
     })
   })
   return Array.from(orderMap.values())
@@ -236,6 +240,45 @@ function handleOrderVehicleNoMapUpdate(orderKey: string, vehicleMap: Record<stri
   }
 }
 
+// 更新订单视角下某个项次的字段（billNo、colorMark 等）
+function handleOrderItemFieldUpdate(orderKey: string, orderItemNo: string, field: string, value: string) {
+  const order = uniqueOrders.value.find(o => o.key === orderKey)
+  if (!order) return
+
+  const item = order.items.find(i => i.orderItemNo === orderItemNo)
+  if (!item) return
+
+  const newGroups = [...props.modelValue]
+  for (const occ of item.occurrences) {
+    const group = { ...newGroups[occ.groupIndex] }
+    const rows = [...group.rows]
+    rows[occ.rowIndex] = { ...rows[occ.rowIndex], [field]: value }
+    group.rows = rows
+    newGroups[occ.groupIndex] = group
+  }
+  emit('update:modelValue', newGroups)
+}
+
+// 批量更新订单视角下多个项次的字段（一次 emit，避免多次更新互相覆盖）
+function handleBatchOrderItemFieldUpdate(orderKey: string, updates: Array<{ orderItemNo: string, field: string, value: string }>) {
+  const order = uniqueOrders.value.find(o => o.key === orderKey)
+  if (!order) return
+
+  const newGroups = [...props.modelValue]
+  for (const { orderItemNo, field, value } of updates) {
+    const item = order.items.find(i => i.orderItemNo === orderItemNo)
+    if (!item) continue
+    for (const occ of item.occurrences) {
+      const group = { ...newGroups[occ.groupIndex] }
+      const rows = [...group.rows]
+      rows[occ.rowIndex] = { ...rows[occ.rowIndex], [field]: value }
+      group.rows = rows
+      newGroups[occ.groupIndex] = group
+    }
+  }
+  emit('update:modelValue', newGroups)
+}
+
 function handleBatchFillContract(groupIndex: number, contractNo: string) {
   const newGroups = [...props.modelValue]
   const group = { ...newGroups[groupIndex] }
@@ -334,6 +377,8 @@ function handleDeleteGroup(loadingListNo: string) {
           @update-contract-no="handleOrderContractNoUpdate"
           @update-vehicle-no="handleOrderVehicleNoUpdate"
           @update-vehicle-no-map="handleOrderVehicleNoMapUpdate"
+          @update-item-field="handleOrderItemFieldUpdate"
+          @batch-update-item-field="handleBatchOrderItemFieldUpdate"
         />
 
         <!-- Empty state -->

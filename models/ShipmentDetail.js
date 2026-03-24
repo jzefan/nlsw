@@ -33,7 +33,9 @@ var shipmentDetailSchema = new mongoose.Schema({
   customerName: String,     // 客户名称
   loadingListNo: String,    // 装车单号
   vehicleNo: String,        // 车船号
+  billNo: String,           // 提单号
   contractNo: String,       // 合同号
+  colorMark: String,        // 色号（如"白"或"白/红"）
 
   // 审计
   createdBy: String,

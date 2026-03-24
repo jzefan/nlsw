@@ -20,6 +20,19 @@ const emit = defineEmits<{
   (e: 'batch-fill-contract', groupIndex: number, contractNo: string): void
 }>()
 
+// 色号选项
+const COLOR_LIST = ['白', '红', '蓝', '绿', '黄']
+const colorOptions = (() => {
+  const opts: string[] = []
+  for (const c of COLOR_LIST) opts.push(c)
+  for (const c1 of COLOR_LIST) {
+    for (const c2 of COLOR_LIST) {
+      opts.push(`${c1}/${c2}`)
+    }
+  }
+  return opts
+})()
+
 // Editing state (for quantity / weight)
 const editingCell = ref<{ rowIndex: number, field: string } | null>(null)
 const editingValue = ref('')
@@ -330,6 +343,7 @@ function showFillHandle(rowIndex: number): boolean {
             <th class="p-2 text-right whitespace-nowrap">宽</th>
             <th class="p-2 text-right whitespace-nowrap">长</th>
             <th class="p-2 text-left whitespace-nowrap">客户名称</th>
+            <th class="p-2 text-left whitespace-nowrap">捆号</th>
             <th class="p-2 pr-4 text-left whitespace-nowrap" :class="!readonly && 'bg-yellow-50 dark:bg-yellow-950/30'">
               <div class="flex items-center justify-between">
                 <span>合同号</span>
@@ -343,6 +357,7 @@ function showFillHandle(rowIndex: number): boolean {
                 </button>
               </div>
             </th>
+            <th class="p-2 text-left whitespace-nowrap" :class="!readonly && 'bg-green-50 dark:bg-green-950/30'">色号</th>
           </tr>
         </thead>
         <tbody>
@@ -403,6 +418,7 @@ function showFillHandle(rowIndex: number): boolean {
             <td class="p-2 text-right">{{ row.width }}</td>
             <td class="p-2 text-right">{{ row.length }}</td>
             <td class="p-2">{{ row.customerName }}</td>
+            <td class="p-2 text-xs text-muted-foreground">{{ row.bundleNo }}</td>
 
             <!-- Contract No (inline input with drag-fill) -->
             <td
@@ -428,6 +444,22 @@ function showFillHandle(rowIndex: number): boolean {
               />
             </td>
             <td v-else class="p-2">{{ row.contractNo }}</td>
+
+            <!-- Color Mark -->
+            <td v-if="!readonly" class="p-2 bg-green-50/50 dark:bg-green-950/20">
+              <select
+                class="w-full h-7 px-1 text-xs bg-transparent border rounded outline-none"
+                :value="row.colorMark || ''"
+                :disabled="!row.contractNo"
+                :class="{ 'opacity-40 cursor-not-allowed': !row.contractNo }"
+                :title="!row.contractNo ? '请先填写合同号' : ''"
+                @change="emit('update-cell', groupIndex, rIdx, 'colorMark', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">-</option>
+                <option v-for="c in colorOptions" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </td>
+            <td v-else class="p-2">{{ row.colorMark }}</td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">

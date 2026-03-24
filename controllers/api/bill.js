@@ -299,7 +299,7 @@ exports.getOrders = async (req, res) => {
  */
 exports.getOrderBills = async (req, res) => {
   try {
-    const { billingName, orderNo, waybillNo } = req.query;
+    const { billingName, orderNo, waybillNo, allBills } = req.query;
     if (!orderNo) {
       return res.status(400).json({ ok: false, error: "缺少 orderNo 参数" });
     }
@@ -337,11 +337,11 @@ exports.getOrderBills = async (req, res) => {
       baseMatch.tenantId = req.tenantId;
     }
 
-    // 查询有剩余量的提单
-    const bills = await Bill.find(
-      { ...baseMatch, left_num: { $gt: 0 } },
-      projection,
-    )
+    // 查询提单（allBills=true 时不过滤 left_num，用于数据处理等场景）
+    const findQuery = allBills === 'true'
+      ? { ...baseMatch }
+      : { ...baseMatch, left_num: { $gt: 0 } };
+    const bills = await Bill.find(findQuery, projection)
       .sort({ order_item_no: 1, bill_no: 1 })
       .lean();
 

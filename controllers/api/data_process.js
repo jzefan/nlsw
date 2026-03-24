@@ -221,7 +221,7 @@ exports.updateShipmentDetail = async (req, res) => {
 
     // Only allow updating specific fields
     const allowedFields = [
-      'vehicleNo', 'contractNo', 'bundleNo', 'orderNo', 'orderItemNo',
+      'vehicleNo', 'billNo', 'contractNo', 'colorMark', 'bundleNo', 'orderNo', 'orderItemNo',
       'quantity', 'weight', 'thickness', 'width', 'length',
       'brandNo', 'fixedLength', 'customerName', 'loadingListNo',
     ];

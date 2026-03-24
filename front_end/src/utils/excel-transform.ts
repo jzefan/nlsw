@@ -670,7 +670,9 @@ export interface LoadingListAggregatedRow {
   fixedLength: number
   customerName: string
   warehouse: string
-  contractNo: string // 用户填写
+  billNo: string // 提单号（用户选择）
+  contractNo: string // 合同号（用户填写）
+  colorMark: string // 色号（用户选择，如"白"或"白/红"）
 }
 
 /**
@@ -727,7 +729,9 @@ export function groupByLoadingList(data: ERPRawRow[]): LoadingListGroup[] {
           fixedLength: row.fixedLength,
           customerName: row.customerName,
           warehouse: row.warehouse || '',
+          billNo: '',
           contractNo: row.contractNo || '',
+          colorMark: '',
         })
       }
     }
@@ -772,7 +776,9 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
     '客户名称',
     '装车单号',
     '车船号',
+    '提单号',
     '合同号',
+    '色号',
   ]
 
   const thinBorder: Partial<ExcelJS.Borders> = {
@@ -807,19 +813,21 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
   let grandWeight = 0
 
   for (const group of groups) {
-    // 写入每个 rawRow，注入 vehicleNo 和 contractNo
-    // 先构建 contractNo 查找表（从聚合行）
-    const contractMap = new Map<string, string>()
+    // 写入每个 rawRow，注入 vehicleNo、contractNo、billNo、colorMark
+    // 先构建查找表（从聚合行）
+    const aggFieldMap = new Map<string, { contractNo: string, billNo: string, colorMark: string }>()
     for (const aggRow of group.rows) {
       const key = `${aggRow.orderNo}-${aggRow.orderItemNo}-${aggRow.customerName}`
-      if (aggRow.contractNo) {
-        contractMap.set(key, aggRow.contractNo)
-      }
+      aggFieldMap.set(key, {
+        contractNo: aggRow.contractNo || '',
+        billNo: aggRow.billNo || '',
+        colorMark: aggRow.colorMark || '',
+      })
     }
 
     for (const raw of group.rawRows) {
-      const contractKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
-      const contractNo = contractMap.get(contractKey) || raw.contractNo || ''
+      const aggKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
+      const aggFields = aggFieldMap.get(aggKey)
 
       const values = [
         raw.bundleNo,
@@ -835,7 +843,9 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
         raw.customerName,
         raw.loadingListNo || group.loadingListNo,
         group.vehicleNo,
-        contractNo,
+        aggFields?.billNo || '',
+        aggFields?.contractNo || raw.contractNo || '',
+        aggFields?.colorMark || '',
       ]
 
       const row = sheet1.getRow(currentRow)
@@ -844,7 +854,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
         cell.value = v
         cell.border = thinBorder
         cell.font = { size: 10 }
-        if ([3, 4, 5, 6, 7, 9].includes(i)) {
+        if ([3, 4, 5, 6, 7, 9].includes(i)) { // quantity, weight, thickness, width, length, fixedLength
           cell.alignment = { horizontal: 'right', vertical: 'middle' }
         }
         updateWidth(s1ColWidths, i, String(v))
@@ -891,7 +901,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
   for (const group of groups) {
     for (const aggRow of group.rows) {
       allAggRows.push({
-        billNo: aggRow.bundleNo,
+        billNo: aggRow.billNo || '',
         orderNo: aggRow.orderNo,
         orderItemNo: aggRow.orderItemNo,
         brandNo: aggRow.brandNo,
@@ -915,14 +925,14 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
         totalWeight: aggRow.weight,
         warehouse: '',
         contractNo: aggRow.contractNo,
-        colorMark: '',
+        colorMark: aggRow.colorMark || '',
       })
     }
   }
 
   const contractGroups = groupByContract(allAggRows)
 
-  const s2Headers = ['提单号', '订单号', '项次号', '牌号', '规格', '单重', '发运数', '发运重量', '合同号']
+  const s2Headers = ['提单号', '订单号', '项次号', '牌号', '规格', '单重', '发运数', '发运重量', '合同号', '色号']
   const s2ColWidths: number[] = Array.from({ length: s2Headers.length }).fill(10) as number[]
 
   const s2HeaderRow = sheet2.getRow(1)
@@ -960,6 +970,7 @@ export async function generateOutputExcelV2(groups: LoadingListGroup[]): Promise
         row.quantity,
         row.totalWeight.toFixed(3),
         row.contractNo,
+        row.colorMark,
       ]
       const dataRow = sheet2.getRow(s2Row)
       values.forEach((v, i) => {
@@ -1023,23 +1034,28 @@ export function buildSavePayload(groups: LoadingListGroup[]): {
     customerName: string
     loadingListNo: string
     vehicleNo: string
+    billNo: string
     contractNo: string
+    colorMark: string
   }[]
 } {
   const rows: any[] = []
 
   for (const group of groups) {
-    // 构建 contractNo 查找表（从聚合行）
-    const contractMap = new Map<string, string>()
+    // 构建查找表（从聚合行）
+    const aggLookup = new Map<string, { contractNo: string, billNo: string, colorMark: string }>()
     for (const aggRow of group.rows) {
       const key = `${aggRow.orderNo}-${aggRow.orderItemNo}-${aggRow.customerName}`
-      if (aggRow.contractNo) {
-        contractMap.set(key, aggRow.contractNo)
-      }
+      aggLookup.set(key, {
+        contractNo: aggRow.contractNo || '',
+        billNo: aggRow.billNo || '',
+        colorMark: aggRow.colorMark || '',
+      })
     }
 
     for (const raw of group.rawRows) {
-      const contractKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
+      const aggKey = `${raw.orderNo}-${raw.orderItemNo}-${raw.customerName}`
+      const agg = aggLookup.get(aggKey)
       rows.push({
         bundleNo: raw.bundleNo,
         orderNo: raw.orderNo,
@@ -1054,7 +1070,9 @@ export function buildSavePayload(groups: LoadingListGroup[]): {
         customerName: raw.customerName,
         loadingListNo: raw.loadingListNo || group.loadingListNo,
         vehicleNo: group.vehicleNo,
-        contractNo: contractMap.get(contractKey) || raw.contractNo || '',
+        billNo: agg?.billNo || '',
+        contractNo: agg?.contractNo || raw.contractNo || '',
+        colorMark: agg?.colorMark || '',
       })
     }
   }

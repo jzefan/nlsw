@@ -21,7 +21,10 @@ export interface OrderItem {
   thickness: number
   width: number
   length: number
+  bundleNo: string
+  billNo: string
   contractNo: string
+  colorMark: string
   occurrences: OrderItemOccurrence[]
   totalQuantity: number
   totalWeight: number

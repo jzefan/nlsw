@@ -164,7 +164,9 @@ async function handleEditorSave() {
           changes.vehicleNo = group.vehicleNo
         }
         // Check row-level fields
+        if (row.billNo !== (orig.billNo || '')) changes.billNo = row.billNo
         if (row.contractNo !== (orig.contractNo || '')) changes.contractNo = row.contractNo
+        if (row.colorMark !== (orig.colorMark || '')) changes.colorMark = row.colorMark
         if (row.quantity !== (orig.quantity || 0)) changes.quantity = row.quantity
         if (row.weight !== (orig.weight || 0)) changes.weight = row.weight
         if (row.customerName !== (orig.customerName || '')) changes.customerName = row.customerName

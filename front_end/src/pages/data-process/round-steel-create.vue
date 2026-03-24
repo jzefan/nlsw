@@ -580,8 +580,11 @@ const steps = [
                       <th class="px-2 py-1 text-right whitespace-nowrap">长度</th>
                       <th class="px-2 py-1 text-right whitespace-nowrap">件数</th>
                       <th class="px-2 py-1 text-right whitespace-nowrap">重量(吨)</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">捆号</th>
                       <th class="px-2 py-1 text-left whitespace-nowrap">仓库</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">提单号</th>
                       <th class="px-2 py-1 text-left whitespace-nowrap">合同号</th>
+                      <th class="px-2 py-1 text-left whitespace-nowrap">色号</th>
                       <th class="px-2 py-1 w-8" />
                     </tr>
                   </thead>
@@ -600,8 +603,11 @@ const steps = [
                       <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.length }}</td>
                       <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.quantity }}</td>
                       <td class="px-2 py-1 text-right whitespace-nowrap">{{ row.weight.toFixed(3) }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap text-xs text-muted-foreground">{{ row.bundleNo }}</td>
                       <td class="px-2 py-1 whitespace-nowrap">{{ row.warehouse }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.billNo }}</td>
                       <td class="px-2 py-1 whitespace-nowrap">{{ row.contractNo }}</td>
+                      <td class="px-2 py-1 whitespace-nowrap">{{ row.colorMark }}</td>
                       <td class="px-2 py-1">
                         <button
                           class="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
