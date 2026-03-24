@@ -1,4 +1,5 @@
 const User = require('../../models/User');
+const Tenant = require('../../models/Tenant');
 const { getPublicKey } = require('../../utils/crypto');
 const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
@@ -79,6 +80,7 @@ exports.getMe = async (req, res) => {
         selfVehicle: secrets.enableSelfVehicle,
         publicBasket: secrets.enablePublicBasket,
         requireReceiptForSettle: req.tenant?.settings?.requireReceiptForSettle || false,
+        drayageRate: req.tenant?.settings?.drayageRate || 0,
       }
     });
   } catch (error) {
@@ -275,6 +277,42 @@ exports.resetPassword = async (req, res) => {
     res.json({ ok: true, message: '密码重置成功!' });
   } catch (error) {
     console.error('重置密码失败:', error);
+    res.json({ ok: false, message: error.message });
+  }
+};
+
+// 获取租户设置
+exports.getTenantSettings = async (req, res) => {
+  try {
+    if (!isOwner(req) && !isPlatformUser(req)) {
+      return res.status(403).json({ ok: false, message: '无权限操作' });
+    }
+    const tenant = await Tenant.findById(req.tenantId).lean();
+    if (!tenant) {
+      return res.json({ ok: false, message: '租户不存在' });
+    }
+    res.json({ ok: true, settings: tenant.settings || {} });
+  } catch (error) {
+    console.error('获取租户设置失败:', error);
+    res.json({ ok: false, message: error.message });
+  }
+};
+
+// 更新租户设置
+exports.updateTenantSettings = async (req, res) => {
+  try {
+    if (!isOwner(req) && !isPlatformUser(req)) {
+      return res.status(403).json({ ok: false, message: '无权限操作' });
+    }
+    const { drayageRate } = req.body;
+    const update = {};
+    if (drayageRate !== undefined) {
+      update['settings.drayageRate'] = Math.max(0, Number(drayageRate) || 0);
+    }
+    await Tenant.findByIdAndUpdate(req.tenantId, { $set: update });
+    res.json({ ok: true, message: '设置已保存' });
+  } catch (error) {
+    console.error('更新租户设置失败:', error);
     res.json({ ok: false, message: error.message });
   }
 };

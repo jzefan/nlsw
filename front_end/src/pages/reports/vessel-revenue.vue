@@ -129,7 +129,7 @@ const detailPage = ref(1)
 const detailLimit = ref(50)
 const detailTotal = ref(0)
 const detailTotalPages = computed(() => Math.max(1, Math.ceil(detailTotal.value / detailLimit.value)))
-const isOutsourcedDetail = computed(() => detailVehType.value === '外挂')
+
 const detailMonth = ref('全部')
 const detailSendWeight = ref(0)
 const detailReceivable = ref(0)
@@ -525,17 +525,10 @@ async function handleExportDetailList() {
       { header: '客户名称/单位', key: 'name' },
       { header: '起始地', key: 'ship_from' },
       { header: '目的地', key: 'ship_to' },
-      ...(isOutsourcedDetail.value
-        ? [
-            { header: '应收总价', key: 'receivable_price', type: 'number' as const, fill: 'FFDCFCE7' },
-            { header: '应收单价', key: 'receivable_single_price', type: 'number' as const, fill: 'FFE0F2FE' },
-            { header: '应付总价', key: 'payable_price', type: 'number' as const, fill: 'FFFFEDD5' },
-            { header: '应付单价', key: 'payable_single_price', type: 'number' as const, fill: 'FFFFE4E6' },
-          ]
-        : [
-            { header: '总价', key: 'price', type: 'number' as const, fill: 'FFFFEDD5' },
-            { header: '单价', key: 'single_price', type: 'number' as const, fill: 'FFE0F2FE' },
-          ]),
+      { header: '应收总价', key: 'receivable_price', type: 'number' as const, fill: 'FFDCFCE7' },
+      { header: '应收单价', key: 'receivable_single_price', type: 'number' as const, fill: 'FFE0F2FE' },
+      { header: '应付总价', key: 'payable_price', type: 'number' as const, fill: 'FFFFEDD5' },
+      { header: '应付单价', key: 'payable_single_price', type: 'number' as const, fill: 'FFFFE4E6' },
       { header: '发运块数', key: 'send_num', type: 'number' as const },
       { header: '发运重量', key: 'send_weight', type: 'number' as const },
       { header: '发货日期', key: 'ship_date' },
@@ -1342,7 +1335,7 @@ async function handleExport() {
               <SelectItem value="船">仅船</SelectItem>
             </SelectContent>
           </Select>
-          <template v-if="detailTotal > 0 && isOutsourcedDetail">
+          <template v-if="detailTotal > 0">
             <span class="ml-auto" />
             <span class="text-muted-foreground text-xs">{{ detailTotal }}条</span>
             <span class="text-muted-foreground text-xs">吨位: <strong>{{ formatNumber(detailSendWeight) }}</strong></span>
@@ -1372,15 +1365,10 @@ async function handleExport() {
             <TableHeader class="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>车船号</TableHead><TableHead>客户名称/单位</TableHead><TableHead>起始地</TableHead><TableHead>目的地</TableHead>
-                <template v-if="isOutsourcedDetail">
-                  <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收总价</TableHead>
-                  <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收单价</TableHead>
-                  <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付总价</TableHead>
-                  <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付单价</TableHead>
-                </template>
-                <template v-else>
-                  <TableHead>总价</TableHead><TableHead>单价</TableHead>
-                </template>
+                <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收总价</TableHead>
+                <TableHead class="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">应收单价</TableHead>
+                <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付总价</TableHead>
+                <TableHead class="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400">应付单价</TableHead>
                 <TableHead>发运块数</TableHead><TableHead>发运重量</TableHead>
                 <TableHead>发货日期</TableHead><TableHead>预付</TableHead><TableHead>滞留天数</TableHead>
               </TableRow>
@@ -1388,15 +1376,10 @@ async function handleExport() {
             <TableBody>
               <TableRow v-for="(item, idx) in detailRows" :key="`${item.vname}-${idx}-${item.ship_date}`">
                   <TableCell>{{ item.vname }}</TableCell><TableCell>{{ item.name }}</TableCell><TableCell>{{ item.ship_from }}</TableCell><TableCell>{{ item.ship_to }}</TableCell>
-                  <template v-if="isOutsourcedDetail">
-                    <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_price ?? 0) }}</TableCell>
-                    <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_single_price ?? 0) }}</TableCell>
-                    <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_price ?? 0) }}</TableCell>
-                    <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_single_price ?? 0) }}</TableCell>
-                  </template>
-                  <template v-else>
-                    <TableCell>{{ formatNumber(item.price ?? 0) }}</TableCell><TableCell>{{ formatNumber(item.single_price ?? 0) }}</TableCell>
-                  </template>
+                  <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_price ?? 0) }}</TableCell>
+                  <TableCell class="text-green-700 dark:text-green-400">{{ formatNumber(item.receivable_single_price ?? 0) }}</TableCell>
+                  <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_price ?? 0) }}</TableCell>
+                  <TableCell class="text-orange-700 dark:text-orange-400">{{ formatNumber(item.payable_single_price ?? 0) }}</TableCell>
                   <TableCell>{{ item.send_num }}</TableCell><TableCell>{{ formatNumber(item.send_weight) }}</TableCell>
                   <TableCell>{{ new Date(item.ship_date).toLocaleDateString() }}</TableCell>
                   <TableCell>{{ item.advance_mode }}: {{ formatNumber(item.advance_charge) }}</TableCell><TableCell>{{ item.delay_day }}</TableCell>

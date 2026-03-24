@@ -88,3 +88,15 @@ export async function resetPassword(user: { userid: string }) {
   const response = await axiosInstance.post('/resetPwd', { user })
   return response.data
 }
+
+// 获取租户设置
+export async function getTenantSettings() {
+  const response = await axiosInstance.get<{ ok: boolean; settings: { drayageRate?: number } }>('/tenant/settings')
+  return response.data
+}
+
+// 更新租户设置
+export async function updateTenantSettings(data: { drayageRate?: number }) {
+  const response = await axiosInstance.post('/tenant/settings', data)
+  return response.data
+}

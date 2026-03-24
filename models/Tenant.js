@@ -50,7 +50,8 @@ var tenantSchema = new mongoose.Schema({
     logo: String,
     theme: String,
     companyName: String,  // 显示在界面上的公司名称
-    requireReceiptForSettle: { type: Boolean, default: false }  // 结算前是否必须有回执
+    requireReceiptForSettle: { type: Boolean, default: false },  // 结算前是否必须有回执
+    drayageRate: { type: Number, default: 0 }  // 车运到船应收单价（元/吨），0=使用原有计算逻辑
   },
 
   // 时间

@@ -1,13 +1,22 @@
-import { BadgeHelp, BellDot, Boxes, Bug, Component, CreditCard, LayoutDashboard, ListTodo, Palette, PictureInPicture2, Podcast, Settings, SquareUserRound, User, Users, Wrench } from 'lucide-vue-next'
+import { BadgeHelp, BellDot, Boxes, Bug, Building2, Component, CreditCard, LayoutDashboard, ListTodo, Palette, PictureInPicture2, Podcast, Settings, SquareUserRound, User, Users, Wrench } from 'lucide-vue-next'
 
 import type { NavGroup } from '@/components/app-sidebar/types'
+import { useAuthStore } from '@/stores/auth'
 
 export function useSidebar() {
-  const settingsNavItems = [
-    { title: '密码修改', url: '/settings/account', icon: Wrench },
-  ]
+  const authStore = useAuthStore()
 
-  const navData = ref<NavGroup[]> ([
+  const settingsNavItems = computed(() => {
+    const items = [
+      { title: '密码修改', url: '/settings/account', icon: Wrench },
+    ]
+    if (authStore.isOwner || authStore.isPlatformUser) {
+      items.push({ title: '租户设置', url: '/settings/tenant', icon: Building2 })
+    }
+    return items
+  })
+
+  const navData = computed<NavGroup[]>(() => [
     {
       title: 'General',
       items: [
@@ -47,7 +56,7 @@ export function useSidebar() {
     {
       title: 'Other',
       items: [
-        { title: 'Settings', icon: Settings, items: settingsNavItems },
+        { title: 'Settings', icon: Settings, items: settingsNavItems.value },
         { title: 'SVA Components', url: '/sva-components', icon: Component },
         { title: 'Help Center', url: '/help-center', icon: BadgeHelp,
         },

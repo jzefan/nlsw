@@ -447,19 +447,34 @@ exports.getDashboardStatistics = async function (req, res) {
             { $sort: { weight: -1 } }
           ],
           // 内部车辆（装船的车）：从船运单的 bills.vehicles 中提取
+          // send_weight=0 时（定尺提单）使用 send_num * bills.weight
           byInnerVehicle: [
             { $unwind: '$bills' },
             { $unwind: '$bills.vehicles' },
             {
+              $addFields: {
+                '_innerWeight': {
+                  $cond: [
+                    { $gt: [{ $ifNull: ['$bills.vehicles.send_weight', 0] }, 0] },
+                    '$bills.vehicles.send_weight',
+                    { $multiply: [
+                      { $ifNull: ['$bills.vehicles.send_num', 0] },
+                      { $ifNull: ['$bills.weight', 0] }
+                    ]}
+                  ]
+                }
+              }
+            },
+            {
               $group: {
                 _id: '$bills.vehicles.veh_name',
-                weight: { $sum: '$bills.vehicles.send_weight' },
+                weight: { $sum: '$_innerWeight' },
                 total_price: {
                   $sum: {
                     $cond: {
                       if: { $eq: [{ $ifNull: ['$bills.vehicles.price_mode', 0] }, 1] },
                       then: { $ifNull: ['$bills.vehicles.veh_price', 0] },
-                      else: { $multiply: [{ $ifNull: ['$bills.vehicles.veh_price', 0] }, { $ifNull: ['$bills.vehicles.send_weight', 0] }] }
+                      else: { $multiply: [{ $ifNull: ['$bills.vehicles.veh_price', 0] }, '$_innerWeight'] }
                     }
                   }
                 }
@@ -485,13 +500,27 @@ exports.getDashboardStatistics = async function (req, res) {
             { $unwind: '$bills' },
             { $unwind: '$bills.vehicles' },
             {
+              $addFields: {
+                '_innerWeight': {
+                  $cond: [
+                    { $gt: [{ $ifNull: ['$bills.vehicles.send_weight', 0] }, 0] },
+                    '$bills.vehicles.send_weight',
+                    { $multiply: [
+                      { $ifNull: ['$bills.vehicles.send_num', 0] },
+                      { $ifNull: ['$bills.weight', 0] }
+                    ]}
+                  ]
+                }
+              }
+            },
+            {
               $group: {
                 _id: {
                   vehicle: '$bills.vehicles.veh_name',
                   year: { $year: '$ship_date' },
                   month: { $month: '$ship_date' }
                 },
-                weight: { $sum: '$bills.vehicles.send_weight' }
+                weight: { $sum: '$_innerWeight' }
               }
             }
           ]

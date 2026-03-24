@@ -8,6 +8,7 @@ import { formatDate, formatNumber } from '@/utils/format'
 import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
+import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
 import {
   buildTruckInvoice,
   getBillsByBillingName,
@@ -53,6 +54,7 @@ const invoiceSearchFilters = ref({
   endDate: '',
   shipTo: '',
   shipperName: '',
+  state: '',
 })
 const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
@@ -741,6 +743,7 @@ async function openInvoiceList() {
     endDate: fmt(today),
     shipTo: '',
     shipperName: '',
+    state: '',
   }
   await loadInvoiceList()
 }
@@ -762,6 +765,7 @@ async function loadInvoiceList() {
     if (f.endDate) params.endDate = f.endDate
     if (f.shipTo) params.shipTo = f.shipTo
     if (f.shipperName) params.shipperName = f.shipperName
+    if (f.state && f.state !== 'all') params.state = f.state
 
     // 只有在勾选时才传递myOnly参数
     if (showMyOnly.value) {
@@ -1274,15 +1278,21 @@ function isBillHighlighted(bill: InvoiceBill) {
                 :search-fn="searchShipperNames"
                 placeholder="发货人"
               />
-              <DatePicker v-model="invoiceSearchFilters.startDate" placeholder="开始日期" />
-              <DatePicker v-model="invoiceSearchFilters.endDate" placeholder="结束日期" />
+              <DatePicker v-model="invoiceSearchFilters.startDate" placeholder="开始日期" clearable />
+              <DatePicker v-model="invoiceSearchFilters.endDate" placeholder="结束日期" clearable />
               <div class="flex items-center gap-2">
-                <UiButton :disabled="invoiceListLoading" @click="searchInvoices">
-                  <Search class="w-4 h-4 mr-1" />
-                  搜索
-                </UiButton>
-                <!-- 管理员：只看我的运单 -->
-                <div v-if="isAdmin" class="flex items-center gap-2">
+                <UiSelect v-model="invoiceSearchFilters.state">
+                  <UiSelectTrigger class="w-28">
+                    <UiSelectValue placeholder="运单状态" />
+                  </UiSelectTrigger>
+                  <UiSelectContent>
+                    <UiSelectItem value="all">全部状态</UiSelectItem>
+                    <UiSelectItem value="新建">新建</UiSelectItem>
+                    <UiSelectItem value="已配发">已配发</UiSelectItem>
+                    <UiSelectItem value="已结算">已结算</UiSelectItem>
+                  </UiSelectContent>
+                </UiSelect>
+                <div class="flex items-center gap-1">
                   <input
                     id="my-only-truck"
                     v-model="showMyOnly"
@@ -1291,6 +1301,10 @@ function isBillHighlighted(bill: InvoiceBill) {
                   />
                   <label for="my-only-truck" class="text-xs cursor-pointer whitespace-nowrap">只看我的</label>
                 </div>
+                <UiButton class="ml-auto" :disabled="invoiceListLoading" @click="searchInvoices">
+                  <Search class="w-4 h-4 mr-1" />
+                  搜索
+                </UiButton>
               </div>
             </div>
           </div>

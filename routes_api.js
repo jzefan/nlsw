@@ -82,7 +82,9 @@ module.exports = function (app) {
   app.post('/user_mgr', requireOwnerOrPlatform, userApiController.postUserMgr);  // Owner or platform only
   app.post('/resetPwd', requireOwnerOrPlatform, userApiController.resetPassword);  // Owner or platform only
   app.post('/user/preferences', userApiController.updatePreferences);  // Authenticated user
-  
+  app.get('/tenant/settings', requireOwnerOrPlatform, userApiController.getTenantSettings);
+  app.post('/tenant/settings', requireOwnerOrPlatform, userApiController.updateTenantSettings);
+
   // Report API (tenant-scoped)
   app.get('/report/integrated_query', requireTenant, reportApiController.getIntegratedQuery);
   app.get('/report/invoice_report', requireTenant, reportApiController.getInvoiceReport);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { CalendarDate, getLocalTimeZone, today } from '@internationalized/date'
-import { CalendarIcon } from 'lucide-vue-next'
+import { CalendarIcon, XIcon } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { cn } from '@/lib/utils'
@@ -13,6 +13,7 @@ const props = defineProps<{
   disabled?: boolean
   disabledDate?: (date: Date) => boolean
   disabledHint?: string
+  clearable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -74,6 +75,13 @@ function isDateUnavailable(date: DateValue) {
   return false
 }
 
+function clearDate(e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+  e.stopImmediatePropagation()
+  emit('update:modelValue', '')
+}
+
 function handleCalendarClick(e: MouseEvent) {
   const target = e.target as HTMLElement
   const button = target.closest('button')
@@ -84,30 +92,39 @@ function handleCalendarClick(e: MouseEvent) {
 </script>
 
 <template>
-  <UiPopover v-model:open="popoverOpen">
-    <UiPopoverTrigger as-child>
-      <UiButton
-        variant="outline"
-        :disabled="props.disabled"
-        :class="cn(
-          'justify-start text-left font-normal w-full',
-          !modelValue && 'text-muted-foreground',
-          props.class
-        )"
-      >
-        <CalendarIcon class="mr-2 h-4 w-4" />
-        {{ displayValue || placeholder || '选择日期' }}
-      </UiButton>
-    </UiPopoverTrigger>
-    <UiPopoverContent class="w-auto p-0" @click="handleCalendarClick">
-      <UiCalendar
-        v-model="dateValue"
-        v-model:placeholder="calendarPlaceholder"
-        :min-value="minDate"
-        :is-date-unavailable="isDateUnavailable"
-        layout="month-and-year"
-        locale="zh-CN"
-      />
-    </UiPopoverContent>
-  </UiPopover>
+  <div class="relative w-full">
+    <UiPopover v-model:open="popoverOpen">
+      <UiPopoverTrigger as-child>
+        <UiButton
+          variant="outline"
+          :disabled="props.disabled"
+          :class="cn(
+            'justify-start text-left font-normal w-full',
+            !modelValue && 'text-muted-foreground',
+            props.clearable && modelValue && 'pr-8',
+            props.class
+          )"
+        >
+          <CalendarIcon class="mr-2 h-4 w-4 shrink-0" />
+          <span class="flex-1 truncate">{{ displayValue || placeholder || '选择日期' }}</span>
+        </UiButton>
+      </UiPopoverTrigger>
+      <UiPopoverContent class="w-auto p-0" @click="handleCalendarClick">
+        <UiCalendar
+          v-model="dateValue"
+          v-model:placeholder="calendarPlaceholder"
+          :min-value="minDate"
+          :is-date-unavailable="isDateUnavailable"
+          layout="month-and-year"
+          locale="zh-CN"
+        />
+      </UiPopoverContent>
+    </UiPopover>
+    <XIcon
+      v-if="props.clearable && modelValue && !props.disabled"
+      class="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 cursor-pointer text-muted-foreground hover:text-foreground z-10"
+      @pointerdown.stop.prevent="clearDate"
+      @click.stop.prevent
+    />
+  </div>
 </template>

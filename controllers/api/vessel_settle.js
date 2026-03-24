@@ -279,6 +279,9 @@ exports.updateVesselPrice = async (req, res) => {
     const invQuery = buildTenantQuery(req, { waybill_no: { $in: wnoList } });
     const invoices = await Invoice.find(invQuery).exec();
 
+    // 收集需要同步到 Bill 的内部车辆价格变更: { billId -> { innerWaybillNo -> price } }
+    const billSyncMap = new Map();
+
     for (const pd of priceData) {
       const invoice = invoices.find(
         (inv) =>
@@ -290,17 +293,58 @@ exports.updateVesselPrice = async (req, res) => {
       if (pd.inner === 0) {
         invoice.vessel_price = pd.unitPrice;
         invoice.price_remark = pd.remark;
+        // 收集需要同步 veh_ves_price 的 Bill
+        invoice.bills.forEach((bill) => {
+          if (!bill.bill_id) return;
+          const billIdStr = String(bill.bill_id);
+          if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+          billSyncMap.get(billIdStr).set(`main:${invoice.waybill_no}`, {
+            invNo: invoice.waybill_no,
+            vehVesPrice: pd.unitPrice,
+          });
+        });
       } else {
         invoice.bills.forEach((bill) => {
           bill.vehicles.forEach((veh) => {
             if (veh.inner_waybill_no === pd.wno) {
               veh.veh_price = pd.unitPrice;
               veh.price_remark = pd.remark;
+              // 记录需要同步到 Bill 的变更
+              const billIdStr = String(bill.bill_id);
+              if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+              billSyncMap.get(billIdStr).set(pd.wno, { price: pd.unitPrice, invNo: invoice.waybill_no });
             }
           });
         });
       }
       await invoice.save();
+    }
+
+    // 同步 Bill 侧的 veh_ves_price 和 veh_price
+    for (const [billIdStr, syncEntries] of billSyncMap) {
+      const dbBill = await Bill.findById(billIdStr).exec();
+      if (!dbBill) continue;
+      let modified = false;
+      for (const invRecord of dbBill.invoices || []) {
+        // 同步主运单的 veh_ves_price
+        const mainSync = syncEntries.get(`main:${invRecord.inv_no}`);
+        if (mainSync) {
+          invRecord.veh_ves_price = mainSync.vehVesPrice;
+          modified = true;
+        }
+        // 同步内部车辆的 veh_price
+        for (const bVeh of invRecord.vehicles || []) {
+          const vehSync = syncEntries.get(bVeh.inner_waybill_no);
+          if (vehSync && invRecord.inv_no === vehSync.invNo) {
+            bVeh.veh_price = vehSync.price;
+            modified = true;
+          }
+        }
+      }
+      if (modified) {
+        dbBill.markModified('invoices');
+        await dbBill.save();
+      }
     }
 
     res.json({ ok: true });
@@ -464,6 +508,9 @@ exports.settleVesselNotNeeded = async (req, res) => {
   try {
     const { wayNoList, notNeeded } = req.body;
 
+    // 收集需要同步到 Bill 的变更
+    const billSyncMap = new Map();
+
     for (const wno of wayNoList) {
       const waybillNo = wno.substring(0, 17);
       const invQ = buildTenantQuery(req, { waybill_no: waybillNo });
@@ -471,10 +518,16 @@ exports.settleVesselNotNeeded = async (req, res) => {
       if (!invoice) continue;
 
       if (wno.length > 17) {
+        const newPrice = notNeeded ? -1 : 0;
         invoice.bills.forEach((bill) => {
           bill.vehicles.forEach((veh) => {
-            if (veh.inner_waybill_no === wno)
-              veh.veh_price = notNeeded ? -1 : 0;
+            if (veh.inner_waybill_no === wno) {
+              veh.veh_price = newPrice;
+              // 记录同步到 Bill
+              const billIdStr = String(bill.bill_id);
+              if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+              billSyncMap.get(billIdStr).set(wno, { price: newPrice, invNo: waybillNo });
+            }
           });
         });
 
@@ -496,6 +549,7 @@ exports.settleVesselNotNeeded = async (req, res) => {
         }
         invoice.markModified('inner_settle');
       } else {
+        const newPrice = notNeeded ? -1 : 0;
         if (notNeeded) {
           invoice.vessel_price = -1;
           invoice.vessel_settle_state = "不需要结算";
@@ -505,9 +559,46 @@ exports.settleVesselNotNeeded = async (req, res) => {
           invoice.vessel_settle_state = "未结算";
           invoice.vessel_settle_date = null;
         }
+        // 收集需要同步 veh_ves_price 的 Bill
+        invoice.bills.forEach((bill) => {
+          if (!bill.bill_id) return;
+          const billIdStr = String(bill.bill_id);
+          if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+          billSyncMap.get(billIdStr).set(`main:${invoice.waybill_no}`, {
+            invNo: invoice.waybill_no,
+            vehVesPrice: newPrice,
+          });
+        });
       }
 
       await invoice.save();
+    }
+
+    // 同步 Bill 侧的 veh_ves_price 和 veh_price
+    for (const [billIdStr, syncEntries] of billSyncMap) {
+      const dbBill = await Bill.findById(billIdStr).exec();
+      if (!dbBill) continue;
+      let modified = false;
+      for (const invRecord of dbBill.invoices || []) {
+        // 同步主运单的 veh_ves_price
+        const mainSync = syncEntries.get(`main:${invRecord.inv_no}`);
+        if (mainSync) {
+          invRecord.veh_ves_price = mainSync.vehVesPrice;
+          modified = true;
+        }
+        // 同步内部车辆的 veh_price
+        for (const bVeh of invRecord.vehicles || []) {
+          const vehSync = syncEntries.get(bVeh.inner_waybill_no);
+          if (vehSync && invRecord.inv_no === vehSync.invNo) {
+            bVeh.veh_price = vehSync.price;
+            modified = true;
+          }
+        }
+      }
+      if (modified) {
+        dbBill.markModified('invoices');
+        await dbBill.save();
+      }
     }
 
     res.json({ ok: true });

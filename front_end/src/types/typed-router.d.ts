@@ -389,6 +389,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/settings/tenant': RouteRecordInfo<
+      '/settings/tenant',
+      '/settings/tenant',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/settle/bill': RouteRecordInfo<
       '/settle/bill',
       '/settle/bill',
@@ -751,6 +758,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/settings/display.vue': {
       routes:
         | '/settings/display'
+      views:
+        | never
+    }
+    'src/pages/settings/tenant.vue': {
+      routes:
+        | '/settings/tenant'
       views:
         | never
     }

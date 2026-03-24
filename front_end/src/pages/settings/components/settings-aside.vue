@@ -8,7 +8,7 @@ const currentPath = computed(() => route.path)
 const activeClass = 'text-primary font-semibold bg-primary/5'
 
 const { settingsNavItems } = useSidebar()
-const currentLink = computed(() => settingsNavItems.find(link => link.url === currentPath.value))
+const currentLink = computed(() => settingsNavItems.value.find(link => link.url === currentPath.value))
 </script>
 
 <template>

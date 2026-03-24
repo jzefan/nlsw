@@ -4,6 +4,7 @@ const Bill = require("../../models/Bill");
 const Invoice = require("../../models/Invoice");
 const VesselCost = require("../../models/VesselCost");
 const DrayageForklift = require("../../models/DrayageForklift");
+const Tenant = require("../../models/Tenant");
 const utils = require("../utils");
 const { buildTenantQuery, isPlatformUser } = require("../../utils/tenant");
 
@@ -63,16 +64,17 @@ function buildMainRecordSinglePriceExpr() {
 }
 
 function buildReceivableSinglePriceExpr() {
+  const hasCollectionPrice = { $gte: [{ $ifNull: ["$billDoc.collection_price", -1] }, 0] };
+  const hasInvoicePrice = { $gte: [{ $ifNull: ["$billDoc.invoices.price", -1] }, 0] };
   return {
-    $add: [
-      { $ifNull: ["$billDoc.invoices.price", 0] },
-      {
-        $cond: [
-          { $gt: [{ $ifNull: ["$billDoc.collection_price", 0] }, 0] },
-          { $ifNull: ["$billDoc.collection_price", 0] },
-          0,
-        ],
-      },
+    $cond: [
+      { $and: [hasCollectionPrice, hasInvoicePrice] },
+      { $add: ["$billDoc.invoices.price", "$billDoc.collection_price"] },
+      { $cond: [
+        hasCollectionPrice,
+        "$billDoc.collection_price",
+        { $cond: [hasInvoicePrice, "$billDoc.invoices.price", 0] },
+      ]},
     ],
   };
 }
@@ -152,8 +154,10 @@ function buildMainDetailPipeline(invMatch, vehNames) {
   ];
 }
 
-function buildInnerDetailPipeline(invMatch, vehNames) {
-  const receivableSinglePriceExpr = buildReceivableSinglePriceExpr();
+function buildInnerDetailPipeline(invMatch, vehNames, drayageRate = 0) {
+  const receivableSinglePriceExpr = drayageRate > 0
+    ? { $literal: drayageRate }
+    : buildReceivableSinglePriceExpr();
   const innerWeightExpr = {
     $cond: [
       { $gt: [{ $ifNull: ["$billDoc.invoices.vehicles.send_weight", 0] }, 0] },
@@ -263,13 +267,13 @@ function buildInnerDetailPipeline(invMatch, vehNames) {
   ];
 }
 
-function buildDetailUnionPipeline(invMatch, vehNames) {
+function buildDetailUnionPipeline(invMatch, vehNames, drayageRate = 0) {
   return [
     ...buildMainDetailPipeline(invMatch, vehNames),
     {
       $unionWith: {
         coll: "invoices",
-        pipeline: buildInnerDetailPipeline(invMatch, vehNames),
+        pipeline: buildInnerDetailPipeline(invMatch, vehNames, drayageRate),
       },
     },
   ];
@@ -284,6 +288,9 @@ exports.getVesselRevenueData = async (req, res) => {
     if (!fMonths || !Array.isArray(fMonths)) {
       return res.json({ ok: false, message: "缺少月份列表" });
     }
+
+    const tenant = await Tenant.findById(req.tenantId).lean();
+    const drayageRate = tenant?.settings?.drayageRate || 0;
 
     const months = fMonths;
     const resultData = months.map((m) => ({
@@ -437,16 +444,14 @@ exports.getVesselRevenueData = async (req, res) => {
           bill.collection_price > 0 ? bill.collection_price * weight : 0;
         if (invInBill.price > 0) revenue += invInBill.price * weight;
 
-        const vehPayable =
-          invInBill.veh_ves_price > 0 ? invInBill.veh_ves_price * weight : 0;
-        const hasInnerVehicles =
-          invInBill.vehicles && invInBill.vehicles.length > 0;
-        const customerDeliveryPayable =
-          inv.vessel_price > 0 ? inv.vessel_price * weight : vehPayable;
-
-        // console.log(
-        //   `Processing Bill ${bill._id} for Invoice ${inv.waybill_no}: revenue=${revenue}, vehPayable=${vehPayable}, customerDeliveryPayable=${customerDeliveryPayable}, vehCategory=${vehCategory}, hasInnerVehicles=${hasInnerVehicles}`,
-        // );
+        // 应付单价（与明细 mainSinglePriceExpr 一致）
+        let payableSinglePrice = invInBill.veh_ves_price || 0;
+        if (inv.vessel_price > 0) {
+          payableSinglePrice = inv.price_mode === 1
+            ? inv.vessel_price / (inv.total_weight || 1)  // 打包模式：换算为单价
+            : inv.vessel_price;  // 每吨模式
+        }
+        const payable = payableSinglePrice * weight;
 
         if (isShip) {
           meta.hasShip = true;
@@ -456,76 +461,54 @@ exports.getVesselRevenueData = async (req, res) => {
           if (vehCategory === "自有") {
             data.vsOwnWeight += weight;
             data.vsOwnIncome += revenue;
-            // 船运自有应付：使用提单级别的 veh_ves_price（vessel_price 在 step 6.4 处理）
-            data.vsOwnDeposit += vehPayable;
+            data.vsOwnDeposit += payable;
           } else if (vehCategory === "外挂") {
             data.vsNonOwnWeight += weight;
             data.vsNonOwnIncome += revenue;
-            // 船运外挂应付：使用提单级别的 veh_ves_price（vessel_price 在 step 6.5 处理）
-            data.vsNonOwnDeposit += vehPayable;
+            data.vsNonOwnDeposit += payable;
           }
 
+          // 车运到船：内部车辆
           (invInBill.vehicles || []).forEach((veh) => {
             const innerWeight = getInnerVehicleWeight(bill, veh);
             data.vhTotal += innerWeight;
 
+            // 车运到船应收：使用租户配置的固定单价
+            const innerRevenue = drayageRate > 0 ? drayageRate * innerWeight : 0;
+            data.vhRevenue += innerRevenue;
+
+            // 车运到船应付：使用内部车辆的 veh_price
+            const innerPayable = veh.veh_price > 0 ? veh.veh_price * innerWeight : 0;
+
             const subVehCategory = vehObject[veh.veh_name]?.category;
             if (subVehCategory === "自有") {
               data.vhOwnWeight += innerWeight;
+              data.vhOwnIncome += innerRevenue;
+              data.vhOwnDeposit += innerPayable;
               if (veh.veh_name) meta.selfTruckNames.add(veh.veh_name);
             } else if (subVehCategory === "外挂") {
               data.vhNonOwnWeight += innerWeight;
+              data.vhNonOwnIncome += innerRevenue;
+              data.vhNonOwnDeposit += innerPayable;
             }
           });
         } else {
+          // 车运到客户
           data.vhTotal += weight;
           data.vhRevenue += revenue;
 
           if (vehCategory === "自有") {
             data.vhOwnWeight += weight;
             data.vhOwnIncome += revenue;
-            data.vhOwnDeposit += customerDeliveryPayable;
+            data.vhOwnDeposit += payable;
             if (invInBill.veh_ves_name)
               meta.selfTruckNames.add(invInBill.veh_ves_name);
           } else if (vehCategory === "外挂") {
             data.vhNonOwnWeight += weight;
             data.vhNonOwnIncome += revenue;
-            data.vhNonOwnDeposit += customerDeliveryPayable;
+            data.vhNonOwnDeposit += payable;
           }
         }
-      }
-    }
-
-    // 6.5 Calculate ship payable from invoice-level vessel_price
-    // 船运应付在 Invoice 级别计算（不重复：step 6 中 vehPayable 基于 veh_ves_price，通常为 0）
-    for (const inv of db_invs) {
-      if (!inv.vessel_price || inv.vessel_price <= 0) continue;
-
-      const vehInfo = vehObject[inv.vehicle_vessel_name] || {};
-      const vehCategory = vehInfo.category;
-      const isShip =
-        vehInfo.type === "船" ||
-        (vehInfo.type !== "车" &&
-          inv.bills &&
-          inv.bills.some((b) => b.vehicles && b.vehicles.length > 0));
-
-      if (!isShip) continue;
-
-      const monthStr = utils.toFinancialMonth(inv.ship_date);
-      const mIdx = months.indexOf(monthStr);
-      if (mIdx < 0) continue;
-
-      const data = resultData[mIdx];
-      // price_mode: 0=每吨, 1=打包
-      const shipPayable =
-        inv.price_mode === 1
-          ? inv.vessel_price
-          : inv.vessel_price * (inv.total_weight || 0);
-
-      if (vehCategory === "自有") {
-        data.vsOwnDeposit += shipPayable;
-      } else if (vehCategory === "外挂") {
-        data.vsNonOwnDeposit += shipPayable;
       }
     }
 
@@ -578,6 +561,8 @@ exports.getVesselAllocationDetail = async (req, res) => {
   try {
     const { fDate1, fDate2, fVehType, fSummary, fVehMode } = req.query;
     const isSummary = fSummary === "YES";
+    const tenant = await Tenant.findById(req.tenantId).lean();
+    const drayageRate = tenant?.settings?.drayageRate || 0;
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(
       Math.max(parseInt(req.query.limit, 10) || 50, 1),
@@ -596,7 +581,6 @@ exports.getVesselAllocationDetail = async (req, res) => {
     const vehNames = vehList.map((v) => v.name);
 
     const invQuery = buildTenantQuery(req, {
-      state: { $ne: "新建" },
       ship_date: {
         $gte: utils.parseLocalDate(fDate1),
         $lte: utils.parseLocalDateEnd(fDate2),
@@ -610,7 +594,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
 
     if (isSummary) {
       const allRows = await Invoice.aggregate(
-        buildDetailUnionPipeline(invQuery, vehNames),
+        buildDetailUnionPipeline(invQuery, vehNames, drayageRate),
       )
         .allowDiskUse(true)
         .exec();
@@ -641,7 +625,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
       });
       res.json({ ok: true, summary_data: summaryData });
     } else {
-      const unionPipeline = buildDetailUnionPipeline(invQuery, vehNames);
+      const unionPipeline = buildDetailUnionPipeline(invQuery, vehNames, drayageRate);
 
       // 一次查询同时获取总数和汇总金额
       const summaryResult = await Invoice.aggregate([

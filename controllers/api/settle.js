@@ -419,13 +419,6 @@ exports.inputPrice = async (req, res) => {
               if (item.remark !== undefined) {
                 dbBill.incoming_price_remark = item.remark;
               }
-
-              // 船运：更新 vehicles 中的价格
-              if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach((veh) => {
-                  veh.veh_price = item.price;
-                });
-              }
             }
           }
         });
@@ -692,14 +685,6 @@ exports.markNotRequireSettle = async (req, res) => {
             if (invInfo) {
               invInfo.price = -1;
               invInfo.inv_settle_flag = (invInfo.inv_settle_flag || 0) & ~flag;
-
-              // 船运：更新 vehicles 中的价格和结算状态
-              if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach((veh) => {
-                  veh.veh_price = -1;
-                  veh.inv_settle_flag = (veh.inv_settle_flag || 0) & ~flag;
-                });
-              }
             }
           }
         });
