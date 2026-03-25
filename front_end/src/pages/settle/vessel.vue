@@ -2205,14 +2205,26 @@ function handlePriceInputFromPublicBaskets() {
   batchPriceInputDialog.value?.open(publicItems.value, [], dbRecords.value)
 }
 
-// 对话框回调
+// 对话框回调 — 价格保存后刷新数据但保留选中状态
+async function refreshKeepSelection() {
+  const prevSelected = new Set(selectedRecords.value.map((r) => r.waybill_no))
+  await handleSearch(true)
+  if (prevSelected.size > 0) {
+    tableData.value.forEach((row) => {
+      if (!row.isSubItem && prevSelected.has(row.waybill_no)) {
+        row.selected = true
+      }
+    })
+    calcSelectedSummary()
+  }
+}
+
 function handlePriceConfirm(data: any) {
-  handleSearch(true)
+  refreshKeepSelection()
 }
 
 function handleBatchPriceConfirm(data: any) {
-  selectAll.value = false
-  handleSearch(true)
+  refreshKeepSelection()
 }
 
 function handleDelayInfoConfirm(data: any) {

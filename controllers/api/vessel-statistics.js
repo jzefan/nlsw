@@ -125,6 +125,7 @@ function buildMainDetailPipeline(invMatch, vehNames) {
         sort_ship_date: "$ship_date",
         sort_waybill: "$waybill_no",
         sort_inner_waybill: "",
+        sort_bill_id: "$bills.bill_id",
         vname: "$billDoc.invoices.veh_ves_name",
         name: buildCustomerNameExpr(),
         ship_from: { $ifNull: ["$ship_from", ""] },
@@ -228,6 +229,7 @@ function buildInnerDetailPipeline(invMatch, vehNames, drayageRate = 0) {
         sort_inner_waybill: {
           $ifNull: ["$billDoc.invoices.vehicles.inner_waybill_no", ""],
         },
+        sort_bill_id: "$bills.bill_id",
         vname: "$billDoc.invoices.vehicles.veh_name",
         name: buildCustomerNameExpr(),
         ship_from: {
@@ -291,6 +293,7 @@ exports.getVesselRevenueData = async (req, res) => {
 
     const tenant = await Tenant.findById(req.tenantId).lean();
     const drayageRate = tenant?.settings?.drayageRate || 0;
+    const ownVehicleDeductPayable = tenant?.settings?.ownVehicleDeductPayable !== false; // 默认 true
 
     const months = fMonths;
     const resultData = months.map((m) => ({
@@ -535,9 +538,13 @@ exports.getVesselRevenueData = async (req, res) => {
 
     // Final Calculation for Profits
     resultData.forEach((d) => {
-      d.vhOwnProfit = utils.toFixedNumber(d.vhOwnIncome - d.vhOwnDeposit, 3);
+      d.vhOwnProfit = ownVehicleDeductPayable
+        ? utils.toFixedNumber(d.vhOwnIncome - d.vhOwnDeposit, 3)
+        : utils.toFixedNumber(d.vhOwnIncome, 3);
       d.vhProfit = utils.toFixedNumber(d.vhNonOwnIncome - d.vhNonOwnDeposit, 3);
-      d.vsOwnProfit = utils.toFixedNumber(d.vsOwnIncome - d.vsOwnDeposit, 3);
+      d.vsOwnProfit = ownVehicleDeductPayable
+        ? utils.toFixedNumber(d.vsOwnIncome - d.vsOwnDeposit, 3)
+        : utils.toFixedNumber(d.vsOwnIncome, 3);
       d.vsProfit = utils.toFixedNumber(d.vsNonOwnIncome - d.vsNonOwnDeposit, 3);
 
       // Round everything
@@ -654,6 +661,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
             sort_ship_date: 1,
             sort_waybill: 1,
             sort_inner_waybill: 1,
+            sort_bill_id: 1,
           },
         },
         { $skip: (page - 1) * limit },
@@ -664,6 +672,7 @@ exports.getVesselAllocationDetail = async (req, res) => {
             sort_ship_date: 0,
             sort_waybill: 0,
             sort_inner_waybill: 0,
+            sort_bill_id: 0,
           },
         },
       ])

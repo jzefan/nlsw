@@ -54,6 +54,7 @@ import {
   type VesselDetailItem,
   type VesselSummaryItem
 } from '@/services/api/vessel-statistics.api'
+import { getTenantSettings } from '@/services/api/user.api'
 import { PAGE_SIZES } from '@/constants/pagination'
 
 // 设备检测
@@ -64,6 +65,12 @@ const { exportWithPicker, exportWithBufferPicker, showExportDialog, exportFileNa
 const loading = ref(false)
 const showChart = ref(false)
 const statisticsData = ref<VesselRevenueData[]>([])
+const ownVehicleDeductPayable = ref(true)
+
+// 加载租户设置
+getTenantSettings().then((res) => {
+  if (res.ok) ownVehicleDeductPayable.value = res.settings?.ownVehicleDeductPayable !== false
+}).catch(() => {})
 
 // Date Selection State (Reusing logic from customer-revenue)
 const showDateDialog = ref(false)
@@ -134,6 +141,20 @@ const detailMonth = ref('全部')
 const detailSendWeight = ref(0)
 const detailReceivable = ref(0)
 const detailPayable = ref(0)
+
+// 自有车船利润：根据租户设置决定是否扣除应付
+const detailProfit = computed(() => {
+  if (detailVehType.value === '自有' && !ownVehicleDeductPayable.value) {
+    return detailReceivable.value
+  }
+  return detailReceivable.value - detailPayable.value
+})
+const detailProfitHint = computed(() => {
+  if (detailVehType.value === '自有' && !ownVehicleDeductPayable.value) {
+    return '利润 = 应收（已关闭扣除应付）'
+  }
+  return '利润 = 应收 - 应付'
+})
 
 // 可选月份列表（从已查询的 statisticsData 中提取）
 const detailMonthOptions = computed(() => {
@@ -1341,7 +1362,7 @@ async function handleExport() {
             <span class="text-muted-foreground text-xs">吨位: <strong>{{ formatNumber(detailSendWeight) }}</strong></span>
             <span class="text-green-700 dark:text-green-400 text-xs">应收: <strong>¥{{ formatNumber(detailReceivable) }}</strong></span>
             <span class="text-orange-700 dark:text-orange-400 text-xs">应付: <strong>¥{{ formatNumber(detailPayable) }}</strong></span>
-            <span class="text-xs" :class="detailReceivable - detailPayable >= 0 ? 'text-blue-600' : 'text-red-600'">利润: <strong>¥{{ formatNumber(detailReceivable - detailPayable) }}</strong></span>
+            <span class="text-xs" :class="detailProfit >= 0 ? 'text-blue-600' : 'text-red-600'" :title="detailProfitHint">利润: <strong>¥{{ formatNumber(detailProfit) }}</strong></span>
           </template>
         </div>
         <div class="flex-1 overflow-auto border rounded-md bg-white dark:bg-slate-900 relative">

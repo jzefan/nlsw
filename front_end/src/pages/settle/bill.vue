@@ -532,9 +532,14 @@ async function handleQuery(params: SettleFilterParams) {
 }
 
 // 更新显示的提单列表（重新调后端获取最新数据，保持当前筛选条件）
-async function updateDisplayBills() {
+async function updateDisplayBills(preserveSelection = true) {
+  const prevSelectedIds = preserveSelection ? new Set(selectedBills.value.map((b) => b._id)) : null
   if (dataLoaded.value) {
     await handleQuery(filterParams.value)
+  }
+  // 价格保存后恢复选中状态
+  if (prevSelectedIds && prevSelectedIds.size > 0) {
+    selectedBills.value = displayBills.value.filter((b) => prevSelectedIds.has(b._id))
   }
   refreshBasketBills()
 }
@@ -656,7 +661,7 @@ async function handleSettle() {
 
     if (result.ok) {
       toast.success('结算成功')
-      updateDisplayBills()
+      updateDisplayBills(false)
     } else {
       toast.error(result.message || '结算失败')
     }
@@ -708,7 +713,7 @@ async function handleMarkNotRequireSettle() {
 
     if (result.ok) {
       toast.success('标记成功')
-      updateDisplayBills()
+      updateDisplayBills(false)
     } else {
       toast.error(result.message || '标记失败')
     }
@@ -932,7 +937,7 @@ async function handleSettleFromBasket() {
       toast.success('结算成功')
       composableClearBasket() // 清空结算篮并同步到数据库
       showBasket.value = false
-      updateDisplayBills()
+      updateDisplayBills(false)
     } else {
       toast.error(result.message || '结算失败')
     }

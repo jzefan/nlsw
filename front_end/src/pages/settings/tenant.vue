@@ -6,6 +6,7 @@ import { getTenantSettings, updateTenantSettings } from '@/services/api/user.api
 const loading = ref(false)
 const saving = ref(false)
 const drayageRate = ref(0)
+const ownVehicleDeductPayable = ref(true)
 
 onMounted(async () => {
   loading.value = true
@@ -13,6 +14,7 @@ onMounted(async () => {
     const result = await getTenantSettings()
     if (result.ok) {
       drayageRate.value = result.settings?.drayageRate || 0
+      ownVehicleDeductPayable.value = result.settings?.ownVehicleDeductPayable !== false
     }
   } catch (e: any) {
     toast.error('加载设置失败', { description: e.message })
@@ -24,7 +26,10 @@ onMounted(async () => {
 async function handleSubmit() {
   saving.value = true
   try {
-    const result = await updateTenantSettings({ drayageRate: drayageRate.value })
+    const result = await updateTenantSettings({
+      drayageRate: drayageRate.value,
+      ownVehicleDeductPayable: ownVehicleDeductPayable.value,
+    })
     if (result.ok) {
       toast.success('设置已保存')
     } else {
@@ -63,6 +68,21 @@ async function handleSubmit() {
         <p class="text-xs text-muted-foreground">
           设置后，船运下内部车辆的应收将按此固定单价计算。设为 0 则使用原有逻辑。
         </p>
+      </div>
+
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="space-y-0.5">
+            <label class="text-sm font-medium">自有车利润扣除应付</label>
+            <p class="text-xs text-muted-foreground">
+              开启时，自有车利润 = 应收 - 应付；关闭时，自有车利润 = 应收
+            </p>
+          </div>
+          <UiSwitch
+            v-model="ownVehicleDeductPayable"
+            :disabled="loading"
+          />
+        </div>
       </div>
 
       <UiButton type="submit" :disabled="loading || saving">
