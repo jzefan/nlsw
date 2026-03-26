@@ -14,11 +14,12 @@ usage() {
   -h, --host      <ip>   远程服务器 IP 地址  (必填)
   -u, --user      <user> SSH 用户名          (必填)
   -p, --password  <pass> SSH 密码            (必填)
+  -d, --database  <name> 远程 MongoDB 数据库名 (必填)
   -o, --output    <dir>  本地目标目录        (默认: ./backups)
   --help                 显示此帮助信息
 
 示例:
-  $(basename "$0") -h 192.168.1.100 -u ubuntu -p secret -o ~/backups
+  $(basename "$0") -h 192.168.1.100 -u ubuntu -p secret -d test -o ~/backups
 EOF
   exit 0
 }
@@ -27,6 +28,7 @@ EOF
 REMOTE_HOST=""
 REMOTE_USER=""
 REMOTE_PASS=""
+REMOTE_DB_NAME=""
 LOCAL_OUTPUT_DIR="./backups"
 
 # ─────────────────────────── 参数解析 ────────────────────────────
@@ -35,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     -h|--host)      REMOTE_HOST="$2";       shift 2 ;;
     -u|--user)      REMOTE_USER="$2";       shift 2 ;;
     -p|--password)  REMOTE_PASS="$2";       shift 2 ;;
+    -d|--database)  REMOTE_DB_NAME="$2";    shift 2 ;;
     -o|--output)    LOCAL_OUTPUT_DIR="$2";  shift 2 ;;
     --help)         usage ;;
     *) echo "未知参数: $1"; usage ;;
@@ -42,8 +45,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ─────────────────────────── 必填校验 ────────────────────────────
-if [[ -z "$REMOTE_HOST" || -z "$REMOTE_USER" || -z "$REMOTE_PASS" ]]; then
-  echo "错误: -h / -u / -p 均为必填项"
+if [[ -z "$REMOTE_HOST" || -z "$REMOTE_USER" || -z "$REMOTE_PASS" || -z "$REMOTE_DB_NAME" ]]; then
+  echo "错误: -h / -u / -p / -d 均为必填项"
   usage
 fi
 
@@ -57,8 +60,8 @@ fi
 
 # ─────────────────────────── 变量准备 ────────────────────────────
 DATE_TAG=$(date +%Y%m%d)
-REMOTE_DUMP_DIR="/tmp/test-db_${DATE_TAG}"
-REMOTE_ARCHIVE="/tmp/test-db_${DATE_TAG}.tar.gz"
+REMOTE_DUMP_DIR="/tmp/${REMOTE_DB_NAME}-db_${DATE_TAG}"
+REMOTE_ARCHIVE="/tmp/${REMOTE_DB_NAME}-db_${DATE_TAG}.tar.gz"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=15"
 
 mkdir -p "$LOCAL_OUTPUT_DIR"
@@ -66,6 +69,7 @@ mkdir -p "$LOCAL_OUTPUT_DIR"
 echo "=================================================="
 echo " 远程主机 : $REMOTE_HOST"
 echo " 用户名   : $REMOTE_USER"
+echo " 数据库   : $REMOTE_DB_NAME"
 echo " 本地目录 : $LOCAL_OUTPUT_DIR"
 echo "=================================================="
 
@@ -75,7 +79,7 @@ echo "[1/3] 在远程服务器执行 mongodump ..."
 sshpass -p "$REMOTE_PASS" ssh $SSH_OPTS "${REMOTE_USER}@${REMOTE_HOST}" bash <<REMOTE_SCRIPT
 set -e
 echo "  -> 开始 mongodump ..."
-mongodump --host localhost --port 27027 --db test --out "${REMOTE_DUMP_DIR}"
+mongodump --host localhost --port 27027 --db "${REMOTE_DB_NAME}" --out "${REMOTE_DUMP_DIR}"
 echo "  -> mongodump 完成，输出目录: ${REMOTE_DUMP_DIR}"
 REMOTE_SCRIPT
 
@@ -98,7 +102,7 @@ sshpass -p "$REMOTE_PASS" scp $SSH_OPTS \
   "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_ARCHIVE}" \
   "${LOCAL_OUTPUT_DIR}/"
 
-LOCAL_FILE="${LOCAL_OUTPUT_DIR}/test-db_${DATE_TAG}.tar.gz"
+LOCAL_FILE="${LOCAL_OUTPUT_DIR}/${REMOTE_DB_NAME}-db_${DATE_TAG}.tar.gz"
 FILE_SIZE=$(du -sh "$LOCAL_FILE" | cut -f1)
 
 echo ""

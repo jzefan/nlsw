@@ -155,10 +155,7 @@ export function useSettleBasket<T extends SettleBasketItem>(options: SettleBaske
       const targetX = btnRect.left + btnRect.width / 2
       const targetY = btnRect.top + btnRect.height / 2
 
-      let selectedRows = document.querySelectorAll('tr.bg-blue-50')
-      if (selectedRows.length === 0) {
-        selectedRows = document.querySelectorAll('tr.bg-blue-100')
-      }
+      const selectedRows = document.querySelectorAll('tr.bg-blue-50, tr.bg-blue-100, tr.bg-blue-200')
       const maxAnimations = Math.min(selectedRows.length, 5)
 
       selectedRows.forEach((row, index) => {

@@ -7,6 +7,8 @@ const path = require("path");
 const utils = require("../utils");
 const { uploadReceiptImages } = require("../../config/multer");
 const { buildTenantQuery, injectTenantId } = require("../../utils/tenant");
+const Tenant = require("../../models/Tenant");
+const receiptStorage = require("../../utils/receipt-storage");
 
 // 查询车船结算运单（优化版：使用聚合管道，避免 populate）
 exports.getInvoiceSettleVessel = async (req, res) => {
@@ -671,7 +673,12 @@ exports.uploadReceiptImg = [
         return res.status(404).json({ ok: false, message: "运单不存在" });
       }
 
-      // 重命名文件以包含运单号，并保存元数据到数据库
+      // 获取租户存储配置
+      const tenant = await Tenant.findById(req.tenantId).lean();
+      const storageType = tenant?.settings?.receiptStorage || 'local';
+      const tenantId = String(req.tenantId || 'default');
+
+      // 重命名文件以包含运单号，并保存到存储后端
       const savedImages = [];
       for (const file of req.files) {
         // 获取原始文件路径和目录
@@ -688,8 +695,16 @@ exports.uploadReceiptImg = [
         const newFilename = `${inv_no}_${timestamp}_${randomStr}${ext}`;
         const newPath = path.join(dir, newFilename);
 
-        // 重命名文件
+        // 重命名文件（multer 临时文件 → 带运单号的文件名）
         fs.renameSync(oldPath, newPath);
+
+        // 保存到存储后端（local 保持原位，minio 上传后删除本地文件）
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const relativePath = `${year}/${month}/${day}/${newFilename}`;
+        const finalPath = await receiptStorage.saveFile(storageType, tenantId, relativePath, newPath);
 
         // 确保 original_filename 正确处理 UTF-8 编码
         const originalFilename = Buffer.from(
@@ -701,7 +716,7 @@ exports.uploadReceiptImg = [
           waybill_no: inv_no,
           uploader: uploader,
           upload_time: new Date(),
-          file_path: newPath,
+          file_path: finalPath,
           original_filename: originalFilename,
           file_size: file.size,
           mime_type: file.mimetype,
@@ -811,23 +826,24 @@ exports.getReceiptImg = async (req, res) => {
     if (!receiptImage)
       return res.status(404).json({ ok: false, message: "回执图片不存在" });
 
-    const filePath = path.join(
-      __dirname,
-      "../../uploads/receipts",
-      receiptImage,
-    );
-    if (!fs.existsSync(filePath))
+    // 兼容旧格式（相对路径）和新格式（绝对路径/minio://）
+    const filePath = receiptImage.startsWith('minio://') || path.isAbsolute(receiptImage)
+      ? receiptImage
+      : path.join(__dirname, "../../uploads/receipts", receiptImage);
+
+    try {
+      const imageData = await receiptStorage.getFile(filePath);
+      const base64Data = imageData.toString("base64");
+
+      const ext = path.extname(receiptImage).toLowerCase();
+      let contentType = "image/jpeg";
+      if (ext === ".png") contentType = "image/png";
+      else if (ext === ".gif") contentType = "image/gif";
+
+      res.json({ ok: true, contentType, data: base64Data });
+    } catch (fileErr) {
       return res.status(404).json({ ok: false, message: "图片文件不存在" });
-
-    const imageData = fs.readFileSync(filePath);
-    const base64Data = imageData.toString("base64");
-
-    const ext = path.extname(receiptImage).toLowerCase();
-    let contentType = "image/jpeg";
-    if (ext === ".png") contentType = "image/png";
-    else if (ext === ".gif") contentType = "image/gif";
-
-    res.json({ ok: true, contentType, data: base64Data });
+    }
   } catch (error) {
     console.error("获取失败:", error);
     res.status(500).json({ ok: false, message: "获取失败" });
@@ -885,19 +901,19 @@ exports.getReceiptImageById = async (req, res) => {
       return res.status(404).json({ ok: false, message: "图片记录不存在" });
     }
 
-    if (!fs.existsSync(image.file_path)) {
+    try {
+      const imageData = await receiptStorage.getFile(image.file_path);
+      const base64Data = imageData.toString("base64");
+
+      res.json({
+        ok: true,
+        contentType: image.mime_type,
+        data: base64Data,
+        filename: image.original_filename,
+      });
+    } catch (fileErr) {
       return res.status(404).json({ ok: false, message: "图片文件不存在" });
     }
-
-    const imageData = fs.readFileSync(image.file_path);
-    const base64Data = imageData.toString("base64");
-
-    res.json({
-      ok: true,
-      contentType: image.mime_type,
-      data: base64Data,
-      filename: image.original_filename,
-    });
   } catch (error) {
     console.error("获取图片失败:", error);
     res.status(500).json({ ok: false, message: "获取图片失败" });
@@ -1145,15 +1161,15 @@ exports.toggleVesselReceipt = async (req, res) => {
         }
       }
       if (!innerSettle) {
-        innerSettle = {
+        invoice.inner_settle.push({
           inner_waybill_no: wno,
           state: "未结算",
           date: null,
-          receipt: 0,
-        };
-        invoice.inner_settle.push(innerSettle);
+          receipt: receipt,
+        });
+      } else {
+        innerSettle.receipt = receipt;
       }
-      innerSettle.receipt = receipt;
       invoice.markModified('inner_settle');
     } else {
       // 主运单 - 取消回执时，检查是否已结算或已付款

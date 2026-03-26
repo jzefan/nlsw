@@ -398,6 +398,7 @@ const ticketNo = ref('')
 
 // 计算属性
 const selectedRecords = computed(() => tableData.value.filter((row) => row.selected && !row.isSubItem))
+const selectedSubItems = computed(() => tableData.value.filter((row) => row.selected && row.isSubItem))
 const selectedInnerNo = computed(() =>
   tableData.value.filter((row) => row.selected && row.isSubItem).map((row) => row.inner_waybill_no),
 )
@@ -683,9 +684,11 @@ function calcSummaryFromRecords(records: any[]) {
     }
 
     const settleState = filterForm.value.settleState
-    if (settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState) return
+    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    // 非船运记录主行状态不匹配则跳过
+    if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) return
 
-    const hideMainRow = vehicleFiltered
+    const hideMainRow = vehicleFiltered || !mainStateMatch
 
     // 主行统计
     if (!hideMainRow) {
@@ -704,9 +707,13 @@ function calcSummaryFromRecords(records: any[]) {
     if (isVessel && allVehicles.length > 0 && !vesselNameMatched) {
       const vehObj = makeVehInfo(inv)
       // 车辆筛选时只保留匹配的
-      const keys = vehicleFiltered
+      let keys = vehicleFiltered
         ? Object.keys(vehObj).filter((k) => vehObj[k].name === vehicleFilter)
         : Object.keys(vehObj)
+      // 按结算状态过滤子项
+      if (settleState && settleState !== '全部') {
+        keys = keys.filter((k) => vehObj[k].state === settleState)
+      }
       keys.forEach((key) => {
         const v = vehObj[key]
         rowCount++
@@ -822,18 +829,20 @@ function buildTableData() {
       }
     }
 
-    // 按状态筛选时，如果船主行状态不匹配，跳过整条记录（船及其下的车运子行都不显示）
+    // 按状态筛选：船主行状态不匹配时，隐藏主行但仍处理子行（子行有独立状态）
     const settleState = filterForm.value.settleState
-    if (settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState) {
-      return // 船状态不匹配，跳过整条记录
+    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    // 非船运记录（运车到客户）主行状态不匹配则直接跳过
+    if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) {
+      return
     }
 
-    const hideMainRow = vehicleFiltered
+    const hideMainRow = vehicleFiltered || !mainStateMatch
 
     // 主行
     const mainRow = buildMainRow(inv, isVessel, vehObj)
     mainRow.vehicleFiltered = vehicleFiltered
-    // 车辆筛选或船已结算时不显示船运主行
+    // 车辆筛选、或主行状态不匹配时不显示船运主行
     if (!hideMainRow) {
       data.push(mainRow)
     }
@@ -863,6 +872,8 @@ function buildTableData() {
     if (isVessel && vehObj && !vesselNameMatched) {
       Object.keys(vehObj).forEach((key) => {
         const veh = vehObj[key]
+        // 按结算状态过滤子项
+        if (settleState && settleState !== '全部' && veh.state !== settleState) return
         const subRow = buildSubRow(inv, veh, key, mainRow)
         // 主行隐藏时，子行直接显示
         if (hideMainRow) {
@@ -1446,12 +1457,16 @@ function handlePriceInput() {
 
 // 加入结算篮
 function handleAddToBasket() {
-  const selected = selectedRecords.value.filter((r) => !r.isSubItem)
-  if (!checkReceiptForSettle(selected)) return
-  if (addToBasket(selected)) {
+  const mainSelected = selectedRecords.value
+  const subSelected = selectedSubItems.value
+  const allSelected = [...mainSelected, ...subSelected]
+  if (allSelected.length === 0) return
+  const innerNos = subSelected.map((r) => r.inner_waybill_no)
+  if (!checkReceiptForSettle(mainSelected, innerNos)) return
+  if (addToBasket(allSelected)) {
     // 清除选中状态
     tableData.value.forEach((row) => {
-      if (row.selected && !row.isSubItem) {
+      if (row.selected) {
         row.selected = false
       }
     })
@@ -1467,7 +1482,9 @@ async function handleSettleFromBasket(items: any[]) {
   }
 
   // 检查回执
-  if (!checkReceiptForSettle(items)) return
+  const mainItems = items.filter((item) => !item.isSubItem)
+  const innerNos = items.filter((item) => item.isSubItem).map((item) => item.inner_waybill_no)
+  if (!checkReceiptForSettle(mainItems, innerNos)) return
 
   // 检查价格输入情况
   const itemsWithoutPrice = items.filter((item) => item.vessel_price === 0)
@@ -1486,9 +1503,13 @@ async function handleSettleFromBasket(items: any[]) {
     return
   }
 
-  // 选中结算篮中的所有项目
+  // 选中结算篮中的所有项目（包括子项）
   tableData.value.forEach((row) => {
-    row.selected = items.some((item) => item.waybill_no === row.waybill_no)
+    if (row.isSubItem) {
+      row.selected = items.some((item) => item.inner_waybill_no && item.inner_waybill_no === row.inner_waybill_no)
+    } else {
+      row.selected = items.some((item) => !item.isSubItem && item.waybill_no === row.waybill_no)
+    }
   })
 
   // 执行结算
@@ -1502,9 +1523,13 @@ async function handleSettleFromBasket(items: any[]) {
 // 确认结算篮价格输入
 function handleConfirmBasketPrice() {
   const itemsWithoutPrice = basketPriceDialogData.value
-  // 选中这些没有价格的记录
+  // 选中这些没有价格的记录（包括子项）
   tableData.value.forEach((row) => {
-    row.selected = itemsWithoutPrice.some((item: any) => item.waybill_no === row.waybill_no)
+    if (row.isSubItem) {
+      row.selected = itemsWithoutPrice.some((item: any) => item.inner_waybill_no && item.inner_waybill_no === row.inner_waybill_no)
+    } else {
+      row.selected = itemsWithoutPrice.some((item: any) => !item.isSubItem && item.waybill_no === row.waybill_no)
+    }
   })
   // 根据数量打开相应的价格输入对话框
   if (itemsWithoutPrice.length === 1) {
@@ -2770,14 +2795,14 @@ function handleUploadReceiptConfirm() {
 
         <!-- 加入结算篮按钮 -->
         <UiButton
-          v-if="canShowBasket && selectedRecords.length > 0"
+          v-if="canShowBasket && (selectedRecords.length > 0 || selectedSubItems.length > 0)"
           variant="default"
           size="sm"
           class="bg-orange-500 hover:bg-orange-600 text-white ml-auto"
           @click="handleAddToBasket"
         >
           <ShoppingCart class="w-4 h-4 mr-1" />
-          加入结算篮 ({{ selectedRecords.length }})
+          加入结算篮 ({{ selectedRecords.length + selectedSubItems.length }})
         </UiButton>
         <!-- 分页/全部切换 -->
         <TooltipProvider :delay-duration="200">
@@ -2785,7 +2810,7 @@ function handleUploadReceiptConfirm() {
             <TooltipTrigger as-child>
               <button
                 class="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                :class="{ 'ml-auto': !(canShowBasket && selectedRecords.length > 0) }"
+                :class="{ 'ml-auto': !(canShowBasket && (selectedRecords.length > 0 || selectedSubItems.length > 0)) }"
                 :disabled="loading"
                 @click="togglePagination"
               >
@@ -2828,14 +2853,14 @@ function handleUploadReceiptConfirm() {
         </div>
         <!-- 加入结算篮按钮 -->
         <UiButton
-          v-if="canShowBasket && selectedRecords.length > 0"
+          v-if="canShowBasket && (selectedRecords.length > 0 || selectedSubItems.length > 0)"
           variant="default"
           size="sm"
           class="bg-orange-500 hover:bg-orange-600 text-white w-full"
           @click="handleAddToBasket"
         >
           <ShoppingCart class="w-4 h-4 mr-1" />
-          加入结算篮 ({{ selectedRecords.length }})
+          加入结算篮 ({{ selectedRecords.length + selectedSubItems.length }})
         </UiButton>
       </div>
 

@@ -399,11 +399,11 @@ onMounted(() => {
 
     <!-- 筛选区域 -->
     <div v-if="showFilter" class="mb-2 p-3 border rounded-lg bg-muted/50 shrink-0">
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2">
-        <UiInput v-model="filters.orderNo" placeholder="订单号" class="col-span-2 sm:col-span-1 lg:w-36" />
-        <SearchableCombobox v-model="filters.customerName" :search-fn="searchCompanies" placeholder="客户名称" class="col-span-2 sm:col-span-1 lg:w-36" />
+      <div class="flex flex-wrap items-center gap-2">
+        <UiInput v-model="filters.orderNo" placeholder="订单号" class="w-32" />
+        <SearchableCombobox v-model="filters.customerName" :search-fn="searchCompanies" placeholder="客户名称" class="w-32" />
         <UiSelect v-model="filters.transportMode">
-          <UiSelectTrigger class="lg:w-36">
+          <UiSelectTrigger class="w-32">
             <UiSelectValue placeholder="运输方式" />
           </UiSelectTrigger>
           <UiSelectContent>
@@ -413,7 +413,7 @@ onMounted(() => {
           </UiSelectContent>
         </UiSelect>
         <UiSelect v-model="filters.status">
-          <UiSelectTrigger class="lg:w-36">
+          <UiSelectTrigger class="w-28">
             <UiSelectValue placeholder="状态" />
           </UiSelectTrigger>
           <UiSelectContent>
@@ -422,16 +422,14 @@ onMounted(() => {
             </UiSelectItem>
           </UiSelectContent>
         </UiSelect>
-        <DatePicker v-model="filters.startDate" placeholder="开始日期" class="lg:w-40" />
-        <DatePicker v-model="filters.endDate" placeholder="结束日期" class="lg:w-40" />
-        <div class="col-span-2 sm:col-span-3 lg:col-span-1 flex gap-2">
-          <UiButton size="sm" class="flex-1 lg:flex-none" @click="loadData">
-            查询
-          </UiButton>
-          <UiButton variant="outline" size="sm" class="flex-1 lg:flex-none" @click="resetFilters">
-            重置
-          </UiButton>
-        </div>
+        <DatePicker v-model="filters.startDate" placeholder="开始日期" class="w-36" />
+        <DatePicker v-model="filters.endDate" placeholder="结束日期" class="w-36" />
+        <UiButton size="sm" @click="loadData">
+          查询
+        </UiButton>
+        <UiButton variant="outline" size="sm" @click="resetFilters">
+          重置
+        </UiButton>
       </div>
     </div>
 

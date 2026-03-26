@@ -2,11 +2,14 @@
 import { toast } from 'vue-sonner'
 import SettingsLayout from './components/settings-layout.vue'
 import { getTenantSettings, updateTenantSettings } from '@/services/api/user.api'
+import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
 
 const loading = ref(false)
 const saving = ref(false)
 const drayageRate = ref(0)
 const ownVehicleDeductPayable = ref(true)
+const requireReceiptForSettle = ref(false)
+const receiptStorage = ref('local')
 
 onMounted(async () => {
   loading.value = true
@@ -15,6 +18,8 @@ onMounted(async () => {
     if (result.ok) {
       drayageRate.value = result.settings?.drayageRate || 0
       ownVehicleDeductPayable.value = result.settings?.ownVehicleDeductPayable !== false
+      requireReceiptForSettle.value = result.settings?.requireReceiptForSettle === true
+      receiptStorage.value = result.settings?.receiptStorage || 'local'
     }
   } catch (e: any) {
     toast.error('加载设置失败', { description: e.message })
@@ -29,6 +34,8 @@ async function handleSubmit() {
     const result = await updateTenantSettings({
       drayageRate: drayageRate.value,
       ownVehicleDeductPayable: ownVehicleDeductPayable.value,
+      requireReceiptForSettle: requireReceiptForSettle.value,
+      receiptStorage: receiptStorage.value,
     })
     if (result.ok) {
       toast.success('设置已保存')
@@ -83,6 +90,37 @@ async function handleSubmit() {
             :disabled="loading"
           />
         </div>
+      </div>
+
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="space-y-0.5">
+            <label class="text-sm font-medium">结算前必须有回执</label>
+            <p class="text-xs text-muted-foreground">
+              开启时，结算操作要求运单已勾选回执；关闭时，无回执也可结算
+            </p>
+          </div>
+          <UiSwitch
+            v-model="requireReceiptForSettle"
+            :disabled="loading"
+          />
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-medium">回执图片存储方式</label>
+        <UiSelect v-model="receiptStorage" :disabled="loading">
+          <UiSelectTrigger class="w-full">
+            <UiSelectValue placeholder="选择存储方式" />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem value="local">本地目录存储</UiSelectItem>
+            <UiSelectItem value="minio">MinIO 对象存储</UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
+        <p class="text-xs text-muted-foreground">
+          选择 MinIO 需要在服务器 .env 中配置 MINIO_* 连接信息。切换后历史图片仍可正常访问。
+        </p>
       </div>
 
       <UiButton type="submit" :disabled="loading || saving">

@@ -208,6 +208,8 @@ async function main() {
   const useDrop = args.includes('--drop');
   const dirFlag = args.find(arg => arg.startsWith('--dir='));
   const customBackupDir = dirFlag ? dirFlag.split('=')[1] : null;
+  const tenantFlag = args.find(arg => arg.startsWith('--tenant='));
+  const tenantCode = tenantFlag ? tenantFlag.split('=')[1] : 'DEFAULT';
 
   // Get collection names (filter out flags)
   const collections = args.filter(arg => !arg.startsWith('--')).filter(name => {
@@ -341,18 +343,18 @@ Available collections in backup directory:
 
     const db = client.db(TARGET_DB);
 
-    // Get DEFAULT tenant ID
-    log('── Getting DEFAULT tenant ID ──');
+    // Get tenant ID
+    log(`── Getting ${tenantCode} tenant ID ──`);
     const tenantsCol = db.collection('tenants');
-    const defaultTenant = await tenantsCol.findOne({ code: 'DEFAULT' });
+    const targetTenant = await tenantsCol.findOne({ code: tenantCode });
 
-    if (!defaultTenant) {
-      error('DEFAULT tenant not found. Please run migration script first or start the application once.');
+    if (!targetTenant) {
+      error(`${tenantCode} tenant not found. Create the tenant first.`);
       process.exit(1);
     }
 
-    const tenantId = defaultTenant._id;
-    log(`  ✓ DEFAULT tenant: ${tenantId}\n`);
+    const tenantId = targetTenant._id;
+    log(`  ✓ ${tenantCode} tenant: ${tenantId}\n`);
 
     // Import and update each collection
     const results = [];

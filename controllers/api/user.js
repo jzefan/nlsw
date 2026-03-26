@@ -304,13 +304,20 @@ exports.updateTenantSettings = async (req, res) => {
     if (!isOwner(req) && !isPlatformUser(req)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
-    const { drayageRate, ownVehicleDeductPayable } = req.body;
+    const { drayageRate, ownVehicleDeductPayable, receiptStorage, requireReceiptForSettle } = req.body;
     const update = {};
     if (drayageRate !== undefined) {
       update['settings.drayageRate'] = Math.max(0, Number(drayageRate) || 0);
     }
     if (ownVehicleDeductPayable !== undefined) {
       update['settings.ownVehicleDeductPayable'] = !!ownVehicleDeductPayable;
+    }
+    if (receiptStorage !== undefined) {
+      const valid = ['local', 'minio'];
+      update['settings.receiptStorage'] = valid.includes(receiptStorage) ? receiptStorage : 'local';
+    }
+    if (requireReceiptForSettle !== undefined) {
+      update['settings.requireReceiptForSettle'] = !!requireReceiptForSettle;
     }
     await Tenant.findByIdAndUpdate(req.tenantId, { $set: update });
     res.json({ ok: true, message: '设置已保存' });

@@ -195,8 +195,9 @@ async function migrate() {
       const filePath = path.join(uploadDir, diskFilename);
 
       if (DRY_RUN) {
+        const dataLen = typeof doc.data.length === 'function' ? doc.data.length() : doc.data.length;
         log(
-          `  [预览] ${doc._id} → ${path.relative(process.cwd(), filePath)} (${doc.data.length} 字节)`
+          `  [预览] ${doc._id} → ${path.relative(process.cwd(), filePath)} (${dataLen} 字节)`
         );
         stats.migrated++;
         continue;
@@ -206,8 +207,9 @@ async function migrate() {
         // 创建目录
         fs.mkdirSync(uploadDir, { recursive: true });
 
-        // 写入文件
-        fs.writeFileSync(filePath, doc.data);
+        // 写入文件（MongoDB Binary 需要取 .buffer 转为 Buffer）
+        const fileData = doc.data.buffer ? Buffer.from(doc.data.buffer) : doc.data;
+        fs.writeFileSync(filePath, fileData);
 
         // 写入 receiptimages 元数据
         await receiptImagesCol.insertOne({
@@ -217,7 +219,7 @@ async function migrate() {
           upload_time: uploadTime,
           file_path: filePath,
           original_filename: originalFilename,
-          file_size: doc.data.length,
+          file_size: typeof doc.data.length === 'function' ? doc.data.length() : doc.data.length,
           mime_type: doc.contentType || "image/jpeg",
         });
 

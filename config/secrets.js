@@ -62,4 +62,14 @@ module.exports = {
   standaloneCompany: process.env.STANDALONE_COMPANY || "",
   enableSelfVehicle: process.env.ENABLE_SELF_VEHICLE === "true",
   enablePublicBasket: process.env.ENABLE_PUBLIC_BASKET === "true",
+
+  // MinIO 配置
+  minio: {
+    endpoint: process.env.MINIO_ENDPOINT || "localhost",
+    port: parseInt(process.env.MINIO_PORT || "9000"),
+    useSSL: process.env.MINIO_USE_SSL === "true",
+    accessKey: process.env.MINIO_ACCESS_KEY || "",
+    secretKey: process.env.MINIO_SECRET_KEY || "",
+    bucket: process.env.MINIO_BUCKET || "receipts",
+  },
 };

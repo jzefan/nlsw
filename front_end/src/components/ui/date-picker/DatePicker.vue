@@ -92,7 +92,7 @@ function handleCalendarClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div class="relative w-full">
+  <div class="relative">
     <UiPopover v-model:open="popoverOpen">
       <UiPopoverTrigger as-child>
         <UiButton
