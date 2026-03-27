@@ -380,8 +380,8 @@ function handleExport() {
     { header: '开单名称', key: 'billing_name' },
     { header: '目的地', key: 'ship_to' },
     { header: '块数', key: 'ship_number' },
-    { header: '重量', key: 'ship_weight' },
-    { header: '金额', key: 'price' },
+    { header: '重量', key: 'ship_weight', type: 'weight' as const },
+    { header: '金额', key: 'price', type: 'amount' as const },
     { header: '结算日期', key: 'settle_date' },
     { header: '结算人', key: 'settler' },
     ...(displayMode.value === 'ticket'

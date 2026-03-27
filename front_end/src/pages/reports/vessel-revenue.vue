@@ -506,8 +506,8 @@ function handleExportSummaryDetail() {
     sheetName: '车船费用统计',
     columns: [
       { header: '车船号', key: 'vname' },
-      { header: '吨位', key: 'weight', type: 'number' },
-      { header: '金额', key: 'amount', type: 'number' },
+      { header: '吨位', key: 'weight', type: 'weight' },
+      { header: '金额', key: 'amount', type: 'amount' },
       { header: '车船联系人', key: 'contact' },
     ],
     data: rows,
@@ -546,12 +546,12 @@ async function handleExportDetailList() {
       { header: '客户名称/单位', key: 'name' },
       { header: '起始地', key: 'ship_from' },
       { header: '目的地', key: 'ship_to' },
-      { header: '应收总价', key: 'receivable_price', type: 'number' as const, fill: 'FFDCFCE7' },
-      { header: '应收单价', key: 'receivable_single_price', type: 'number' as const, fill: 'FFE0F2FE' },
-      { header: '应付总价', key: 'payable_price', type: 'number' as const, fill: 'FFFFEDD5' },
-      { header: '应付单价', key: 'payable_single_price', type: 'number' as const, fill: 'FFFFE4E6' },
+      { header: '应收总价', key: 'receivable_price', type: 'amount' as const, fill: 'FFDCFCE7' },
+      { header: '应收单价', key: 'receivable_single_price', type: 'amount' as const, fill: 'FFE0F2FE' },
+      { header: '应付总价', key: 'payable_price', type: 'amount' as const, fill: 'FFFFEDD5' },
+      { header: '应付单价', key: 'payable_single_price', type: 'amount' as const, fill: 'FFFFE4E6' },
       { header: '发运块数', key: 'send_num', type: 'number' as const },
-      { header: '发运重量', key: 'send_weight', type: 'number' as const },
+      { header: '发运重量', key: 'send_weight', type: 'weight' as const },
       { header: '发货日期', key: 'ship_date' },
       { header: '预付', key: 'advance_charge' },
       { header: '滞留天数', key: 'delay_day', type: 'number' as const },
@@ -600,8 +600,10 @@ async function handleExportDetailList() {
             cell.border = thinBorder
             cell.alignment = {
               vertical: 'middle',
-              horizontal: col.type === 'number' ? 'right' : 'left',
+              horizontal: (col.type === 'number' || col.type === 'weight' || col.type === 'amount') ? 'right' : 'left',
             }
+            if (col.type === 'weight' && typeof cell.value === 'number') cell.numFmt = '0.000'
+            else if (col.type === 'amount' && typeof cell.value === 'number') cell.numFmt = '0.00'
             if (col.fill) {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: col.fill } }
             }
@@ -829,12 +831,18 @@ async function handleExport() {
         item.vsOwnProfit + item.vsProfit - item.vsFixedCost
       ]
 
+      const weightCols = new Set([0, 2, 6])
+      const amountCols = new Set([1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13])
       vesselData.forEach((val, idx) => {
         const cell = sheet.getCell(currentRow, idx + 3) // columns C onwards
         cell.value = val === '-' ? val : Number(val.toFixed(3))
         cell.alignment = { vertical: 'middle', horizontal: val === '-' ? 'center' : 'right' }
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
         cell.font = { size: 10 }
+        if (typeof cell.value === 'number') {
+          if (weightCols.has(idx)) cell.numFmt = '0.000'
+          else if (amountCols.has(idx)) cell.numFmt = '0.00'
+        }
         updateWidth(idx + 2, cell.value)
       })
 
@@ -876,6 +884,10 @@ async function handleExport() {
         cell.alignment = { vertical: 'middle', horizontal: 'right' }
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
         cell.font = { size: 10 }
+        if (typeof cell.value === 'number') {
+          if (weightCols.has(idx)) cell.numFmt = '0.000'
+          else if (amountCols.has(idx)) cell.numFmt = '0.00'
+        }
         updateWidth(idx + 2, cell.value)
       })
 
@@ -925,6 +937,8 @@ async function handleExport() {
         totals.vsNetProfit
       ]
 
+      const weightCols = new Set([0, 2, 6])
+      const amountCols = new Set([1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13])
       vsSummaryData.forEach((val, idx) => {
         const cell = sheet.getCell(currentRow, idx + 3)
         cell.value = val === '-' ? val : Number(val.toFixed(3))
@@ -932,6 +946,10 @@ async function handleExport() {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
         cell.alignment = { vertical: 'middle', horizontal: val === '-' ? 'center' : 'right' }
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        if (typeof cell.value === 'number') {
+          if (weightCols.has(idx)) cell.numFmt = '0.000'
+          else if (amountCols.has(idx)) cell.numFmt = '0.00'
+        }
         updateWidth(idx + 2, cell.value)
       })
 
@@ -974,6 +992,10 @@ async function handleExport() {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
         cell.alignment = { vertical: 'middle', horizontal: 'right' }
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+        if (typeof cell.value === 'number') {
+          if (weightCols.has(idx)) cell.numFmt = '0.000'
+          else if (amountCols.has(idx)) cell.numFmt = '0.00'
+        }
         updateWidth(idx + 2, cell.value)
       })
     }

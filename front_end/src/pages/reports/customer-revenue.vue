@@ -641,6 +641,10 @@ async function handleExport() {
       cell.border = thinBorder
       if (idx > 0) {
         cell.alignment = { horizontal: 'right' }
+        // 奇数索引=重量, 偶数索引=金额 (idx从0开始, 0=名称)
+        if (typeof val === 'number') {
+          cell.numFmt = idx % 2 === 1 ? '0.000' : '0.00'
+        }
       }
       updateWidth(idx, val)
     })
@@ -672,6 +676,9 @@ async function handleExport() {
       cell.font = { bold: true }
       if (idx > 0) {
         cell.alignment = { horizontal: 'right' }
+        if (typeof val === 'number') {
+          cell.numFmt = idx % 2 === 1 ? '0.000' : '0.00'
+        }
       }
       updateWidth(idx, val)
     })
@@ -728,13 +735,17 @@ async function confirmDetailExport() {
   sheet.addRow(headers)
   sheet.getRow(1).font = { bold: true }
 
+  const detailAmountCols = [6, 7, 8] // 代收价格, 客户价格, 价格 (1-indexed)
+  const detailWeightCols = [10] // 发运重量 (1-indexed)
   filteredData.forEach(item => {
-    sheet.addRow([
+    const row = sheet.addRow([
       item.order, item.bill_no, item.name, item.veh_ves_name, item.ship_to,
       item.coll_price, item.price, item.tot_price, item.send_num, item.send_weight,
       item.ship_date ? new Date(item.ship_date).toLocaleDateString() : '',
       item.inv_no, item.warehouse, item.spec, item.brand_no, item.contract_no,
     ])
+    detailAmountCols.forEach(c => { if (typeof row.getCell(c).value === 'number') row.getCell(c).numFmt = '0.00' })
+    detailWeightCols.forEach(c => { if (typeof row.getCell(c).value === 'number') row.getCell(c).numFmt = '0.000' })
   })
 
   // 自动列宽

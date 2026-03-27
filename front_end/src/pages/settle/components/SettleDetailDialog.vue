@@ -117,10 +117,10 @@ function exportDetail() {
       { header: '开单名称', key: 'billing_name' },
       { header: '车船', key: 'vessel' },
       { header: '目的地', key: 'ship_to' },
-      { header: '单价', key: 'price', type: 'number' },
+      { header: '单价', key: 'price', type: 'amount' },
       { header: '发运块数', key: 'settle_num', type: 'number' },
-      { header: '发运重量', key: 'settle_weight', type: 'number' },
-      { header: '金额', key: 'amount', type: 'number' },
+      { header: '发运重量', key: 'settle_weight', type: 'weight' },
+      { header: '金额', key: 'amount', type: 'amount' },
     ],
     data: exportData,
   })

@@ -781,7 +781,9 @@ function handleExportFromBasket() {
     ])
   })
 
-  exportFromAOAWithPicker(data, `结算篮_客户_${dayjs().format('YYYY-MM-DD')}`, '结算篮')
+  // 列格式：块数(5)无, 发运量(6)重量, 单价(7)金额, 总价格(8)金额
+  const columnFormats = [null, null, null, null, null, null, '0.000', '0.00', '0.00', null]
+  exportFromAOAWithPicker(data, `结算篮_客户_${dayjs().format('YYYY-MM-DD')}`, '结算篮', columnFormats)
 }
 
 // 结算篮价格设置
@@ -834,7 +836,9 @@ function handleExportFromPublicBaskets() {
     ])
   })
 
-  exportFromAOAWithPicker(data, `公开篮_客户_${dayjs().format('YYYY-MM-DD')}`, '公开篮')
+  // 列格式：发运量(7)重量, 单价(8)金额, 总价格(9)金额
+  const columnFormats = [null, null, null, null, null, null, null, '0.000', '0.00', '0.00', null]
+  exportFromAOAWithPicker(data, `公开篮_客户_${dayjs().format('YYYY-MM-DD')}`, '公开篮', columnFormats)
 }
 
 // 公开篮价格设置
@@ -1002,9 +1006,9 @@ function handleExport() {
       { header: '车船', key: 'veh_ves_name' },
       { header: '目的地', key: 'ship_to' },
       { header: '块数', key: 'send_num', type: 'number' },
-      { header: '发运量', key: 'send_weight', type: 'number' },
-      { header: '单价', key: 'price' },
-      { header: '总价格', key: 'total_price', type: 'number' },
+      { header: '发运量', key: 'send_weight', type: 'weight' },
+      { header: '单价', key: 'price', type: 'amount' },
+      { header: '总价格', key: 'total_price', type: 'amount' },
       { header: '起始地', key: 'ship_from' },
       { header: '发货仓库', key: 'ship_warehouse' },
       { header: '发货日期', key: 'ship_date', type: 'datetime' },

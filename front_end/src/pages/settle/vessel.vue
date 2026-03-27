@@ -1072,10 +1072,11 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any, ctx = 
     isSubItem: true,
     isVessel: false,
     selected: false,
-    has_receipt_image: ctx.imageWaybillsSet.has(innerNo),
+    has_receipt_image: ctx.imageWaybillsSet.has(veh.inner_waybill_no || innerNo),
     parentRow,
     parentExpanded: parentRow.expanded,
-    inner_waybill_no: innerNo,
+    inner_waybill_no: veh.inner_waybill_no || innerNo,
+    display_key: innerNo,
     waybill_no: inv.waybill_no,
     veh_name: veh.name,
     ship_from: veh.ship_from,
@@ -1137,6 +1138,7 @@ function makeVehInfo(invoice: any) {
         } else {
           vehObj[key] = {
             name: veh.veh_name,
+            inner_waybill_no: veh.inner_waybill_no,
             num: veh.send_num,
             weight: veh.send_weight,
             price: veh.veh_price || 0,
@@ -1156,6 +1158,7 @@ function makeVehInfo(invoice: any) {
     } else {
       vehObj[key] = {
         name: veh.veh_name,
+        inner_waybill_no: veh.inner_waybill_no,
         num: veh.send_num,
         weight: veh.send_weight,
         price: veh.veh_price || 0,
@@ -1176,19 +1179,24 @@ function makeVehInfo(invoice: any) {
   // 合并结算信息
   if (invoice.inner_settle && invoice.inner_settle.length) {
     invoice.inner_settle.forEach((innset: any) => {
-      if (vehObj[innset.inner_waybill_no]) {
-        Object.assign(vehObj[innset.inner_waybill_no], {
-          state: innset.state,
-          date: innset.date,
-          unship_date: innset.unship_date,
-          delay_day: innset.delay_day,
-          charge_cash: innset.charge_cash,
-          charge_oil: innset.charge_oil,
-          receipt: innset.receipt,
-          remark: innset.remark,
-          pay_date: innset.pay_date,
-          ticket_no: innset.ticket_no,
-        })
+      const settleData = {
+        state: innset.state,
+        date: innset.date,
+        unship_date: innset.unship_date,
+        delay_day: innset.delay_day,
+        charge_cash: innset.charge_cash,
+        charge_oil: innset.charge_oil,
+        receipt: innset.receipt,
+        remark: innset.remark,
+        pay_date: innset.pay_date,
+        ticket_no: innset.ticket_no,
+      }
+      // 按 key 直接匹配（正常情况 + 已有脏数据的 inner_settle）
+      // 同时按存储的 inner_waybill_no 匹配（冲突 key 的情况）
+      for (const key in vehObj) {
+        if (key === innset.inner_waybill_no || vehObj[key].inner_waybill_no === innset.inner_waybill_no) {
+          Object.assign(vehObj[key], settleData)
+        }
       }
     })
   }
@@ -1913,6 +1921,16 @@ function getExportColumns(includeUser = false) {
   return columns
 }
 
+function getExportColumnFormats(includeUser = false) {
+  const fmtMap: Record<string, string> = {
+    '发运重量': '0.000',
+    '单价': '0.00',
+    '总价格': '0.00',
+    '预付': '0.00',
+  }
+  return getExportColumns(includeUser).map((h) => fmtMap[h] || null)
+}
+
 function getExportRowValues(row: any, categoryMap = vehCategoryMap.value, includeUser = false) {
   const weight = row.isSubItem ? row.send_weight : row.total_weight
   const price = row.isSubItem ? row.price : row.vessel_price
@@ -2092,6 +2110,8 @@ async function buildStyledMainExportBuffer(rows: any[], categoryMap: Record<stri
   const sheet = workbook.addWorksheet('车船结算')
   const headers = getExportColumns()
   const numericHeaders = new Set(['发运块数', '发运重量', '单价', '总价格', '滞留天数'])
+  const weightHeaders = new Set(['发运重量'])
+  const amountHeaders = new Set(['单价', '总价格', '预付'])
   const centerHeaders = new Set(['状态', '车船归属', '发货日期', '结算日期', '卸船日期', '回执'])
 
   const thinBorder: Partial<ExcelJS.Borders> = {
@@ -2145,6 +2165,12 @@ async function buildStyledMainExportBuffer(rows: any[], categoryMap: Record<stri
         indent: header === '车船号' && row.isSubItem ? 1 : 0,
       }
 
+      if (weightHeaders.has(header) && typeof cell.value === 'number') {
+        cell.numFmt = '0.000'
+      } else if (amountHeaders.has(header) && typeof cell.value === 'number') {
+        cell.numFmt = '0.00'
+      }
+
       if (row.isSubItem) {
         cell.fill = truckToVesselFill
       }
@@ -2195,7 +2221,7 @@ function handleExportFromBasket() {
   const data: any[][] = [getExportColumns()]
   appendExportRows(data, basketItems.value, vehCategoryMap.value, false, false)
 
-  exportFromAOAWithPicker(data, `结算篮_车船_${dayjs().format('YYYY-MM-DD')}`, '结算篮')
+  exportFromAOAWithPicker(data, `结算篮_车船_${dayjs().format('YYYY-MM-DD')}`, '结算篮', getExportColumnFormats())
 }
 
 // 结算篮价格设置
@@ -2218,7 +2244,7 @@ function handleExportFromPublicBaskets() {
   const data: any[][] = [getExportColumns(true)]
   appendExportRows(data, publicItems.value, vehCategoryMap.value, true, false)
 
-  exportFromAOAWithPicker(data, `公开篮_车船_${dayjs().format('YYYY-MM-DD')}`, '公开篮')
+  exportFromAOAWithPicker(data, `公开篮_车船_${dayjs().format('YYYY-MM-DD')}`, '公开篮', getExportColumnFormats(true))
 }
 
 // 公开篮价格设置
@@ -3065,7 +3091,7 @@ function handleUploadReceiptConfirm() {
 
             <template
               v-for="(row, index) in pagedData"
-              :key="row.isSubItem ? `sub-${row.inner_waybill_no}` : `main-${row.waybill_no}`"
+              :key="row.isSubItem ? `sub-${row.display_key}` : `main-${row.waybill_no}`"
             >
               <!-- 主行 -->
               <TableRow
@@ -3513,7 +3539,7 @@ function handleUploadReceiptConfirm() {
 
         <template
           v-for="(row, index) in pagedData"
-          :key="row.isSubItem ? `m-sub-${row.inner_waybill_no}` : `m-main-${row.waybill_no}`"
+          :key="row.isSubItem ? `m-sub-${row.display_key}` : `m-main-${row.waybill_no}`"
         >
           <!-- 主行卡片 -->
           <div
@@ -3699,7 +3725,7 @@ function handleUploadReceiptConfirm() {
                 :weight="`${formatNumber(row.send_weight)}吨`"
                 :price="hasPrivilegePrice ? `${row.unitPrice}/${row.priceText}` : undefined"
                 :price-class="row.priceColor"
-                :card-expanded="expandedCards.has(row.inner_waybill_no)"
+                :card-expanded="expandedCards.has(row.display_key)"
                 :waybill-no="row.inner_waybill_no"
                 :ticket-no="row.ticket_no"
                 :charge-cash="row.charge_cash"
@@ -3709,7 +3735,7 @@ function handleUploadReceiptConfirm() {
                 :unship-date="formatDate(row.unship_date, '')"
                 :pay-date="formatDate(row.pay_date, '')"
                 :carrier-boss="row.carrierBoss"
-                @toggle-card-expand="toggleCardExpand(row.inner_waybill_no)"
+                @toggle-card-expand="toggleCardExpand(row.display_key)"
               />
 
               <!-- 右侧：回执checkbox -->

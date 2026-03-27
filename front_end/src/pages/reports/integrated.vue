@@ -473,7 +473,10 @@ async function handleExport() {
     })
 
     const aoa = [headers, ...data]
-    await exportFromAOAWithPicker(aoa, `综合查询_${new Date().toISOString().slice(0, 10)}`, '综合查询')
+    const weightSet = new Set(['发运重量', '重量'])
+    const amountSet = new Set(['客户单价', '代收单价', '车船单价', '总价格'])
+    const columnFormats = headers.map((h) => weightSet.has(h) ? '0.000' : amountSet.has(h) ? '0.00' : null)
+    await exportFromAOAWithPicker(aoa, `综合查询_${new Date().toISOString().slice(0, 10)}`, '综合查询', columnFormats)
   } catch (e: any) {
     toast.error('导出出错', { description: e.message })
   } finally {
@@ -640,7 +643,9 @@ async function handleExportAccount() {
     }
 
     const aoa = [headers, ...data]
-    await exportFromAOAWithPicker(aoa, `对账数据_${new Date().toISOString().slice(0, 10)}`, '对账数据')
+    const acctWeightSet = new Set(['发运重量', '总重量'])
+    const acctFormats = headers.map((h) => acctWeightSet.has(h) ? '0.000' : null)
+    await exportFromAOAWithPicker(aoa, `对账数据_${new Date().toISOString().slice(0, 10)}`, '对账数据', acctFormats)
   } catch (e: any) {
     toast.error('导出出错', { description: e.message })
   } finally {

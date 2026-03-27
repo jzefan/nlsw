@@ -10,7 +10,7 @@ export interface ExportColumn {
   /** 格式化函数 */
   formatter?: (value: any, row: any) => any
   /** 单元格类型提示（用于设置 Excel 数字格式） */
-  type?: 'number' | 'date' | 'datetime'
+  type?: 'number' | 'date' | 'datetime' | 'weight' | 'amount'
 }
 
 export interface ExportOptions {
@@ -31,6 +31,8 @@ export interface ExportAOAOptions {
   fileName: string
   /** 工作表名称 */
   sheetName?: string
+  /** 每列的数字格式（按索引，跳过表头行自动应用到数据行） */
+  columnFormats?: (string | null | undefined)[]
 }
 
 export interface ExportBufferOptions {
@@ -129,13 +131,20 @@ export function useExport() {
     const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
 
     // 为有类型标记的列设置 Excel 数字格式
+    const fmtMap: Record<string, string> = {
+      date: 'yyyy-mm-dd',
+      datetime: 'yyyy-mm-dd hh:mm',
+      weight: '0.000',
+      amount: '0.00',
+    }
     columns.forEach((col, colIdx) => {
       if (!col.type) return
-      const fmt = col.type === 'date' ? 'yyyy-mm-dd' : col.type === 'datetime' ? 'yyyy-mm-dd hh:mm' : undefined
+      const fmt = fmtMap[col.type]
+      if (!fmt) return
       for (let rowIdx = 1; rowIdx <= rows.length; rowIdx++) {
         const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
         const cell = ws[cellRef]
-        if (cell && fmt) cell.z = fmt
+        if (cell && cell.v != null && cell.v !== '') cell.z = fmt
       }
     })
 
@@ -155,8 +164,20 @@ export function useExport() {
   /**
    * 生成工作簿（从 AOA）
    */
-  function generateWorkbookFromAOA(aoa: any[][], sheetName?: string): XLSX.WorkBook {
+  function generateWorkbookFromAOA(aoa: any[][], sheetName?: string, columnFormats?: (string | null | undefined)[]): XLSX.WorkBook {
     const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
+
+    // 应用列数字格式（跳过第一行表头）
+    if (columnFormats && aoa.length > 1) {
+      columnFormats.forEach((fmt, colIdx) => {
+        if (!fmt) return
+        for (let rowIdx = 1; rowIdx < aoa.length; rowIdx++) {
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
+          const cell = ws[cellRef]
+          if (cell && cell.v != null && cell.v !== '') cell.z = fmt
+        }
+      })
+    }
 
     // 自动检测 Date 对象并设置格式
     applyDateFormats(ws)
@@ -206,10 +227,10 @@ export function useExport() {
   /**
    * 打开导出对话框（AOA 方式）
    */
-  function exportFromAOAWithPicker(aoa: any[][], defaultFileName: string, sheetName?: string) {
+  function exportFromAOAWithPicker(aoa: any[][], defaultFileName: string, sheetName?: string, columnFormats?: (string | null | undefined)[]) {
     pendingExport.value = {
       type: 'aoa',
-      options: { aoa, fileName: defaultFileName, sheetName },
+      options: { aoa, fileName: defaultFileName, sheetName, columnFormats },
     }
     exportFileName.value = defaultFileName
     showExportDialog.value = true
@@ -218,9 +239,9 @@ export function useExport() {
   /**
    * 从 AOA（二维数组）直接导出
    */
-  function exportFromAOA(aoa: any[][], fileName: string, sheetName?: string) {
+  function exportFromAOA(aoa: any[][], fileName: string, sheetName?: string, columnFormats?: (string | null | undefined)[]) {
     try {
-      const wb = generateWorkbookFromAOA(aoa, sheetName)
+      const wb = generateWorkbookFromAOA(aoa, sheetName, columnFormats)
       XLSX.writeFile(wb, `${fileName}.xlsx`)
       toast.success('导出成功')
     }
@@ -257,6 +278,7 @@ export function useExport() {
           wb = generateWorkbookFromAOA(
             pendingExport.value.options.aoa,
             pendingExport.value.options.sheetName,
+            pendingExport.value.options.columnFormats,
           )
         }
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })

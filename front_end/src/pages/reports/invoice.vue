@@ -721,6 +721,8 @@ async function handleExport() {
 
   // 数字列索引（厚度3, 宽度4, 长度5, 单重6, 发运数7, 发运重量8）
   const numColIndices = new Set([3, 4, 5, 6, 7, 8])
+  // 重量列索引（单重6, 发运重量8）→ 3位小数
+  const weightColIndices = new Set([6, 8])
 
   // 交替背景色（用于船运按车分组）
   const altFillA: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F7FF' } }
@@ -735,6 +737,9 @@ async function handleExport() {
       if (fill) cell.fill = fill
       if (numColIndices.has(idx)) {
         cell.alignment = { horizontal: 'right' }
+      }
+      if (weightColIndices.has(idx) && typeof val === 'number') {
+        cell.numFmt = '0.000'
       }
       if (idx === 2) {
         cell.alignment = { wrapText: true }
