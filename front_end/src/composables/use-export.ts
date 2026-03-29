@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import * as XLSX from 'xlsx'
@@ -33,6 +34,10 @@ export interface ExportAOAOptions {
   sheetName?: string
   /** 每列的数字格式（按索引，跳过表头行自动应用到数据行） */
   columnFormats?: (string | null | undefined)[]
+  /** 冻结首行 */
+  freezeHeader?: boolean
+  /** 首行自动筛选 */
+  autoFilter?: boolean
 }
 
 export interface ExportBufferOptions {
@@ -164,7 +169,8 @@ export function useExport() {
   /**
    * 生成工作簿（从 AOA）
    */
-  function generateWorkbookFromAOA(aoa: any[][], sheetName?: string, columnFormats?: (string | null | undefined)[]): XLSX.WorkBook {
+  function generateWorkbookFromAOA(options: ExportAOAOptions): XLSX.WorkBook {
+    const { aoa, sheetName, columnFormats, freezeHeader, autoFilter } = options
     const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
 
     // 应用列数字格式（跳过第一行表头）
@@ -184,6 +190,12 @@ export function useExport() {
 
     // 自动调整列宽
     ws['!cols'] = buildColumnWidths(aoa)
+
+    // 自动筛选（SheetJS 支持）
+    if (autoFilter && aoa.length > 0) {
+      const colCount = aoa[0].length
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } }) }
+    }
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1')
@@ -227,10 +239,16 @@ export function useExport() {
   /**
    * 打开导出对话框（AOA 方式）
    */
-  function exportFromAOAWithPicker(aoa: any[][], defaultFileName: string, sheetName?: string, columnFormats?: (string | null | undefined)[]) {
+  function exportFromAOAWithPicker(
+    aoa: any[][],
+    defaultFileName: string,
+    sheetName?: string,
+    columnFormats?: (string | null | undefined)[],
+    extra?: { freezeHeader?: boolean, autoFilter?: boolean },
+  ) {
     pendingExport.value = {
       type: 'aoa',
-      options: { aoa, fileName: defaultFileName, sheetName, columnFormats },
+      options: { aoa, fileName: defaultFileName, sheetName, columnFormats, ...extra },
     }
     exportFileName.value = defaultFileName
     showExportDialog.value = true
@@ -241,7 +259,7 @@ export function useExport() {
    */
   function exportFromAOA(aoa: any[][], fileName: string, sheetName?: string, columnFormats?: (string | null | undefined)[]) {
     try {
-      const wb = generateWorkbookFromAOA(aoa, sheetName, columnFormats)
+      const wb = generateWorkbookFromAOA({ aoa, fileName, sheetName, columnFormats })
       XLSX.writeFile(wb, `${fileName}.xlsx`)
       toast.success('导出成功')
     }
@@ -271,20 +289,33 @@ export function useExport() {
       }
       else {
         let wb: XLSX.WorkBook
+        let needFreeze = false
         if (pendingExport.value.type === 'columns') {
           wb = generateWorkbook(pendingExport.value.options)
         }
         else {
-          wb = generateWorkbookFromAOA(
-            pendingExport.value.options.aoa,
-            pendingExport.value.options.sheetName,
-            pendingExport.value.options.columnFormats,
-          )
+          wb = generateWorkbookFromAOA(pendingExport.value.options)
+          needFreeze = !!pendingExport.value.options.freezeHeader
         }
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-        blob = new Blob([wbout], {
-          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        })
+
+        if (needFreeze) {
+          // SheetJS 不支持冻结首行，用 ExcelJS 后处理
+          const ejsWb = new ExcelJS.Workbook()
+          await ejsWb.xlsx.load(wbout)
+          ejsWb.eachSheet((sheet) => {
+            sheet.views = [{ state: 'frozen', ySplit: 1 }]
+          })
+          const finalBuf = await ejsWb.xlsx.writeBuffer()
+          blob = new Blob([finalBuf], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+        }
+        else {
+          blob = new Blob([wbout], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+        }
       }
 
       if (directoryHandle) {

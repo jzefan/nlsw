@@ -140,6 +140,20 @@ export async function getDestinations() {
   return response.data
 }
 
+// 搜索订单号（用于动态加载）
+export async function searchOrderNumbers(search: string, limit = 20, page = 1) {
+  const response = await axiosInstance.get('/order-numbers/search', {
+    params: { search, limit, page },
+  })
+  return response.data
+}
+
+// 添加订单号到字典
+export async function addOrderNumber(value: string) {
+  const response = await axiosInstance.post('/order-numbers/add', { value })
+  return response.data
+}
+
 // 搜索目的地（用于动态加载，支持分页）
 export async function searchDestinations(search: string, limit = 20, page = 1) {
   const response = await axiosInstance.get('/destinations', {

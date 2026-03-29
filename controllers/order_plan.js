@@ -191,6 +191,31 @@ exports.postCreateOrderPlan = async function (req, res) {
       await plan.save();
     }
 
+    // Update OrderNumber dictionary
+    try {
+      const OrderNumber = require('../models/OrderNumber');
+      const ops = [];
+      const seen = new Set();
+      for (let row_data of req.body) {
+        const orderNo = row_data.orderNo;
+        if (orderNo && !seen.has(orderNo)) {
+          seen.add(orderNo);
+          ops.push({
+            updateOne: {
+              filter: { tenantId: req.tenantId, type: 'order_no', value: orderNo },
+              update: { $setOnInsert: { tenantId: req.tenantId, type: 'order_no', value: orderNo } },
+              upsert: true
+            }
+          });
+        }
+      }
+      if (ops.length > 0) {
+        await OrderNumber.bulkWrite(ops);
+      }
+    } catch (e) {
+      console.error('OrderNumber insert error (non-fatal):', e.message);
+    }
+
     res.end(JSON.stringify({ ok: true }));
   } catch (err) {
     logger.error("保存出错！(订单号:" + currentOrderNo + ", 原因:" + err);

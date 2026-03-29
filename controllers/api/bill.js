@@ -531,6 +531,31 @@ exports.createBills = async (req, res) => {
       pushArr(allWarehouse, bill.ship_warehouse);
     }
 
+    // Update OrderNumber dictionary
+    try {
+      const OrderNumber = require('../../models/OrderNumber');
+      const orderNoOps = [];
+      const seenOrderNos = new Set();
+      for (let row_data of req.body) {
+        const orderNo = row_data.orderNo || row_data.order_no;
+        if (orderNo && !seenOrderNos.has(orderNo)) {
+          seenOrderNos.add(orderNo);
+          orderNoOps.push({
+            updateOne: {
+              filter: { tenantId: req.tenantId, type: 'order_no', value: orderNo },
+              update: { $setOnInsert: { tenantId: req.tenantId, type: 'order_no', value: orderNo } },
+              upsert: true
+            }
+          });
+        }
+      }
+      if (orderNoOps.length > 0) {
+        await OrderNumber.bulkWrite(orderNoOps);
+      }
+    } catch (e) {
+      console.error('OrderNumber insert error (non-fatal):', e.message);
+    }
+
     // Update Dictionaries
     for (let w of allWarehouse) {
       if (!w) continue;

@@ -416,6 +416,8 @@ async function handleExport() {
         return ''
       }
 
+      const priceOrLabel = (v: number) => v < 0 ? '不需要结算' : toExcelNum(v)
+
       const row: any[] = []
 
       if (showNotSent.value) {
@@ -430,9 +432,9 @@ async function handleExport() {
         row.push(0)
         row.push(toExcelNum(w))
         if (canSeePrice.value) {
-          row.push(toExcelNum(bill.price))
-          row.push(toExcelNum(bill.collection_price))
-          row.push(toExcelNum(bill.veh_ves_price))
+          row.push(priceOrLabel(bill.price))
+          row.push(priceOrLabel(bill.collection_price))
+          row.push(priceOrLabel(bill.veh_ves_price))
         }
         row.push('')
         row.push('')
@@ -449,9 +451,9 @@ async function handleExport() {
         row.push(toExcelNum(bill.send_num))
         row.push(toExcelNum(bill.send_weight))
         if (canSeePrice.value) {
-          row.push(toExcelNum(bill.price))
-          row.push(toExcelNum(bill.collection_price))
-          row.push(toExcelNum(bill.veh_ves_price))
+          row.push(priceOrLabel(bill.price))
+          row.push(priceOrLabel(bill.collection_price))
+          row.push(priceOrLabel(bill.veh_ves_price))
         }
         row.push(toExcelDateTimeMinute(bill.inv_ship_date))
         row.push(bill.inv_shipper)
@@ -474,9 +476,9 @@ async function handleExport() {
 
     const aoa = [headers, ...data]
     const weightSet = new Set(['发运重量', '重量'])
-    const amountSet = new Set(['客户单价', '代收单价', '车船单价', '总价格'])
+    const amountSet = new Set(['客户单价', '南钢单价', '应付单价', '总价格'])
     const columnFormats = headers.map((h) => weightSet.has(h) ? '0.000' : amountSet.has(h) ? '0.00' : null)
-    await exportFromAOAWithPicker(aoa, `综合查询_${new Date().toISOString().slice(0, 10)}`, '综合查询', columnFormats)
+    await exportFromAOAWithPicker(aoa, `综合查询_${new Date().toISOString().slice(0, 10)}`, '综合查询', columnFormats, { freezeHeader: true, autoFilter: true })
   } catch (e: any) {
     toast.error('导出出错', { description: e.message })
   } finally {
@@ -645,7 +647,7 @@ async function handleExportAccount() {
     const aoa = [headers, ...data]
     const acctWeightSet = new Set(['发运重量', '总重量'])
     const acctFormats = headers.map((h) => acctWeightSet.has(h) ? '0.000' : null)
-    await exportFromAOAWithPicker(aoa, `对账数据_${new Date().toISOString().slice(0, 10)}`, '对账数据', acctFormats)
+    await exportFromAOAWithPicker(aoa, `对账数据_${new Date().toISOString().slice(0, 10)}`, '对账数据', acctFormats, { freezeHeader: true, autoFilter: true })
   } catch (e: any) {
     toast.error('导出出错', { description: e.message })
   } finally {

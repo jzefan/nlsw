@@ -13,8 +13,10 @@ import {
   checkPlanExists,
   createPlans,
 
+  addOrderNumber,
   searchCompanies,
   searchDestinations,
+  searchOrderNumbers,
 } from '@/services/api/plan.api'
 
 // 订单数据
@@ -330,10 +332,13 @@ const totalWeight = computed(() => {
     <!-- 输入表单 -->
     <div class="mb-4 p-3 border rounded-lg bg-muted/50">
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <UiInput
+        <SearchableCombobox
           v-model="form.orderNo"
+          :search-fn="searchOrderNumbers"
+          :save-fn="addOrderNumber"
           placeholder="订单号 (11位) *"
-          @blur="validateOrderNo"
+          allow-free-input
+          @update:model-value="validateOrderNo"
         />
         <UiInput v-model="form.orderWeight" type="number" step="0.01" placeholder="订单量 *" />
         <SearchableCombobox v-model="form.customerName" :search-fn="searchCompanies" placeholder="客户名称 *" />
