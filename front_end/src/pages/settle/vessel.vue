@@ -25,6 +25,7 @@ import {
   Users,
   Wallet,
   X,
+  ChevronsUpDown,
 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useThrottleFn } from '@vueuse/core'
@@ -530,7 +531,7 @@ function buildSearchParams() {
     fReceipt: Number(filterForm.value.receiptState),
     fAmount: filterForm.value.amount,
     fWeight: filterForm.value.weight,
-    selfOwned: isSelfOwnedMode.value ? '1' : undefined,
+    selfOwned: isSelfOwnedMode.value ? '1' : (authStore.features.selfVehicle ? '0' : undefined),
   }
 
   if (usePagination.value) {
@@ -930,7 +931,7 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
       carrierBoss = bossList[0]
     } else if (bossList.length > 1) {
       carrierOptions = bossList
-      // 查找已选择的
+      // 查找已选择的（可能是多选，逗号分隔）
       if (carrier.real_boss && carrier.real_boss.length) {
         const found = carrier.real_boss.find((rb: any) => rb.waybill_no === inv.waybill_no)
         if (found) {
@@ -943,6 +944,11 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
       }
     }
   }
+
+  // 已选承运单位数组（支持多选）
+  const selectedCarrierArr = carrierBoss
+    ? carrierBoss.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+    : []
 
   // 价格文本
   let priceText = '无'
@@ -990,6 +996,7 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
     carrierBoss,
     carrierOptions,
     selectedCarrier: carrierBoss,
+    selectedCarrierArr,
     priceText,
     priceColor,
     unitPrice,
@@ -1040,6 +1047,11 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any, ctx = 
       }
     }
   }
+
+  // 已选承运单位数组（支持多选）
+  const selectedCarrierArr = carrierBoss
+    ? carrierBoss.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+    : []
 
   // 价格文本
   let priceText = '无'
@@ -1097,6 +1109,7 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any, ctx = 
     carrierBoss,
     carrierOptions,
     selectedCarrier: carrierBoss,
+    selectedCarrierArr,
     priceText,
     priceColor,
     unitPrice,
@@ -1415,8 +1428,20 @@ function closeBillNameFilter(e: Event) {
   }
 }
 
-// 承运单位变更
-async function handleCarrierChange(row: any) {
+// 承运单位多选切换
+function toggleCarrier(row: any, opt: string) {
+  const arr = [...row.selectedCarrierArr]
+  const idx = arr.indexOf(opt)
+  if (idx >= 0) arr.splice(idx, 1)
+  else arr.push(opt)
+  row.selectedCarrierArr = arr
+  row.selectedCarrier = arr.join(',')
+  row.carrierBoss = row.selectedCarrier
+  saveCarrierChange(row)
+}
+
+// 承运单位变更保存
+async function saveCarrierChange(row: any) {
   try {
     const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
     const vName = row.isSubItem ? row.veh_name : row.vehicle_vessel_name
@@ -1425,7 +1450,6 @@ async function handleCarrierChange(row: any) {
       wno,
       boss: row.selectedCarrier,
     })
-    toast.success('承运单位已更新')
   } catch (error) {
     toast.error('设置承运单位失败')
   }
@@ -3169,21 +3193,27 @@ function handleUploadReceiptConfirm() {
                   </div>
                 </TableCell>
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
-                  <Select
-                    v-if="row.carrierOptions && row.carrierOptions.length > 1"
-                    v-model="row.selectedCarrier"
-                    @update:model-value="handleCarrierChange(row)"
-                    @click.stop
-                  >
-                    <SelectTrigger class="h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                  <Popover v-if="row.carrierOptions && row.carrierOptions.length > 1">
+                    <PopoverTrigger as-child>
+                      <button class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full" @click.stop>
+                        <span class="truncate">{{ row.selectedCarrierArr.length === 0 ? '选择' : row.selectedCarrierArr.length <= 2 ? row.selectedCarrierArr.join(',') : `${row.selectedCarrierArr.slice(0,2).join(',')} +${row.selectedCarrierArr.length - 2}` }}</span>
+                        <ChevronsUpDown class="h-3 w-3 shrink-0 opacity-50 ml-1" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent class="w-auto min-w-[120px] p-1" align="start" @click.stop>
+                      <div
+                        v-for="opt in row.carrierOptions"
+                        :key="opt"
+                        class="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent cursor-pointer text-sm"
+                        @click="toggleCarrier(row, opt)"
+                      >
+                        <div class="h-4 w-4 border rounded flex items-center justify-center" :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''">
+                          <Check v-if="row.selectedCarrierArr.includes(opt)" class="h-3 w-3 text-primary-foreground" />
+                        </div>
                         {{ opt }}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                   <span v-else>{{ row.carrierBoss }}</span>
                 </TableCell>
                 <TableCell v-if="showColBillName" class="px-1.5 py-1.5">
@@ -3335,21 +3365,27 @@ function handleUploadReceiptConfirm() {
                   </div>
                 </TableCell>
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
-                  <Select
-                    v-if="row.carrierOptions && row.carrierOptions.length > 1"
-                    v-model="row.selectedCarrier"
-                    @update:model-value="handleCarrierChange(row)"
-                    @click.stop
-                  >
-                    <SelectTrigger class="h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="opt in row.carrierOptions" :key="opt" :value="opt">
+                  <Popover v-if="row.carrierOptions && row.carrierOptions.length > 1">
+                    <PopoverTrigger as-child>
+                      <button class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full" @click.stop>
+                        <span class="truncate">{{ row.selectedCarrierArr.length === 0 ? '选择' : row.selectedCarrierArr.length <= 2 ? row.selectedCarrierArr.join(',') : `${row.selectedCarrierArr.slice(0,2).join(',')} +${row.selectedCarrierArr.length - 2}` }}</span>
+                        <ChevronsUpDown class="h-3 w-3 shrink-0 opacity-50 ml-1" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent class="w-auto min-w-[120px] p-1" align="start" @click.stop>
+                      <div
+                        v-for="opt in row.carrierOptions"
+                        :key="opt"
+                        class="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent cursor-pointer text-sm"
+                        @click="toggleCarrier(row, opt)"
+                      >
+                        <div class="h-4 w-4 border rounded flex items-center justify-center" :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''">
+                          <Check v-if="row.selectedCarrierArr.includes(opt)" class="h-3 w-3 text-primary-foreground" />
+                        </div>
                         {{ opt }}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                   <span v-else>{{ row.carrierBoss }}</span>
                 </TableCell>
                 <TableCell v-if="showColBillName" class="px-1.5 py-1.5">

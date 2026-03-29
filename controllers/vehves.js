@@ -149,7 +149,7 @@ exports.postDeleteVFCData = async function(req, res) {
 
 exports.searchVehicles = async function(req, res) {
   try {
-    const { search, type, category, page = 1, limit = 20 } = req.query;
+    const { search, type, category, boss, page = 1, limit = 20 } = req.query;
     const baseQuery = {};
 
     // 只有明确指定 type 时才过滤类型，否则搜索所有车船
@@ -167,6 +167,11 @@ exports.searchVehicles = async function(req, res) {
       }
     }
     // 如果 category 未指定，不过滤（显示所有车辆）
+
+    // 按承运单位过滤
+    if (boss) {
+      baseQuery.boss = { $regex: boss, $options: 'i' };
+    }
 
     if (search) {
       baseQuery.name = { $regex: search, $options: 'i' };
@@ -196,5 +201,22 @@ exports.searchVehicles = async function(req, res) {
   } catch (error) {
     console.error('searchVehicles error:', error);
     res.status(500).json({ ok: false, error: error.toString(), stack: error.stack });
+  }
+};
+
+// 获取不重复的承运单位列表
+exports.getVehicleBossList = async function(req, res) {
+  try {
+    const bossList = await Vehicle.distinct('boss', buildTenantQuery(req, {}));
+    // boss 字段可能包含逗号分隔的多个单位，拆分去重
+    const set = new Set();
+    bossList.forEach(b => {
+      if (b) b.split(/[,，]/).map(s => s.trim()).filter(Boolean).forEach(s => set.add(s));
+    });
+    const sorted = Array.from(set).sort();
+    res.json({ ok: true, data: sorted });
+  } catch (error) {
+    console.error('getVehicleBossList error:', error);
+    res.status(500).json({ ok: false, error: error.toString() });
   }
 };

@@ -24,6 +24,7 @@ show_help() {
     echo -e "${BOLD}预设公司:${NC}"
     echo -e "  ${CYAN}lianren${NC}  江苏联润      1.13.249.95      ubuntu"
     echo -e "  ${CYAN}xht${NC}      鑫鸿图储运    218.244.152.142  xht2020"
+    echo -e "  ${CYAN}juntie${NC}   军铁物流      47.113.231.131   juntie"
     echo ""
     echo -e "${BOLD}部署模式:${NC}"
     echo "  standalone  独立部署，单公司，无平台概念"
@@ -71,7 +72,8 @@ echo ""
 echo -e "${YELLOW}选择部署目标:${NC}"
 echo "  1) lianren — 江苏联润 (1.13.249.95)"
 echo "  2) xht     — 鑫鸿图储运 (218.244.152.142)"
-echo "  3) 手动输入"
+echo "  3) juntie  — 军铁物流 (47.113.231.131)"
+echo "  4) 手动输入"
 read -p "请选择 [1]: " COMPANY_CHOICE
 COMPANY_CHOICE=${COMPANY_CHOICE:-"1"}
 
@@ -87,6 +89,12 @@ case $COMPANY_CHOICE in
         SERVER_USER="xht2020"
         SERVER_PASSWORD="Hello2020xht"
         DEFAULT_COMPANY_NAME="鑫鸿图储运"
+        ;;
+    3)
+        SERVER_IP="47.113.231.131"
+        SERVER_USER="juntie"
+        SERVER_PASSWORD="HelloJT2024"
+        DEFAULT_COMPANY_NAME="军铁物流"
         ;;
     *)
         echo ""
@@ -122,6 +130,21 @@ else
     DEPLOY_MODE="standalone"
     read -p "公司名称 (STANDALONE_COMPANY) [${DEFAULT_COMPANY_NAME:-江苏联润}]: " STANDALONE_COMPANY
     STANDALONE_COMPANY=${STANDALONE_COMPANY:-"${DEFAULT_COMPANY_NAME:-江苏联润}"}
+fi
+
+# 前端托管模式选择
+echo ""
+echo -e "${YELLOW}前端托管方式:${NC}"
+echo "  1) nginx + serve (默认，80端口访问)"
+echo "  2) Express 内置托管 (直接 http://ip:1080 访问，无需 nginx)"
+read -p "请选择 [1]: " SERVE_MODE_CHOICE
+SERVE_MODE_CHOICE=${SERVE_MODE_CHOICE:-"1"}
+
+if [ "$SERVE_MODE_CHOICE" = "2" ]; then
+    SERVE_FRONTEND="true"
+    echo -e "${GREEN}已选择: Express 内置托管，通过 http://${SERVER_IP}:1080 访问${NC}"
+else
+    SERVE_FRONTEND="false"
 fi
 
 # 应用配置（首次部署时需要）
@@ -330,12 +353,19 @@ if [ "$DEPLOY_FRONTEND" = "y" ]; then
     fi
     PROD_COMPANY_FULL_NAME="${LOCAL_COMPANY_FULL_NAME:-${PROD_COMPANY_NAME}有限公司}"
 
+    # SERVE_FRONTEND=true 时前端和后端同端口，API 用相对路径
+    if [ "$SERVE_FRONTEND" = "true" ]; then
+        FRONTEND_API_URL="/api"
+    else
+        FRONTEND_API_URL="http://${SERVER_IP}/api"
+    fi
+
     cat > .env.production << EOF
 # 生产环境配置
 VITE_COMPANY_NAME=${PROD_COMPANY_NAME}
 VITE_SYSTEM_NAME=${PROD_SYSTEM_NAME}
 VITE_COMPANY_FULL_NAME=${PROD_COMPANY_FULL_NAME}
-VITE_SERVER_API_URL=http://${SERVER_IP}/api
+VITE_SERVER_API_URL=${FRONTEND_API_URL}
 VITE_SERVER_API_PREFIX=
 VITE_SERVER_API_TIMEOUT=30000
 EOF
@@ -533,6 +563,9 @@ SESSION_SECRET=$SESSION_SECRET
 
 # Company
 COMPANY_NAME=$COMPANY_NAME
+
+# Frontend Serving (true=Express托管前端, false=nginx+serve)
+SERVE_FRONTEND=$SERVE_FRONTEND
 
 # MongoDB Configuration
 # 请使用 deploy/setup-database.sh 脚本配置数据库认证

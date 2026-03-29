@@ -228,10 +228,26 @@ if (isSaas()) {
   });
 }
 
-// 404 error handler
+// 当 SERVE_FRONTEND=true 时，由 Express 托管前端静态文件
+// 适用于不使用 nginx 的独立部署，直接通过 http://ip:1080 访问
+if (process.env.SERVE_FRONTEND === 'true') {
+  const frontendDist = path.join(__dirname, 'front_end/dist');
+  app.use(express.static(frontendDist));
+  // SPA fallback: 未匹配的路由返回 index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+  console.log('✔ Serving frontend from front_end/dist');
+}
+
+// 404 error handler (仅在非前端托管模式下生效)
 app.use(function (req, res) {
   res.status(404);
-  res.render("404");
+  if (process.env.SERVE_FRONTEND === 'true') {
+    res.sendFile(path.join(__dirname, 'front_end/dist/index.html'));
+  } else {
+    res.render("404");
+  }
 });
 
 // 500 error handler

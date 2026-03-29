@@ -459,7 +459,7 @@ async function handleQuery(params: SettleFilterParams) {
     try {
       const result = await getSettleBills({
         ...params,
-        selfOwned: isSelfOwnedMode.value ? 1 : undefined,
+        selfOwned: isSelfOwnedMode.value ? 1 : (authStore.features.selfVehicle ? 0 : undefined),
       })
       if (result.ok) {
         const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {
@@ -495,7 +495,7 @@ async function handleQuery(params: SettleFilterParams) {
     try {
       const result = await getSettleBills({
         ...params,
-        selfOwned: isSelfOwnedMode.value ? 1 : undefined,
+        selfOwned: isSelfOwnedMode.value ? 1 : (authStore.features.selfVehicle ? 0 : undefined),
       })
       if (result.ok) {
         const sorted = result.bills.sort((a: SettleBill, b: SettleBill) => {

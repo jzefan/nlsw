@@ -46,7 +46,7 @@ export async function deleteCompany(name: string) {
 // -------------------------------------------------
 // Vehicle (车船号)
 // -------------------------------------------------
-export async function getVehicles(params: { page?: number, limit?: number, search?: string, type?: string }) {
+export async function getVehicles(params: { page?: number, limit?: number, search?: string, type?: string, category?: string, boss?: string }) {
   // Use existing /vehicles/search which supports pagination
   return getList<DataDictItem>('/vehicles/search', params)
 }

@@ -181,11 +181,11 @@ async function searchTrucks(search: string, limit: number, page: number) {
   // 关键逻辑：只有在功能启用时才根据模式过滤
   let category: '自有' | '外挂' | undefined = undefined
 
-  if (enableCategoryFilter.value) {
-    // 功能启用：自有车模式显示自有车，非自有车模式显示外挂车
-    category = isSelfOwnedMode.value ? '自有' : '外挂'
+  if (enableCategoryFilter.value && isSelfOwnedMode.value) {
+    // 自有车模式：只显示自有车
+    category = '自有'
   }
-  // 功能关闭：category = undefined，显示所有车辆
+  // 非自有模式或功能关闭：category = undefined，显示所有车辆
 
   return searchVehicles(search, '车', limit, page, category)
 }

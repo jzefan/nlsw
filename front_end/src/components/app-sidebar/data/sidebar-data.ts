@@ -106,24 +106,17 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
       },
     ]
 
-    const selfSettleItems: { title: string; url: string; icon?: any }[] = []
-    if (hasPermission(privilege, PERMISSIONS.CUST_SETTLE)) {
-      selfSettleItems.push(
+    // 自有车权限即可看到自有车的结算管理（不需要额外的 custSettle/vesselSettle 权限）
+    selfVehicleItems.push({
+      title: '结算管理',
+      icon: Receipt,
+      items: [
         { title: '结算', url: '/settle/bill?selfOwned=true', icon: Receipt },
         { title: '开票', url: '/settle/ticket?selfOwned=true', icon: CreditCard },
         { title: '回款', url: '/settle/money?selfOwned=true', icon: CreditCard },
-      )
-    }
-    if (hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {
-      selfSettleItems.push({ title: '车船结算', url: '/settle/vessel?selfOwned=true', icon: Ship })
-    }
-    if (selfSettleItems.length > 0) {
-      selfVehicleItems.push({
-        title: '结算管理',
-        icon: Receipt,
-        items: selfSettleItems,
-      })
-    }
+        { title: '车船结算', url: '/settle/vessel?selfOwned=true', icon: Ship },
+      ],
+    })
 
     groups.push({
       title: '自有车管理',

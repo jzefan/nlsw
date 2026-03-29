@@ -61,6 +61,7 @@ module.exports = {
   deployMode: process.env.DEPLOY_MODE || "saas",
   standaloneCompany: process.env.STANDALONE_COMPANY || "",
   enableSelfVehicle: process.env.ENABLE_SELF_VEHICLE === "true",
+  serveFrontend: process.env.SERVE_FRONTEND === "true",
   enablePublicBasket: process.env.ENABLE_PUBLIC_BASKET === "true",
 
   // MinIO 配置

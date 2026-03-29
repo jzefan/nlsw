@@ -6,8 +6,9 @@ import { useModal } from '@/composables/use-modal'
 import type { DataDictItem, PageResult } from '@/services/api/data-dict.api'
 
 export interface DataDictApi {
-  getList: (params: { page?: number, limit?: number, search?: string }) => Promise<PageResult<DataDictItem>>
+  getList: (params: { page?: number, limit?: number, search?: string, [key: string]: any }) => Promise<PageResult<DataDictItem>>
   delete: (name: string) => Promise<{ ok: boolean, response?: string }>
+  extraParams?: () => Record<string, any>
 }
 
 export function useDataDict(api: DataDictApi) {
@@ -21,7 +22,8 @@ export function useDataDict(api: DataDictApi) {
   async function loadData() {
     loading.value = true
     try {
-      const res = await api.getList({ page: page.value, limit: limit.value, search: searchTerm.value })
+      const extra = api.extraParams ? api.extraParams() : {}
+      const res = await api.getList({ page: page.value, limit: limit.value, search: searchTerm.value, ...extra })
       if (res.ok) {
         data.value = res.data
         total.value = res.total

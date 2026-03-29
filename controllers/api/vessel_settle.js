@@ -9,6 +9,7 @@ const { uploadReceiptImages } = require("../../config/multer");
 const { buildTenantQuery, injectTenantId } = require("../../utils/tenant");
 const Tenant = require("../../models/Tenant");
 const receiptStorage = require("../../utils/receipt-storage");
+const secrets = require("../../config/secrets");
 
 // 查询车船结算运单（优化版：使用聚合管道，避免 populate）
 exports.getInvoiceSettleVessel = async (req, res) => {
@@ -82,6 +83,9 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     if (selfOwned === "1" || selfOwned === 1) {
       matchStage.selfOwned = 1;
     } else if (selfOwned === "0" || selfOwned === 0) {
+      matchStage.selfOwned = { $ne: 1 };
+    } else if (secrets.enableSelfVehicle) {
+      // ENABLE_SELF_VEHICLE=true 时，未指定 selfOwned 参数默认排除自有车
       matchStage.selfOwned = { $ne: 1 };
     }
 

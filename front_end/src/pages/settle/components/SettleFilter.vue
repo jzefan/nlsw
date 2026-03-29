@@ -344,7 +344,7 @@ watch(() => props.showNonSettle, () => {
         :disabled-date="disableStartDate"
         disabled-hint="开始日期不能晚于结束日期"
       />
-      <div class="flex gap-2">
+      <div class="flex items-center gap-2">
         <DatePicker
           v-model="endDate"
           placeholder="结束日期"

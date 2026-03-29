@@ -21,6 +21,7 @@ const drayageForkliftApiController = require('./controllers/api/drayage_forklift
 const vesselFixedCostApiController = require('./controllers/api/vessel_fixed_cost');
 const platformApiController = require('./controllers/api/platform');
 const orderApiController = require('./controllers/api/order');
+const orderNumberApiController = require('./controllers/api/order_number');
 const paymentQRController = require('./controllers/api/payment-qr');
 const dataProcessApiController = require('./controllers/api/data_process');
 
@@ -44,6 +45,8 @@ module.exports = function (app) {
   app.get('/brands', requireTenant, brandApiController.getBrands);
   app.get('/sale_deps', requireTenant, saleDepApiController.getSaleDeps);
   app.get('/warehouses', requireTenant, warehouseApiController.getWarehouses);
+  app.get('/order-numbers/search', requireTenant, orderNumberApiController.searchOrderNumbers);
+  app.post('/order-numbers/add', requireTenant, orderNumberApiController.addOrderNumber);
 
   // Statistics API (tenant-scoped)
   app.get('/statistics/customer/data', requireTenant, statisticsApiController.getStatisticsDataByCondition);
@@ -104,6 +107,7 @@ module.exports = function (app) {
 
   // Vehicle API (tenant-scoped)
   app.get('/vehicles/search', requireTenant, vehvesController.searchVehicles);
+  app.get('/vehicles/boss-list', requireTenant, vehvesController.getVehicleBossList);
 
   // Settle API (tenant-scoped)
   app.get('/settle/bills', requireTenant, settleApiController.getSettleBills);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { watchDebounced } from '@vueuse/core'
-import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-vue-next'
+import { Check, ChevronsUpDown, Loader2, Plus, Search, X } from 'lucide-vue-next'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +27,8 @@ const props = defineProps<{
   class?: string
   disabled?: boolean
   multiple?: boolean
+  allowFreeInput?: boolean
+  saveFn?: (value: string) => Promise<any>
 }>()
 
 const modelValue = defineModel<string | string[]>({ default: '' })
@@ -155,6 +157,13 @@ watch(open, (isOpen) => {
       inputRef.value?.focus()
     })
   }
+  else if (!isOpen && props.allowFreeInput && !props.multiple) {
+    // 关闭时，如果允许自由输入且用户输入了内容，保留输入值
+    const typed = searchQuery.value.trim()
+    if (typed) {
+      modelValue.value = typed
+    }
+  }
   else if (isOpen && props.disabled) {
     // 如果禁用状态下被打开，立即关闭
     open.value = false
@@ -176,6 +185,32 @@ const hasValue = computed(() => {
   if (props.multiple) return selectedArray.value.length > 0
   return !!modelValue.value
 })
+
+// 自由输入：是否显示"添加新值"选项
+const showFreeInputOption = computed(() => {
+  if (!props.allowFreeInput || props.multiple) return false
+  const typed = searchQuery.value.trim()
+  if (!typed) return false
+  // 如果输入值已在列表中则不显示
+  return !items.value.some(item => (item.value ?? item.name) === typed)
+})
+
+async function selectFreeInput() {
+  const typed = searchQuery.value.trim()
+  if (typed) {
+    modelValue.value = typed
+    open.value = false
+    // 如果提供了 saveFn，将新值保存到后端
+    if (props.saveFn) {
+      try {
+        await props.saveFn(typed)
+      }
+      catch (e) {
+        console.error('保存新值失败', e)
+      }
+    }
+  }
+}
 
 // 清除选择
 function clearValue(e: Event) {
@@ -228,8 +263,18 @@ function clearValue(e: Event) {
           class="max-h-[200px] overflow-y-auto p-1"
           @scroll="handleScroll"
         >
+          <!-- 自由输入选项 -->
+          <div
+            v-if="showFreeInputOption"
+            class="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-primary"
+            @click="selectFreeInput"
+          >
+            <Plus class="mr-2 h-4 w-4" />
+            <span>添加 "{{ searchQuery.trim() }}"</span>
+          </div>
+
           <!-- 空状态 -->
-          <div v-if="!loading && items.length === 0" class="py-6 text-center text-sm text-muted-foreground">
+          <div v-if="!loading && items.length === 0 && !showFreeInputOption" class="py-6 text-center text-sm text-muted-foreground">
             {{ searchQuery ? '未找到匹配项' : '暂无数据' }}
           </div>
 
@@ -247,7 +292,11 @@ function clearValue(e: Event) {
               )"
             />
             <span class="flex-1 flex items-center justify-between gap-2">
-              <span>{{ item.name }}</span>
+              <span class="flex items-center gap-1">
+                <span>{{ item.name }}</span>
+                <span v-if="item.veh_category === '自有'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">自</span>
+                <span v-else-if="item.veh_category === '外挂'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">外</span>
+              </span>
               <span v-if="item.shipper" class="text-xs text-muted-foreground">{{ item.shipper }}</span>
               <span v-else-if="item.order_item_no" class="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">项次{{ item.order_item_no }}</span>
             </span>
