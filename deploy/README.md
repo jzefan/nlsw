@@ -94,10 +94,51 @@ pm2 restart nlsw-backend
 ```
 deploy/
 ├── deploy.sh           # 主部署脚本
+├── daily-backup.sh     # 每日备份脚本
+├── install-backup-cron.sh # 安装每日备份 cron
 ├── setup-database.sh   # 数据库配置脚本
 ├── ecosystem.config.js # PM2 配置文件
 ├── nginx.conf          # Nginx 配置文件
 └── README.md           # 本文档
+```
+
+## 每日备份
+
+适用于独立部署服务器，默认备份以下内容：
+- MongoDB 数据库（`mongodump --archive --gzip`）
+- `uploads/`
+- `keys/`
+- `.env`
+
+### 1. 手动执行一次
+
+```bash
+cd /home/ubuntu/nlsw2
+bash deploy/daily-backup.sh /data/backups
+```
+
+可选环境变量：
+
+```bash
+RETENTION_DAYS=14 \
+BACKUP_EXTRA_PATHS=/data/minio:/data/custom \
+bash deploy/daily-backup.sh /data/backups
+```
+
+- `RETENTION_DAYS`: 保留天数，默认 `14`
+- `BACKUP_EXTRA_PATHS`: 额外备份目录，多个路径用 `:` 分隔
+
+### 2. 安装每天 02:00 的定时任务
+
+```bash
+cd /home/ubuntu/nlsw2
+bash deploy/install-backup-cron.sh /data/backups
+```
+
+安装后会写入当前用户的 `crontab`：
+
+```cron
+0 2 * * * BACKUP_ROOT=/data/backups RETENTION_DAYS=14 /home/ubuntu/nlsw2/deploy/daily-backup.sh >> /home/ubuntu/nlsw2/logs/daily-backup.log 2>&1
 ```
 
 ## 常见问题

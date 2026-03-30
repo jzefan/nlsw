@@ -175,11 +175,11 @@ function getStrValue(val: any) {
   return val === undefined || val === null ? '' : val
 }
 
-function toExcelDateTimeMinute(date: string | Date | null | undefined) {
+function toExcelDateTimeMinute(date: string | Date | null | undefined): Date | string {
   if (!date) return ''
   const d = dayjs(date)
   if (!d.isValid()) return ''
-  return d.format('YYYY-MM-DD HH:mm')
+  return d.toDate()
 }
 
 

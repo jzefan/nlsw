@@ -53,6 +53,7 @@ const fullImageFilename = ref('')
 const zoomLevel = ref(1)
 const rotateDeg = ref(0)
 const imageNaturalWidth = ref(0)
+const imageNaturalHeight = ref(0)
 const isMaximized = ref(false)
 const panX = ref(0)
 const panY = ref(0)
@@ -148,23 +149,30 @@ function handleImageClick(image: ReceiptImage) {
   panY.value = 0
   isDraggingImage.value = false
 
-  // 用临时 Image 对象读取原始尺寸
+  // 用临时 Image 对象读取原始尺寸，并计算适配缩放
   const tempImg = new window.Image()
   tempImg.src = url
   imageNaturalWidth.value = 0
+  imageNaturalHeight.value = 0
   tempImg.onload = () => {
     imageNaturalWidth.value = tempImg.naturalWidth
+    imageNaturalHeight.value = tempImg.naturalHeight
+    // 计算适配到对话框的缩放比例（对话框 80vw × 92vh，减去 header 和 padding）
+    const containerW = window.innerWidth * 0.8 - 48
+    const containerH = window.innerHeight * 0.92 - 80
+    const fitZoom = Math.min(containerW / tempImg.naturalWidth, containerH / tempImg.naturalHeight, 1)
+    zoomLevel.value = +fitZoom.toFixed(2)
   }
 
   showFullImage.value = true
 }
 
 function zoomIn() {
-  zoomLevel.value = Math.min(+(zoomLevel.value + 0.25).toFixed(2), 5)
+  zoomLevel.value = Math.min(+(zoomLevel.value + 0.1).toFixed(2), 5)
 }
 
 function zoomOut() {
-  zoomLevel.value = Math.max(+(zoomLevel.value - 0.25).toFixed(2), 0.25)
+  zoomLevel.value = Math.max(+(zoomLevel.value - 0.1).toFixed(2), 0.1)
 }
 
 function resetZoom() {

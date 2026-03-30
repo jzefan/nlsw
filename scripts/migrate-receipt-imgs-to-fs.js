@@ -7,8 +7,10 @@
  * 用法：
  *   node scripts/migrate-receipt-imgs-to-fs.js --tenant DEFAULT
  *   node scripts/migrate-receipt-imgs-to-fs.js --tenant DEFAULT --dry-run
+ *   node scripts/migrate-receipt-imgs-to-fs.js --tenant DEFAULT --source archived
  *
  * 说明：
+ *   - --source 参数可选值：current（默认，receiptimgs）、archived（archivedreceiptimgs）
  *   - 按租户 code 过滤，只迁移指定租户的数据
  *   - 文件保存到 uploads/receipts/{tenantId}/{年}/{月}/{日}/ 目录
  *   - 幂等：已迁移的记录不会重复处理
@@ -32,6 +34,17 @@ if (!TENANT_CODE) {
   console.error("错误：必须指定租户 code，例如：--tenant DEFAULT");
   process.exit(1);
 }
+
+// 解析 --source 参数（current 或 archived）
+const sourceArgIdx = process.argv.indexOf("--source");
+const SOURCE_TYPE = sourceArgIdx !== -1 ? process.argv[sourceArgIdx + 1] : "current";
+
+if (!["current", "archived"].includes(SOURCE_TYPE)) {
+  console.error('错误：--source 参数可选值为 "current" 或 "archived"');
+  process.exit(1);
+}
+
+const SOURCE_COLLECTION = SOURCE_TYPE === "archived" ? "archivedreceiptimgs" : "receiptimgs";
 
 // 文件存储根目录（与 multer 配置保持一致）
 const UPLOADS_BASE = path.join(__dirname, "../uploads/receipts");
@@ -99,13 +112,14 @@ async function migrate() {
   const dbName = process.env.MONGO_DATABASE || "nldb";
 
   log("=".repeat(60));
-  log("回执图片迁移：receiptimgs (Binary) → 本地文件系统");
+  log(`回执图片迁移：${SOURCE_COLLECTION} (Binary) → 本地文件系统`);
   log("=".repeat(60));
   if (DRY_RUN) {
     log("*** 预览模式 — 不会写入任何文件或数据库记录 ***");
   }
   log(`数据库:    ${dbName}`);
   log(`租户 code: ${TENANT_CODE}`);
+  log(`源集合:    ${SOURCE_COLLECTION}`);
   log(`存储目录:  ${UPLOADS_BASE}`);
   log("");
 
@@ -117,7 +131,7 @@ async function migrate() {
 
     const db = client.db(dbName);
     const tenantsCol = db.collection("tenants");
-    const receiptImgsCol = db.collection("receiptimgs");
+    const receiptImgsCol = db.collection(SOURCE_COLLECTION);
     const receiptImagesCol = db.collection("receiptimages");
 
     // ── Step 1: 查找租户 ───────────────────────────────────────────────────
@@ -135,8 +149,9 @@ async function migrate() {
     // ── Step 2: 统计待迁移数量 ─────────────────────────────────────────────
     log("\n── Step 2: 统计待迁移数量 ──");
 
-    const totalInSource = await receiptImgsCol.countDocuments({ tenantId });
-    log(`receiptimgs 中属于该租户的记录总数: ${totalInSource}`);
+    const sourceQuery = SOURCE_TYPE === "archived" ? {} : { tenantId };
+    const totalInSource = await receiptImgsCol.countDocuments(sourceQuery);
+    log(`${SOURCE_COLLECTION} 中${SOURCE_TYPE === "archived" ? "" : "属于该租户的"}记录总数: ${totalInSource}`);
 
     if (totalInSource === 0) {
       log("没有需要迁移的记录，退出。");
@@ -154,7 +169,7 @@ async function migrate() {
       failedIds: [],
     };
 
-    const cursor = receiptImgsCol.find({ tenantId });
+    const cursor = receiptImgsCol.find(sourceQuery);
 
     for await (const doc of cursor) {
       const ext = getExtension(doc.contentType);

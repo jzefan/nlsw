@@ -78,15 +78,19 @@ export function useExport() {
       for (let C = range.s.c; C <= range.e.c; C++) {
         const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
         if (cell && cell.v instanceof Date) {
-          // 统一使用日期格式（toExcelDate 已做时区补偿，时间部分不可靠）
-          cell.z = 'yyyy-mm-dd'
+          const d = cell.v as Date
+          const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0
+          cell.z = hasTime ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd'
         }
       }
     }
   }
 
   function getCellDisplayText(value: any) {
-    if (value instanceof Date) return 'yyyy-mm-dd hh:mm'
+    if (value instanceof Date) {
+      const hasTime = value.getHours() !== 0 || value.getMinutes() !== 0 || value.getSeconds() !== 0
+      return hasTime ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd'
+    }
     return String(value ?? '')
   }
 
