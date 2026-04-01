@@ -69,9 +69,11 @@ exports.getSettleList = async (req, res) => {
     // 构建查询条件
     const baseQuery = {};
 
-    // 只有当selfOwned为'1'或1时，才作为查询条件
+    // 自有车过滤：自有车模式只查自有车，非自有车模式排除自有车
     if (selfOwned === '1' || selfOwned === 1) {
       baseQuery.selfOwned = 1;
+    } else if (selfOwned === '0' || selfOwned === 0) {
+      baseQuery.selfOwned = { $ne: 1 };
     }
 
     // 根据结算类型过滤

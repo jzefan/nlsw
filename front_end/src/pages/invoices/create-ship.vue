@@ -10,6 +10,7 @@ import ConfirmDialog from '@/components/confirm-dialog.vue'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   buildShipInvoice,
   getBillsByBillingName,
@@ -62,6 +63,37 @@ const invoiceSearchFilters = ref({
 const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
+
+function getDefaultInvoiceSearchRange() {
+  const today = new Date()
+  const oneMonthAgo = new Date(today)
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  return {
+    startDate: fmt(oneMonthAgo),
+    endDate: fmt(today),
+  }
+}
+
+function getNextInnerWaybillNoOrder(bills: InvoiceBill[], currentWaybillNo: string) {
+  if (!currentWaybillNo) return 0
+
+  let maxSuffix = -1
+  for (const bill of bills) {
+    const innerNo = bill.inner_waybill_no || ''
+    if (!innerNo.startsWith(currentWaybillNo)) continue
+
+    const suffix = innerNo.slice(currentWaybillNo.length)
+    const order = Number.parseInt(suffix, 10)
+    if (!Number.isNaN(order) && order > maxSuffix) {
+      maxSuffix = order
+    }
+  }
+
+  return maxSuffix + 1
+}
 
 // 判断是否是管理员
 const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
@@ -127,6 +159,23 @@ watch(showMyOnly, async () => {
   await loadInvoiceList()
 })
 
+watch(
+  () => invoiceSearchFilters.value.state,
+  (state) => {
+    if (state === '新建') {
+      invoiceSearchFilters.value.startDate = ''
+      invoiceSearchFilters.value.endDate = ''
+      return
+    }
+
+    if (!invoiceSearchFilters.value.startDate && !invoiceSearchFilters.value.endDate) {
+      const { startDate, endDate } = getDefaultInvoiceSearchRange()
+      invoiceSearchFilters.value.startDate = startDate
+      invoiceSearchFilters.value.endDate = endDate
+    }
+  },
+)
+
 // 运单表单
 const form = ref({
   vesselName: '', // 船号
@@ -166,6 +215,7 @@ const confirmedBills = ref<InvoiceBill[]>([])
 // 移动端展开的卡片
 const expandedPendingCards = ref<Set<number>>(new Set())
 const expandedConfirmedCards = ref<Set<string>>(new Set())
+const collapsedConfirmedWagons = ref<Set<string>>(new Set())
 
 // 被修改的提单ID集合（用于高亮显示）
 const highlightedBillIds = ref<Set<string>>(new Set())
@@ -187,6 +237,34 @@ function toggleConfirmedCardExpand(key: string) {
   } else {
     expandedConfirmedCards.value.add(key)
   }
+}
+
+function toggleConfirmedWagonCollapse(key: string) {
+  if (collapsedConfirmedWagons.value.has(key)) {
+    collapsedConfirmedWagons.value.delete(key)
+  } else {
+    collapsedConfirmedWagons.value.add(key)
+  }
+}
+
+function isConfirmedWagonCollapsed(key: string) {
+  return collapsedConfirmedWagons.value.has(key)
+}
+
+const confirmedWagonKeys = computed(() => Object.keys(confirmedByWagon.value))
+
+const areAllConfirmedWagonsCollapsed = computed(() => {
+  if (confirmedWagonKeys.value.length === 0) return false
+  return confirmedWagonKeys.value.every((key) => collapsedConfirmedWagons.value.has(key))
+})
+
+function toggleAllConfirmedWagons() {
+  if (areAllConfirmedWagonsCollapsed.value) {
+    collapsedConfirmedWagons.value.clear()
+    return
+  }
+
+  collapsedConfirmedWagons.value = new Set(confirmedWagonKeys.value)
 }
 
 // 当前车辆的统计
@@ -1158,6 +1236,14 @@ function getWagonStats(bills: InvoiceBill[]) {
   return { totalNum, totalWeight }
 }
 
+function updateConfirmedShipFrom(wagonNo: string, innerWaybillNo: string, shipFrom: string) {
+  confirmedBills.value.forEach((bill) => {
+    if (bill.wagon_no === wagonNo && bill.inner_waybill_no === innerWaybillNo) {
+      bill.ship_from = shipFrom || ''
+    }
+  })
+}
+
 // 删除某车某次配发的所有记录
 async function deleteWagonBills(wagonNo: string, innerWaybillNo: string) {
   const confirmed = await confirmDialog(`确定删除车号 "${wagonNo}" 的本次配发记录吗？`, '删除配发')
@@ -1187,17 +1273,13 @@ async function deleteConfirmedBill(wagonNo: string, innerWaybillNo: string, bill
 async function openInvoiceList() {
   showInvoiceListDialog.value = true
   invoiceListPage.value = 1
-  const today = new Date()
-  const oneMonthAgo = new Date(today)
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const { startDate, endDate } = getDefaultInvoiceSearchRange()
   invoiceSearchFilters.value = {
     vehicleName: '',
     shipName: '',
     waybillNo: '',
-    startDate: fmt(oneMonthAgo),
-    endDate: fmt(today),
+    startDate,
+    endDate,
     shipTo: '',
     shipperName: '',
     state: '',
@@ -1315,6 +1397,8 @@ async function loadInvoiceDetail(invoice: any) {
           })
         }
       }
+
+      innerWaybillNoOrder.value = getNextInnerWaybillNoOrder(confirmedBills.value, inv.waybill_no)
 
       // 只注入订单号，不注入提单到缓存（避免缓存导致新增提单不显示）
       const seenOrderNos = new Set<string>()
@@ -1696,13 +1780,26 @@ function isBillHighlighted(bill: InvoiceBill) {
       <div v-if="confirmedBills.length > 0">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
           <h4 class="text-sm font-medium">已确认配发</h4>
-          <div class="text-xs sm:text-sm text-muted-foreground">
+          <div class="flex items-center justify-end gap-2 text-xs sm:text-sm text-muted-foreground">
             <span>
               总块数: <strong>{{ totalNumber }}</strong>
             </span>
             <span class="ml-3 sm:ml-4">
               总重量: <strong>{{ formatWeight(totalWeight) }}</strong> 吨
             </span>
+            <TooltipProvider v-if="confirmedBills.length > 0" :delay-duration="200">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <UiButton variant="ghost" size="icon" class="h-7 w-7" @click="toggleAllConfirmedWagons">
+                    <ChevronDown v-if="!areAllConfirmedWagonsCollapsed" class="w-4 h-4" />
+                    <ChevronUp v-else class="w-4 h-4" />
+                  </UiButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{{ areAllConfirmedWagonsCollapsed ? '展开全部车辆明细' : '收起全部车辆明细' }}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
 
@@ -1729,23 +1826,51 @@ function isBillHighlighted(bill: InvoiceBill) {
               <span>
                 重量: <strong>{{ formatWeight(getWagonStats(group.bills).totalWeight) }}</strong>
               </span>
-              <span>
-                起始地: <strong class="text-foreground">{{ group.bills[0]?.ship_from || '-' }}</strong>
-              </span>
+              <div class="flex items-center gap-2 text-foreground">
+                <span class="text-muted-foreground">起始地:</span>
+                <div class="w-40 sm:w-44">
+                  <SearchableCombobox
+                    :model-value="group.bills[0]?.ship_from || ''"
+                    :search-fn="searchWarehouses"
+                    placeholder="起始地"
+                    @update:model-value="updateConfirmedShipFrom(group.wagonNo, group.innerWaybillNo, $event)"
+                  />
+                </div>
+              </div>
             </div>
-            <UiButton
-              variant="ghost"
-              size="sm"
-              class="h-6 px-2 text-destructive hover:text-destructive"
-              @click="deleteWagonBills(group.wagonNo, group.innerWaybillNo)"
-            >
-              <Trash2 class="w-3 h-3 mr-1" />
-              删除此车
-            </UiButton>
+            <div class="flex items-center gap-1 self-end sm:self-auto">
+              <UiButton
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-destructive hover:text-destructive"
+                @click="deleteWagonBills(group.wagonNo, group.innerWaybillNo)"
+              >
+                <Trash2 class="w-3 h-3 mr-1" />
+                删除此车
+              </UiButton>
+              <TooltipProvider :delay-duration="200">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <UiButton
+                      variant="ghost"
+                      size="icon"
+                      class="h-6 w-6"
+                      @click="toggleConfirmedWagonCollapse(String(key))"
+                    >
+                      <ChevronDown v-if="!isConfirmedWagonCollapsed(String(key))" class="w-4 h-4" />
+                      <ChevronUp v-else class="w-4 h-4" />
+                    </UiButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{{ isConfirmedWagonCollapsed(String(key)) ? '展开此车明细' : '收起此车明细' }}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
 
           <!-- 桌面端表格 -->
-          <div class="hidden lg:block border rounded overflow-x-auto">
+          <div v-if="!isConfirmedWagonCollapsed(String(key))" class="hidden lg:block border rounded overflow-x-auto">
             <UiTable class="min-w-[800px]">
               <UiTableHeader>
                 <UiTableRow>
@@ -1820,7 +1945,7 @@ function isBillHighlighted(bill: InvoiceBill) {
           </div>
 
           <!-- 移动端卡片 -->
-          <div class="lg:hidden space-y-2">
+          <div v-if="!isConfirmedWagonCollapsed(String(key))" class="lg:hidden space-y-2">
             <div
               v-for="bill in group.bills"
               :key="`${bill.bill_no}-${bill.inner_waybill_no}`"

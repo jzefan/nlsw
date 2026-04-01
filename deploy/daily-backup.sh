@@ -14,11 +14,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_TMP_FILE=""
 
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+  ENV_TMP_FILE="$(mktemp)"
+  sed 's/\r$//' "${PROJECT_ROOT}/.env" > "${ENV_TMP_FILE}"
   # shellcheck disable=SC1091
   set -a
-  source "${PROJECT_ROOT}/.env"
+  source "${ENV_TMP_FILE}"
   set +a
 fi
 
@@ -57,6 +60,9 @@ log() {
 }
 
 cleanup() {
+  if [[ -n "${ENV_TMP_FILE}" && -f "${ENV_TMP_FILE}" ]]; then
+    rm -f "${ENV_TMP_FILE}"
+  fi
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT

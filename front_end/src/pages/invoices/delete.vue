@@ -3,12 +3,14 @@ import { Search, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import { deleteInvoice, getInvoiceDetail, getInvoiceList } from '@/services/api/invoice.api'
 import { useAuthStore } from '@/stores/auth'
 import { isAdmin as isAdminPrivilege, hasPermission, PERMISSIONS } from '@/constants/permissions'
 import { formatDate, formatNumber } from '@/utils/format'
 
 const authStore = useAuthStore()
+const { confirm } = useConfirmDialog()
 
 // 状态
 const listLoading = ref(false)
@@ -122,7 +124,12 @@ async function handleDelete() {
     return
   }
 
-  if (!confirm(`您确定要删除运单 ${selectedInvoice.value.waybill_no} 吗？\n删除后将恢复所有提单的剩余量。`))
+  if (!(await confirm({
+    title: '确认删除运单',
+    description: `您确定要删除运单 ${selectedInvoice.value.waybill_no} 吗？\n删除后将恢复所有提单的剩余量。`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  })))
     return
 
   listLoading.value = true

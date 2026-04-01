@@ -7,6 +7,7 @@ import type { Bill } from '@/services/api/bill.api'
 
 import BillFilter from '@/components/bill-filter.vue'
 import BasicHeader from '@/components/global-layout/basic-header.vue'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
   getBills,
@@ -22,6 +23,7 @@ import { searchCompanies } from '@/services/api/plan.api'
 import { getUserNames } from '@/services/api/user.api'
 import { formatDate, formatDim, formatNumber } from '@/utils/format'
 import BillCardList from './components/BillCardList.vue'
+const { confirm } = useConfirmDialog()
 
 // 状态
 const loading = ref(false)
@@ -344,7 +346,11 @@ async function zeroLeftNum() {
     return
   }
 
-  if (!confirm(`确定要将选中的 ${selectedBills.value.length} 条提单剩余量清零吗？`)) {
+  if (!(await confirm({
+    title: '确认清零剩余量',
+    description: `确定要将选中的 ${selectedBills.value.length} 条提单剩余量清零吗？`,
+    confirmButtonText: '确认清零',
+  }))) {
     return
   }
 

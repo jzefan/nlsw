@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -17,6 +18,7 @@ import { formatNumber, sortByOrder, toExcelDate, toExcelNum } from '@/utils/form
 import type { DisplayMode, SettleRecord } from './ticket-types'
 
 const route = useRoute()
+const { confirm } = useConfirmDialog()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 自有车模式（从路由参数读取）
@@ -291,7 +293,11 @@ async function handleReturnMoney() {
     return
   }
 
-  const confirmed = window.confirm('确定要对选中的记录进行回款操作吗？')
+  const confirmed = await confirm({
+    title: '确认回款',
+    description: '确定要对选中的记录进行回款操作吗？',
+    confirmButtonText: '确认回款',
+  })
   if (!confirmed) return
 
   loading.value = true
@@ -331,7 +337,11 @@ async function handleCancelReturnMoney() {
     return
   }
 
-  const confirmed = window.confirm('确定要取消所选记录的回款状态吗？')
+  const confirmed = await confirm({
+    title: '确认取消回款',
+    description: '确定要取消所选记录的回款状态吗？',
+    confirmButtonText: '确认取消',
+  })
   if (!confirmed) return
 
   loading.value = true

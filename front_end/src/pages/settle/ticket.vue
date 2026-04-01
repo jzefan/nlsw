@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
@@ -19,6 +20,7 @@ import SettleRecordFilter from './components/SettleRecordFilter.vue'
 import type { SettleRecordFilterParams } from './components/SettleRecordFilter.vue'
 
 const route = useRoute()
+const { confirm } = useConfirmDialog()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 自有车模式（从路由参数读取）
@@ -301,7 +303,11 @@ async function handleCancelTicket() {
     return
   }
 
-  const confirmed = window.confirm('确定要取消所选记录的开票状态吗？')
+  const confirmed = await confirm({
+    title: '确认取消开票',
+    description: '确定要取消所选记录的开票状态吗？',
+    confirmButtonText: '确认取消',
+  })
   if (!confirmed) return
 
   loading.value = true
@@ -343,7 +349,12 @@ async function handleDelete() {
     return
   }
 
-  const confirmed = window.confirm('确定要删除选中的结算记录吗？此操作不可恢复！')
+  const confirmed = await confirm({
+    title: '确认删除结算记录',
+    description: '确定要删除选中的结算记录吗？此操作不可恢复！',
+    confirmButtonText: '确认删除',
+    destructive: true,
+  })
   if (!confirmed) return
 
   loading.value = true

@@ -114,6 +114,7 @@ module.exports = function (app) {
   app.post('/settle/price_input', requireTenant, settleApiController.inputPrice);
   app.post('/settle/settle_bill', requireTenant, settleApiController.settleBills);
   app.post('/settle/not_require_settle', requireTenant, settleApiController.markNotRequireSettle);
+  app.post('/settle/cancel_not_require_settle', requireTenant, settleApiController.cancelNotRequireSettle);
   app.get('/settle/vehicles', requireTenant, settleApiController.getVehicleList);
 
   // Settle Basket API (结算篮持久化) (tenant-scoped)

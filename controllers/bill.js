@@ -36,6 +36,149 @@ function pushArr(arr, elem) {
   }
 }
 
+function parseSearchValue(raw) {
+  if (typeof raw !== "string") {
+    return raw;
+  }
+
+  var value = raw.trim();
+  if (!value.length) {
+    return value;
+  }
+
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+
+  return value;
+}
+
+function buildLeafQuery(field, operatorText, valueText, valueText2) {
+  if (!field || !operatorText) {
+    return {};
+  }
+
+  var value = parseSearchValue(valueText);
+  var value2 = parseSearchValue(valueText2);
+
+  switch (operatorText) {
+    case "包含":
+      return { [field]: { $regex: valueText, $options: "i" } };
+    case "等于":
+      return { [field]: value };
+    case "不等于":
+      return { [field]: { $ne: value } };
+    case "大于":
+      return { [field]: { $gt: value } };
+    case "小于":
+      return { [field]: { $lt: value } };
+    case "大于等于":
+      return { [field]: { $gte: value } };
+    case "小于等于":
+      return { [field]: { $lte: value } };
+    case "区间":
+      if (
+        typeof value === "undefined" ||
+        value === "" ||
+        typeof value2 === "undefined" ||
+        value2 === ""
+      ) {
+        return {};
+      }
+      return { [field]: { $gte: value, $lte: value2 } };
+    default:
+      return {};
+  }
+}
+
+function parseConditionText(text, fieldMap) {
+  if (!text || typeof text !== "string") {
+    return {};
+  }
+
+  var operators = [
+    "大于等于",
+    "小于等于",
+    "不等于",
+    "包含",
+    "等于",
+    "大于",
+    "小于",
+    "区间",
+  ];
+  var matchedOperator = operators.find(function (operator) {
+    return text.indexOf(" " + operator + " ") >= 0;
+  });
+
+  if (!matchedOperator) {
+    return {};
+  }
+
+  var splitToken = " " + matchedOperator + " ";
+  var segments = text.split(splitToken);
+  if (segments.length < 2) {
+    return {};
+  }
+
+  var fieldCn = segments[0].trim();
+  var field = fieldMap ? fieldMap[fieldCn] : fieldCn;
+  if (!field) {
+    return {};
+  }
+
+  var valuePart = segments.slice(1).join(splitToken).trim();
+  if (!valuePart.length) {
+    return {};
+  }
+
+  if (matchedOperator === "区间") {
+    var intervalMatch = valuePart.match(/^(.+?)\s+(.+)$/);
+    if (!intervalMatch) {
+      return {};
+    }
+    return buildLeafQuery(
+      field,
+      matchedOperator,
+      intervalMatch[1],
+      intervalMatch[2],
+    );
+  }
+
+  return buildLeafQuery(field, matchedOperator, valuePart);
+}
+
+function getQueryFromNodes(node, fieldMap) {
+  if (!node) {
+    return {};
+  }
+
+  var text = (node.text || "").trim();
+  var children = Array.isArray(node.children) ? node.children : [];
+
+  if (text.indexOf("AND") === 0 || text.indexOf("OR") === 0) {
+    var childQueries = children
+      .map(function (child) {
+        return getQueryFromNodes(child, fieldMap);
+      })
+      .filter(function (query) {
+        return query && Object.keys(query).length > 0;
+      });
+
+    if (!childQueries.length) {
+      return {};
+    }
+    if (childQueries.length === 1) {
+      return childQueries[0];
+    }
+
+    return text.indexOf("OR") === 0
+      ? { $or: childQueries }
+      : { $and: childQueries };
+  }
+
+  return parseConditionText(text, fieldMap);
+}
+
 exports.createBills = async function (req, res) {
   if (
     !hasPermission(req.user.privilege, PERMISSIONS.OPERATOR) &&

@@ -21,12 +21,13 @@ const {
   isLoading = false,
   disabled = false,
   destructive = false,
-  cancelButtonText = 'Cancel',
-  confirmButtonText = 'Continue',
+  cancelButtonText = '取消',
+  confirmButtonText = '确认',
 } = defineProps<ConfirmDialogProps>()
 
 const emits = defineEmits<{
   (e: 'confirm'): void
+  (e: 'cancel'): void
 }>()
 
 const openModel = defineModel<boolean>('open', {
@@ -37,10 +38,15 @@ function handleConfirm() {
   emits('confirm')
   openModel.value = false
 }
+
+function handleCancel() {
+  emits('cancel')
+  openModel.value = false
+}
 </script>
 
 <template>
-  <AlertDialog :open="openModel">
+  <AlertDialog v-model:open="openModel">
     <AlertDialogContent>
       <AlertDialogHeader class="text-start">
         <AlertDialogTitle>
@@ -54,7 +60,7 @@ function handleConfirm() {
       <slot />
 
       <AlertDialogFooter>
-        <AlertDialogCancel :disabled="isLoading" @click="openModel = false">
+        <AlertDialogCancel :disabled="isLoading" @click="handleCancel">
           {{ cancelButtonText }}
         </AlertDialogCancel>
 

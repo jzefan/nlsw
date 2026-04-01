@@ -7,6 +7,7 @@ import type { OrderPlan } from '@/services/api/plan.api'
 
 import BasicHeader from '@/components/global-layout/basic-header.vue'
 import ExportDialog from '@/components/export-dialog.vue'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import { useExport } from '@/composables/use-export'
 import { formatDate, formatNumber } from '@/utils/format'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
@@ -22,6 +23,7 @@ import {
 } from '@/services/api/plan.api'
 
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+const { confirm } = useConfirmDialog()
 
 // 状态
 const loading = ref(false)
@@ -209,7 +211,12 @@ async function handleDelete() {
     return
   }
 
-  if (!confirm('确定要删除选中的计划吗？删除后不能恢复！'))
+  if (!(await confirm({
+    title: '确认删除计划',
+    description: '确定要删除选中的计划吗？删除后不能恢复！',
+    confirmButtonText: '确认删除',
+    destructive: true,
+  })))
     return
 
   try {

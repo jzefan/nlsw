@@ -20,6 +20,7 @@ import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
 import ExportDialog from '@/components/export-dialog.vue'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import { useExport } from '@/composables/use-export'
 import {
   AlertDialog,
@@ -35,7 +36,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getCompanies } from '@/services/api/data-dict.api'
-import { getSettleBills, markNotRequireSettle, settleBills } from '@/services/api/settle.api'
+import { getSettleBills, markNotRequireSettle, cancelNotRequireSettle, settleBills } from '@/services/api/settle.api'
 import { useAuthStore } from '@/stores/auth'
 import { sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import { deleteSettle, getSettleList } from '@/services/api/ticket.api'
@@ -58,6 +59,7 @@ import { COLLECTION_SETTLE_FLAG, CUSTOMER_SETTLE_FLAG } from './types'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const { confirm } = useConfirmDialog()
 const { exportWithPicker, exportFromAOAWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
 
 // 自有车模式（从路由参数读取）
@@ -617,7 +619,11 @@ async function handleSettle() {
     }
   }
 
-  const confirmed = window.confirm('确定要结算选中的提单吗？')
+  const confirmed = await confirm({
+    title: '确认结算提单',
+    description: '确定要结算选中的提单吗？',
+    confirmButtonText: '确认结算',
+  })
   if (!confirmed) return
 
   loading.value = true
@@ -657,6 +663,7 @@ async function handleSettle() {
       settle_type: settleMode.value,
       billName,
       shipTo: shipToList.join(','),
+      selfOwned: isSelfOwnedMode.value ? 1 : 0,
     })
 
     if (result.ok) {
@@ -685,9 +692,17 @@ async function handleMarkNotRequireSettle() {
 
   let confirmed = true
   if (hasPrice) {
-    confirmed = window.confirm('您选择的提单中已经输入过价格，不结算后这些价格都会清除为0，确认吗？')
+    confirmed = await confirm({
+      title: '确认标记为不需要结算',
+      description: '您选择的提单中已经输入过价格，不结算后这些价格都会清除为0，确认吗？',
+      confirmButtonText: '确认标记',
+    })
   } else {
-    confirmed = window.confirm('确定标记选中的提单为不需要结算吗？')
+    confirmed = await confirm({
+      title: '确认标记为不需要结算',
+      description: '确定标记选中的提单为不需要结算吗？',
+      confirmButtonText: '确认标记',
+    })
   }
 
   if (!confirmed) return
@@ -719,6 +734,49 @@ async function handleMarkNotRequireSettle() {
     }
   } catch (error: any) {
     toast.error(error.message || '标记失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 取消不需要结算（将价格从 -1 恢复为 0）
+async function handleCancelNotRequireSettle() {
+  if (selectedBills.value.length === 0) {
+    toast.warning('请先选择要取消的提单')
+    return
+  }
+
+  if (!(await confirm({
+    title: '确认取消不需要结算',
+    description: '确定取消选中提单的"不需要结算"标记吗？取消后将恢复为未结算状态。',
+    confirmButtonText: '确认取消',
+  }))) return
+
+  loading.value = true
+  try {
+    const nonSettleObj = selectedBills.value.map((bill) => {
+      if (settleMode.value === 'CUSTOMER') {
+        bill.price = 0
+        return { bid: bill._id, inv_no: bill.inv_no }
+      } else {
+        bill.collection_price = 0
+        return { bid: bill._id, inv_no: bill.inv_no, settle_flag: bill.inv_settle_flag }
+      }
+    })
+
+    const result = await cancelNotRequireSettle({
+      nonSettleObj,
+      settle_type: settleMode.value,
+    })
+
+    if (result.ok) {
+      toast.success('已取消不需要结算标记')
+      updateDisplayBills(false)
+    } else {
+      toast.error(result.message || '取消失败')
+    }
+  } catch (error: any) {
+    toast.error(error.message || '取消失败')
   } finally {
     loading.value = false
   }
@@ -878,9 +936,11 @@ async function handleSettleFromBasket() {
 
   // 如果有未输入价格的提单，提示用户输入
   if (billsWithoutPrice.length > 0) {
-    const confirmed = window.confirm(
-      `结算篮中有 ${billsWithoutPrice.length} 条提单还没有输入价格，是否现在输入价格？\n\n点击"确定"打开价格输入对话框`,
-    )
+    const confirmed = await confirm({
+      title: '价格未输入',
+      description: `结算篮中有 ${billsWithoutPrice.length} 条提单还没有输入价格，是否现在输入价格？\n\n点击"确定"打开价格输入对话框`,
+      confirmButtonText: '去输入',
+    })
     if (confirmed) {
       // 选中这些没有价格的提单
       selectedBills.value = billsWithoutPrice
@@ -895,7 +955,11 @@ async function handleSettleFromBasket() {
     return
   }
 
-  const confirmed = window.confirm(`确定要结算结算篮中的 ${basketBills.value.length} 条提单吗？`)
+  const confirmed = await confirm({
+    title: '确认结算结算篮',
+    description: `确定要结算结算篮中的 ${basketBills.value.length} 条提单吗？`,
+    confirmButtonText: '确认结算',
+  })
   if (!confirmed) return
 
   loading.value = true
@@ -935,6 +999,7 @@ async function handleSettleFromBasket() {
       settle_type: settleMode.value,
       billName,
       shipTo: shipToList.join(','),
+      selfOwned: isSelfOwnedMode.value ? 1 : 0,
     })
 
     if (result.ok) {
@@ -1117,9 +1182,12 @@ async function handleDeleteSettle() {
     return
   }
 
-  const confirmed = window.confirm(
-    `确定要删除选中的 ${selectedSettles.value.length} 条结算记录吗？删除后提单将恢复到已配发状态！`,
-  )
+  const confirmed = await confirm({
+    title: '确认删除结算记录',
+    description: `确定要删除选中的 ${selectedSettles.value.length} 条结算记录吗？删除后提单将恢复到已配发状态！`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  })
   if (!confirmed) return
 
   loading.value = true
@@ -1310,6 +1378,7 @@ function isBillSelected(bill: SettleBill): boolean {
               <Download class="w-4 h-4" />
             </UiButton>
             <UiButton
+              v-if="!showNonSettle"
               ref="basketButtonRef"
               variant="default"
               size="icon"
@@ -1325,6 +1394,7 @@ function isBillSelected(bill: SettleBill): boolean {
               >
             </UiButton>
             <UiButton
+              v-if="!showNonSettle"
               variant="default"
               size="sm"
               :disabled="selectedBills.length === 0 || loading"
@@ -1333,12 +1403,12 @@ function isBillSelected(bill: SettleBill): boolean {
               直接结算
             </UiButton>
             <UiButton
-              variant="outline"
+              :variant="showNonSettle ? 'default' : 'outline'"
               size="sm"
               :disabled="selectedBills.length === 0 || loading"
-              @click="handleMarkNotRequireSettle"
+              @click="showNonSettle ? handleCancelNotRequireSettle() : handleMarkNotRequireSettle()"
             >
-              不需要结算
+              {{ showNonSettle ? '取消不需要结算' : '不需要结算' }}
             </UiButton>
           </template>
           <template v-else>
@@ -1419,8 +1489,8 @@ function isBillSelected(bill: SettleBill): boolean {
               导出
             </UiButton>
 
-            <!-- 结算篮按钮 -->
-            <UiButton ref="basketButtonRef" variant="default" size="sm" class="relative" @click="showBasket = true">
+            <!-- 结算篮按钮（不需要结算模式下隐藏） -->
+            <UiButton v-if="!showNonSettle" ref="basketButtonRef" variant="default" size="sm" class="relative" @click="showBasket = true">
               <ShoppingCart class="w-4 h-4 mr-1" />
               结算篮
               <span
@@ -1431,9 +1501,9 @@ function isBillSelected(bill: SettleBill): boolean {
               </span>
             </UiButton>
 
-            <!-- 查看公开篮 -->
+            <!-- 查看公开篮（不需要结算模式下隐藏） -->
             <UiButton
-              v-if="authStore.features.publicBasket"
+              v-if="authStore.features.publicBasket && !showNonSettle"
               variant="outline"
               size="sm"
               @click="handleShowPublicBaskets"
@@ -1442,8 +1512,9 @@ function isBillSelected(bill: SettleBill): boolean {
               公开篮
             </UiButton>
 
-            <!-- 原有结算操作 -->
+            <!-- 直接结算（不需要结算模式下隐藏） -->
             <UiButton
+              v-if="!showNonSettle"
               variant="default"
               size="sm"
               :disabled="selectedBills.length === 0 || loading"
@@ -1451,13 +1522,14 @@ function isBillSelected(bill: SettleBill): boolean {
             >
               直接结算
             </UiButton>
+            <!-- 不需要结算 / 取消不需要结算 -->
             <UiButton
-              variant="outline"
+              :variant="showNonSettle ? 'default' : 'outline'"
               size="sm"
               :disabled="selectedBills.length === 0 || loading"
-              @click="handleMarkNotRequireSettle"
+              @click="showNonSettle ? handleCancelNotRequireSettle() : handleMarkNotRequireSettle()"
             >
-              不需要结算
+              {{ showNonSettle ? '取消不需要结算' : '不需要结算' }}
             </UiButton>
           </template>
 
@@ -1532,9 +1604,9 @@ function isBillSelected(bill: SettleBill): boolean {
           <span v-if="selectedBills.length > 0" class="text-primary font-medium">
             已选: {{ selectedStatistics.totalNum }}块 / {{ selectedStatistics.totalWeight.toFixed(3) }}吨
           </span>
-          <!-- 加入结算篮按钮 -->
+          <!-- 加入结算篮按钮（不需要结算模式下隐藏） -->
           <UiButton
-            v-if="selectedBills.length > 0"
+            v-if="selectedBills.length > 0 && !showNonSettle"
             variant="default"
             size="sm"
             class="bg-orange-500 hover:bg-orange-600 text-white"
@@ -1661,7 +1733,7 @@ function isBillSelected(bill: SettleBill): boolean {
             </span>
           </div>
           <UiButton
-            v-if="selectedBills.length > 0"
+            v-if="selectedBills.length > 0 && !showNonSettle"
             variant="default"
             size="sm"
             class="bg-orange-500 hover:bg-orange-600 text-white w-full"

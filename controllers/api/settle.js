@@ -704,6 +704,92 @@ exports.markNotRequireSettle = async (req, res) => {
 };
 
 /**
+ * 取消"不需要结算"标记，将价格从 -1 恢复为 0
+ */
+exports.cancelNotRequireSettle = async (req, res) => {
+  try {
+    const { nonSettleObj, settle_type } = req.body;
+
+    if (
+      !nonSettleObj ||
+      !Array.isArray(nonSettleObj) ||
+      nonSettleObj.length === 0
+    ) {
+      return res.json({ ok: false, message: "没有要取消的数据" });
+    }
+
+    // 收集所有运单号
+    const allInvNo = [];
+    for (const item of nonSettleObj) {
+      if (!allInvNo.includes(item.inv_no)) {
+        allInvNo.push(item.inv_no);
+      }
+    }
+
+    // 按提单分组
+    const billGroups = {};
+    nonSettleObj.forEach((item) => {
+      if (!billGroups[item.bid]) {
+        billGroups[item.bid] = [];
+      }
+      billGroups[item.bid].push(item);
+    });
+
+    // 更新每个提单：将 -1 恢复为 0
+    for (const bid in billGroups) {
+      const items = billGroups[bid];
+      const billQ = buildTenantQuery(req, { _id: bid });
+      const dbBill = await Bill.findOne(billQ).exec();
+
+      if (!dbBill) {
+        console.warn("cancelNotRequireSettle: 未找到提单或无权限 bid=" + bid);
+        continue;
+      }
+
+      if (settle_type === "COLLECTION") {
+        dbBill.collection_price = 0;
+        items.forEach((item) => {
+          if (dbBill.invoices) {
+            const invInfo = dbBill.invoices.find(
+              (inv) => inv.inv_no === item.inv_no,
+            );
+            if (invInfo) {
+              invInfo.inv_settle_flag = item.settle_flag || 0;
+              if (invInfo.vehicles && invInfo.vehicles.length > 0) {
+                invInfo.vehicles.forEach((veh) => {
+                  veh.inv_settle_flag = item.settle_flag || 0;
+                });
+              }
+            }
+          }
+        });
+      } else {
+        items.forEach((item) => {
+          if (dbBill.invoices) {
+            const invInfo = dbBill.invoices.find(
+              (inv) => inv.inv_no === item.inv_no,
+            );
+            if (invInfo) {
+              invInfo.price = 0;
+            }
+          }
+        });
+      }
+
+      await dbBill.save();
+    }
+
+    // 更新运单状态
+    await updateInvoiceStatus(allInvNo, settle_type, req);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("cancelNotRequireSettle error:", error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
  * 获取车辆列表
  */
 exports.getVehicleList = async (req, res) => {

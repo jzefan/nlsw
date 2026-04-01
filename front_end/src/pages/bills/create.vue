@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle, FileSpreadsheet, Keyboard, Plus, Save, Trash2, Upload, X } from 'lucide-vue-next'
+import { AlertCircle, CheckCircle, FileSpreadsheet, Keyboard, Loader2, Plus, Save, Trash2, Upload, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import * as XLSX from 'xlsx'
 
@@ -9,10 +9,12 @@ import { BasicPage } from '@/components/global-layout'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { createBills, searchBrands, searchSaleDeps, searchWarehouses } from '@/services/api/bill.api'
 import { searchCompanies } from '@/services/api/plan.api'
+import { useAuthStore } from '@/stores/auth'
 import { formatDim, formatNumber } from '@/utils/format'
 
 // 模式: 'import' 或 'manual'
 const mode = ref<'import' | 'manual'>('import')
+const authStore = useAuthStore()
 
 // 导入类型: 'normal' 或 'switch_warehouse'
 const importType = ref<'normal' | 'switch_warehouse'>('normal')
@@ -20,6 +22,7 @@ const importType = ref<'normal' | 'switch_warehouse'>('normal')
 // 提单数据
 const bills = ref<(BillCreateData & { _error?: string })[]>([])
 const loading = ref(false)
+const filterMode = ref<'all' | 'errors' | 'valid'>('all')
 
 // 文件输入引用
 const fileInputNormal = ref<HTMLInputElement>()
@@ -53,6 +56,102 @@ const useFormula = ref(true)
 
 // 单重输入框是否禁用
 const weightDisabled = computed(() => useFormula.value)
+
+function isFormulaSizeType(sizeType?: string) {
+  const normalized = sizeType?.trim()
+  return normalized === '定尺' || normalized === '双定尺'
+}
+
+function formatImportReasons(reasons: string[]) {
+  return Array.from(new Set(reasons.filter(Boolean))).join('；')
+}
+
+function normalizeHeaderText(value: any) {
+  return value?.toString().replace(/\s+/g, ' ').trim() || ''
+}
+
+function normalizeCarrierCompanyName(name?: string) {
+  return (name || '').replace(/物流系统\s*$/, '').trim()
+}
+
+const clampTwoLinesClass = 'overflow-hidden break-all [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]'
+
+function getExpectedCarrierName() {
+  return authStore.isStandalone
+    ? normalizeCarrierCompanyName(authStore.standaloneCompany)
+    : (authStore.tenant?.name || '')
+}
+
+function shouldSkipImportedBillByCarrier(bill: BillCreateData) {
+  const expectedCarrierName = getExpectedCarrierName()
+  if (!bill.carrier)
+    return true
+  if (!expectedCarrierName)
+    return false
+  return !bill.carrier.includes(expectedCarrierName)
+}
+
+function buildWorksheetMatrix(worksheet: XLSX.WorkSheet) {
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1')
+  const rows: string[][] = []
+
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const row: string[] = []
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r, c })]
+      row.push(normalizeHeaderText(cell?.w ?? cell?.v ?? ''))
+    }
+    rows.push(row)
+  }
+
+  const merges = worksheet['!merges'] || []
+  merges.forEach((merge) => {
+    const value = rows[merge.s.r]?.[merge.s.c] || ''
+    for (let r = merge.s.r; r <= merge.e.r; r++) {
+      for (let c = merge.s.c; c <= merge.e.c; c++) {
+        if (!rows[r][c]) {
+          rows[r][c] = value
+        }
+      }
+    }
+  })
+
+  return rows
+}
+
+function mapHeaderToKey(header: string, headerMap: Record<string, string>) {
+  let key = headerMap[header]
+  if (!key && header) {
+    if (header.includes('一级承运')) key = 'carrier1'
+    else if (header.includes('二级承运')) key = 'carrier2'
+    else if (header.includes('承运')) key = 'carrier'
+    else if (header.includes('尺寸信息') && header.includes('订单')) key = 'sizeTypeOrder'
+    else if (header.includes('尺寸信息') && header.includes('提单')) key = 'sizeTypeBill'
+    else if (header.includes('定尺信息') && header.includes('订单')) key = 'sizeTypeOrder'
+    else if (header.includes('定尺信息')) key = 'sizeTypeFallback'
+    else if (header.includes('尺寸信息')) key = 'sizeTypeFallback'
+  }
+  return key
+}
+
+function buildHeaderCandidates(row1: string[], row2?: string[]) {
+  const maxLen = Math.max(row1.length, row2?.length || 0)
+  const singleRow = Array.from({ length: maxLen }, (_, idx) => normalizeHeaderText(row1[idx] || ''))
+
+  if (!row2) {
+    return [{ headers: singleRow, rowSpan: 1 }]
+  }
+
+  const mergedRows = Array.from({ length: maxLen }, (_, idx) => {
+    const parts = [normalizeHeaderText(row1[idx] || ''), normalizeHeaderText(row2[idx] || '')].filter(Boolean)
+    return Array.from(new Set(parts)).join(' ')
+  })
+
+  return [
+    { headers: mergedRows, rowSpan: 2 },
+    { headers: singleRow, rowSpan: 1 },
+  ]
+}
 
 // 计算单块重量
 function calculateWeight() {
@@ -107,11 +206,16 @@ function validateOrderNo() {
 
 // 验证单条数据
 function validateBill(bill: BillCreateData): string | null {
+  const expectedCarrierName = getExpectedCarrierName()
+
   if (!bill.billNo) return '缺少提单号'
   if (!bill.orderNo) return '缺少订单号'
   if (bill.orderNo.length !== 11) return `订单号长度必须为11位，当前${bill.orderNo.length}位`
   if (!bill.orderItemNo) return '缺少项次号'
   if (!bill.billingName) return '缺少开单名称'
+  if (!bill.carrier) return '缺少承运单位'
+  if (!expectedCarrierName) return '未获取到当前公司名称，无法校验承运单位'
+  if (!bill.carrier.includes(expectedCarrierName)) return `承运单位未包含${expectedCarrierName}`
   if (!bill.totalWeight || bill.totalWeight <= 0) return '总重量必须大于0'
   return null
 }
@@ -193,6 +297,7 @@ function removeBill(index: number) {
 // 清空所有
 function clearAll() {
   bills.value = []
+  filterMode.value = 'all'
 }
 
 // 触发文件输入
@@ -226,6 +331,23 @@ async function handleFileChange(event: Event) {
         }))
       }
 
+      const filteredCarrierCount = processedData.filter((bill) => shouldSkipImportedBillByCarrier(bill)).length
+      processedData = processedData.filter((bill) => !shouldSkipImportedBillByCarrier(bill))
+
+      if (processedData.length === 0) {
+        bills.value = []
+        if (filteredCarrierCount > 0) {
+          toast.warning('导入后无可展示数据', {
+            description: `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已被自动过滤`,
+          })
+        } else {
+          toast.warning('导入失败', {
+            description: '文件中没有可导入的有效数据，请检查必填列和行数据内容',
+          })
+        }
+        return
+      }
+
       // 验证数据并标记错误
       bills.value = processedData.map((bill) => {
         const error = validateBill(bill)
@@ -234,12 +356,18 @@ async function handleFileChange(event: Event) {
 
       const errorCount = bills.value.filter((b) => b._error).length
       if (errorCount > 0) {
-        toast.warning(`导入 ${data.length} 条记录，其中 ${errorCount} 条有问题`)
+        toast.warning(`导入 ${processedData.length} 条记录，其中 ${errorCount} 条有问题`, {
+          description: filteredCarrierCount > 0 ? `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤` : undefined,
+        })
       } else {
-        toast.success(`导入 ${data.length} 条记录，数据验证通过`)
+        toast.success(`导入 ${processedData.length} 条记录，数据验证通过`, {
+          description: filteredCarrierCount > 0 ? `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤` : undefined,
+        })
       }
     } else {
-      toast.warning('未找到有效数据')
+      toast.warning('导入失败', {
+        description: '文件中没有可导入的有效数据，请检查必填列和行数据内容',
+      })
     }
   } catch (e: any) {
     toast.error('导入失败', { description: e.message })
@@ -267,16 +395,20 @@ function mergeDuplicates(data: BillCreateData[]): BillCreateData[] {
     }
   }
 
-  // 累加后重新计算单重：厚宽长都不为0时，单重 = 总重量 / 块数
+  // 累加后仅定尺/双定尺保留单重和块数，其它类型只保留总重
   for (const bill of merged) {
-    if (
-      bill.blockNum && bill.blockNum > 0 &&
-      bill.totalWeight && bill.totalWeight > 0 &&
-      bill.thickness && bill.thickness > 0 &&
-      bill.width && bill.width > 0 &&
-      bill.len && bill.len > 0
-    ) {
-      bill.weight = bill.totalWeight / bill.blockNum
+    if (!isFormulaSizeType(bill.sizeType)) {
+      bill.weight = undefined
+      bill.blockNum = undefined
+      continue
+    }
+
+    if (bill.thickness && bill.thickness > 0 && bill.width && bill.width > 0 && bill.len && bill.len > 0) {
+      bill.weight = bill.len * bill.width * bill.thickness * 7.85 * 1e-9
+    }
+
+    if ((!bill.blockNum || bill.blockNum <= 0) && bill.totalWeight && bill.totalWeight > 0 && bill.weight && bill.weight > 0) {
+      bill.blockNum = Math.round(bill.totalWeight / bill.weight)
     }
   }
 
@@ -293,7 +425,7 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         const workbook = XLSX.read(data, { type: 'binary' })
         const sheetName = workbook.SheetNames[0]
         const worksheet = workbook.Sheets[sheetName]
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+        const jsonData = buildWorksheetMatrix(worksheet)
 
         // 表头映射（与旧系统 bill_import_create_01.js 保持一致）
         const headerMap: Record<string, string> = {
@@ -369,46 +501,69 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
         }
 
         let headerRow = -1
+        let headerRowSpan = 1
         let headers: string[] = []
 
         // 查找表头行
         for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
           const row = jsonData[i]
-          if (
-            row &&
-            row.some((cell: any) => cell && (cell.toString().includes('订单') || cell.toString().includes('提单')))
-          ) {
-            headerRow = i
-            headers = row.map((cell: any) => cell?.toString().trim() || '')
+          if (!row) continue
+
+          const rowText = row.join(' ')
+          if (!rowText.includes('订单') && !rowText.includes('提单')) {
+            continue
+          }
+
+          const candidates = buildHeaderCandidates(row, jsonData[i + 1])
+          const requiredColumns = [
+            { label: '客户名称', keys: ['billingName'] },
+            { label: '订单号', keys: ['orderWithItem'] },
+            { label: '提单号', keys: ['billNo'] },
+            { label: '订单项次号', keys: ['orderItemNo', 'orderWithItem'] },
+            { label: '厚度', keys: ['thickness', 'dimensions'] },
+            { label: '宽度', keys: ['width', 'dimensions'] },
+            { label: '长度', keys: ['len', 'dimensions'] },
+            { label: '重量', keys: ['totalWeight'] },
+          ]
+
+          for (const candidate of candidates) {
+            const mappedHeaderKeys = new Set<string>()
+            candidate.headers.forEach((header) => {
+              const key = mapHeaderToKey(header, headerMap)
+              if (key) mappedHeaderKeys.add(key)
+            })
+
+            const missingColumns = requiredColumns
+              .filter((column) => !column.keys.some((key) => mappedHeaderKeys.has(key)))
+              .map((column) => column.label)
+
+            if (missingColumns.length === 0) {
+              headerRow = i
+              headerRowSpan = candidate.rowSpan
+              headers = candidate.headers
+              break
+            }
+          }
+
+          if (headerRow >= 0) {
             break
           }
         }
 
         if (headerRow === -1) {
-          reject(new Error('未找到表头'))
+          reject(new Error('未识别到可用表头，请确认文件包含客户名称、订单号、提单号、订单项次号、厚度、宽度、长度、重量等列'))
           return
         }
 
         const result: BillCreateData[] = []
-        for (let i = headerRow + 1; i < jsonData.length; i++) {
+        const skippedReasons: string[] = []
+        for (let i = headerRow + headerRowSpan; i < jsonData.length; i++) {
           const row = jsonData[i]
           if (!row || row.every((cell: any) => !cell)) continue
 
           const item: any = {}
           headers.forEach((header, idx) => {
-            let key = headerMap[header]
-            // 模糊匹配：如果精确匹配不到，尝试 includes 匹配
-            if (!key && header) {
-              if (header.includes('一级承运')) key = 'carrier1'
-              else if (header.includes('二级承运')) key = 'carrier2'
-              else if (header.includes('承运'))
-                key = 'carrier' // 通用承运单位
-              else if (header.includes('尺寸信息') && header.includes('订单')) key = 'sizeTypeOrder'
-              else if (header.includes('尺寸信息') && header.includes('提单')) key = 'sizeTypeBill'
-              else if (header.includes('定尺信息') && header.includes('订单')) key = 'sizeTypeOrder'
-              else if (header.includes('定尺信息')) key = 'sizeTypeFallback'
-              else if (header.includes('尺寸信息')) key = 'sizeTypeFallback'
-            }
+            const key = mapHeaderToKey(header, headerMap)
             if (key && row[idx] !== undefined && row[idx] !== null && row[idx] !== '') {
               item[key] = row[idx]?.toString().trim()
             }
@@ -449,27 +604,29 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
             let blockNum = Number.parseInt(item.blockNum) || 0
             let totalWeight = Number.parseFloat(item.totalWeight) || 0
 
-            // 如果没有单重但有尺寸，计算单重
-            if (!weight && thickness > 0 && width > 0 && len > 0) {
+            // 尺寸信息：优先 sizeType（尺寸列）> 订单 > 提单 > 通用 > 根据尺寸推断
+            const sizeType = item.sizeType || item.sizeTypeOrder || item.sizeTypeBill || item.sizeTypeFallback || ''
+            const finalSizeType = sizeType || (thickness > 0 && width > 0 && len > 0 && totalWeight > 0 ? '定尺' : '')
+            const shouldUseFormula = isFormulaSizeType(finalSizeType)
+
+            // 只有定尺/双定尺才根据尺寸计算单重
+            if (shouldUseFormula && !weight && thickness > 0 && width > 0 && len > 0) {
               weight = len * width * thickness * 7.85 * 1e-9
             }
 
-            // 如果没有总重但有单重和块数，计算总重
-            if (!totalWeight && weight > 0 && blockNum > 0) {
+            // 只有定尺/双定尺才由单重和块数反算总重
+            if (shouldUseFormula && !totalWeight && weight > 0 && blockNum > 0) {
               totalWeight = weight * blockNum
             }
 
-            // 尺寸信息：优先 sizeType（尺寸列）> 订单 > 提单 > 通用 > 根据尺寸推断
-            const sizeType = item.sizeType || item.sizeTypeOrder || item.sizeTypeBill || item.sizeTypeFallback || ''
-            // 如果都没有但有完整尺寸和重量，默认定尺
-            const finalSizeType =
-              sizeType || (thickness > 0 && width > 0 && len > 0 && totalWeight > 0 ? '定尺' : '定尺')
-
-            // 定尺类型（定尺/单定尺/双定尺）：需要根据尺寸计算单重，并由总重推算块数
-            const isFixedSize = finalSizeType.includes('定尺')
-            // 如果没有块数但有总重和单重，计算块数（定尺类型：总重÷单重=块数）
-            if (!blockNum && isFixedSize && totalWeight > 0 && weight > 0) {
+            // 只有定尺/双定尺才根据总重和单重推算块数
+            if (!blockNum && shouldUseFormula && totalWeight > 0 && weight > 0) {
               blockNum = Math.round(totalWeight / weight)
+            }
+
+            if (!shouldUseFormula) {
+              weight = 0
+              blockNum = 0
             }
 
             result.push({
@@ -488,11 +645,23 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
               thickness: thickness || undefined,
               width: width || undefined,
               len: len || undefined,
-              weight: weight || undefined,
-              blockNum: blockNum || undefined,
+              weight: shouldUseFormula ? (weight || undefined) : undefined,
+              blockNum: shouldUseFormula ? (blockNum || undefined) : undefined,
               totalWeight: totalWeight || 0,
             })
+          } else {
+            const missingFields: string[] = []
+            if (!item.billingName) missingFields.push('客户名称')
+            if (!item.orderNo && !item.orderWithItem) missingFields.push('订单号')
+            if (!item.billNo) missingFields.push('提单号')
+            skippedReasons.push(`第 ${i + 1} 行缺少${missingFields.join('、')}`)
           }
+        }
+
+        if (result.length === 0) {
+          const reason = formatImportReasons(skippedReasons)
+          reject(new Error(reason || '文件中没有解析出有效数据，请检查表头和内容格式'))
+          return
         }
 
         resolve(result)
@@ -554,6 +723,18 @@ const validCount = computed(() => {
   return bills.value.filter((b) => !b._error).length
 })
 
+const visibleBills = computed(() => {
+  return bills.value
+    .map((bill, index) => ({ bill, index }))
+    .filter(({ bill }) => {
+      if (filterMode.value === 'errors')
+        return !!bill._error
+      if (filterMode.value === 'valid')
+        return !bill._error
+      return true
+    })
+})
+
 // 切换到手工录入模式
 function switchToManual() {
   mode.value = 'manual'
@@ -597,44 +778,62 @@ function switchToImport() {
       <!-- 导入按钮区域 -->
       <div v-if="bills.length === 0" class="mb-4 p-6 border-2 border-dashed rounded-lg bg-muted/30">
         <div class="text-center">
-          <FileSpreadsheet class="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+          <Loader2 v-if="loading" class="w-12 h-12 mx-auto text-primary mb-4 animate-spin" />
+          <FileSpreadsheet v-else class="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 class="text-lg font-medium mb-2">导入 Excel 文件</h3>
-          <p class="text-sm text-muted-foreground mb-4">选择导入方式，支持 .xlsx 和 .xls 格式</p>
+          <p class="text-sm text-muted-foreground mb-4">
+            {{ loading ? '正在读取 Excel 数据，请稍候...' : '选择导入方式，支持 .xlsx 和 .xls 格式' }}
+          </p>
           <div class="flex justify-center gap-4">
-            <UiButton variant="default" @click="triggerNormalImport">
-              <Upload class="w-4 h-4 mr-2" />
-              发货/异储文件
+            <UiButton variant="default" :disabled="loading" @click="triggerNormalImport">
+              <Loader2 v-if="loading" class="w-4 h-4 mr-2 animate-spin" />
+              <Upload v-else class="w-4 h-4 mr-2" />
+              {{ loading ? '读取中...' : '发货/异储文件' }}
             </UiButton>
-            <UiButton variant="outline" @click="triggerSwitchImport">
-              <Upload class="w-4 h-4 mr-2" />
-              厂内/转外库文件
+            <UiButton variant="outline" :disabled="loading" @click="triggerSwitchImport">
+              <Loader2 v-if="loading" class="w-4 h-4 mr-2 animate-spin" />
+              <Upload v-else class="w-4 h-4 mr-2" />
+              {{ loading ? '读取中...' : '厂内/转外库文件' }}
             </UiButton>
           </div>
           <p class="text-xs text-muted-foreground mt-4">
             自动合并相同订单，如果转外库导入：excel中的发货仓库如果为空，则默认设为"转外库"
+          </p>
+          <p class="text-xs text-muted-foreground mt-2">
+            导入的Excel文件列至少包含客户名称、订单号、提单号、订单项次号、厚度、宽度、长度、重量等基本信息
           </p>
         </div>
       </div>
 
       <!-- 导入后的操作区 -->
       <div v-else class="mb-4 flex items-center gap-4">
-        <UiButton variant="outline" size="sm" @click="triggerNormalImport">
-          <Upload class="w-4 h-4 mr-1" />
-          重新导入
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="triggerNormalImport">
+          <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
+          <Upload v-else class="w-4 h-4 mr-1" />
+          {{ loading ? '读取中...' : '重新导入' }}
         </UiButton>
-        <UiButton variant="outline" size="sm" @click="triggerSwitchImport">
-          <Upload class="w-4 h-4 mr-1" />
-          转外库导入
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="triggerSwitchImport">
+          <Loader2 v-if="loading" class="w-4 h-4 mr-1 animate-spin" />
+          <Upload v-else class="w-4 h-4 mr-1" />
+          {{ loading ? '读取中...' : '转外库导入' }}
         </UiButton>
-        <UiButton variant="ghost" size="sm" @click="clearAll">
+        <UiButton variant="ghost" size="sm" :disabled="loading" @click="clearAll">
           <X class="w-4 h-4 mr-1" />
           清空
         </UiButton>
       </div>
     </template>
 
+    <div
+      v-if="mode === 'import' && loading"
+      class="mb-3 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary"
+    >
+      <Loader2 class="w-4 h-4 animate-spin" />
+      <span>正在读取 Excel 数据，请勿重复操作。</span>
+    </div>
+
     <!-- 手工录入模式 -->
-    <template v-else>
+    <template v-if="mode === 'manual'">
       <div class="mb-4 p-3 border rounded-lg bg-muted/50">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <UiInput v-model="form.billNo" placeholder="提单号 *" />
@@ -706,6 +905,19 @@ function switchToImport() {
             validCount > 0 ? `${validCount} 条正确数据可以保存` : '无可保存数据'
           }}</span
         >
+        <div class="ml-auto flex items-center gap-2">
+          <UiButton
+            v-if="validCount > 0"
+            variant="outline"
+            size="sm"
+            @click="filterMode = filterMode === 'valid' ? 'all' : 'valid'"
+          >
+            {{ filterMode === 'valid' ? '显示全部数据' : '显示正确数据' }}
+          </UiButton>
+          <UiButton variant="outline" size="sm" @click="filterMode = filterMode === 'errors' ? 'all' : 'errors'">
+            {{ filterMode === 'errors' ? '显示全部数据' : '显示错误数据' }}
+          </UiButton>
+        </div>
       </div>
       <div
         v-else
@@ -717,32 +929,32 @@ function switchToImport() {
     </div>
 
     <!-- 数据表格 -->
-    <div v-if="bills.length > 0" class="border rounded-lg overflow-auto">
-      <table class="w-full text-sm min-w-[1024px]">
+    <div v-if="bills.length > 0" class="border rounded-lg overflow-x-auto overflow-y-auto">
+      <table class="w-full text-sm min-w-[1600px] table-auto">
         <thead class="bg-muted/50">
           <tr>
             <th class="p-2 text-left w-10 whitespace-nowrap">操作</th>
             <th class="p-2 text-left whitespace-nowrap">状态</th>
-            <th class="p-2 text-left whitespace-nowrap">提单号</th>
-            <th class="p-2 text-left whitespace-nowrap">订单号</th>
-            <th class="p-2 text-left whitespace-nowrap">项次</th>
-            <th class="p-2 text-left whitespace-nowrap">开单名称</th>
-            <th class="p-2 text-left whitespace-nowrap">牌号</th>
-            <th class="p-2 text-left whitespace-nowrap">销售部门</th>
-            <th class="p-2 text-left whitespace-nowrap">仓库</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[120px]">提单号</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[120px]">订单号</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[80px]">项次</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[180px]">开单名称</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[180px]">牌号</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[120px]">销售部门</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[140px]">仓库</th>
             <th class="p-2 text-right whitespace-nowrap">厚</th>
             <th class="p-2 text-right whitespace-nowrap">宽</th>
             <th class="p-2 text-right whitespace-nowrap">长</th>
             <th class="p-2 text-right whitespace-nowrap">单重</th>
             <th class="p-2 text-right whitespace-nowrap">块数</th>
             <th class="p-2 text-right whitespace-nowrap">总重量</th>
-            <th class="p-2 text-left whitespace-nowrap">尺寸类型</th>
-            <th class="p-2 text-left whitespace-nowrap">承运单位</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[110px]">尺寸类型</th>
+            <th class="p-2 text-left whitespace-nowrap min-w-[220px]">承运单位</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="(bill, index) in bills"
+            v-for="({ bill, index }) in visibleBills"
             :key="`${bill.orderNo}-${bill.orderItemNo}-${bill.billNo}-${index}`"
             class="border-t hover:bg-muted/30"
             :class="{ 'bg-red-50 dark:bg-red-950/30': bill._error }"
@@ -753,35 +965,36 @@ function switchToImport() {
               </UiButton>
             </td>
             <td class="p-2">
-              <span v-if="bill._error" class="text-red-600 text-xs" :title="bill._error">
-                <AlertCircle class="w-4 h-4 inline" /> {{ bill._error }}
-              </span>
+              <div v-if="bill._error" class="flex max-w-[220px] items-start gap-1 text-red-600 text-xs" :title="bill._error">
+                <AlertCircle class="w-4 h-4 shrink-0 mt-0.5" />
+                <div :class="clampTwoLinesClass" class="max-w-[190px]">{{ bill._error }}</div>
+              </div>
               <span v-else class="text-green-600">
                 <CheckCircle class="w-4 h-4 inline" />
               </span>
             </td>
-            <td class="p-2 font-mono">{{ bill.billNo }}</td>
-            <td class="p-2 font-mono">{{ bill.orderNo }}</td>
-            <td class="p-2">{{ bill.orderItemNo }}</td>
-            <td class="p-2">{{ bill.billingName }}</td>
-            <td class="p-2">{{ bill.brandNo }}</td>
-            <td class="p-2">{{ bill.salesDep }}</td>
-            <td class="p-2">{{ bill.shipWarehouse }}</td>
+            <td class="p-2 font-mono"><div :class="clampTwoLinesClass">{{ bill.billNo }}</div></td>
+            <td class="p-2 font-mono"><div :class="clampTwoLinesClass">{{ bill.orderNo }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.orderItemNo }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.billingName }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.brandNo }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.salesDep }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.shipWarehouse }}</div></td>
             <td class="p-2 text-right">{{ formatDim(bill.thickness) }}</td>
             <td class="p-2 text-right">{{ formatDim(bill.width) }}</td>
             <td class="p-2 text-right">{{ formatDim(bill.len) }}</td>
             <td class="p-2 text-right">{{ formatNumber(bill.weight, 3) }}</td>
             <td class="p-2 text-right">{{ bill.blockNum }}</td>
             <td class="p-2 text-right font-medium">{{ formatNumber(bill.totalWeight, 3) }}</td>
-            <td class="p-2">{{ bill.sizeType }}</td>
-            <td class="p-2">{{ bill.carrier }}</td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.sizeType }}</div></td>
+            <td class="p-2"><div :class="clampTwoLinesClass">{{ bill.carrier }}</div></td>
           </tr>
         </tbody>
         <tfoot class="bg-muted/50">
           <tr>
-            <td colspan="16" class="p-2 font-medium">合计: {{ bills.length }} 条</td>
+            <td colspan="16" class="p-2 font-medium">合计: {{ visibleBills.length }} 条</td>
             <td class="p-2 text-right font-medium">
-              {{ formatNumber(totalWeight, 3) }}
+              {{ formatNumber(visibleBills.reduce((sum, item) => sum + (item.bill.totalWeight || 0), 0), 3) }}
             </td>
           </tr>
         </tfoot>

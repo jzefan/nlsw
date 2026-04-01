@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import GlobalConfirmDialog from '@/components/global-confirm-dialog.vue'
 import Loading from '@/components/loading.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { useSessionMonitor } from '@/composables/use-session-monitor'
@@ -10,6 +11,7 @@ useSessionMonitor()
 
 <template>
   <Toaster position="top-center" />
+  <GlobalConfirmDialog />
 
   <Suspense>
     <router-view v-slot="{ Component, route }">

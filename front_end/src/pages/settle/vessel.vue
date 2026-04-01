@@ -208,7 +208,19 @@ watchEffect(() => {
 const carrierFilterSelected = ref<string[]>([])
 const carrierFilterOptions = computed(() => {
   const set = new Set<string>()
-  Object.values(vehPersonMap.value).forEach((v: any) => {
+  // 只从当前结果集中的车辆提取承运单位，而非全部 vehPersonMap
+  const records = summaryRecords.value.length > 0 ? summaryRecords.value : dbRecords.value
+  const vehNames = new Set<string>()
+  records.forEach((inv: any) => {
+    if (inv.vehicle_vessel_name) vehNames.add(inv.vehicle_vessel_name)
+    inv.bills?.forEach((bill: any) => {
+      bill.vehicles?.forEach((veh: any) => {
+        if (veh.veh_name) vehNames.add(veh.veh_name)
+      })
+    })
+  })
+  vehNames.forEach((name) => {
+    const v = vehPersonMap.value[name]
     const boss = typeof v === 'string' ? v : v?.boss
     if (boss) {
       boss
@@ -534,7 +546,11 @@ function buildSearchParams() {
     selfOwned: isSelfOwnedMode.value ? '1' : (authStore.features.selfVehicle ? '0' : undefined),
   }
 
-  if (usePagination.value) {
+  // 发货单位/承运单位是客户端筛选，分页模式下后端不知道这些条件，
+  // 会导致匹配记录不在当前页。有这些筛选时不使用后端分页。
+  const hasClientFilter = shipFilterSelected.value.length > 0 || carrierFilterSelected.value.length > 0
+
+  if (usePagination.value && !hasClientFilter) {
     params.page = currentPage.value
     params.pageSize = pageSize.value
   }
@@ -638,12 +654,19 @@ function calcSummaryFromRecords(records: any[]) {
   if (carrierFilterSelected.value.length > 0) {
     filtered = filtered.filter((inv) => {
       const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
-      const boss = typeof carrier === 'string' ? carrier : carrier?.boss || ''
-      const bossList = boss
-        .split(/,|，/)
-        .map((b: string) => b.trim())
-        .filter(Boolean)
-      return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+      if (!carrier) return false
+      if (typeof carrier === 'string') {
+        return carrierFilterSelected.value.includes(carrier)
+      }
+      const boss = carrier.boss || ''
+      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+      if (bossList.length <= 1) {
+        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+      }
+      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
+      if (!found || !found.rb) return false
+      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
     })
   }
   if (filterForm.value.billName) {
@@ -767,16 +790,26 @@ function buildTableData() {
     })
   }
 
-  // 应用承运单位筛选
+  // 应用承运单位筛选（只匹配已确定承运单位的记录，多选未确定的不匹配）
   if (carrierFilterSelected.value.length > 0) {
     filteredRecords = filteredRecords.filter((inv) => {
       const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
-      const boss = typeof carrier === 'string' ? carrier : carrier?.boss || ''
-      const bossList = boss
-        .split(/,|，/)
-        .map((b: string) => b.trim())
-        .filter(Boolean)
-      return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+      if (!carrier) return false
+      if (typeof carrier === 'string') {
+        // 单一承运单位：直接匹配
+        return carrierFilterSelected.value.includes(carrier)
+      }
+      const boss = carrier.boss || ''
+      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+      if (bossList.length <= 1) {
+        // 单一承运单位
+        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+      }
+      // 多个承运单位：必须已选定（real_boss）且选定值包含筛选项
+      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
+      if (!found || !found.rb) return false
+      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
     })
   }
 
@@ -843,6 +876,10 @@ function buildTableData() {
     // 主行
     const mainRow = buildMainRow(inv, isVessel, vehObj)
     mainRow.vehicleFiltered = vehicleFiltered
+    // 承运单位筛选时自动展开船运子行，否则匹配的子行会被折叠隐藏
+    if (isVessel && carrierFilterSelected.value.length > 0) {
+      mainRow.expanded = true
+    }
     // 车辆筛选、或主行状态不匹配时不显示船运主行
     if (!hideMainRow) {
       data.push(mainRow)
@@ -1412,13 +1449,40 @@ function buildBillNameFilterOptions() {
 function applyBillNameFilter() {
   shipFilterSelected.value = billNameFilterOptions.value.filter((item) => item.checked).map((item) => item.value)
   showBillNameFilter.value = false
-  buildTableData()
+  if (usePagination.value) {
+    currentPage.value = 1
+    handleSearch(false)
+  } else {
+    buildTableData()
+  }
 }
 
 function clearBillNameFilter() {
   shipFilterSelected.value = []
   showBillNameFilter.value = false
-  buildTableData()
+  if (usePagination.value) {
+    currentPage.value = 1
+    handleSearch(false)
+  } else {
+    buildTableData()
+  }
+}
+
+function clearCarrierFilter(e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+  e.stopImmediatePropagation()
+  carrierFilterSelected.value = []
+  onCarrierFilterChanged()
+}
+
+function onCarrierFilterChanged() {
+  if (usePagination.value) {
+    currentPage.value = 1
+    handleSearch(false)
+  } else {
+    buildTableData()
+  }
 }
 
 function closeBillNameFilter(e: Event) {
@@ -2684,28 +2748,32 @@ function handleUploadReceiptConfirm() {
           />
           <!-- 承运单位多选 -->
           <Popover v-if="!hideCarrier">
-            <PopoverTrigger as-child>
-              <UiButton variant="outline" size="sm" class="h-8 text-sm w-full justify-start font-normal border-dashed">
-                <CirclePlus
-                  v-if="carrierFilterSelected.length === 0"
-                  class="size-4 mr-1.5 shrink-0 text-muted-foreground"
-                />
-                <template v-if="carrierFilterSelected.length === 0">
-                  <span class="text-muted-foreground">承运单位</span>
-                </template>
-                <template v-else>
-                  <span class="truncate">{{
-                    carrierFilterSelected.length > 2
-                      ? `${carrierFilterSelected.length} 个承运单位`
-                      : carrierFilterSelected.join(', ')
-                  }}</span>
-                  <X
-                    class="size-3.5 ml-auto shrink-0 text-muted-foreground hover:text-foreground"
-                    @click.stop="((carrierFilterSelected = []), buildTableData())"
+            <div class="relative">
+              <PopoverTrigger as-child>
+                <UiButton variant="outline" size="sm" class="h-8 text-sm w-full justify-start font-normal border-dashed" :class="carrierFilterSelected.length > 0 ? 'pr-8' : ''">
+                  <CirclePlus
+                    v-if="carrierFilterSelected.length === 0"
+                    class="size-4 mr-1.5 shrink-0 text-muted-foreground"
                   />
-                </template>
-              </UiButton>
-            </PopoverTrigger>
+                  <template v-if="carrierFilterSelected.length === 0">
+                    <span class="text-muted-foreground">承运单位</span>
+                  </template>
+                  <template v-else>
+                    <span class="truncate">{{
+                      carrierFilterSelected.length > 2
+                        ? `${carrierFilterSelected.length} 个承运单位`
+                        : carrierFilterSelected.join(', ')
+                    }}</span>
+                  </template>
+                </UiButton>
+              </PopoverTrigger>
+              <!-- 清除按钮 - 必须在 PopoverTrigger 外部，否则点击会触发下拉 -->
+              <X
+                v-if="carrierFilterSelected.length > 0"
+                class="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 cursor-pointer text-muted-foreground hover:text-foreground z-10"
+                @pointerdown.stop.prevent="clearCarrierFilter"
+              />
+            </div>
             <PopoverContent class="w-[220px] p-0" align="start">
               <UiCommand>
                 <UiCommandInput placeholder="搜索承运单位..." />
@@ -2721,7 +2789,7 @@ function handleUploadReceiptConfirm() {
                           const idx = carrierFilterSelected.indexOf(opt)
                           if (idx >= 0) carrierFilterSelected.splice(idx, 1)
                           else carrierFilterSelected.push(opt)
-                          buildTableData()
+                          onCarrierFilterChanged()
                         }
                       "
                     >
@@ -2746,7 +2814,7 @@ function handleUploadReceiptConfirm() {
                         @select="
                           () => {
                             carrierFilterSelected = []
-                            buildTableData()
+                            onCarrierFilterChanged()
                           }
                         "
                       >

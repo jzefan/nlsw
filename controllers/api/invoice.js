@@ -66,23 +66,52 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
 
 function buildInnerSettleData(invoice) {
   var allInnerNo = utils.getAllList(true, invoice.bills, "vehicles", "inner_waybill_no");
-  if (allInnerNo.length) {
-    if (!invoice.inner_settle || invoice.inner_settle.length === 0) {
-      invoice.inner_settle = [];
-      allInnerNo.forEach(function (innerNo) {
-        invoice.inner_settle.push({
-          inner_waybill_no: innerNo,
-          state: '未结算',
-          price: 0,
-          date: null,
-          unship_date: null,
-          delay_day: 0,
-          charge_cash: 0,
-          charge_oil: 0,
-          receipt: 0,
-          remark: ''
-        });
+  const uniqueInnerNos = Array.from(new Set(allInnerNo.filter(Boolean)));
+  const previousInnerSettle = Array.isArray(invoice.inner_settle) ? invoice.inner_settle : [];
+
+  invoice.inner_settle = uniqueInnerNos.map(function (innerNo) {
+    const existing = previousInnerSettle.find((item) => item.inner_waybill_no === innerNo);
+    return existing || {
+      inner_waybill_no: innerNo,
+      state: '未结算',
+      price: 0,
+      date: null,
+      unship_date: null,
+      delay_day: 0,
+      charge_cash: 0,
+      charge_oil: 0,
+      receipt: 0,
+      remark: ''
+    };
+  });
+}
+
+function validateInnerWaybillAssignments(flatBills, defaultShipFrom) {
+  const innerWaybillMap = new Map();
+
+  for (const bill of flatBills) {
+    const innerWaybillNo = (bill.inner_waybill_no || '').trim();
+    const vehName = (bill.wagon_no || '').trim();
+    const vehShipFrom = (bill.ship_from || defaultShipFrom || '').trim();
+
+    if (!innerWaybillNo) {
+      return `提单 ${bill.bill_no || ''} 缺少内部运单号`;
+    }
+    if (!vehName) {
+      return `内部运单号 ${innerWaybillNo} 缺少车号`;
+    }
+
+    const existing = innerWaybillMap.get(innerWaybillNo);
+    if (!existing) {
+      innerWaybillMap.set(innerWaybillNo, {
+        vehName,
+        vehShipFrom
       });
+      continue;
+    }
+
+    if (existing.vehName !== vehName || existing.vehShipFrom !== vehShipFrom) {
+      return `内部运单号 ${innerWaybillNo} 被重复分配给不同车辆，请刷新后重试`;
     }
   }
 }
@@ -319,6 +348,10 @@ exports.buildShipInvoice = async (req, res) => {
     const data = req.body;
     const flatBills = data.bills || [];
     const userId = req.user ? req.user.userid : 'admin';
+    const duplicatedInnerWaybillMessage = validateInnerWaybillAssignments(flatBills, data.ship_from);
+    if (duplicatedInnerWaybillMessage) {
+      return res.json({ ok: false, message: duplicatedInnerWaybillMessage });
+    }
 
     // 1. 查找是否已存在该运单
     let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();

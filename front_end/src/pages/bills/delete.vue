@@ -7,6 +7,7 @@ import type { Bill } from '@/services/api/bill.api'
 
 import BillFilter from '@/components/bill-filter.vue'
 import BasicHeader from '@/components/global-layout/basic-header.vue'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import {
 
   deleteBills,
@@ -16,6 +17,7 @@ import {
 import { getUserNames } from '@/services/api/user.api'
 import { formatDate, formatDim, formatNumber } from '@/utils/format'
 import BillCardList from './components/BillCardList.vue'
+const { confirm } = useConfirmDialog()
 
 // 状态
 const loading = ref(false)
@@ -142,7 +144,12 @@ async function handleDelete() {
     return
   }
 
-  if (!confirm(`确定要删除选中的 ${selectedBills.value.length} 条提单吗？删除后不能恢复！`)) {
+  if (!(await confirm({
+    title: '确认删除提单',
+    description: `确定要删除选中的 ${selectedBills.value.length} 条提单吗？删除后不能恢复！`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  }))) {
     return
   }
 

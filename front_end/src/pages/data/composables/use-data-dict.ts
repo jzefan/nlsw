@@ -2,6 +2,7 @@ import { watchDebounced } from '@vueuse/core'
 import { onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import { useModal } from '@/composables/use-modal'
 import type { DataDictItem, PageResult } from '@/services/api/data-dict.api'
 
@@ -12,6 +13,7 @@ export interface DataDictApi {
 }
 
 export function useDataDict(api: DataDictApi) {
+  const { confirm } = useConfirmDialog()
   const data = ref<DataDictItem[]>([])
   const loading = ref(false)
   const total = ref(0)
@@ -64,7 +66,12 @@ export function useDataDict(api: DataDictApi) {
   }
 
   async function handleDelete(item: DataDictItem) {
-    if (!confirm(`确定要删除 ${item.name} 吗？`))
+    if (!(await confirm({
+      title: '确认删除',
+      description: `确定要删除 ${item.name} 吗？`,
+      confirmButtonText: '确认删除',
+      destructive: true,
+    })))
       return
     try {
       const result = await api.delete(item.name)

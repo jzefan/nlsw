@@ -73,6 +73,7 @@ declare global {
   const useAuth: typeof import('../composables/use-auth').useAuth
   const useAuthStore: typeof import('../stores/auth').useAuthStore
   const useAxios: typeof import('../composables/use-axios').useAxios
+  const useConfirmDialog: typeof import('../composables/use-confirm-dialog').useConfirmDialog
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
   const useDevice: typeof import('../composables/use-device').useDevice
@@ -102,6 +103,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { ConfirmDialogOptions } from '../composables/use-confirm-dialog'
+  import('../composables/use-confirm-dialog')
   // @ts-ignore
   export type { ExportColumn, ExportOptions, ExportAOAOptions, ExportBufferOptions } from '../composables/use-export'
   import('../composables/use-export')

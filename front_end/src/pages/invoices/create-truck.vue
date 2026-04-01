@@ -6,6 +6,7 @@ import type { InvoiceBill } from '@/services/api/invoice.api'
 import { formatDate, formatNumber } from '@/utils/format'
 
 import { BasicPage } from '@/components/global-layout'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
@@ -28,6 +29,7 @@ import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const { confirm } = useConfirmDialog()
 
 // 自有车模式（从路由参数读取）
 const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
@@ -60,6 +62,19 @@ const invoiceListPage = ref(1)
 const invoiceListLimit = ref(20)
 const showMyOnly = ref(false) // 是否只显示我的运单
 
+function getDefaultInvoiceSearchRange() {
+  const today = new Date()
+  const oneMonthAgo = new Date(today)
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  return {
+    startDate: fmt(oneMonthAgo),
+    endDate: fmt(today),
+  }
+}
+
 // 判断是否是管理员
 const isAdmin = computed(() => isAdminPrivilege(authStore.user?.privilege ?? []))
 
@@ -91,6 +106,23 @@ watch(showMyOnly, async () => {
   invoiceListPage.value = 1
   await loadInvoiceList()
 })
+
+watch(
+  () => invoiceSearchFilters.value.state,
+  (state) => {
+    if (state === '新建') {
+      invoiceSearchFilters.value.startDate = ''
+      invoiceSearchFilters.value.endDate = ''
+      return
+    }
+
+    if (!invoiceSearchFilters.value.startDate && !invoiceSearchFilters.value.endDate) {
+      const { startDate, endDate } = getDefaultInvoiceSearchRange()
+      invoiceSearchFilters.value.startDate = startDate
+      invoiceSearchFilters.value.endDate = endDate
+    }
+  },
+)
 
 // 运单表单
 const form = ref({
@@ -207,7 +239,11 @@ async function searchShipCustomers(search: string, limit: number, page: number) 
 async function createNewInvoice() {
   // 检查是否有未保存的改动
   if (hasUnsavedChanges.value) {
-    const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并新建运单吗？')
+    const confirmed = await confirm({
+      title: '确认新建运单',
+      description: '当前有未保存的改动，确定要放弃这些改动并新建运单吗？',
+      confirmButtonText: '确认新建',
+    })
     if (!confirmed) return
   }
 
@@ -271,17 +307,6 @@ function findBillById(billId: string) {
   return null
 }
 
-// 确认对话框
-function confirmDialog(message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (window.confirm(message)) {
-      resolve(true)
-    } else {
-      resolve(false)
-    }
-  })
-}
-
 // 开单名称改变时重置订单数据
 async function handleShipNameChange(name: string) {
   form.value.shipName = name
@@ -296,7 +321,11 @@ async function handleShipNameChange(name: string) {
   }
 
   if (selectedBills.value.length > 0) {
-    const confirmed = await confirmDialog('开单名称的改变将导致所有已选择的提单数据丢失,确认吗?')
+    const confirmed = await confirm({
+      title: '确认切换开单名称',
+      description: '开单名称的改变将导致所有已选择的提单数据丢失,确认吗?',
+      confirmButtonText: '继续切换',
+    })
     if (!confirmed) {
       return
     }
@@ -730,17 +759,13 @@ function copyLastOperation() {
 async function openInvoiceList() {
   showInvoiceListDialog.value = true
   invoiceListPage.value = 1
-  const today = new Date()
-  const oneMonthAgo = new Date(today)
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const { startDate, endDate } = getDefaultInvoiceSearchRange()
   invoiceSearchFilters.value = {
     vehicleName: '',
     shipName: '',
     waybillNo: '',
-    startDate: fmt(oneMonthAgo),
-    endDate: fmt(today),
+    startDate,
+    endDate,
     shipTo: '',
     shipperName: '',
     state: '',
@@ -796,7 +821,11 @@ async function searchInvoices() {
 async function loadInvoiceDetail(invoice: any) {
   // 检查是否有未保存的改动
   if (hasUnsavedChanges.value) {
-    const confirmed = await confirmDialog('当前有未保存的改动，确定要放弃这些改动并打开运单吗？')
+    const confirmed = await confirm({
+      title: '确认打开运单',
+      description: '当前有未保存的改动，确定要放弃这些改动并打开运单吗？',
+      confirmButtonText: '继续打开',
+    })
     if (!confirmed) return
   }
 

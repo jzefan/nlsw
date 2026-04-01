@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
 import { useAuth } from '@/composables/use-auth'
+import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import { isAdmin as isAdminPrivilege } from '@/constants/permissions'
 import type { User, UserFormData } from '@/services/api/user.api'
 import {
@@ -19,6 +20,7 @@ import {
 // 权限检查：平台管理员、公司管理员、或权限管理员可访问
 const router = useRouter()
 const { user: authUser } = useAuth()
+const { confirm } = useConfirmDialog()
 const canAccess = computed(
   () =>
     authUser.value?.role === 'platform' ||
@@ -372,7 +374,12 @@ async function handleDeleteOne(user: User) {
     toast.warning('不能删除自己的账号')
     return
   }
-  if (!confirm(`确定要删除用户 "${user.name || user.userid}" 吗?`)) return
+  if (!(await confirm({
+    title: '确认删除用户',
+    description: `确定要删除用户 "${user.name || user.userid}" 吗?`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  }))) return
 
   try {
     const result = await deleteUser(user.userid)
@@ -399,7 +406,12 @@ async function handleDeleteSelected() {
 
   const count = deletable.length
   const names = deletable.map((u) => u.name || u.userid).join(', ')
-  if (!confirm(`确定要删除 ${count} 个用户吗?\n${names}`)) return
+  if (!(await confirm({
+    title: '确认批量删除用户',
+    description: `确定要删除 ${count} 个用户吗?\n${names}`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  }))) return
 
   try {
     let successCount = 0
@@ -434,11 +446,11 @@ async function handleResetPassword() {
     return
   }
 
-  if (
-    !confirm(
-      `确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`,
-    )
-  )
+  if (!(await confirm({
+    title: '确认重置密码',
+    description: `确定要重置用户 "${selectedUser.value.name || selectedUser.value.userid}" 的密码吗？密码将被重置为"123456"`,
+    confirmButtonText: '确认重置',
+  })))
     return
 
   try {

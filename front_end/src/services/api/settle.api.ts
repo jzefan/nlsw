@@ -56,6 +56,17 @@ export async function markNotRequireSettle(data: {
   return response.data
 }
 
+export async function cancelNotRequireSettle(data: {
+  nonSettleObj: Array<{ bid: string, inv_no: string, settle_flag?: number }>
+  settle_type: SettleMode
+}) {
+  const response = await axiosInstance.post<{ ok: boolean, message?: string }>(
+    '/settle/cancel_not_require_settle',
+    data,
+  )
+  return response.data
+}
+
 // 获取车辆列表
 export async function getVehicleList() {
   const response = await axiosInstance.get<{ ok: boolean, vehicles: Array<{ name: string, veh_type: string }> }>(
