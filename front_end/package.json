@@ -48,6 +48,7 @@
     "embla-carousel-vue": "^8.6.0",
     "exceljs": "^4.4.0",
     "jsencrypt": "^3.5.4",
+    "jszip": "^3.10.1",
     "lucide-vue-next": "0.553.0",
     "motion-v": "1.7.4",
     "nprogress": "^0.2.0",

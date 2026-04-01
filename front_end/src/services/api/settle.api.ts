@@ -10,6 +10,16 @@ import { useAxios } from '@/composables/use-axios'
 
 const { axiosInstance } = useAxios()
 
+export interface ReceiptImageMeta {
+  id: string
+  filename: string
+  original_filename: string
+  file_size: number
+  mime_type: string
+  uploader: string
+  upload_time: string
+}
+
 // 获取结算提单列表
 export async function getSettleBills(params: SettleFilterParams) {
   const response = await axiosInstance.get<{
@@ -252,23 +262,34 @@ export async function getReceiptImg(wno: string) {
 export async function getReceiptImagesList(wno: string) {
   const response = await axiosInstance.get<{
     ok: boolean
-    images: Array<{
-      id: string
-      filename: string
-      original_filename: string
-      file_size: number
-      mime_type: string
-      uploader: string
-      upload_time: string
-    }>
+    images: ReceiptImageMeta[]
     total: number
   }>('/get-receipt-images-list', { params: { q: wno } })
+  return response.data
+}
+
+export async function getReceiptDownloadItems(targets: string[]) {
+  const response = await axiosInstance.post<{
+    ok: boolean
+    items: Array<{
+      waybill_no: string
+      images: ReceiptImageMeta[]
+    }>
+    total: number
+  }>('/get-receipt-download-items', { targets })
   return response.data
 }
 
 // 车船结算 - 获取回执图片的直接 URL（用于 <img src>，利用浏览器原生缓存）
 export function getReceiptImageUrl(imageId: string): string {
   return `${axiosInstance.defaults.baseURL}/receipt-image/${imageId}`
+}
+
+export async function downloadReceiptImageBlob(imageId: string, signal?: AbortSignal) {
+  return axiosInstance.get<Blob>(`/receipt-image/${imageId}`, {
+    responseType: 'blob',
+    signal,
+  })
 }
 
 // 车船结算 - 根据ID获取单张回执图片

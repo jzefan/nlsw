@@ -21,6 +21,7 @@ import { useDataDict } from './composables/use-data-dict'
 const filterCategory = ref('')
 const filterType = ref('')
 const filterBoss = ref('')
+const filterAffiliated = ref('')
 
 const {
   data, loading, total, page, limit, searchTerm,
@@ -34,6 +35,7 @@ const {
     if (filterCategory.value && filterCategory.value !== 'all') params.category = filterCategory.value
     if (filterType.value && filterType.value !== 'all') params.type = filterType.value
     if (filterBoss.value) params.boss = filterBoss.value
+    if (filterAffiliated.value && filterAffiliated.value !== 'all') params.affiliated = filterAffiliated.value
     return params
   },
 })
@@ -57,7 +59,7 @@ async function searchBossList(search: string, limit: number, page: number) {
 }
 
 // 筛选变化时重新加载
-watch([filterCategory, filterType, filterBoss], () => {
+watch([filterCategory, filterType, filterBoss, filterAffiliated], () => {
   page.value = 1
   loadData()
 })
@@ -66,6 +68,13 @@ const columns: ColumnDef<any>[] = [
   { accessorKey: 'name', header: '车船号' },
   { accessorKey: 'veh_type', header: '类型' },
   { accessorKey: 'veh_category', header: '分类' },
+  {
+    accessorKey: 'affiliated',
+    header: '挂靠',
+    cell: ({ row }) => row.original.affiliated
+      ? h(Badge, { variant: 'secondary', class: 'text-[10px]' }, () => '挂靠')
+      : h(Badge, { variant: 'outline', class: 'text-[10px] text-muted-foreground' }, () => '未挂靠'),
+  },
   {
     accessorKey: 'boss',
     header: '承运单位',
@@ -145,6 +154,16 @@ const columns: ColumnDef<any>[] = [
             <UiSelectItem value="船">船</UiSelectItem>
           </UiSelectContent>
         </UiSelect>
+        <UiSelect v-model="filterAffiliated">
+          <UiSelectTrigger class="w-24">
+            <UiSelectValue placeholder="挂靠" />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem value="all">全部挂靠</UiSelectItem>
+            <UiSelectItem value="true">挂靠</UiSelectItem>
+            <UiSelectItem value="false">非挂靠</UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
         <SearchableCombobox
           v-model="filterBoss"
           :search-fn="searchBossList"
@@ -161,6 +180,7 @@ const columns: ColumnDef<any>[] = [
             {{ item.name }}
             <Badge v-if="item.veh_type" variant="outline" class="text-[10px]">{{ item.veh_type }}</Badge>
             <Badge v-if="item.veh_category" variant="secondary" class="text-[10px]">{{ item.veh_category }}</Badge>
+            <Badge v-if="item.affiliated" variant="secondary" class="text-[10px]">挂靠</Badge>
           </ItemTitle>
           <ItemDescription v-if="item.contact_name || item.phone">
             {{ item.contact_name }}<span v-if="item.phone" class="ml-1">{{ item.phone }}</span>

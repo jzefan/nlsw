@@ -137,6 +137,7 @@ module.exports = function (app) {
   app.post('/upload-receipt-img', requireTenant, vesselSettleController.uploadReceiptImg);
   app.get('/get-receipt-img', requireTenant, vesselSettleController.getReceiptImg);
   app.get('/get-receipt-images-list', requireTenant, vesselSettleController.getReceiptImagesList);
+  app.post('/get-receipt-download-items', requireTenant, vesselSettleController.getReceiptDownloadItems);
   app.get('/get-receipt-image-by-id', requireTenant, vesselSettleController.getReceiptImageById);
   app.get('/receipt-image/:id', requireTenant, vesselSettleController.streamReceiptImage);
   app.delete('/delete-receipt-image', requireTenant, vesselSettleController.deleteReceiptImage);

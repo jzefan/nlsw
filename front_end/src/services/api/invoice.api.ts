@@ -7,6 +7,7 @@ export interface Vehicle {
   _id?: string
   name: string
   veh_type: '车' | '船'
+  affiliated?: boolean
   phone?: string
   contact?: string
 }
@@ -251,10 +252,11 @@ export async function searchVehicles(
   type?: '车' | '船',
   limit = 20,
   page = 1,
-  category?: '自有' | '外挂'
+  category?: '自有' | '外挂',
+  includeAffiliated?: boolean,
 ) {
   const response = await axiosInstance.get('/vehicles/search', {
-    params: { search, type, limit, page, category },
+    params: { search, type, limit, page, category, includeAffiliated },
   })
   return response.data
 }

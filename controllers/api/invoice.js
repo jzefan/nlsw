@@ -12,6 +12,21 @@ function areFloatsEqual(a, b) {
   return Math.abs(a - b) < EPSILON;
 }
 
+const INVOICE_STATE_ORDER = ['新建', '已配发', '已结算', '已付款'];
+
+function getMergedInvoiceState(currentState, requestedState) {
+  const normalizedCurrent = currentState || '新建';
+  const normalizedRequested = requestedState || normalizedCurrent;
+  const currentIndex = INVOICE_STATE_ORDER.indexOf(normalizedCurrent);
+  const requestedIndex = INVOICE_STATE_ORDER.indexOf(normalizedRequested);
+
+  if (currentIndex === -1 || requestedIndex === -1) {
+    return normalizedRequested || normalizedCurrent;
+  }
+
+  return INVOICE_STATE_ORDER[Math.max(currentIndex, requestedIndex)];
+}
+
 function updateBillStatus(userId, dbBill, state) {
   let updated = false;
   if (state === '已配发') {
@@ -37,10 +52,6 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
     vehicles: inv_bill.vehicles ? inv_bill.vehicles.slice(0) : []
   };
 
-  obj.vehicles.forEach(function (vehs) {
-    vehs.veh_price = 0;
-  });
-
   if (db_bill.invoices && db_bill.invoices.length) {
     var found = false;
     for (var i = 0; i < db_bill.invoices.length; ++i) {
@@ -62,6 +73,77 @@ function addInvoiceToBill(db_bill, inv, inv_bill) {
   } else {
     db_bill.invoices = [obj];
   }
+}
+
+function makeVehiclePriceKey(innerWaybillNo, vehName, vehShipFrom) {
+  return [
+    (innerWaybillNo || '').trim(),
+    (vehName || '').trim(),
+    (vehShipFrom || '').trim()
+  ].join('::');
+}
+
+function buildVehiclePriceIndex(existingVehicles) {
+  const index = new Map();
+  (existingVehicles || []).forEach((vehicle) => {
+    const key = makeVehiclePriceKey(
+      vehicle.inner_waybill_no,
+      vehicle.veh_name,
+      vehicle.veh_ship_from
+    );
+    if (!vehicle.inner_waybill_no || !vehicle.veh_name || index.has(key)) {
+      return;
+    }
+    index.set(key, {
+      veh_price: vehicle.veh_price || 0,
+      price_mode: vehicle.price_mode || 0,
+      price_remark: vehicle.price_remark || ''
+    });
+  });
+  return index;
+}
+
+function collectExistingInvoiceVehicles(invoice, waybillNo) {
+  const vehicles = [];
+  if (invoice && Array.isArray(invoice.bills)) {
+    invoice.bills.forEach((bill) => {
+      (bill.vehicles || []).forEach((vehicle) => vehicles.push(vehicle));
+    });
+  }
+
+  if (invoice && Array.isArray(invoice._billInvoicesForPricing)) {
+    invoice._billInvoicesForPricing.forEach((billInvoice) => {
+      (billInvoice.vehicles || []).forEach((vehicle) => vehicles.push(vehicle));
+    });
+  }
+
+  return vehicles;
+}
+
+function applyVehiclePricingFromExisting(newVehicles, existingVehicles) {
+  const priceIndex = buildVehiclePriceIndex(existingVehicles);
+  return (newVehicles || []).map((vehicle) => {
+    const key = makeVehiclePriceKey(
+      vehicle.inner_waybill_no,
+      vehicle.veh_name,
+      vehicle.veh_ship_from
+    );
+    const existing = priceIndex.get(key);
+    return {
+      ...vehicle,
+      veh_price: existing ? existing.veh_price : (vehicle.veh_price || 0),
+      price_mode: existing ? existing.price_mode : (vehicle.price_mode || 0),
+      price_remark: existing ? existing.price_remark : (vehicle.price_remark || '')
+    };
+  });
+}
+
+function applyInvoicePricingFromExisting(invoiceInfo, existingInvoiceInfo) {
+  return {
+    ...invoiceInfo,
+    price: existingInvoiceInfo ? (existingInvoiceInfo.price || 0) : (invoiceInfo.price || 0),
+    veh_ves_price: existingInvoiceInfo ? (existingInvoiceInfo.veh_ves_price || 0) : (invoiceInfo.veh_ves_price || 0)
+  };
 }
 
 function buildInnerSettleData(invoice) {
@@ -355,6 +437,26 @@ exports.buildShipInvoice = async (req, res) => {
 
     // 1. 查找是否已存在该运单
     let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();
+    let existingInvoiceVehicles = [];
+    if (dbInv) {
+      const billIds = (dbInv.bills || []).map((bill) => bill.bill_id).filter(Boolean);
+      let relatedBillVehicles = [];
+      if (billIds.length > 0) {
+        const relatedBills = await Bill.find(buildTenantQuery(req, { _id: { $in: billIds } }))
+          .select('invoices')
+          .lean()
+          .exec();
+        relatedBillVehicles = relatedBills.flatMap((bill) =>
+          (bill.invoices || [])
+            .filter((invoice) => invoice.inv_no === data.waybill_no)
+            .flatMap((invoice) => invoice.vehicles || []),
+        );
+      }
+      existingInvoiceVehicles = collectExistingInvoiceVehicles({
+        bills: dbInv.bills,
+        _billInvoicesForPricing: [{ vehicles: relatedBillVehicles }]
+      });
+    }
 
     // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
     if (flatBills.length === 0) {
@@ -417,7 +519,7 @@ exports.buildShipInvoice = async (req, res) => {
       dbInv.ship_from = data.ship_from;
       dbInv.bills = [];
       dbInv.total_weight = 0;
-      dbInv.state = data.state || '新建';
+      dbInv.state = getMergedInvoiceState(dbInv.state, data.state);
       dbInv.inner_settle = [];
       await dbInv.save();
       return res.json({ ok: true });
@@ -453,6 +555,10 @@ exports.buildShipInvoice = async (req, res) => {
         price_remark: ''
       });
     }
+
+    Object.keys(billGroups).forEach((key) => {
+      billGroups[key].vehicles = applyVehiclePricingFromExisting(billGroups[key].vehicles, existingInvoiceVehicles);
+    });
 
     // 4. 查找每个 _id 对应的数据库记录
     const billIdList = Object.keys(billGroups);
@@ -810,9 +916,9 @@ exports.buildShipInvoice = async (req, res) => {
             veh_ship_from: v.veh_ship_from || '',
             send_num: v.send_num || 0,
             send_weight: v.send_weight || 0,
-            veh_price: 0,
-            price_mode: 0,
-            price_remark: ''
+            veh_price: v.veh_price || 0,
+            price_mode: v.price_mode || 0,
+            price_remark: v.price_remark || ''
           })),
           inv_settle_flag: 0
         };
@@ -873,7 +979,7 @@ exports.buildShipInvoice = async (req, res) => {
       dbInv.ship_from = data.ship_from;
       dbInv.bills = invoiceBills;
       dbInv.total_weight = utils.toFixedNumber(totalWeight, 3);
-      dbInv.state = data.state || '新建';
+      dbInv.state = getMergedInvoiceState(dbInv.state, data.state);
 
       // 重新构建内部结算数据
       buildInnerSettleData(dbInv);
@@ -992,6 +1098,14 @@ exports.deleteInvoice = async (req, res) => {
   }
 };
 
+exports.__testables = {
+  getMergedInvoiceState,
+  makeVehiclePriceKey,
+  buildVehiclePriceIndex,
+  applyVehiclePricingFromExisting,
+  applyInvoicePricingFromExisting
+};
+
 exports.buildTruckInvoice = async (req, res) => {
   try {
     const data = req.body;
@@ -1062,7 +1176,7 @@ exports.buildTruckInvoice = async (req, res) => {
       dbInv.ship_from = data.ship_from;
       dbInv.bills = [];
       dbInv.total_weight = 0;
-      dbInv.state = data.state || '新建';
+      dbInv.state = getMergedInvoiceState(dbInv.state, data.state);
       await dbInv.save();
       return res.json({ ok: true });
     }
@@ -1259,6 +1373,12 @@ exports.buildTruckInvoice = async (req, res) => {
             vehicles: [],
             inv_settle_flag: 0
           };
+          const existingInvoiceInfo = dbBill.invoices && dbBill.invoices.length
+            ? dbBill.invoices.find(
+                inv => inv.inv_no === invoice.waybill_no && inv.veh_ves_name === invoice.vehicle_vessel_name
+              )
+            : null;
+          const nextInvoiceInfo = applyInvoicePricingFromExisting(invoiceInfo, existingInvoiceInfo);
 
           if (dbBill.invoices && dbBill.invoices.length) {
             // 检查是否已存在相同运单
@@ -1266,12 +1386,12 @@ exports.buildTruckInvoice = async (req, res) => {
               inv => inv.inv_no === invoice.waybill_no && inv.veh_ves_name === invoice.vehicle_vessel_name
             );
             if (existingIdx >= 0) {
-              dbBill.invoices[existingIdx] = invoiceInfo;
+              dbBill.invoices[existingIdx] = nextInvoiceInfo;
             } else {
-              dbBill.invoices.push(invoiceInfo);
+              dbBill.invoices.push(nextInvoiceInfo);
             }
           } else {
-            dbBill.invoices = [invoiceInfo];
+            dbBill.invoices = [nextInvoiceInfo];
           }
 
           savedBills.push(dbBill);
@@ -1449,18 +1569,22 @@ exports.buildTruckInvoice = async (req, res) => {
           vehicles: [],
           inv_settle_flag: 0
         };
+        const existingInvoiceInfo = dbBill.invoices && dbBill.invoices.length
+          ? dbBill.invoices.find(inv => inv.inv_no === dbInv.waybill_no)
+          : null;
+        const nextInvoiceInfo = applyInvoicePricingFromExisting(invoiceInfo, existingInvoiceInfo);
 
         if (dbBill.invoices && dbBill.invoices.length) {
           const existingIdx = dbBill.invoices.findIndex(
             inv => inv.inv_no === dbInv.waybill_no
           );
           if (existingIdx >= 0) {
-            dbBill.invoices[existingIdx] = invoiceInfo;
+            dbBill.invoices[existingIdx] = nextInvoiceInfo;
           } else {
-            dbBill.invoices.push(invoiceInfo);
+            dbBill.invoices.push(nextInvoiceInfo);
           }
         } else {
-          dbBill.invoices = [invoiceInfo];
+          dbBill.invoices = [nextInvoiceInfo];
         }
 
         savedBills.push(dbBill);
@@ -1506,7 +1630,7 @@ exports.buildTruckInvoice = async (req, res) => {
       dbInv.ship_from = data.ship_from;
       dbInv.bills = invoiceBills;
       dbInv.total_weight = utils.toFixedNumber(totalWeight, 3);
-      dbInv.state = data.state || '新建';
+      dbInv.state = getMergedInvoiceState(dbInv.state, data.state);
 
       await dbInv.save();
       res.json({ ok: true });

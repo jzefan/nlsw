@@ -41,6 +41,7 @@ const enableCategoryFilter = computed(() => authStore.features?.selfVehicle === 
 const loading = ref(false)
 const waybillNo = ref('')
 const isExistingInvoice = ref(false) // 标记是否为已保存的运单
+const currentInvoiceState = ref('新建')
 const originalSelectedBills = ref<any[]>([]) // 保存原始的选择提单，用于检测是否有改动
 
 // 打开运单对话框相关
@@ -212,14 +213,16 @@ async function searchShipperNames(search: string, limit: number, page: number) {
 async function searchTrucks(search: string, limit: number, page: number) {
   // 关键逻辑：只有在功能启用时才根据模式过滤
   let category: '自有' | '外挂' | undefined = undefined
+  let includeAffiliated = false
 
   if (enableCategoryFilter.value && isSelfOwnedMode.value) {
     // 自有车模式：只显示自有车
     category = '自有'
+    includeAffiliated = true
   }
   // 非自有模式或功能关闭：category = undefined，显示所有车辆
 
-  return searchVehicles(search, '车', limit, page, category)
+  return searchVehicles(search, '车', limit, page, category, includeAffiliated)
 }
 
 // 搜索发货单位（本地搜索当前公司的客户列表）
@@ -253,6 +256,7 @@ async function createNewInvoice() {
     if (result.ok) {
       waybillNo.value = result.max_no
       isExistingInvoice.value = false // 新建运单
+      currentInvoiceState.value = '新建'
       originalSelectedBills.value = []
       resetForm()
       toast.success(`新建运单号: ${result.max_no}`)
@@ -268,6 +272,7 @@ async function createNewInvoice() {
 
 // 重置表单
 function resetForm() {
+  currentInvoiceState.value = '新建'
   form.value = {
     vehicleName: '',
     shipName: '',
@@ -632,6 +637,7 @@ async function saveInvoice(state: string) {
 
   loading.value = true
   try {
+    const targetState = isExistingInvoice.value && state === '新建' ? currentInvoiceState.value || '新建' : state
     const data = {
       waybill_no: waybillNo.value,
       vehicle_vessel_name: form.value.vehicleName,
@@ -649,7 +655,7 @@ async function saveInvoice(state: string) {
         .filter((b) => b.send_num > 0 || b.send_weight > 0)
         .map((b) => ({ ...b, original_left_num: getOriginalLeftNum(b) })),
       total_weight: totalWeight.value,
-      state,
+      state: targetState,
       username: authStore.user?.userid,
       shipper: authStore.user?.userid,
       selfOwned: isSelfOwnedMode.value,
@@ -670,11 +676,13 @@ async function saveInvoice(state: string) {
       // 更新原始数据，使得保存后不再显示"未保存"
       originalSelectedBills.value = JSON.parse(JSON.stringify(selectedBills.value))
 
-      toast.success(state === '已配发' ? '配发成功' : '保存成功')
-      if (state === '已配发') {
+      currentInvoiceState.value = targetState
+      toast.success(targetState === '已配发' ? '配发成功' : '保存成功')
+      if (targetState === '已配发') {
         resetForm()
         waybillNo.value = ''
         isExistingInvoice.value = false
+        currentInvoiceState.value = '新建'
         originalSelectedBills.value = []
       }
     } else if (result.code === 'BILL_MODIFIED') {
@@ -845,6 +853,7 @@ async function loadInvoiceDetail(invoice: any) {
       form.value.shipDate = inv.ship_date ? inv.ship_date.substring(0, 10) : ''
 
       isExistingInvoice.value = true
+      currentInvoiceState.value = inv.state || '新建'
 
       // 加载开单名称的可用提单
       await handleShipNameChange(inv.ship_name)

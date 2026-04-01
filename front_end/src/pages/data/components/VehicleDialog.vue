@@ -37,6 +37,7 @@ const formSchema = toTypedSchema(
     name: z.string().min(1, '请输入车船号'),
     veh_type: z.enum(['车', '船']),
     veh_category: z.string().optional(),
+    affiliated: z.boolean().default(false),
     boss: z.array(z.string()).default([]),
     contact_name: z.string().optional(),
     phone: z.string().optional(),
@@ -49,6 +50,7 @@ const { handleSubmit, isSubmitting } = useForm({
     name: props.item?.name || '',
     veh_type: props.item?.veh_type || '车',
     veh_category: props.item?.veh_category || '外挂',
+    affiliated: !!props.item?.affiliated,
     boss: parseBoss(props.item?.boss),
     contact_name: props.item?.contact_name || '',
     phone: props.item?.phone || '',
@@ -145,6 +147,23 @@ const onSubmit = handleSubmit(async (values) => {
           </UiFormItem>
         </FormField>
       </div>
+
+      <FormField v-slot="{ value, setValue }" name="affiliated">
+        <UiFormItem>
+          <div class="flex items-start gap-3 rounded-lg border px-3 py-3">
+            <UiCheckbox
+              :model-value="value"
+              class="mt-1"
+              @update:model-value="setValue(!!$event)"
+            />
+            <div class="flex-1">
+              <UiFormLabel>挂靠本单位</UiFormLabel>
+              <p class="text-xs text-muted-foreground mt-1">勾选后，此车船号会在“自有车配发”里与自有车船一起可选</p>
+            </div>
+          </div>
+          <UiFormMessage />
+        </UiFormItem>
+      </FormField>
     </div>
 
     <UiSeparator />

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import {
   Ban,
   Check,
@@ -46,6 +47,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -71,6 +73,22 @@ import VesselReceiptImageDialog from './components/VesselReceiptImageDialog.vue'
 import VesselUploadReceiptDialog from './components/VesselUploadReceiptDialog.vue'
 import { useSettleBasket } from './composables/useSettleBasket'
 import { hasPermission, PERMISSIONS } from '@/constants/permissions'
+
+type LocalDirectoryHandle = any
+type LocalFileHandle = any
+
+interface ReceiptDownloadTarget {
+  waybillNo: string
+  vehicleName: string
+  fileBaseName: string
+  isSubItem: boolean
+}
+
+interface ReceiptDownloadTaskItem {
+  waybillNo: string
+  fileName: string
+  imageId: string
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -391,6 +409,26 @@ const showPrintBtn = ref(false)
 const showUnpayBlock = ref(false)
 const loading = ref(false)
 
+const receiptDownloadDialogOpen = ref(false)
+const receiptDownloadMinimized = ref(false)
+const receiptDownloadDirectoryOpen = ref(false)
+const receiptDownloadMode = ref<'directory' | 'zip'>('directory')
+const receiptDownloadDirectoryName = ref('')
+const receiptDownloadDirectoryHandle = ref<LocalDirectoryHandle | null>(null)
+const receiptDownloadVisibleFiles = ref<string[]>([])
+const receiptDownloadAbortController = ref<AbortController | null>(null)
+const receiptDownloadCancelRequested = ref(false)
+const receiptDownloadPhase = ref<'prepare' | 'download' | 'zip' | 'idle'>('idle')
+const receiptDownloadState = ref({
+  status: 'idle' as 'idle' | 'running' | 'done' | 'error' | 'cancelled',
+  total: 0,
+  completed: 0,
+  failed: 0,
+  currentFile: '',
+  lastError: '',
+  recentFiles: [] as string[],
+})
+
 // 不需要结算确认对话框
 const showNotNeedSettleDialog = ref(false)
 const pendingNotNeedSettleRow = ref<any>(null)
@@ -420,6 +458,517 @@ const canShowDetail = computed(() => selectedRecords.value.length === 1)
 
 // 是否显示结算篮相关按钮（仅在"未结算"状态下显示）
 const canShowBasket = computed(() => filterForm.value.settleState === '未结算')
+const hasReceiptDownloadSource = computed(() => {
+  if (summaryRecords.value.length > 0) return true
+  return dbRecords.value.length > 0
+})
+const hasReceiptDownloadTask = computed(() => receiptDownloadState.value.status !== 'idle')
+const isReceiptDownloadRunning = computed(() => receiptDownloadState.value.status === 'running')
+const isReceiptDownloadCancelled = computed(() => receiptDownloadState.value.status === 'cancelled')
+const receiptDownloadPercent = computed(() => {
+  if (receiptDownloadState.value.total === 0) return 0
+  return Math.min(100, Math.round((receiptDownloadState.value.completed / receiptDownloadState.value.total) * 100))
+})
+
+function sanitizeReceiptFilePart(value: string) {
+  const cleaned = value.replace(/[\\/:*?"<>|]/g, '_').trim()
+  return cleaned || '未命名'
+}
+
+function canUseReceiptDirectoryDownload() {
+  if (typeof window === 'undefined') return false
+  return window.isSecureContext && typeof (window as any).showDirectoryPicker === 'function'
+}
+
+function getReceiptFileExtension(image: settleApi.ReceiptImageMeta) {
+  const originalExt = image.original_filename?.match(/(\.[^.]+)$/)?.[1]
+  if (originalExt) return originalExt
+  const mime = (image.mime_type || '').toLowerCase()
+  if (mime.includes('png')) return '.png'
+  if (mime.includes('gif')) return '.gif'
+  if (mime.includes('webp')) return '.webp'
+  if (mime.includes('bmp')) return '.bmp'
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg'
+  return '.jpg'
+}
+
+function getStickyCellClass(row: any) {
+  if (row.isSubItem) {
+    return row.selected ? 'bg-blue-100 dark:bg-blue-950 text-foreground dark:text-blue-50' : 'bg-green-100 dark:bg-green-950'
+  }
+  if (row.isVessel && !row.selected) {
+    return 'bg-orange-100 dark:bg-orange-950'
+  }
+  if (row.selected) {
+    return 'bg-blue-100 dark:bg-blue-950 text-foreground dark:text-blue-50'
+  }
+  return 'bg-muted dark:bg-muted'
+}
+
+function getNotNeedStarClass(notNeedColor: string) {
+  return notNeedColor === 'darkgray'
+    ? 'text-muted-foreground'
+    : 'text-foreground dark:text-amber-200'
+}
+
+function getSelectedRowClass() {
+  return 'bg-blue-100 hover:bg-blue-100 dark:bg-blue-900/70 dark:hover:bg-blue-900/70 border-l-4 border-l-blue-500 text-foreground dark:text-blue-50 [&_.text-muted-foreground]:!text-slate-700 dark:[&_.text-muted-foreground]:!text-blue-100/85'
+}
+
+function applyLocalFilters(records: any[]) {
+  let filteredRecords = [...records]
+
+  if (shipFilterSelected.value.length > 0) {
+    filteredRecords = filteredRecords.filter((inv) => {
+      const sc = inv.ship_customer || ''
+      return shipFilterSelected.value.includes(sc)
+    })
+  }
+
+  if (carrierFilterSelected.value.length > 0) {
+    filteredRecords = filteredRecords.filter((inv) => {
+      const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
+      if (!carrier) return false
+      if (typeof carrier === 'string') return carrierFilterSelected.value.includes(carrier)
+      const boss = carrier.boss || ''
+      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+      if (bossList.length <= 1) {
+        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+      }
+      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
+      if (!found || !found.rb) return false
+      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
+    })
+  }
+
+  if (filterForm.value.billName) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_name === filterForm.value.billName)
+  }
+
+  if (filterForm.value.origin) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_from === filterForm.value.origin)
+  }
+
+  if (filterForm.value.destination) {
+    filteredRecords = filteredRecords.filter((inv) => inv.ship_to === filterForm.value.destination)
+  }
+
+  return filteredRecords
+}
+
+function collectReceiptDownloadTargets(records: any[]): ReceiptDownloadTarget[] {
+  const data: ReceiptDownloadTarget[] = []
+  const keySet = new Set<string>()
+  const filteredRecords = applyLocalFilters(records)
+  const vehicleFilter = filterForm.value.vehicle || ''
+  const settleState = filterForm.value.settleState
+
+  filteredRecords.forEach((inv) => {
+    const isVessel = inv.bills?.some((bill: any) => bill.vehicles && bill.vehicles.length > 0)
+    let vehObj = isVessel ? makeVehInfo(inv) : null
+
+    let vehicleFiltered = false
+    if (vehicleFilter) {
+      if (isVessel && vehObj) {
+        const filteredVehObj: any = {}
+        Object.keys(vehObj).forEach((key) => {
+          if (vehObj[key].name === vehicleFilter) {
+            filteredVehObj[key] = vehObj[key]
+          }
+        })
+        if (Object.keys(filteredVehObj).length === 0 && inv.vehicle_vessel_name !== vehicleFilter) return
+        if (Object.keys(filteredVehObj).length > 0) {
+          vehObj = filteredVehObj
+          vehicleFiltered = true
+        }
+      } else if (!isVessel && inv.vehicle_vessel_name !== vehicleFilter) {
+        return
+      }
+    }
+
+    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) return
+
+    const hideMainRow = vehicleFiltered || !mainStateMatch
+    if (!hideMainRow && imageWaybillsSet.value.has(inv.waybill_no)) {
+      const uniqueKey = `main:${inv.waybill_no}`
+      if (!keySet.has(uniqueKey)) {
+        keySet.add(uniqueKey)
+        data.push({
+          waybillNo: inv.waybill_no,
+          vehicleName: inv.vehicle_vessel_name || '',
+          fileBaseName: `${inv.waybill_no}-${sanitizeReceiptFilePart(inv.vehicle_vessel_name || '未命名')}`,
+          isSubItem: false,
+        })
+      }
+    }
+
+    const vesselNameMatched = vehicleFilter && isVessel && inv.vehicle_vessel_name === vehicleFilter
+    if (isVessel && vehObj && !vesselNameMatched) {
+      Object.keys(vehObj).forEach((key) => {
+        const veh = vehObj[key]
+        if (settleState && settleState !== '全部' && veh.state !== settleState) return
+        const innerWaybillNo = veh.inner_waybill_no || key
+        if (!imageWaybillsSet.value.has(innerWaybillNo)) return
+
+        const uniqueKey = `sub:${innerWaybillNo}:${veh.name || ''}`
+        if (!keySet.has(uniqueKey)) {
+          keySet.add(uniqueKey)
+          data.push({
+            waybillNo: innerWaybillNo,
+            vehicleName: veh.name || '',
+            fileBaseName: `${innerWaybillNo}-${sanitizeReceiptFilePart(veh.name || '未命名')}`,
+            isSubItem: true,
+          })
+        }
+      })
+    }
+  })
+
+  return data
+}
+
+function collectReceiptDownloadTargetsFromRows(rows: any[]): ReceiptDownloadTarget[] {
+  const keySet = new Set<string>()
+  const targets: ReceiptDownloadTarget[] = []
+
+  rows.forEach((row) => {
+    if (!row.has_receipt_image) return
+
+    const waybillNo = row.isSubItem ? row.inner_waybill_no : row.waybill_no
+    const vehicleName = row.isSubItem ? row.veh_name : row.vehicle_vessel_name
+    const uniqueKey = row.isSubItem ? `sub:${waybillNo}:${vehicleName || ''}` : `main:${waybillNo}`
+
+    if (keySet.has(uniqueKey)) return
+    keySet.add(uniqueKey)
+
+    targets.push({
+      waybillNo,
+      vehicleName: vehicleName || '',
+      fileBaseName: `${waybillNo}-${sanitizeReceiptFilePart(vehicleName || '未命名')}`,
+      isSubItem: !!row.isSubItem,
+    })
+  })
+
+  return targets
+}
+
+const receiptDownloadTargets = computed(() => {
+  const sourceRecords = summaryRecords.value.length > 0 ? summaryRecords.value : dbRecords.value
+  return collectReceiptDownloadTargets(sourceRecords)
+})
+
+async function ensureUniqueReceiptFileName(directoryHandle: LocalDirectoryHandle, fileName: string) {
+  const extMatch = fileName.match(/(\.[^.]+)$/)
+  const ext = extMatch?.[1] || ''
+  const baseName = ext ? fileName.slice(0, -ext.length) : fileName
+  let candidate = fileName
+  let index = 2
+
+  while (true) {
+    try {
+      await directoryHandle.getFileHandle(candidate)
+      candidate = `${baseName}-${index}${ext}`
+      index += 1
+    } catch {
+      return candidate
+    }
+  }
+}
+
+async function writeReceiptFile(directoryHandle: LocalDirectoryHandle, fileName: string, blob: Blob) {
+  const uniqueFileName = await ensureUniqueReceiptFileName(directoryHandle, fileName)
+  const fileHandle: LocalFileHandle = await directoryHandle.getFileHandle(uniqueFileName, { create: true })
+  const writable = await fileHandle.createWritable()
+  await writable.write(blob)
+  await writable.close()
+  return uniqueFileName
+}
+
+function ensureUniqueZipFileName(fileName: string, usedFileNames: Set<string>) {
+  const extMatch = fileName.match(/(\.[^.]+)$/)
+  const ext = extMatch?.[1] || ''
+  const baseName = ext ? fileName.slice(0, -ext.length) : fileName
+  let candidate = fileName
+  let index = 2
+
+  while (usedFileNames.has(candidate)) {
+    candidate = `${baseName}-${index}${ext}`
+    index += 1
+  }
+
+  usedFileNames.add(candidate)
+  return candidate
+}
+
+function triggerReceiptZipDownload(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(objectUrl)
+}
+
+function getReceiptZipFileName() {
+  return `回执图片_${dayjs().format('YYYYMMDD_HHmmss')}.zip`
+}
+
+function isReceiptDownloadAbortError(error: any) {
+  return error?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || /aborted|canceled|cancelled/i.test(error?.message || '')
+}
+
+async function refreshReceiptDownloadDirectoryView() {
+  const directoryHandle = receiptDownloadDirectoryHandle.value
+  if (!directoryHandle) return
+
+  const names: string[] = []
+  for await (const [name, handle] of directoryHandle.entries()) {
+    if (handle.kind === 'file') names.push(name)
+  }
+  names.sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  receiptDownloadVisibleFiles.value = names
+}
+
+async function handleViewReceiptDownloadDirectory() {
+  if (receiptDownloadMode.value === 'zip') {
+    if (receiptDownloadState.value.recentFiles.length === 0) return
+    receiptDownloadDirectoryOpen.value = !receiptDownloadDirectoryOpen.value
+    receiptDownloadVisibleFiles.value = [...receiptDownloadState.value.recentFiles]
+    return
+  }
+
+  if (!receiptDownloadDirectoryHandle.value) return
+  receiptDownloadDirectoryOpen.value = !receiptDownloadDirectoryOpen.value
+  if (receiptDownloadDirectoryOpen.value) {
+    await refreshReceiptDownloadDirectoryView()
+  }
+}
+
+function handleMinimizeReceiptDownloadDialog() {
+  receiptDownloadDialogOpen.value = false
+  receiptDownloadMinimized.value = true
+}
+
+function handleOpenReceiptDownloadDialog() {
+  receiptDownloadDialogOpen.value = true
+  receiptDownloadMinimized.value = false
+}
+
+function handleCloseReceiptDownloadDialog() {
+  if (isReceiptDownloadRunning.value) {
+    handleMinimizeReceiptDownloadDialog()
+    return
+  }
+
+  receiptDownloadDialogOpen.value = false
+  receiptDownloadMinimized.value = false
+}
+
+function handleCancelReceiptDownload() {
+  if (!isReceiptDownloadRunning.value) return
+
+  receiptDownloadCancelRequested.value = true
+
+  if (receiptDownloadPhase.value === 'zip') {
+    receiptDownloadState.value.currentFile = '正在停止下载任务，请稍候...'
+    toast.info('当前正在收尾下载任务，稍后会终止')
+    return
+  }
+
+  receiptDownloadAbortController.value?.abort()
+}
+
+async function handleDownloadReceipts() {
+  const useDirectoryDownload = canUseReceiptDirectoryDownload()
+  let directoryHandle: LocalDirectoryHandle | null = null
+
+  if (useDirectoryDownload) {
+    try {
+      directoryHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite', id: 'vessel-receipt-download' })
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        toast.error(error?.message || '选择下载目录失败')
+      }
+      return
+    }
+  }
+
+  receiptDownloadMode.value = useDirectoryDownload ? 'directory' : 'zip'
+  receiptDownloadDirectoryHandle.value = directoryHandle
+  receiptDownloadDirectoryName.value = useDirectoryDownload
+    ? directoryHandle?.name || '已选目录'
+    : getReceiptZipFileName()
+  receiptDownloadDialogOpen.value = true
+  receiptDownloadMinimized.value = false
+  receiptDownloadDirectoryOpen.value = false
+  receiptDownloadVisibleFiles.value = []
+  receiptDownloadAbortController.value = new AbortController()
+  receiptDownloadCancelRequested.value = false
+  receiptDownloadPhase.value = 'prepare'
+  receiptDownloadState.value = {
+    status: 'running',
+    total: 0,
+    completed: 0,
+    failed: 0,
+    currentFile: '正在整理当前查询结果...',
+    lastError: '',
+    recentFiles: [],
+  }
+
+  try {
+    const { rows } = await fetchAllRowsForExport()
+    if (receiptDownloadCancelRequested.value) {
+      throw new Error('DOWNLOAD_CANCELLED')
+    }
+    const targets = collectReceiptDownloadTargetsFromRows(rows)
+    if (targets.length === 0) {
+      receiptDownloadPhase.value = 'idle'
+      receiptDownloadState.value = {
+        status: 'error',
+        total: 0,
+        completed: 0,
+        failed: 0,
+        currentFile: '',
+        lastError: '当前查询结果没有可下载的回执图片',
+        recentFiles: [],
+      }
+      toast.error('当前查询结果没有可下载的回执图片')
+      return
+    }
+
+    const response = await settleApi.getReceiptDownloadItems(targets.map((item) => item.waybillNo))
+    if (receiptDownloadCancelRequested.value) {
+      throw new Error('DOWNLOAD_CANCELLED')
+    }
+    if (!response.ok) {
+      throw new Error('获取回执图片清单失败')
+    }
+
+    const imageMap = new Map(response.items.map((item) => [item.waybill_no, item.images]))
+    const taskItems: ReceiptDownloadTaskItem[] = []
+
+    targets.forEach((target) => {
+      const images = imageMap.get(target.waybillNo) || []
+      images.forEach((image, index) => {
+        const ext = getReceiptFileExtension(image)
+        const suffix = images.length > 1 ? `-${index + 1}` : ''
+        taskItems.push({
+          waybillNo: target.waybillNo,
+          fileName: `${target.fileBaseName}${suffix}${ext}`,
+          imageId: image.id,
+        })
+      })
+    })
+
+    if (taskItems.length === 0) {
+      receiptDownloadPhase.value = 'idle'
+      receiptDownloadState.value = {
+        status: 'error',
+        total: 0,
+        completed: 0,
+        failed: 0,
+        currentFile: '',
+        lastError: '当前查询结果没有可下载的回执图片',
+        recentFiles: [],
+      }
+      toast.error('当前查询结果没有可下载的回执图片')
+      return
+    }
+
+    receiptDownloadState.value.total = taskItems.length
+    const zip = receiptDownloadMode.value === 'zip' ? new JSZip() : null
+    const usedZipFileNames = new Set<string>()
+    receiptDownloadPhase.value = 'download'
+
+    for (const task of taskItems) {
+      if (receiptDownloadCancelRequested.value) {
+        throw new Error('DOWNLOAD_CANCELLED')
+      }
+      receiptDownloadState.value.currentFile = task.fileName
+      try {
+        const response = await settleApi.downloadReceiptImageBlob(task.imageId, receiptDownloadAbortController.value?.signal)
+        const savedFileName = receiptDownloadMode.value === 'zip'
+          ? ensureUniqueZipFileName(task.fileName, usedZipFileNames)
+          : await writeReceiptFile(directoryHandle as LocalDirectoryHandle, task.fileName, response.data)
+
+        if (zip) {
+          zip.file(savedFileName, response.data)
+        }
+
+        receiptDownloadState.value.completed += 1
+        receiptDownloadState.value.recentFiles = [savedFileName, ...receiptDownloadState.value.recentFiles].slice(0, 10)
+      } catch (error: any) {
+        if (isReceiptDownloadAbortError(error)) {
+          throw new Error('DOWNLOAD_CANCELLED')
+        }
+        receiptDownloadState.value.failed += 1
+        receiptDownloadState.value.lastError = `${task.fileName}: ${error?.message || '下载失败'}`
+      }
+    }
+
+    if (zip) {
+      if (receiptDownloadCancelRequested.value) {
+        throw new Error('DOWNLOAD_CANCELLED')
+      }
+      receiptDownloadPhase.value = 'zip'
+      receiptDownloadState.value.currentFile = '正在生成 ZIP 压缩包...'
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      if (receiptDownloadCancelRequested.value) {
+        throw new Error('DOWNLOAD_CANCELLED')
+      }
+      triggerReceiptZipDownload(zipBlob, receiptDownloadDirectoryName.value)
+      receiptDownloadVisibleFiles.value = [...receiptDownloadState.value.recentFiles]
+    }
+
+    receiptDownloadPhase.value = 'idle'
+    receiptDownloadAbortController.value = null
+    receiptDownloadState.value.currentFile = ''
+    receiptDownloadState.value.status = receiptDownloadState.value.failed > 0 ? 'error' : 'done'
+
+    if (receiptDownloadMinimized.value) {
+      receiptDownloadDialogOpen.value = true
+      receiptDownloadMinimized.value = false
+    }
+
+    if (receiptDownloadState.value.failed > 0) {
+      toast.error(
+        `回执图片下载完成，成功 ${receiptDownloadState.value.completed}，失败 ${receiptDownloadState.value.failed}`,
+      )
+    } else {
+      toast.success(
+        receiptDownloadMode.value === 'directory'
+          ? '回执图片已全部下载完成，点击“查看下载目录”可查看结果'
+          : `回执图片已全部打包完成，浏览器将下载 ${receiptDownloadDirectoryName.value}`,
+      )
+    }
+  } catch (error: any) {
+    receiptDownloadPhase.value = 'idle'
+    receiptDownloadAbortController.value = null
+    if (error?.message === 'DOWNLOAD_CANCELLED') {
+      receiptDownloadState.value.status = 'cancelled'
+      receiptDownloadState.value.currentFile = ''
+      receiptDownloadState.value.lastError = ''
+      if (receiptDownloadMinimized.value) {
+        receiptDownloadDialogOpen.value = true
+        receiptDownloadMinimized.value = false
+      }
+      toast.info('已终止下载')
+      return
+    }
+    receiptDownloadState.value.status = 'error'
+    receiptDownloadState.value.currentFile = ''
+    receiptDownloadState.value.lastError = error?.message || '下载失败'
+    if (receiptDownloadMinimized.value) {
+      receiptDownloadDialogOpen.value = true
+      receiptDownloadMinimized.value = false
+    }
+    toast.error(receiptDownloadState.value.lastError)
+  }
+}
 
 // 检查选中记录是否都有回执（requireReceiptForSettle 启用时）
 // 返回 true 表示通过检查（可继续操作），false 表示有未回执记录
@@ -2464,6 +3013,21 @@ function handleUploadReceiptConfirm() {
                   variant="outline"
                   size="icon"
                   class="shrink-0 h-8 w-8"
+                  :disabled="receiptDownloadState.status === 'running' || !hasReceiptDownloadSource"
+                  @click="handleDownloadReceipts"
+                >
+                  <Loader2 v-if="receiptDownloadState.status === 'running'" class="w-4 h-4 animate-spin" />
+                  <Download v-else class="w-4 h-4" />
+                </UiButton>
+              </TooltipTrigger>
+              <TooltipContent><p>下载查询结果回执</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <UiButton
+                  variant="outline"
+                  size="icon"
+                  class="shrink-0 h-8 w-8"
                   :disabled="!canShowDetail"
                   @click="handleShowDetail"
                 >
@@ -2559,14 +3123,52 @@ function handleUploadReceiptConfirm() {
                 ({{ selectedRecords.length + selectedInnerNo.length }})
               </span>
             </UiButton>
-            <UiButton variant="outline" size="sm" @click="handleDelayInfo"> 回执滞留 </UiButton>
+            <div class="flex items-center">
+              <UiButton
+                variant="outline"
+                size="sm"
+                class="h-9 rounded-r-none border-r-0"
+                @click="handleDelayInfo"
+              >
+                回执滞留
+              </UiButton>
+              <UiDropdownMenu>
+                <UiDropdownMenuTrigger as-child>
+                  <UiButton variant="outline" size="icon" class="h-9 w-9 rounded-l-none px-0">
+                    <ChevronsUpDown class="h-4 w-4" />
+                  </UiButton>
+                </UiDropdownMenuTrigger>
+                <UiDropdownMenuContent align="start">
+                  <UiDropdownMenuItem
+                    :disabled="receiptDownloadState.status === 'running' || !hasReceiptDownloadSource"
+                    @click="handleDownloadReceipts"
+                  >
+                    <Loader2 v-if="receiptDownloadState.status === 'running'" class="mr-2 h-4 w-4 animate-spin" />
+                    <Download v-else class="mr-2 h-4 w-4" />
+                    下载回执
+                  </UiDropdownMenuItem>
+                </UiDropdownMenuContent>
+              </UiDropdownMenu>
+            </div>
           </template>
 
           <!-- 工具按钮组 -->
-          <UiButton variant="outline" size="sm" @click="handleExport"> 导出 </UiButton>
-          <UiButton variant="outline" size="sm" :disabled="!canShowDetail" @click="handleShowDetail">
-            显示明细
-          </UiButton>
+          <div class="flex items-center">
+            <UiButton variant="outline" size="sm" class="h-9 rounded-r-none border-r-0" @click="handleExport"> 导出 </UiButton>
+            <UiDropdownMenu>
+              <UiDropdownMenuTrigger as-child>
+                <UiButton variant="outline" size="icon" class="h-9 w-9 rounded-l-none px-0">
+                  <ChevronsUpDown class="h-4 w-4" />
+                </UiButton>
+              </UiDropdownMenuTrigger>
+              <UiDropdownMenuContent align="start">
+                <UiDropdownMenuItem :disabled="!canShowDetail" @click="handleShowDetail">
+                  <Eye class="mr-2 h-4 w-4" />
+                  显示明细
+                </UiDropdownMenuItem>
+              </UiDropdownMenuContent>
+            </UiDropdownMenu>
+          </div>
           <div
             v-if="filterForm.settleState !== '全部' && filterForm.settleState !== '不需要结算'"
             class="w-px h-6 bg-border"
@@ -2647,83 +3249,6 @@ function handleUploadReceiptConfirm() {
             <Filter class="w-4 h-4 mr-1" />
             筛选
           </UiButton>
-
-          <!-- 列显示设置 -->
-          <Popover>
-            <PopoverTrigger as-child>
-              <UiButton variant="outline" size="sm">
-                <Settings2 class="w-4 h-4 mr-1" />
-                列设置
-              </UiButton>
-            </PopoverTrigger>
-            <PopoverContent class="w-56" align="end">
-              <div class="space-y-2">
-                <h4 class="font-medium text-sm mb-3">显示列</h4>
-                <div class="space-y-2 max-h-80 overflow-y-auto">
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColState" />
-                    <span class="text-sm">状态</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColVehicle" />
-                    <span class="text-sm">车船号/运单号</span>
-                  </label>
-                  <label v-if="!hideCarrier" class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColCarrier" />
-                    <span class="text-sm">承运单位</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColBillName" />
-                    <span class="text-sm">开单名称/发货单位</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColDestination" />
-                    <span class="text-sm">起始→目的地</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColQuantity" />
-                    <span class="text-sm">发运数</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColWeight" />
-                    <span class="text-sm">发运量</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColUnitPrice" />
-                    <span class="text-sm">单价</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColTotalPrice" />
-                    <span class="text-sm">总价格</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColShipDate" />
-                    <span class="text-sm">发货日期</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColSettleDate" />
-                    <span class="text-sm">结算日期</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColUnshipDate" />
-                    <span class="text-sm">卸船日期</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColDelayDays" />
-                    <span class="text-sm">滞留天数</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColWaybillNo" />
-                    <span class="text-sm">运单号</span>
-                  </label>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <Checkbox v-model="showColTicketNo" />
-                    <span class="text-sm">票号</span>
-                  </label>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
         </div>
       </div>
 
@@ -2940,6 +3465,87 @@ function handleUploadReceiptConfirm() {
             <TooltipContent>{{ usePagination ? '显示全部数据' : '分页显示' }}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        <TooltipProvider :delay-duration="200">
+          <Tooltip>
+            <Popover>
+              <PopoverTrigger as-child>
+                <TooltipTrigger as-child>
+                  <UiButton variant="ghost" size="icon" class="h-8 w-8" :disabled="loading">
+                    <Settings2 class="w-4 h-4" />
+                  </UiButton>
+                </TooltipTrigger>
+              </PopoverTrigger>
+              <PopoverContent class="w-56" align="end">
+                <div class="space-y-2">
+                  <h4 class="font-medium text-sm mb-3">显示列</h4>
+                  <div class="space-y-2 max-h-80 overflow-y-auto">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColState" />
+                      <span class="text-sm">状态</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColVehicle" />
+                      <span class="text-sm">车船号/运单号</span>
+                    </label>
+                    <label v-if="!hideCarrier" class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColCarrier" />
+                      <span class="text-sm">承运单位</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColBillName" />
+                      <span class="text-sm">开单名称/发货单位</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColDestination" />
+                      <span class="text-sm">起始→目的地</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColQuantity" />
+                      <span class="text-sm">发运数</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColWeight" />
+                      <span class="text-sm">发运量</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColUnitPrice" />
+                      <span class="text-sm">单价</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColTotalPrice" />
+                      <span class="text-sm">总价格</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColShipDate" />
+                      <span class="text-sm">发货日期</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColSettleDate" />
+                      <span class="text-sm">结算日期</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColUnshipDate" />
+                      <span class="text-sm">卸船日期</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColDelayDays" />
+                      <span class="text-sm">滞留天数</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColWaybillNo" />
+                      <span class="text-sm">运单号</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <Checkbox v-model="showColTicketNo" />
+                      <span class="text-sm">票号</span>
+                    </label>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <TooltipContent>列设置</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <!-- 统计信息行：移动端 -->
@@ -3011,7 +3617,7 @@ function handleUploadReceiptConfirm() {
                         @click="handleBatchNotNeed"
                         size="sm"
                         class="ml-2 h-6 w-6 p-0"
-                        :class="allNotNeed ? 'text-gray-400' : 'text-black'"
+                        :class="getNotNeedStarClass(allNotNeed ? 'darkgray' : 'red')"
                       >
                         ★
                       </Toggle>
@@ -3142,7 +3748,7 @@ function handleUploadReceiptConfirm() {
                 票号
               </TableHead>
               <TableHead
-                class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky top-0 right-24 bg-muted border-l border-gray-200 z-30 shadow-sm hover:bg-orange-100 transition-colors"
+                class="pl-1.5 pr-0 py-1.5 text-center w-20 sticky top-0 right-24 bg-muted z-30 shadow-[-8px_0_12px_-10px_hsl(var(--border))] hover:bg-orange-100 dark:hover:bg-orange-950/40 transition-colors"
                 :class="{ 'cursor-pointer': hasPrivilegePrice }"
                 nowrap
                 @click="hasPrivilegePrice && handleBatchCharge()"
@@ -3193,7 +3799,7 @@ function handleUploadReceiptConfirm() {
                   'bg-orange-100 hover:bg-orange-200 cursor-pointer':
                     row.isVessel && !row.selected && !isInBasket(row) && !row.vehicleFiltered,
                   'hover:bg-muted/50 cursor-pointer': !row.isVessel && !row.selected && !isInBasket(row),
-                  'bg-blue-100 border-l-4 border-l-blue-500': row.selected,
+                  [getSelectedRowClass()]: row.selected,
                   'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
                   'bg-gray-50 opacity-60 cursor-not-allowed': row.vehicleFiltered,
                 }"
@@ -3214,7 +3820,7 @@ function handleUploadReceiptConfirm() {
                           @click.stop="handleNotNeedSettle(row)"
                           size="sm"
                           class="ml-2 h-6 w-6 p-0"
-                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                          :class="getNotNeedStarClass(row.notNeedColor)"
                         >
                           ★
                         </Toggle>
@@ -3334,18 +3940,18 @@ function handleUploadReceiptConfirm() {
                 <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                   {{ row.ticket_no || '-' }}
                 </TableCell>
-                <TableCell
-                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-200 z-20"
-                  :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'"
-                  nowrap
-                >
-                  {{ row.chargeText }}
-                </TableCell>
-                <TableCell
-                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                  :class="row.isVessel && !row.selected ? 'bg-orange-200' : row.selected ? 'bg-blue-200' : 'bg-gray-50'"
-                  nowrap
-                >
+              <TableCell
+                class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
+                :class="getStickyCellClass(row)"
+                nowrap
+              >
+                {{ row.chargeText }}
+              </TableCell>
+              <TableCell
+                class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                :class="getStickyCellClass(row)"
+                nowrap
+              >
                   <div class="flex items-center justify-center gap-1">
                     <component
                       :is="row.receipt === 1 ? CheckSquare : Square"
@@ -3394,7 +4000,7 @@ function handleUploadReceiptConfirm() {
                 class="border-b transition-colors"
                 :class="{
                   'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
-                  'bg-blue-200 border-l-4 border-l-blue-500': row.selected,
+                  [getSelectedRowClass()]: row.selected,
                   'bg-orange-50 border-l-4 border-l-orange-500 opacity-60 cursor-not-allowed': isInBasket(row),
                 }"
                 @click="handleSubRowClick(row)"
@@ -3414,7 +4020,7 @@ function handleUploadReceiptConfirm() {
                           @click.stop="handleNotNeedSettle(row)"
                           size="sm"
                           class="ml-2 h-6 w-6 p-0"
-                          :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                          :class="getNotNeedStarClass(row.notNeedColor)"
                         >
                           ★
                         </Toggle>
@@ -3506,18 +4112,18 @@ function handleUploadReceiptConfirm() {
                 <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                   {{ row.ticket_no || '-' }}
                 </TableCell>
-                <TableCell
-                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 border-l border-gray-300 z-20"
-                  :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
-                  nowrap
-                >
-                  {{ row.chargeText }}
-                </TableCell>
-                <TableCell
-                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                  :class="row.selected ? 'bg-blue-300' : 'bg-green-200'"
-                  nowrap
-                >
+              <TableCell
+                class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
+                :class="getStickyCellClass(row)"
+                nowrap
+              >
+                {{ row.chargeText }}
+              </TableCell>
+              <TableCell
+                class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                :class="getStickyCellClass(row)"
+                nowrap
+              >
                   <div class="flex items-center justify-center gap-0.5">
                     <component
                       :is="row.receipt === 1 ? CheckSquare : Square"
@@ -3653,7 +4259,7 @@ function handleUploadReceiptConfirm() {
               'bg-orange-50/60 border-l-4 border-l-orange-400':
                 row.isVessel && !row.selected && !isInBasket(row) && !row.vehicleFiltered,
               'bg-muted/30 hover:border-primary/30': !row.isVessel && !row.selected && !isInBasket(row),
-              'bg-blue-50 border-l-4 border-l-blue-500': row.selected && !isInBasket(row),
+              [getSelectedRowClass()]: row.selected && !isInBasket(row),
               'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(row),
               'bg-gray-50 opacity-60 cursor-not-allowed': row.vehicleFiltered,
             }"
@@ -3710,7 +4316,7 @@ function handleUploadReceiptConfirm() {
               />
               <span
                 class="shrink-0 cursor-pointer"
-                :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                :class="getNotNeedStarClass(row.notNeedColor)"
                 @click.stop="handleNotNeedSettle(row)"
                 >★</span
               >
@@ -3764,7 +4370,7 @@ function handleUploadReceiptConfirm() {
             class="ml-4 relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
               'bg-green-50/60 border-l-4 border-l-green-400': !row.selected && !isInBasket(row),
-              'bg-blue-50 border-l-4 border-l-blue-500': row.selected && !isInBasket(row),
+              [getSelectedRowClass()]: row.selected && !isInBasket(row),
               'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(row),
             }"
             @click="handleSubRowClick(row)"
@@ -3809,7 +4415,7 @@ function handleUploadReceiptConfirm() {
               />
               <span
                 class="shrink-0 cursor-pointer"
-                :class="row.notNeedColor === 'darkgray' ? 'text-gray-400' : 'text-black'"
+                :class="getNotNeedStarClass(row.notNeedColor)"
                 @click.stop="handleNotNeedSettle(row)"
                 >★</span
               >
@@ -4065,6 +4671,165 @@ function handleUploadReceiptConfirm() {
 
       <!-- 导出对话框 -->
       <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
+
+      <Dialog :open="receiptDownloadDialogOpen" :modal="false" @update:open="(open) => !open && handleCloseReceiptDownloadDialog()">
+        <DialogContent class="sm:max-w-[560px]" :show-close-button="false">
+          <DialogHeader>
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <DialogTitle class="flex items-center gap-2">
+                  <Loader2 v-if="isReceiptDownloadRunning" class="h-4 w-4 animate-spin text-primary" />
+                  <Download v-else class="h-4 w-4 text-primary" />
+                  <span>
+                    {{
+                      isReceiptDownloadRunning
+                        ? '正在下载回执图片'
+                        : receiptDownloadState.status === 'done'
+                          ? '回执图片下载完成'
+                          : receiptDownloadState.status === 'cancelled'
+                            ? '回执图片下载已终止'
+                          : '回执图片下载结果'
+                    }}
+                  </span>
+                </DialogTitle>
+                <DialogDescription class="mt-1">
+                  <template v-if="receiptDownloadMode === 'directory'">
+                    下载目录：{{ receiptDownloadDirectoryName || '未选择' }}
+                  </template>
+                  <template v-else>
+                    当前环境不支持直接选择本机目录，已自动切换为 ZIP 下载：{{ receiptDownloadDirectoryName }}
+                  </template>
+                </DialogDescription>
+              </div>
+              <div class="flex items-center gap-2">
+                <UiButton variant="outline" size="sm" @click="handleMinimizeReceiptDownloadDialog">
+                  最小化
+                </UiButton>
+                <UiButton variant="ghost" size="icon" class="h-8 w-8" @click="handleCloseReceiptDownloadDialog">
+                  <X class="h-4 w-4" />
+                </UiButton>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div class="space-y-4">
+            <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div class="h-full bg-primary transition-all" :style="{ width: `${receiptDownloadPercent}%` }" />
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+              <div class="rounded-md border bg-muted/30 p-3">
+                <div class="text-xs text-muted-foreground">总数</div>
+                <div class="mt-1 font-medium">{{ receiptDownloadState.total }}</div>
+              </div>
+              <div class="rounded-md border bg-muted/30 p-3">
+                <div class="text-xs text-muted-foreground">已完成</div>
+                <div class="mt-1 font-medium text-primary">{{ receiptDownloadState.completed }}</div>
+              </div>
+              <div class="rounded-md border bg-muted/30 p-3">
+                <div class="text-xs text-muted-foreground">失败</div>
+                <div class="mt-1 font-medium text-red-600">{{ receiptDownloadState.failed }}</div>
+              </div>
+              <div class="rounded-md border bg-muted/30 p-3">
+                <div class="text-xs text-muted-foreground">进度</div>
+                <div class="mt-1 font-medium">{{ receiptDownloadPercent }}%</div>
+              </div>
+            </div>
+
+            <div class="space-y-2 rounded-md border bg-muted/20 p-3 text-sm">
+              <div v-if="receiptDownloadState.currentFile">当前文件：{{ receiptDownloadState.currentFile }}</div>
+              <div v-else class="text-muted-foreground">
+                {{ isReceiptDownloadRunning ? '准备下载中...' : '当前没有正在处理的文件' }}
+              </div>
+              <div v-if="receiptDownloadState.lastError" class="text-red-600">
+                最近错误：{{ receiptDownloadState.lastError }}
+              </div>
+            </div>
+
+            <div v-if="receiptDownloadDirectoryOpen" class="rounded-md border bg-muted/40 p-3">
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <div class="text-sm font-medium">{{ receiptDownloadMode === 'directory' ? '目录文件' : 'ZIP 文件清单' }}</div>
+                <div class="text-xs text-muted-foreground">{{ receiptDownloadVisibleFiles.length }} 个文件</div>
+              </div>
+              <div v-if="receiptDownloadVisibleFiles.length === 0" class="text-sm text-muted-foreground">
+                {{ receiptDownloadMode === 'directory' ? '当前目录里还没有已写入的回执图片' : '当前还没有已打包的回执图片' }}
+              </div>
+              <div v-else class="max-h-48 overflow-y-auto space-y-1 text-sm">
+                <div
+                  v-for="fileName in receiptDownloadVisibleFiles"
+                  :key="fileName"
+                  class="rounded-sm px-2 py-1 hover:bg-background"
+                >
+                  {{ fileName }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter class="gap-2 sm:justify-between">
+            <UiButton
+              variant="outline"
+              :disabled="receiptDownloadMode === 'directory' ? !receiptDownloadDirectoryHandle : receiptDownloadState.recentFiles.length === 0"
+              @click="handleViewReceiptDownloadDirectory"
+            >
+              {{
+                receiptDownloadMode === 'directory'
+                  ? receiptDownloadDirectoryOpen
+                    ? '收起下载目录'
+                    : '查看下载目录'
+                  : receiptDownloadDirectoryOpen
+                    ? '收起 ZIP 清单'
+                    : '查看 ZIP 清单'
+              }}
+            </UiButton>
+            <div class="flex items-center gap-2">
+              <UiButton
+                v-if="isReceiptDownloadRunning"
+                variant="destructive"
+                @click="handleCancelReceiptDownload"
+              >
+                终止下载
+              </UiButton>
+              <UiButton
+                v-if="!isReceiptDownloadRunning"
+                variant="default"
+                @click="handleCloseReceiptDownloadDialog"
+              >
+                我知道了
+              </UiButton>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div
+        v-if="hasReceiptDownloadTask && receiptDownloadMinimized"
+        class="fixed right-4 bottom-4 z-50"
+      >
+        <button
+          class="flex min-w-[220px] items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg transition hover:border-primary/40"
+          @click="handleOpenReceiptDownloadDialog"
+        >
+          <Loader2 v-if="isReceiptDownloadRunning" class="h-4 w-4 animate-spin text-primary" />
+          <Download v-else class="h-4 w-4 text-primary" />
+          <div class="min-w-0 flex-1 text-left">
+          <div class="text-sm font-medium">
+              {{ isReceiptDownloadRunning ? '回执下载进行中' : isReceiptDownloadCancelled ? '回执下载已终止' : '回执下载已完成' }}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {{ receiptDownloadState.completed }}/{{ receiptDownloadState.total }}
+              <template v-if="receiptDownloadState.failed > 0">，失败 {{ receiptDownloadState.failed }}</template>
+            </div>
+          </div>
+          <span
+            v-if="isReceiptDownloadRunning"
+            class="shrink-0 text-sm font-medium text-red-600 hover:text-red-600"
+            @click.stop="handleCancelReceiptDownload"
+          >
+            终止
+          </span>
+          <div class="text-sm font-medium text-primary">{{ receiptDownloadPercent }}%</div>
+        </button>
+      </div>
 
       <!-- 确认对话框：结算篮价格输入 -->
       <ConfirmDialog

@@ -46,14 +46,14 @@ export async function deleteCompany(name: string) {
 // -------------------------------------------------
 // Vehicle (车船号)
 // -------------------------------------------------
-export async function getVehicles(params: { page?: number, limit?: number, search?: string, type?: string, category?: string, boss?: string }) {
+export async function getVehicles(params: { page?: number, limit?: number, search?: string, type?: string, category?: string, boss?: string, affiliated?: string }) {
   // Use existing /vehicles/search which supports pagination
   return getList<DataDictItem>('/vehicles/search', params)
 }
-export async function addVehicle(data: { name: string, veh_type: string, veh_category?: string, boss?: string, contact_name?: string, phone?: string }) {
+export async function addVehicle(data: { name: string, veh_type: string, veh_category?: string, affiliated?: boolean, boss?: string, contact_name?: string, phone?: string }) {
   return postAction('/datamgt/vehicle_add', data)
 }
-export async function updateVehicle(data: { name: string, veh_type: string, veh_category?: string, boss?: string, contact_name?: string, phone?: string }) {
+export async function updateVehicle(data: { name: string, veh_type: string, veh_category?: string, affiliated?: boolean, boss?: string, contact_name?: string, phone?: string }) {
   return postAction('/datamgt/vehicle_modify', data)
 }
 export async function deleteVehicle(name: string) {

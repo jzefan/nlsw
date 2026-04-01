@@ -296,6 +296,7 @@ function clearValue(e: Event) {
                 <span>{{ item.name }}</span>
                 <span v-if="item.veh_category === '自有'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">自</span>
                 <span v-else-if="item.veh_category === '外挂'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">外</span>
+                <span v-if="item.affiliated" class="text-[10px] leading-none px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">挂靠</span>
               </span>
               <span v-if="item.shipper" class="text-xs text-muted-foreground">{{ item.shipper }}</span>
               <span v-else-if="item.order_item_no" class="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">项次{{ item.order_item_no }}</span>

@@ -891,6 +891,61 @@ exports.getReceiptImagesList = async (req, res) => {
   }
 };
 
+// 批量获取回执图片列表（用于本地目录批量下载）
+exports.getReceiptDownloadItems = async (req, res) => {
+  try {
+    const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+    const normalizedTargets = Array.from(
+      new Set(
+        targets
+          .map((item) => (typeof item === "string" ? item.trim() : ""))
+          .filter(Boolean),
+      ),
+    );
+
+    if (normalizedTargets.length === 0) {
+      return res.status(400).json({ ok: false, message: "缺少回执运单号" });
+    }
+
+    const imgQuery = buildTenantQuery(req, {
+      waybill_no: { $in: normalizedTargets },
+    });
+    const images = await ReceiptImage.find(imgQuery)
+      .sort({ upload_time: 1, _id: 1 })
+      .lean()
+      .exec();
+
+    const groupedMap = new Map();
+    images.forEach((img) => {
+      const key = img.waybill_no;
+      if (!groupedMap.has(key)) groupedMap.set(key, []);
+      groupedMap.get(key).push({
+        id: String(img._id),
+        filename: path.basename(img.file_path),
+        original_filename: img.original_filename,
+        file_size: img.file_size,
+        mime_type: img.mime_type,
+        uploader: img.uploader,
+        upload_time: img.upload_time,
+      });
+    });
+
+    const items = normalizedTargets.map((waybillNo) => ({
+      waybill_no: waybillNo,
+      images: groupedMap.get(waybillNo) || [],
+    }));
+
+    res.json({
+      ok: true,
+      items,
+      total: images.length,
+    });
+  } catch (error) {
+    console.error("批量获取回执图片列表失败:", error);
+    res.status(500).json({ ok: false, message: "批量获取回执图片列表失败" });
+  }
+};
+
 // 获取单张回执图片（通过图片ID）
 exports.getReceiptImageById = async (req, res) => {
   try {
@@ -938,13 +993,15 @@ exports.streamReceiptImage = async (req, res) => {
       return res.status(404).json({ ok: false, message: "图片记录不存在" });
     }
 
-    if (!fs.existsSync(image.file_path)) {
+    try {
+      const imageData = await receiptStorage.getFile(image.file_path);
+      res.set("Content-Type", image.mime_type || "image/jpeg");
+      res.set("Cache-Control", "private, max-age=86400");
+      res.set("Content-Length", String(imageData.length));
+      res.send(imageData);
+    } catch (fileErr) {
       return res.status(404).json({ ok: false, message: "图片文件不存在" });
     }
-
-    res.set("Content-Type", image.mime_type || "image/jpeg");
-    res.set("Cache-Control", "private, max-age=86400");
-    res.sendFile(path.resolve(image.file_path));
   } catch (error) {
     console.error("获取图片失败:", error);
     res.status(500).json({ ok: false, message: "获取图片失败" });

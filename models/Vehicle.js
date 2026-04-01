@@ -17,6 +17,7 @@ var vehicleSchema = new mongoose.Schema({
   contact_name: String,
   veh_type: String,     // 车, 船
   veh_category: String, // 自有,外挂
+  affiliated: { type: Boolean, default: false }, // 是否挂靠到本单位
   boss: String, // 承运单位于承运人
   real_boss: [
     {

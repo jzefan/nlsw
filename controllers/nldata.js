@@ -21,6 +21,7 @@ exports.httpPostVehicleAdd = async function (req, res) {
     name: req.body.name,
     veh_type: req.body.veh_type,
     veh_category: req.body.veh_category,
+    affiliated: !!req.body.affiliated,
     contact_name: req.body.contact_name,
     phone: req.body.phone,
     boss: req.body.boss
@@ -247,6 +248,9 @@ async function modify(req, res, table, query) {
       }
       if (((typeof req.body.veh_category != 'undefined') && undefined != req.body.veh_category)) {
         result.veh_category = req.body.veh_category;
+      }
+      if (((typeof req.body.affiliated != 'undefined') && undefined != req.body.affiliated)) {
+        result.affiliated = !!req.body.affiliated;
       }
       if (((typeof req.body.customers != 'undefined') && undefined != req.body.customers)) {
         result.customers = req.body.customers;
