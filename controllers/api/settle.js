@@ -114,18 +114,22 @@ async function updateInvoiceStatus(allInvNo, settle_type, req) {
 exports.getSettleBills = async (req, res) => {
   try {
     const {
-      fName,
-      fVeh,
-      fShipFrom,
-      fDest,
-      fOrder,
-      fBno,
-      fInvNo,
       fDate1,
       fDate2,
       fType,
       selfOwned,
     } = req.query;
+
+    // 将 query 参数统一归一为数组（qs 在不同情况下可能解析为 string、array 或 object）
+    const toArray = (val) =>
+      !val ? [] : Array.isArray(val) ? val : typeof val === "string" ? [val] : Object.values(val);
+    const fName = toArray(req.query.fName);
+    const fVeh = toArray(req.query.fVeh);
+    const fShipFrom = toArray(req.query.fShipFrom);
+    const fDest = toArray(req.query.fDest);
+    const fOrder = toArray(req.query.fOrder);
+    const fBno = toArray(req.query.fBno);
+    const fInvNo = toArray(req.query.fInvNo);
 
     // 构建匹配条件数组
     const matchConditions = [];
@@ -144,24 +148,22 @@ exports.getSettleBills = async (req, res) => {
     }
 
     // 开单名称过滤
-    if (fName && Array.isArray(fName) && fName.length > 0) {
+    if (fName.length > 0) {
       matchConditions.push({ ship_name: { $in: fName } });
-    } else if (fName && typeof fName === "string") {
-      matchConditions.push({ ship_name: fName });
     }
 
     // 车船号过滤
-    if (fVeh && Array.isArray(fVeh) && fVeh.length > 0) {
+    if (fVeh.length > 0) {
       matchConditions.push({ vehicle_vessel_name: { $in: fVeh } });
     }
 
     // 起始地过滤
-    if (fShipFrom && Array.isArray(fShipFrom) && fShipFrom.length > 0) {
+    if (fShipFrom.length > 0) {
       matchConditions.push({ ship_from: { $in: fShipFrom } });
     }
 
     // 目的地过滤
-    if (fDest && Array.isArray(fDest) && fDest.length > 0) {
+    if (fDest.length > 0) {
       matchConditions.push({ ship_to: { $in: fDest } });
     }
 
@@ -310,14 +312,9 @@ exports.getSettleBills = async (req, res) => {
       .exec();
 
     // 过滤集合（用 Set 加速）
-    const fOrderSet =
-      fOrder && Array.isArray(fOrder) && fOrder.length > 0
-        ? new Set(fOrder)
-        : null;
-    const fBnoSet =
-      fBno && Array.isArray(fBno) && fBno.length > 0 ? new Set(fBno) : null;
-    const fInvNoSet =
-      fInvNo && Array.isArray(fInvNo) && fInvNo.length > 0 ? new Set(fInvNo) : null;
+    const fOrderSet = fOrder.length > 0 ? new Set(fOrder) : null;
+    const fBnoSet = fBno.length > 0 ? new Set(fBno) : null;
+    const fInvNoSet = fInvNo.length > 0 ? new Set(fInvNo) : null;
 
     // 处理结果（price 和 inv_settle_flag 已在管道内计算）
     const bills = [];

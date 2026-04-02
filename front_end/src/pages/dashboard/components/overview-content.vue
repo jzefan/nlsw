@@ -534,7 +534,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
 
     <!-- KPI Cards -->
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      <UiCard class="border-0 shadow-md bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/20 dark:to-background">
+      <UiCard class="border-0 dark:border dark:border-border/40 shadow-md bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/40 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             总配发吨数
@@ -580,7 +580,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </UiCardContent>
       </UiCard>
 
-      <UiCard class="border-0 shadow-md bg-gradient-to-br from-purple-50 to-white dark:from-purple-950/20 dark:to-background">
+      <UiCard class="border-0 dark:border dark:border-border/40 shadow-md bg-gradient-to-br from-purple-50 to-white dark:from-purple-950/40 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             配发开单名称数
@@ -603,7 +603,7 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
         </UiCardContent>
       </UiCard>
 
-      <UiCard class="border-0 shadow-md bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-background">
+      <UiCard class="border-0 dark:border dark:border-border/40 shadow-md bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/40 dark:to-background">
         <UiCardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
           <UiCardTitle class="text-sm font-medium">
             配发车船数

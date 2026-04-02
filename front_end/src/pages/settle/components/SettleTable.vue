@@ -162,7 +162,7 @@ function getStatus(bill: SettleBill) {
 
   const text = parts.join(',')
   const allDone = parts.length > 0 && parts.every(p => p.includes('已结算') || p.includes('不需结算'))
-  return { text, class: allDone ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' }
+  return { text, class: allDone ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
 }
 
 // 获取订单显示（包含项次号）
@@ -330,9 +330,9 @@ function switchToOtherMode() {
             v-else
             :key="`${bill._id}-${bill.inv_no}-${bill.veh_ves_name}`"
             :class="{
-              'bg-amber-100 border-l-4 border-l-amber-500': isSelected(bill),
-              'bg-orange-100 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
-              'hover:bg-amber-50 cursor-pointer': !isInBasket(bill),
+              'bg-amber-100 dark:bg-amber-900/40 border-l-4 border-l-amber-500': isSelected(bill),
+              'bg-orange-100 dark:bg-orange-900/30 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
+              'hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer': !isInBasket(bill),
               'cursor-not-allowed': isInBasket(bill),
             }"
             class="border-b transition-colors"

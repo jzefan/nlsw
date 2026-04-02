@@ -135,4 +135,22 @@ const endDateLocal = computed({
 .chart-wrapper :deep(svg) {
   height: 100% !important;
 }
+
+/* 深色模式：淡化坐标轴网格线和刻度线 */
+:root.dark .chart-wrapper :deep(.axis .grid-line line),
+:root.dark .chart-wrapper :deep(.axis .tick line) {
+  stroke: rgba(255, 255, 255, 0.08) !important;
+}
+
+:root.dark .chart-wrapper :deep(.axis .tick text) {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+:root.dark .chart-wrapper :deep(.axis .label text) {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+:root.dark .chart-wrapper :deep(.axis .domain) {
+  stroke: rgba(255, 255, 255, 0.1) !important;
+}
 </style>

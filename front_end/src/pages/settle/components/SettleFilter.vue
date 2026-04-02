@@ -167,7 +167,7 @@ const searchOrders = computed(() => {
     const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
     // 第一页且无搜索时，在最前面插入"全部"
     if (!search && page === 1) {
-      data.unshift({ name: ALL_ORDERS })
+      data.unshift({ name: ALL_ORDERS, selectAll: true } as typeof data[number])
     }
     return { ok: true, data, total: filtered.length + (search ? 0 : 1) }
   }

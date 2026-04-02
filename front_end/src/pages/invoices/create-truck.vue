@@ -865,7 +865,12 @@ async function loadInvoiceDetail(invoice: any) {
         if (!billInfo) continue
 
         const sendNum = invBill.num || 0
-        const sendWeight = invBill.weight || 0
+        // 定尺提单：如果数据库存的发运重量为0但有发运数，按 发运数×单块重 重新计算
+        const rawWeight = invBill.weight || 0
+        const sendWeight =
+          rawWeight === 0 && sendNum > 0 && billInfo.block_num > 0
+            ? Number((sendNum * (billInfo.weight || 0)).toFixed(3))
+            : rawWeight
         const currentLeft = billInfo.left_num || 0
         // 还原此运单扣减前的原始剩余量
         const originalLeft =

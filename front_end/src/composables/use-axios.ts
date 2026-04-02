@@ -9,6 +9,9 @@ const axiosInstance = axios.create({
   baseURL: env.VITE_SERVER_API_URL + env.VITE_SERVER_API_PREFIX,
   timeout: env.VITE_SERVER_API_TIMEOUT,
   withCredentials: true, // 允许跨域携带 cookie，用于 session 认证
+  paramsSerializer: {
+    indexes: null, // 数组参数不带索引: fOrder=v1&fOrder=v2（避免 qs arrayLimit=20 导致超过20项被解析为对象）
+  },
 })
 
 axiosInstance.interceptors.request.use((config) => {

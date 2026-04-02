@@ -74,9 +74,6 @@ export interface IntegratedQueryResponse {
 export async function getIntegratedQuery(params: IntegratedQueryFilter) {
   const response = await axiosInstance.get<IntegratedQueryResponse>('/report/integrated_query', {
     params,
-    paramsSerializer: {
-      indexes: null, // array params like fName[] will be fName=v1&fName=v2
-    },
     timeout: 60000,
   })
   return response.data

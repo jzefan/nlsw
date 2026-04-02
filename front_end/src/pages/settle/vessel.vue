@@ -11,7 +11,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  CirclePlus,
   Clock,
   Download,
   Eye,
@@ -249,6 +248,26 @@ const carrierFilterOptions = computed(() => {
     }
   })
   return Array.from(set).sort()
+})
+
+// 承运单位搜索函数（供 SearchableCombobox 使用）
+const searchCarriers = computed(() => {
+  const options = carrierFilterOptions.value
+  return async (search: string, limit: number, page: number) => {
+    let filtered = options
+    if (search) {
+      const s = search.toLowerCase()
+      filtered = filtered.filter(item => item.toLowerCase().includes(s))
+    }
+    const start = (page - 1) * limit
+    const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
+    return { ok: true, data, total: filtered.length }
+  }
+})
+
+// 监听承运单位选择变化，触发筛选
+watch(carrierFilterSelected, () => {
+  onCarrierFilterChanged()
 })
 
 // 级联筛选选项（每个下拉选项 = 全量记录按其他已选条件过滤后的唯一值）
@@ -3272,85 +3291,14 @@ function handleUploadReceiptConfirm() {
             class="h-8 text-sm w-full"
           />
           <!-- 承运单位多选 -->
-          <Popover v-if="!hideCarrier">
-            <div class="relative">
-              <PopoverTrigger as-child>
-                <UiButton variant="outline" size="sm" class="h-8 text-sm w-full justify-start font-normal border-dashed" :class="carrierFilterSelected.length > 0 ? 'pr-8' : ''">
-                  <CirclePlus
-                    v-if="carrierFilterSelected.length === 0"
-                    class="size-4 mr-1.5 shrink-0 text-muted-foreground"
-                  />
-                  <template v-if="carrierFilterSelected.length === 0">
-                    <span class="text-muted-foreground">承运单位</span>
-                  </template>
-                  <template v-else>
-                    <span class="truncate">{{
-                      carrierFilterSelected.length > 2
-                        ? `${carrierFilterSelected.length} 个承运单位`
-                        : carrierFilterSelected.join(', ')
-                    }}</span>
-                  </template>
-                </UiButton>
-              </PopoverTrigger>
-              <!-- 清除按钮 - 必须在 PopoverTrigger 外部，否则点击会触发下拉 -->
-              <X
-                v-if="carrierFilterSelected.length > 0"
-                class="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 cursor-pointer text-muted-foreground hover:text-foreground z-10"
-                @pointerdown.stop.prevent="clearCarrierFilter"
-              />
-            </div>
-            <PopoverContent class="w-[220px] p-0" align="start">
-              <UiCommand>
-                <UiCommandInput placeholder="搜索承运单位..." />
-                <UiCommandList>
-                  <UiCommandEmpty>无匹配项</UiCommandEmpty>
-                  <UiCommandGroup>
-                    <UiCommandItem
-                      v-for="opt in carrierFilterOptions"
-                      :key="opt"
-                      :value="opt"
-                      @select="
-                        () => {
-                          const idx = carrierFilterSelected.indexOf(opt)
-                          if (idx >= 0) carrierFilterSelected.splice(idx, 1)
-                          else carrierFilterSelected.push(opt)
-                          onCarrierFilterChanged()
-                        }
-                      "
-                    >
-                      <div
-                        class="mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary"
-                        :class="carrierFilterSelected.includes(opt) ? 'bg-primary' : 'opacity-50 [&_svg]:invisible'"
-                      >
-                        <Check
-                          class="h-4 w-4"
-                          :class="carrierFilterSelected.includes(opt) ? 'text-primary-foreground' : ''"
-                        />
-                      </div>
-                      <span>{{ opt }}</span>
-                    </UiCommandItem>
-                  </UiCommandGroup>
-                  <template v-if="carrierFilterSelected.length > 0">
-                    <UiCommandSeparator />
-                    <UiCommandGroup>
-                      <UiCommandItem
-                        value="__clear__"
-                        class="justify-center text-center"
-                        @select="
-                          () => {
-                            carrierFilterSelected = []
-                            onCarrierFilterChanged()
-                          }
-                        "
-                      >
-                        清除筛选
-                      </UiCommandItem>
-                    </UiCommandGroup>
-                  </template>
-                </UiCommandList>
-              </UiCommand>
-            </PopoverContent>
-          </Popover>
+          <SearchableCombobox
+            v-if="!hideCarrier"
+            v-model="carrierFilterSelected"
+            :search-fn="searchCarriers"
+            placeholder="承运单位"
+            multiple
+            class="h-8 text-sm w-full"
+          />
           <Select v-model="filterForm.receiptState" @update:model-value="() => handleSearch(true)">
             <SelectTrigger class="h-8 text-sm w-full">
               <SelectValue placeholder="回执状态" />

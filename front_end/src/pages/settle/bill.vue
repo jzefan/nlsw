@@ -1259,9 +1259,9 @@ function getOrderDisplay(bill: SettleBill) {
 // 获取结算状态样式类
 function getStatusClass(bill: SettleBill): string {
   const status = getSettleStatus(bill)
-  if (status.includes('已结算')) return 'bg-blue-50 text-blue-700 border-blue-200'
-  if (status.includes('不需')) return 'bg-gray-50 text-gray-500 border-gray-200'
-  return 'bg-orange-50 text-orange-700 border-orange-200'
+  if (status.includes('已结算')) return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700'
+  if (status.includes('不需')) return 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600'
+  return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700'
 }
 
 // 获取卡片价格显示
@@ -1773,8 +1773,8 @@ function isBillSelected(bill: SettleBill): boolean {
             :key="bill._id"
             class="relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
-              'bg-orange-50 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
-              'bg-amber-100 border-l-4 border-l-amber-500': !isInBasket(bill) && isBillSelected(bill),
+              'bg-orange-50 dark:bg-orange-900/30 border-l-4 border-l-orange-500 opacity-60': isInBasket(bill),
+              'bg-amber-100 dark:bg-amber-900/40 border-l-4 border-l-amber-500': !isInBasket(bill) && isBillSelected(bill),
               'bg-muted/30 hover:border-primary/30': !isInBasket(bill) && !isBillSelected(bill),
             }"
             @click="toggleBill(bill)"
@@ -1914,9 +1914,9 @@ function isBillSelected(bill: SettleBill): boolean {
                   v-for="settle in settledRecords"
                   v-else
                   :key="settle._id"
-                  class="border-b hover:bg-amber-50 cursor-pointer transition-colors"
+                  class="border-b hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors"
                   :class="{
-                    'bg-amber-100 border-l-4 border-l-amber-500': isSettleSelected(settle),
+                    'bg-amber-100 dark:bg-amber-900/40 border-l-4 border-l-amber-500': isSettleSelected(settle),
                   }"
                   @click="toggleSettle(settle)"
                 >
@@ -1965,7 +1965,7 @@ function isBillSelected(bill: SettleBill): boolean {
             :key="settle._id"
             class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
-              'bg-amber-100 border-l-4 border-l-amber-500': isSettleSelected(settle),
+              'bg-amber-100 dark:bg-amber-900/40 border-l-4 border-l-amber-500': isSettleSelected(settle),
               'bg-muted/30 hover:border-primary/30': !isSettleSelected(settle),
             }"
             @click="toggleSettle(settle)"

@@ -803,4 +803,22 @@ function selectYear(year: string) {
 .mobile-chart :deep(svg) {
   height: 100% !important;
 }
+
+/* 深色模式：淡化坐标轴网格线和刻度线 */
+:root.dark .mobile-chart :deep(.axis .grid-line line),
+:root.dark .mobile-chart :deep(.axis .tick line) {
+  stroke: rgba(255, 255, 255, 0.08) !important;
+}
+
+:root.dark .mobile-chart :deep(.axis .tick text) {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+:root.dark .mobile-chart :deep(.axis .label text) {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+:root.dark .mobile-chart :deep(.axis .domain) {
+  stroke: rgba(255, 255, 255, 0.1) !important;
+}
 </style>

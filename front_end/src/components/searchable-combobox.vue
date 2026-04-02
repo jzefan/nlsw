@@ -63,6 +63,25 @@ function isItemSelected(item: SearchResult): boolean {
   return selectedArray.value.includes(val)
 }
 
+// "全选"项
+const selectAllItem = computed(() => items.value.find(i => i.selectAll))
+const normalItems = computed(() => items.value.filter(i => !i.selectAll))
+const isAllSelected = computed(() => {
+  const others = normalItems.value
+  return others.length > 0 && others.every(i => selectedArray.value.includes(i.value ?? i.name))
+})
+
+function toggleSelectAll() {
+  if (!selectAllItem.value) return
+  if (isAllSelected.value) {
+    // 取消全选：清空所有
+    selectedArray.value = []
+  } else {
+    // 全选：触发原始 selectItem（由调用方的 watch 处理展开）
+    selectItem(selectAllItem.value)
+  }
+}
+
 // 搜索
 async function loadItems(reset = false) {
   if (!reset && !hasMore.value)
@@ -245,7 +264,9 @@ function clearValue(e: Event) {
           </div>
         </Button>
       </PopoverTrigger>
-      <PopoverContent class="w-[--reka-popover-trigger-width] p-0" align="start">
+
+      <!-- 单选：窄列表 -->
+      <PopoverContent v-if="!multiple" class="w-[--reka-popover-trigger-width] p-0" align="start">
         <!-- 搜索框 -->
         <div class="flex h-9 items-center gap-2 border-b px-3">
           <Search class="size-4 shrink-0 opacity-50" />
@@ -314,15 +335,107 @@ function clearValue(e: Event) {
             向下滚动加载更多
           </div>
         </div>
+      </PopoverContent>
 
-        <!-- 多选模式：底部清除按钮 -->
-        <div v-if="multiple && selectedArray.length > 0" class="border-t p-1">
-          <div
-            class="flex cursor-pointer select-none items-center justify-center rounded-sm px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      <!-- 多选：面板布局，宽度自适应内容 -->
+      <PopoverContent v-else class="w-auto min-w-[--reka-popover-trigger-width] max-w-[90vw] p-0" align="start">
+        <!-- 搜索框 + 已选计数 -->
+        <div class="flex h-9 items-center gap-2 border-b px-3">
+          <Search class="size-4 shrink-0 opacity-50" />
+          <input
+            ref="inputRef"
+            v-model="searchQuery"
+            type="text"
+            placeholder="输入关键字搜索..."
+            class="placeholder:text-muted-foreground flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none"
+          >
+          <span v-if="selectedArray.length > 0" class="text-xs text-primary font-medium whitespace-nowrap">
+            已选 {{ selectedArray.length }}
+          </span>
+        </div>
+
+        <!-- 面板网格 -->
+        <div
+          class="max-h-[280px] overflow-y-auto p-2"
+          @scroll="handleScroll"
+        >
+          <!-- 空状态 -->
+          <div v-if="!loading && normalItems.length === 0 && !selectAllItem" class="py-6 text-center text-sm text-muted-foreground">
+            {{ searchQuery ? '未找到匹配项' : '暂无数据' }}
+          </div>
+
+          <!-- 全选行（独立一行，宽度自适应） -->
+          <div v-if="selectAllItem" class="mb-2 pb-2 border-b border-border/50">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm border cursor-pointer select-none transition-colors"
+              :class="isAllSelected
+                ? 'bg-primary/10 text-primary border-primary/50 hover:bg-primary/15'
+                : 'bg-background border-border hover:bg-accent hover:text-accent-foreground'"
+              @click="toggleSelectAll"
+            >
+              <span
+                class="flex items-center justify-center h-3.5 w-3.5 shrink-0 rounded-sm border transition-colors"
+                :class="isAllSelected
+                  ? 'bg-primary border-primary text-primary-foreground'
+                  : 'border-muted-foreground/40'"
+              >
+                <Check v-if="isAllSelected" class="h-2.5 w-2.5" />
+              </span>
+              <span>{{ selectAllItem.name }}</span>
+            </button>
+          </div>
+
+          <!-- 网格项（3列） -->
+          <div class="grid grid-cols-3 gap-1.5">
+            <button
+              v-for="item in normalItems"
+              :key="item.value ?? item.name"
+              type="button"
+              class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm border cursor-pointer select-none transition-colors"
+              :class="isItemSelected(item)
+                ? 'bg-primary/10 text-primary border-primary/50 hover:bg-primary/15'
+                : 'bg-background border-border hover:bg-accent hover:text-accent-foreground'"
+              @click="selectItem(item)"
+            >
+              <span
+                class="flex items-center justify-center h-3.5 w-3.5 shrink-0 rounded-sm border transition-colors"
+                :class="isItemSelected(item)
+                  ? 'bg-primary border-primary text-primary-foreground'
+                  : 'border-muted-foreground/40'"
+              >
+                <Check v-if="isItemSelected(item)" class="h-2.5 w-2.5" />
+              </span>
+              <span class="truncate">{{ item.name }}</span>
+              <!-- 附加标签 -->
+              <span v-if="item.veh_category === '自有'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">自</span>
+              <span v-else-if="item.veh_category === '外挂'" class="text-[10px] leading-none px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">外</span>
+              <span v-if="item.shipper" class="text-[10px] opacity-70">{{ item.shipper }}</span>
+            </button>
+          </div>
+
+          <!-- 加载中 -->
+          <div v-if="loading" class="py-2 text-center text-sm text-muted-foreground">
+            <Loader2 class="inline-block h-4 w-4 animate-spin mr-1" />
+            加载中...
+          </div>
+
+          <!-- 加载更多提示 -->
+          <div v-else-if="hasMore && items.length > 0" class="py-1 text-center text-xs text-muted-foreground">
+            向下滚动加载更多
+          </div>
+        </div>
+
+        <!-- 底部：清除全部 -->
+        <div v-if="selectedArray.length > 0" class="border-t px-2 py-1.5 flex items-center justify-between">
+          <span class="text-xs text-muted-foreground">已选择 {{ selectedArray.length }} 项</span>
+          <button
+            type="button"
+            class="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-accent"
             @click="selectedArray = []; open = false"
           >
             清除全部
-          </div>
+          </button>
         </div>
       </PopoverContent>
     </Popover>
