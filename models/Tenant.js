@@ -53,7 +53,12 @@ var tenantSchema = new mongoose.Schema({
     requireReceiptForSettle: { type: Boolean, default: false },  // 结算前是否必须有回执
     drayageRate: { type: Number, default: 0 },  // 车运到船应收单价（元/吨），0=使用原有计算逻辑
     ownVehicleDeductPayable: { type: Boolean, default: true },  // 自有车利润是否减去应付金额，true=减去（默认），false=不减
-    receiptStorage: { type: String, enum: ['local', 'minio'], default: 'local' }  // 回执图片存储方式
+    receiptStorage: { type: String, enum: ['local', 'minio'], default: 'local' },  // 回执图片存储方式
+    billImportCarrierRule: {
+      type: String,
+      enum: ['contains_company_name', 'unrestricted'],
+      default: 'contains_company_name'
+    }  // 提单导入时承运单位校验规则
   },
 
   // 时间

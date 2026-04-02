@@ -10,6 +10,7 @@ const drayageRate = ref(0)
 const ownVehicleDeductPayable = ref(true)
 const requireReceiptForSettle = ref(false)
 const receiptStorage = ref('local')
+const billImportCarrierRule = ref<'contains_company_name' | 'unrestricted'>('contains_company_name')
 
 onMounted(async () => {
   loading.value = true
@@ -20,6 +21,7 @@ onMounted(async () => {
       ownVehicleDeductPayable.value = result.settings?.ownVehicleDeductPayable !== false
       requireReceiptForSettle.value = result.settings?.requireReceiptForSettle === true
       receiptStorage.value = result.settings?.receiptStorage || 'local'
+      billImportCarrierRule.value = result.settings?.billImportCarrierRule || 'contains_company_name'
     }
   } catch (e: any) {
     toast.error('加载设置失败', { description: e.message })
@@ -36,6 +38,7 @@ async function handleSubmit() {
       ownVehicleDeductPayable: ownVehicleDeductPayable.value,
       requireReceiptForSettle: requireReceiptForSettle.value,
       receiptStorage: receiptStorage.value,
+      billImportCarrierRule: billImportCarrierRule.value,
     })
     if (result.ok) {
       toast.success('设置已保存')
@@ -105,6 +108,22 @@ async function handleSubmit() {
             :disabled="loading"
           />
         </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-medium">提单导入承运单位校验</label>
+        <UiSelect v-model="billImportCarrierRule" :disabled="loading">
+          <UiSelectTrigger class="w-full">
+            <UiSelectValue placeholder="选择校验规则" />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem value="contains_company_name">承运单位必须包含公司名称</UiSelectItem>
+            <UiSelectItem value="unrestricted">不限制承运单位</UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
+        <p class="text-xs text-muted-foreground">
+          默认会过滤掉承运单位不包含当前公司名称的记录；如军铁等场景可改为“不限制承运单位”。该设置对当前租户所有用户生效。
+        </p>
       </div>
 
       <div class="space-y-2">

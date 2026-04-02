@@ -17,6 +17,7 @@ export interface Tenant {
   plan?: string
   maxUsers?: number
   expireDate?: string | null
+  billImportCarrierRule?: 'contains_company_name' | 'unrestricted'
 }
 
 export type DeployMode = 'saas' | 'standalone'

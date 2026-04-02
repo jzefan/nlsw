@@ -5,6 +5,7 @@ const { isAdmin } = require('../../utils/permissions');
 const { buildTenantQuery, isPlatformUser, isOwner } = require('../../utils/tenant');
 const { isStandalone, getDeployMode, getStandaloneCompany } = require('../../utils/deploy-mode');
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
+const { getBillImportCarrierRule, sanitizeBillImportCarrierRule } = require('../../utils/tenant-settings');
 const secrets = require('../../config/secrets');
 
 // 是否有用户管理权限：平台用户、公司主账号、或 admin 权限
@@ -66,7 +67,8 @@ exports.getMe = async (req, res) => {
         fullName: req.tenant.fullName || '',
         plan: req.tenant.plan,
         maxUsers: req.tenant.maxUsers,
-        expireDate: req.tenant.expireDate || null
+        expireDate: req.tenant.expireDate || null,
+        billImportCarrierRule: getBillImportCarrierRule(req.tenant.settings || {}),
       } : null
     );
 
@@ -291,7 +293,13 @@ exports.getTenantSettings = async (req, res) => {
     if (!tenant) {
       return res.json({ ok: false, message: '租户不存在' });
     }
-    res.json({ ok: true, settings: tenant.settings || {} });
+    res.json({
+      ok: true,
+      settings: {
+        ...(tenant.settings || {}),
+        billImportCarrierRule: getBillImportCarrierRule(tenant.settings || {}),
+      },
+    });
   } catch (error) {
     console.error('获取租户设置失败:', error);
     res.json({ ok: false, message: error.message });
@@ -304,7 +312,7 @@ exports.updateTenantSettings = async (req, res) => {
     if (!isOwner(req) && !isPlatformUser(req)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
     }
-    const { drayageRate, ownVehicleDeductPayable, receiptStorage, requireReceiptForSettle } = req.body;
+    const { drayageRate, ownVehicleDeductPayable, receiptStorage, requireReceiptForSettle, billImportCarrierRule } = req.body;
     const update = {};
     if (drayageRate !== undefined) {
       update['settings.drayageRate'] = Math.max(0, Number(drayageRate) || 0);
@@ -318,6 +326,9 @@ exports.updateTenantSettings = async (req, res) => {
     }
     if (requireReceiptForSettle !== undefined) {
       update['settings.requireReceiptForSettle'] = !!requireReceiptForSettle;
+    }
+    if (billImportCarrierRule !== undefined) {
+      update['settings.billImportCarrierRule'] = sanitizeBillImportCarrierRule(billImportCarrierRule);
     }
     await Tenant.findByIdAndUpdate(req.tenantId, { $set: update });
     res.json({ ok: true, message: '设置已保存' });

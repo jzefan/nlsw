@@ -7,6 +7,7 @@ var Tenant = require("../models/Tenant");
 var secrets = require("../config/secrets");
 var { isAdmin } = require("../utils/permissions");
 var { getDeployMode, getStandaloneCompany } = require("../utils/deploy-mode");
+var { getBillImportCarrierRule } = require("../utils/tenant-settings");
 
 /**
  * GET /login
@@ -106,6 +107,7 @@ exports.postLogin = async function (req, res, next) {
                   plan: t.plan,
                   maxUsers: t.maxUsers,
                   expireDate: t.expireDate || null,
+                  billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
                 };
               }
             } catch (e) {
@@ -716,6 +718,7 @@ exports.postPhoneLogin = async function (req, res, next) {
                 plan: t.plan,
                 maxUsers: t.maxUsers,
                 expireDate: t.expireDate || null,
+                billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
               };
             }
           } catch (e) {

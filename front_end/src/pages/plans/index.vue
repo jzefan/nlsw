@@ -406,11 +406,16 @@ onMounted(() => {
 
     <!-- 筛选区域 -->
     <div v-if="showFilter" class="mb-2 p-3 border rounded-lg bg-muted/50 shrink-0">
-      <div class="flex flex-wrap items-center gap-2">
-        <UiInput v-model="filters.orderNo" placeholder="订单号" class="w-32" />
-        <SearchableCombobox v-model="filters.customerName" :search-fn="searchCompanies" placeholder="客户名称" class="w-32" />
+      <div class="flex flex-col gap-2 md:hidden">
+        <UiInput v-model="filters.orderNo" placeholder="订单号" class="w-full" />
+        <SearchableCombobox
+          v-model="filters.customerName"
+          :search-fn="searchCompanies"
+          placeholder="客户名称"
+          class="w-full"
+        />
         <UiSelect v-model="filters.transportMode">
-          <UiSelectTrigger class="w-32">
+          <UiSelectTrigger class="w-full">
             <UiSelectValue placeholder="运输方式" />
           </UiSelectTrigger>
           <UiSelectContent>
@@ -420,7 +425,7 @@ onMounted(() => {
           </UiSelectContent>
         </UiSelect>
         <UiSelect v-model="filters.status">
-          <UiSelectTrigger class="w-28">
+          <UiSelectTrigger class="w-full">
             <UiSelectValue placeholder="状态" />
           </UiSelectTrigger>
           <UiSelectContent>
@@ -429,14 +434,68 @@ onMounted(() => {
             </UiSelectItem>
           </UiSelectContent>
         </UiSelect>
-        <DatePicker v-model="filters.startDate" placeholder="开始日期" class="w-36" />
-        <DatePicker v-model="filters.endDate" placeholder="结束日期" class="w-36" />
-        <UiButton size="sm" @click="loadData">
-          查询
-        </UiButton>
-        <UiButton variant="outline" size="sm" @click="resetFilters">
-          重置
-        </UiButton>
+        <DatePicker v-model="filters.startDate" placeholder="开始日期" class="w-full" />
+        <DatePicker v-model="filters.endDate" placeholder="结束日期" class="w-full" />
+        <div class="flex items-center gap-2">
+          <UiButton size="sm" class="flex-1" @click="loadData">
+            查询
+          </UiButton>
+          <UiButton variant="outline" size="sm" class="flex-1" @click="resetFilters">
+            重置
+          </UiButton>
+        </div>
+      </div>
+
+      <div class="hidden md:block">
+        <div class="grid items-center gap-2 [grid-template-columns:repeat(6,minmax(0,1fr))_88px_88px]">
+          <div class="min-w-0">
+            <UiInput v-model="filters.orderNo" placeholder="订单号" class="w-full" />
+          </div>
+          <div class="min-w-0">
+            <SearchableCombobox
+              v-model="filters.customerName"
+              :search-fn="searchCompanies"
+              placeholder="客户名称"
+              class="w-full"
+            />
+          </div>
+          <div class="min-w-0">
+            <UiSelect v-model="filters.transportMode">
+              <UiSelectTrigger class="w-full">
+                <UiSelectValue placeholder="运输方式" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="m in transportModes" :key="m" :value="m">
+                  {{ m }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+          <div class="min-w-0">
+            <UiSelect v-model="filters.status">
+              <UiSelectTrigger class="w-full">
+                <UiSelectValue placeholder="状态" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="s in statusOptions" :key="s" :value="s">
+                  {{ s }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+          <div class="min-w-0">
+            <DatePicker v-model="filters.startDate" placeholder="开始日期" class="w-full" />
+          </div>
+          <div class="min-w-0">
+            <DatePicker v-model="filters.endDate" placeholder="结束日期" class="w-full" />
+          </div>
+          <UiButton size="sm" class="w-full" @click="loadData">
+            查询
+          </UiButton>
+          <UiButton variant="outline" size="sm" class="w-full" @click="resetFilters">
+            重置
+          </UiButton>
+        </div>
       </div>
     </div>
 

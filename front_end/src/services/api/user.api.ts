@@ -91,12 +91,27 @@ export async function resetPassword(user: { userid: string }) {
 
 // 获取租户设置
 export async function getTenantSettings() {
-  const response = await axiosInstance.get<{ ok: boolean; settings: { drayageRate?: number; ownVehicleDeductPayable?: boolean; receiptStorage?: string; requireReceiptForSettle?: boolean } }>('/tenant/settings')
+  const response = await axiosInstance.get<{
+    ok: boolean
+    settings: {
+      drayageRate?: number
+      ownVehicleDeductPayable?: boolean
+      receiptStorage?: string
+      requireReceiptForSettle?: boolean
+      billImportCarrierRule?: 'contains_company_name' | 'unrestricted'
+    }
+  }>('/tenant/settings')
   return response.data
 }
 
 // 更新租户设置
-export async function updateTenantSettings(data: { drayageRate?: number; ownVehicleDeductPayable?: boolean; receiptStorage?: string; requireReceiptForSettle?: boolean }) {
+export async function updateTenantSettings(data: {
+  drayageRate?: number
+  ownVehicleDeductPayable?: boolean
+  receiptStorage?: string
+  requireReceiptForSettle?: boolean
+  billImportCarrierRule?: 'contains_company_name' | 'unrestricted'
+}) {
   const response = await axiosInstance.post('/tenant/settings', data)
   return response.data
 }

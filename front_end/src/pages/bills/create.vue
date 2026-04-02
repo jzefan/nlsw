@@ -82,10 +82,17 @@ function getExpectedCarrierName() {
     : (authStore.tenant?.name || '')
 }
 
+function getCarrierValidationMode() {
+  return authStore.tenant?.billImportCarrierRule || 'contains_company_name'
+}
+
 function shouldSkipImportedBillByCarrier(bill: BillCreateData) {
-  const expectedCarrierName = getExpectedCarrierName()
+  const carrierValidationMode = getCarrierValidationMode()
+  if (carrierValidationMode === 'unrestricted')
+    return false
   if (!bill.carrier)
     return true
+  const expectedCarrierName = getExpectedCarrierName()
   if (!expectedCarrierName)
     return false
   return !bill.carrier.includes(expectedCarrierName)
@@ -206,6 +213,7 @@ function validateOrderNo() {
 
 // 验证单条数据
 function validateBill(bill: BillCreateData): string | null {
+  const carrierValidationMode = getCarrierValidationMode()
   const expectedCarrierName = getExpectedCarrierName()
 
   if (!bill.billNo) return '缺少提单号'
@@ -213,9 +221,11 @@ function validateBill(bill: BillCreateData): string | null {
   if (bill.orderNo.length !== 11) return `订单号长度必须为11位，当前${bill.orderNo.length}位`
   if (!bill.orderItemNo) return '缺少项次号'
   if (!bill.billingName) return '缺少开单名称'
-  if (!bill.carrier) return '缺少承运单位'
-  if (!expectedCarrierName) return '未获取到当前公司名称，无法校验承运单位'
-  if (!bill.carrier.includes(expectedCarrierName)) return `承运单位未包含${expectedCarrierName}`
+  if (carrierValidationMode === 'contains_company_name') {
+    if (!bill.carrier) return '缺少承运单位'
+    if (!expectedCarrierName) return '未获取到当前公司名称，无法校验承运单位'
+    if (!bill.carrier.includes(expectedCarrierName)) return `承运单位未包含${expectedCarrierName}`
+  }
   if (!bill.totalWeight || bill.totalWeight <= 0) return '总重量必须大于0'
   return null
 }
@@ -337,8 +347,9 @@ async function handleFileChange(event: Event) {
       if (processedData.length === 0) {
         bills.value = []
         if (filteredCarrierCount > 0) {
+          const carrierFilterMessage = `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已被自动过滤`
           toast.warning('导入后无可展示数据', {
-            description: `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已被自动过滤`,
+            description: carrierFilterMessage,
           })
         } else {
           toast.warning('导入失败', {
@@ -356,12 +367,14 @@ async function handleFileChange(event: Event) {
 
       const errorCount = bills.value.filter((b) => b._error).length
       if (errorCount > 0) {
+        const carrierFilterMessage = `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤`
         toast.warning(`导入 ${processedData.length} 条记录，其中 ${errorCount} 条有问题`, {
-          description: filteredCarrierCount > 0 ? `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤` : undefined,
+          description: filteredCarrierCount > 0 ? carrierFilterMessage : undefined,
         })
       } else {
+        const carrierFilterMessage = `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤`
         toast.success(`导入 ${processedData.length} 条记录，数据验证通过`, {
-          description: filteredCarrierCount > 0 ? `${filteredCarrierCount} 条记录因缺少承运单位或承运单位不包含当前公司名称，已自动过滤` : undefined,
+          description: filteredCarrierCount > 0 ? carrierFilterMessage : undefined,
         })
       }
     } else {
