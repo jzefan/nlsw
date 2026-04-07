@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckSquare, Filter, LoaderCircle, Pencil, Search, SearchX, Square, X, Zap } from 'lucide-vue-next'
+import { CheckSquare, Download, Filter, LoaderCircle, Pencil, Search, SearchX, Square, Trash2, X, Zap } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import type { BillFilterValues } from '@/components/bill-filter.vue'
@@ -10,6 +10,8 @@ import BasicHeader from '@/components/global-layout/basic-header.vue'
 import { useConfirmDialog } from '@/composables/use-confirm-dialog'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import {
+  deleteBills,
+  exportBills,
   getBills,
   searchBills,
   searchBrands,
@@ -27,6 +29,7 @@ const { confirm } = useConfirmDialog()
 
 // 状态
 const loading = ref(false)
+const exportLoading = ref(false)
 const bills = ref<Bill[]>([])
 const selectedBills = ref<Bill[]>([])
 const total = ref(0)
@@ -125,6 +128,28 @@ const advancedOperators = [
   { value: 'lte', label: '小于等于' },
 ]
 
+const exportColumns = [
+  { field: 'status', label: '状态' },
+  { field: 'order_no', label: '订单号' },
+  { field: 'order_item_no', label: '项次号' },
+  { field: 'bill_no', label: '提单号' },
+  { field: 'brand_no', label: '牌号' },
+  { field: 'billing_name', label: '开单名称' },
+  { field: 'thickness', label: '厚度' },
+  { field: 'width', label: '宽度' },
+  { field: 'len', label: '长度' },
+  { field: 'size_type', label: '尺寸类型' },
+  { field: 'weight', label: '单重' },
+  { field: 'block_num', label: '块数' },
+  { field: 'total_weight', label: '总重量' },
+  { field: 'left_num', label: '余量' },
+  { field: 'ship_warehouse', label: '发货仓库' },
+  { field: 'contract_no', label: '合同号' },
+  { field: 'sales_dep', label: '销售部门' },
+  { field: 'create_date', label: '创建日期' },
+  { field: 'creater', label: '创建人' },
+]
+
 // 加载数据
 async function loadData() {
   loading.value = true
@@ -154,6 +179,107 @@ async function loadData() {
   }
   finally {
     loading.value = false
+  }
+}
+
+function buildBasicFilterPayload() {
+  return {
+    billNo: filters.value.billNo || undefined,
+    orderNo: filters.value.orderNo || undefined,
+    billingName: filters.value.billingName || undefined,
+    brandNo: filters.value.brandNo || undefined,
+    contractNo: filters.value.contractNo || undefined,
+    status: filters.value.status || undefined,
+    leftNumOnly: filters.value.leftNumOnly || undefined,
+    startTime: filters.value.startDate || undefined,
+    endTime: filters.value.endDate || undefined,
+    creater: filters.value.creater || undefined,
+  }
+}
+
+function buildAdvancedQueryTree() {
+  const validConditions = advancedConditions.value.filter(c => c.field && c.value)
+  if (validConditions.length === 0)
+    return null
+
+  if (validConditions.length === 1) {
+    const c = validConditions[0]
+    return {
+      field: c.field,
+      operator: c.operator,
+      value: c.value,
+    }
+  }
+
+  return {
+    logic: 'AND',
+    conditions: validConditions.map(c => ({
+      field: c.field,
+      operator: c.operator,
+      value: c.value,
+    })),
+  }
+}
+
+function getExportRequestPayload() {
+  const payload: Record<string, any> = {
+    columns: exportColumns,
+    sort: [{ field: 'create_date', order: 'desc' }],
+  }
+
+  if (activeQuery.value?.type === 'advanced' && savedAdvancedQueryTree.value) {
+    payload.queryTree = savedAdvancedQueryTree.value
+    return payload
+  }
+
+  if (activeQuery.value?.type === 'leftNum') {
+    const threshold = Number.parseFloat(leftSearchThreshold.value)
+    if (!threshold || threshold <= 0) {
+      throw new Error('当前剩余量查询条件无效，请重新查询后再导出')
+    }
+    payload.queryTree = {
+      field: 'left_num',
+      operator: 'lte',
+      value: threshold,
+    }
+    return payload
+  }
+
+  payload.filters = buildBasicFilterPayload()
+  return payload
+}
+
+async function handleExport() {
+  if (loading.value || exportLoading.value)
+    return
+
+  if (total.value === 0) {
+    toast.warning('当前没有可导出的查询记录')
+    return
+  }
+
+  if (total.value > 5000) {
+    toast.warning('记录数超过 5000 条，请缩小条件后再查询')
+    return
+  }
+
+  exportLoading.value = true
+  try {
+    const blob = await exportBills(getExportRequestPayload())
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const date = new Date().toISOString().slice(0, 10)
+    link.href = url
+    link.download = `bills_export_${date}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success(`导出成功，共 ${total.value} 条`)
+  }
+  catch (e: any) {
+    toast.error('导出失败', { description: e.message })
+  }
+  finally {
+    exportLoading.value = false
   }
 }
 
@@ -391,6 +517,50 @@ async function zeroLeftNum() {
   }
 }
 
+async function handleDelete() {
+  if (selectedBills.value.length === 0) {
+    toast.warning('请先选择要删除的提单')
+    return
+  }
+
+  if (!(await confirm({
+    title: '确认删除提单',
+    description: `确定要删除选中的 ${selectedBills.value.length} 条提单吗？删除后不能恢复！`,
+    confirmButtonText: '确认删除',
+    destructive: true,
+  }))) {
+    return
+  }
+
+  loading.value = true
+  try {
+    const ids = selectedBills.value.map(b => b._id!)
+    const result = await deleteBills(ids)
+    if (result.ok) {
+      toast.success(`删除成功，共 ${ids.length} 条`)
+      selectedBills.value = []
+      if (activeQuery.value?.type === 'leftNum') {
+        await searchByLeftNum(false)
+      }
+      else if (activeQuery.value?.type === 'advanced') {
+        await executeAdvancedSearch(false)
+      }
+      else {
+        await loadData()
+      }
+    }
+    else {
+      toast.error('删除失败', { description: result.response })
+    }
+  }
+  catch (e: any) {
+    toast.error('删除失败', { description: e.message })
+  }
+  finally {
+    loading.value = false
+  }
+}
+
 // 高级查询
 function openAdvancedSearch() {
   advancedConditions.value = [{ field: '', operator: 'eq', value: '' }]
@@ -421,26 +591,9 @@ async function executeAdvancedSearch(resetPage = true) {
 
   loading.value = true
   try {
-    // 构建查询树（匹配后端 buildQuery 格式）
-    let queryTree: any
-    if (validConditions.length === 1) {
-      const c = validConditions[0]
-      queryTree = {
-        field: c.field,
-        operator: c.operator,
-        value: c.value,
-      }
-    }
-    else {
-      queryTree = {
-        logic: 'AND',
-        conditions: validConditions.map(c => ({
-          field: c.field,
-          operator: c.operator,
-          value: c.value,
-        })),
-      }
-    }
+    const queryTree = buildAdvancedQueryTree()
+    if (!queryTree)
+      throw new Error('请至少添加一个有效的查询条件')
 
     // 保存查询树用于分页
     savedAdvancedQueryTree.value = queryTree
@@ -492,7 +645,7 @@ function getFieldOptions(fieldValue: string) {
 }
 
 // 定尺类型
-const fixedSizeTypes = ['定尺', '单定', '双定尺']
+const fixedSizeTypes = ['定尺', '双定尺']
 
 // 计算单重：长 × 宽 × 厚 × 7.85 × 10⁻⁹ (吨)
 function calcWeight(bill: Bill) {
@@ -607,7 +760,7 @@ onMounted(() => {
   <div class="flex flex-col" style="height: calc(100vh - 80px)">
     <BasicHeader title="提单列表" description="查询和修改提单信息" class="shrink-0">
       <template #actions>
-        <div class="flex items-center gap-2 overflow-x-auto">
+      <div class="flex items-center gap-2 overflow-x-auto">
         <UiButton
           :variant="showFilter ? 'default' : 'outline'"
           size="sm"
@@ -623,6 +776,11 @@ onMounted(() => {
         <UiButton variant="outline" size="sm" @click="showLeftSearchDialog = true">
           <Search class="w-4 h-4 mr-1" />
           剩余量查询
+        </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading || exportLoading || total === 0" @click="handleExport">
+          <LoaderCircle v-if="exportLoading" class="w-4 h-4 mr-1 animate-spin" />
+          <Download v-else class="w-4 h-4 mr-1" />
+          导出查询结果
         </UiButton>
       </div>
       </template>
@@ -682,6 +840,15 @@ onMounted(() => {
         >
           <Zap class="w-4 h-4 mr-1" />
           剩余量清零
+        </UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="selectedBills.length === 0"
+          @click="handleDelete"
+        >
+          <Trash2 class="w-4 h-4 mr-1" />
+          删除
         </UiButton>
       </div>
       <div class="flex-1" />

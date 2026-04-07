@@ -106,7 +106,10 @@ function buildWorksheetMatrix(worksheet: XLSX.WorkSheet) {
     const row: string[] = []
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = worksheet[XLSX.utils.encode_cell({ r, c })]
-      row.push(normalizeHeaderText(cell?.w ?? cell?.v ?? ''))
+      // 数字单元格优先取原始值 v，避免 Excel 单元格格式（如"保留2位小数"）
+      // 导致 .w 显示文本与真实值不一致，造成计划重量等数值字段失真
+      const raw = cell?.t === 'n' ? (cell?.v ?? cell?.w ?? '') : (cell?.w ?? cell?.v ?? '')
+      row.push(normalizeHeaderText(raw))
     }
     rows.push(row)
   }
@@ -463,6 +466,8 @@ function readExcelFile(file: File): Promise<BillCreateData[]> {
           厚度: 'thickness',
           厚: 'thickness',
           尺寸: 'sizeType',
+          尺寸类型: 'sizeType',
+          尺寸类别: 'sizeType',
           单重: 'weight',
           发运数: 'blockNum',
           块数: 'blockNum',
@@ -701,10 +706,14 @@ async function save() {
     const dataToSave = validBills.map(({ _error, ...rest }) => rest)
     const result = await createBills(dataToSave)
     if (result.ok) {
-      const msg =
-        result.noUpdatedData?.length > 0
-          ? `保存成功，新建 ${result.count} 条，${result.noUpdatedData.length} 条已存在未更新`
-          : `保存成功，共 ${result.count} 条`
+      const skippedCount = result.noUpdatedData?.length || 0
+      const replacedCount = result.replacedCount || 0
+      const summary = [`新建 ${result.count || 0} 条`]
+      if (replacedCount > 0)
+        summary.push(`替换 ${replacedCount} 条`)
+      if (skippedCount > 0)
+        summary.push(`${skippedCount} 条已存在且非新建，未导入`)
+      const msg = `保存成功，${summary.join('，')}`
       toast.success(msg)
       // 保留错误数据供用户查看，清除已保存的正确数据
       const errorBills = bills.value.filter((b) => b._error)

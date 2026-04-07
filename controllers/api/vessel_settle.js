@@ -11,6 +11,18 @@ const Tenant = require("../../models/Tenant");
 const receiptStorage = require("../../utils/receipt-storage");
 const secrets = require("../../config/secrets");
 
+function applyApproximateTotalWeightFilter(matchStage, fWeight) {
+  if (fWeight === undefined || fWeight === null || fWeight === "") return;
+
+  const targetWeight = parseFloat(fWeight);
+  if (Number.isNaN(targetWeight)) return;
+
+  matchStage.total_weight = {
+    $gte: targetWeight - 0.005,
+    $lte: targetWeight + 0.005,
+  };
+}
+
 // 查询车船结算运单（优化版：使用聚合管道，避免 populate）
 exports.getInvoiceSettleVessel = async (req, res) => {
   try {
@@ -77,7 +89,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     if (fReceipt != null && fReceipt != 2)
       matchStage.receipt = parseInt(fReceipt);
     if (fAmount) matchStage.vessel_price = parseFloat(fAmount);
-    if (fWeight) matchStage.total_weight = parseFloat(fWeight);
+    applyApproximateTotalWeightFilter(matchStage, fWeight);
 
     // 自有车过滤
     if (selfOwned === "1" || selfOwned === 1) {
@@ -132,10 +144,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     let totalCount = 0;
     let summaryRecords = null;
 
-    const matchAndSort = [
-      { $match: matchStage },
-      { $sort: { ship_date: -1 } },
-    ];
+    const matchAndSort = [{ $match: matchStage }, { $sort: { ship_date: -1 } }];
 
     if (page > 0) {
       // 分页模式：3 个独立查询并行执行，避免 $facet 单文档超 16MB 限制
@@ -157,27 +166,29 @@ exports.getInvoiceSettleVessel = async (req, res) => {
         // 3. 轻量汇总数据：不做 $lookup，只取汇总需要的字段
         Invoice.aggregate([
           ...matchAndSort,
-          { $project: {
-            total_weight: 1,
-            vessel_price: 1,
-            charge_cash: 1,
-            charge_oil: 1,
-            vessel_settle_state: 1,
-            receipt: 1,
-            vehicle_vessel_name: 1,
-            ship_customer: 1,
-            ship_name: 1,
-            ship_from: 1,
-            ship_to: 1,
-            waybill_no: 1,
-            "bills.vehicles.veh_name": 1,
-            "bills.vehicles.send_weight": 1,
-            "bills.vehicles.send_num": 1,
-            "bills.vehicles.veh_price": 1,
-            "bills.vehicles.inner_waybill_no": 1,
-            "bills.vehicles.veh_ship_from": 1,
-            inner_settle: 1,
-          }},
+          {
+            $project: {
+              total_weight: 1,
+              vessel_price: 1,
+              charge_cash: 1,
+              charge_oil: 1,
+              vessel_settle_state: 1,
+              receipt: 1,
+              vehicle_vessel_name: 1,
+              ship_customer: 1,
+              ship_name: 1,
+              ship_from: 1,
+              ship_to: 1,
+              waybill_no: 1,
+              "bills.vehicles.veh_name": 1,
+              "bills.vehicles.send_weight": 1,
+              "bills.vehicles.send_num": 1,
+              "bills.vehicles.veh_price": 1,
+              "bills.vehicles.inner_waybill_no": 1,
+              "bills.vehicles.veh_ship_from": 1,
+              inner_settle: 1,
+            },
+          },
         ]).exec(),
       ]);
 
@@ -185,13 +196,20 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       totalCount = countResult[0]?.totalCount || 0;
       summaryRecords = summaryResult;
 
-      console.log("[getInvoiceSettleVessel] Page", page, "of", Math.ceil(totalCount / pageSize), "- showing", invs.length, "of", totalCount, "invoices");
+      console.log(
+        "[getInvoiceSettleVessel] Page",
+        page,
+        "of",
+        Math.ceil(totalCount / pageSize),
+        "- showing",
+        invs.length,
+        "of",
+        totalCount,
+        "invoices",
+      );
     } else {
       // 全量模式
-      invs = await Invoice.aggregate([
-        ...matchAndSort,
-        ...lookupStages,
-      ]).exec();
+      invs = await Invoice.aggregate([...matchAndSort, ...lookupStages]).exec();
       console.log("[getInvoiceSettleVessel] Found", invs.length, "invoices");
     }
 
@@ -209,7 +227,8 @@ exports.getInvoiceSettleVessel = async (req, res) => {
           if (bill.vehicles && bill.vehicles.length > 0) {
             bill.vehicles.forEach((veh) => {
               if (veh.veh_name) vehSet.add(veh.veh_name);
-              if (veh.inner_waybill_no) allWaybillNos.push(veh.inner_waybill_no);
+              if (veh.inner_waybill_no)
+                allWaybillNos.push(veh.inner_waybill_no);
             });
           }
         });
@@ -233,23 +252,22 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     }
 
     // 并行查询车辆信息和回执图片
-    const vehQuery = vehSet.size > 0
-      ? { name: { $in: Array.from(vehSet) } }
-      : null;
+    const vehQuery =
+      vehSet.size > 0 ? { name: { $in: Array.from(vehSet) } } : null;
     if (vehQuery && req.tenantId) vehQuery.tenantId = req.tenantId;
 
-    const imgQuery = allWaybillNos.length > 0
-      ? { waybill_no: { $in: allWaybillNos } }
-      : null;
+    const imgQuery =
+      allWaybillNos.length > 0 ? { waybill_no: { $in: allWaybillNos } } : null;
     if (imgQuery && req.tenantId) imgQuery.tenantId = req.tenantId;
 
     const [vehs, imageWaybills] = await Promise.all([
       vehQuery
-        ? Vehicle.find(vehQuery).select("name boss real_boss veh_category").lean().exec()
+        ? Vehicle.find(vehQuery)
+            .select("name boss real_boss veh_category")
+            .lean()
+            .exec()
         : [],
-      imgQuery
-        ? ReceiptImage.distinct("waybill_no", imgQuery)
-        : [],
+      imgQuery ? ReceiptImage.distinct("waybill_no", imgQuery) : [],
     ]);
 
     const vehPersonMap = {};
@@ -265,7 +283,13 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       }
     });
 
-    const responseData = { ok: true, invs, vehPersonMap, vehCategoryMap, imageWaybills };
+    const responseData = {
+      ok: true,
+      invs,
+      vehPersonMap,
+      vehCategoryMap,
+      imageWaybills,
+    };
     if (page > 0) {
       responseData.totalCount = totalCount;
       responseData.summaryRecords = summaryRecords;
@@ -277,6 +301,8 @@ exports.getInvoiceSettleVessel = async (req, res) => {
     res.status(500).json({ ok: false, message: "查询失败" });
   }
 };
+
+exports.applyApproximateTotalWeightFilter = applyApproximateTotalWeightFilter;
 
 // 更新价格
 exports.updateVesselPrice = async (req, res) => {
@@ -303,7 +329,8 @@ exports.updateVesselPrice = async (req, res) => {
         invoice.bills.forEach((bill) => {
           if (!bill.bill_id) return;
           const billIdStr = String(bill.bill_id);
-          if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+          if (!billSyncMap.has(billIdStr))
+            billSyncMap.set(billIdStr, new Map());
           billSyncMap.get(billIdStr).set(`main:${invoice.waybill_no}`, {
             invNo: invoice.waybill_no,
             vehVesPrice: pd.unitPrice,
@@ -317,8 +344,14 @@ exports.updateVesselPrice = async (req, res) => {
               veh.price_remark = pd.remark;
               // 记录需要同步到 Bill 的变更
               const billIdStr = String(bill.bill_id);
-              if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
-              billSyncMap.get(billIdStr).set(pd.wno, { price: pd.unitPrice, invNo: invoice.waybill_no });
+              if (!billSyncMap.has(billIdStr))
+                billSyncMap.set(billIdStr, new Map());
+              billSyncMap
+                .get(billIdStr)
+                .set(pd.wno, {
+                  price: pd.unitPrice,
+                  invNo: invoice.waybill_no,
+                });
             }
           });
         });
@@ -348,7 +381,7 @@ exports.updateVesselPrice = async (req, res) => {
         }
       }
       if (modified) {
-        dbBill.markModified('invoices');
+        dbBill.markModified("invoices");
         await dbBill.save();
       }
     }
@@ -401,7 +434,7 @@ exports.settleVessel = async (req, res) => {
             innerSettle.date = date;
           }
         });
-        invoice.markModified('inner_settle');
+        invoice.markModified("inner_settle");
         await invoice.save();
       }
     }
@@ -450,7 +483,7 @@ exports.settleVesselPay = async (req, res) => {
             }
           }
         });
-        invoice.markModified('inner_settle');
+        invoice.markModified("inner_settle");
         await invoice.save();
       }
     }
@@ -489,7 +522,7 @@ exports.updateVesselDelayInfo = async (req, res) => {
           innerSettle.charge_oil = unshipData.charge_oil;
         } else if (partInd === 2) innerSettle.receipt = unshipData.receipt;
         else if (partInd === 3) innerSettle.remark = unshipData.remark;
-        invoice.markModified('inner_settle');
+        invoice.markModified("inner_settle");
       } else {
         if (partInd === 0) Object.assign(invoice, unshipData);
         else if (partInd === 1) {
@@ -531,8 +564,11 @@ exports.settleVesselNotNeeded = async (req, res) => {
               veh.veh_price = newPrice;
               // 记录同步到 Bill
               const billIdStr = String(bill.bill_id);
-              if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
-              billSyncMap.get(billIdStr).set(wno, { price: newPrice, invNo: waybillNo });
+              if (!billSyncMap.has(billIdStr))
+                billSyncMap.set(billIdStr, new Map());
+              billSyncMap
+                .get(billIdStr)
+                .set(wno, { price: newPrice, invNo: waybillNo });
             }
           });
         });
@@ -553,7 +589,7 @@ exports.settleVesselNotNeeded = async (req, res) => {
           innerSettle.state = "未结算";
           innerSettle.date = null;
         }
-        invoice.markModified('inner_settle');
+        invoice.markModified("inner_settle");
       } else {
         const newPrice = notNeeded ? -1 : 0;
         if (notNeeded) {
@@ -569,7 +605,8 @@ exports.settleVesselNotNeeded = async (req, res) => {
         invoice.bills.forEach((bill) => {
           if (!bill.bill_id) return;
           const billIdStr = String(bill.bill_id);
-          if (!billSyncMap.has(billIdStr)) billSyncMap.set(billIdStr, new Map());
+          if (!billSyncMap.has(billIdStr))
+            billSyncMap.set(billIdStr, new Map());
           billSyncMap.get(billIdStr).set(`main:${invoice.waybill_no}`, {
             invNo: invoice.waybill_no,
             vehVesPrice: newPrice,
@@ -602,7 +639,7 @@ exports.settleVesselNotNeeded = async (req, res) => {
         }
       }
       if (modified) {
-        dbBill.markModified('invoices');
+        dbBill.markModified("invoices");
         await dbBill.save();
       }
     }
@@ -679,8 +716,8 @@ exports.uploadReceiptImg = [
 
       // 获取租户存储配置
       const tenant = await Tenant.findById(req.tenantId).lean();
-      const storageType = tenant?.settings?.receiptStorage || 'local';
-      const tenantId = String(req.tenantId || 'default');
+      const storageType = tenant?.settings?.receiptStorage || "local";
+      const tenantId = String(req.tenantId || "default");
 
       // 重命名文件以包含运单号，并保存到存储后端
       const savedImages = [];
@@ -705,10 +742,15 @@ exports.uploadReceiptImg = [
         // 保存到存储后端（local 保持原位，minio 上传后删除本地文件）
         const now = new Date();
         const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
         const relativePath = `${year}/${month}/${day}/${newFilename}`;
-        const finalPath = await receiptStorage.saveFile(storageType, tenantId, relativePath, newPath);
+        const finalPath = await receiptStorage.saveFile(
+          storageType,
+          tenantId,
+          relativePath,
+          newPath,
+        );
 
         // 确保 original_filename 正确处理 UTF-8 编码
         const originalFilename = Buffer.from(
@@ -748,7 +790,7 @@ exports.uploadReceiptImg = [
           invoice.inner_settle.push(innerSettle);
         }
         innerSettle.receipt = 1;
-        invoice.markModified('inner_settle');
+        invoice.markModified("inner_settle");
       } else {
         // 主运单
         invoice.receipt = 1;
@@ -831,9 +873,10 @@ exports.getReceiptImg = async (req, res) => {
       return res.status(404).json({ ok: false, message: "回执图片不存在" });
 
     // 兼容旧格式（相对路径）和新格式（绝对路径/minio://）
-    const filePath = receiptImage.startsWith('minio://') || path.isAbsolute(receiptImage)
-      ? receiptImage
-      : path.join(__dirname, "../../uploads/receipts", receiptImage);
+    const filePath =
+      receiptImage.startsWith("minio://") || path.isAbsolute(receiptImage)
+        ? receiptImage
+        : path.join(__dirname, "../../uploads/receipts", receiptImage);
 
     try {
       const imageData = await receiptStorage.getFile(filePath);
@@ -1218,7 +1261,9 @@ exports.toggleVesselReceipt = async (req, res) => {
       if (receipt === 0 && innerSettle) {
         const state = innerSettle.state;
         if (state === "已结算" || state === "已付款") {
-          return res.status(400).json({ ok: false, message: `该运单${state}，不能取消回执` });
+          return res
+            .status(400)
+            .json({ ok: false, message: `该运单${state}，不能取消回执` });
         }
       }
       if (!innerSettle) {
@@ -1231,13 +1276,15 @@ exports.toggleVesselReceipt = async (req, res) => {
       } else {
         innerSettle.receipt = receipt;
       }
-      invoice.markModified('inner_settle');
+      invoice.markModified("inner_settle");
     } else {
       // 主运单 - 取消回执时，检查是否已结算或已付款
       if (receipt === 0) {
         const state = invoice.vessel_settle_state;
         if (state === "已结算" || state === "已付款") {
-          return res.status(400).json({ ok: false, message: `该运单${state}，不能取消回执` });
+          return res
+            .status(400)
+            .json({ ok: false, message: `该运单${state}，不能取消回执` });
         }
       }
       invoice.receipt = receipt;

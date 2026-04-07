@@ -28,7 +28,7 @@ import {
   ChevronsUpDown,
 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useThrottleFn } from '@vueuse/core'
+import { useDebounceFn, useThrottleFn } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 
 import { BasicPage } from '@/components/global-layout'
@@ -488,6 +488,7 @@ const receiptDownloadPercent = computed(() => {
   if (receiptDownloadState.value.total === 0) return 0
   return Math.min(100, Math.round((receiptDownloadState.value.completed / receiptDownloadState.value.total) * 100))
 })
+const searchLoadingText = '正在查询数据，请稍候...'
 
 function sanitizeReceiptFilePart(value: string) {
   const cleaned = value.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -1039,6 +1040,9 @@ onMounted(() => {
 
 // 日期变化 → throttle 后重新从服务端加载
 const throttledSearch = useThrottleFn(() => {
+  if (usePagination.value) {
+    currentPage.value = 1
+  }
   handleSearch(true)
 }, 1000)
 
@@ -1049,15 +1053,18 @@ watch(
   },
 )
 
-// 单价/吨位变化 → throttle 后重新从服务端加载
-const throttledAmountWeightSearch = useThrottleFn(() => {
+// 单价/吨位变化 → debounce 后按最终输入值重新从服务端加载
+const debouncedAmountWeightSearch = useDebounceFn(() => {
+  if (usePagination.value) {
+    currentPage.value = 1
+  }
   handleSearch(true)
 }, 1000)
 
 watch(
   () => [filterForm.value.amount, filterForm.value.weight],
   () => {
-    throttledAmountWeightSearch()
+    debouncedAmountWeightSearch()
   },
 )
 
@@ -1446,6 +1453,10 @@ function buildTableData() {
     mainRow.vehicleFiltered = vehicleFiltered
     // 承运单位筛选时自动展开船运子行，否则匹配的子行会被折叠隐藏
     if (isVessel && carrierFilterSelected.value.length > 0) {
+      mainRow.expanded = true
+    }
+    // 上传回执后定位的船运行需要保持展开状态
+    if (isVessel && forceExpandVesselSet.value.has(inv.waybill_no)) {
       mainRow.expanded = true
     }
     // 车辆筛选、或主行状态不匹配时不显示船运主行
@@ -2522,14 +2533,31 @@ async function handleToggleReceipt(row: any) {
   }
 }
 
+// 待恢复焦点的上传记录（上传成功刷新后用于定位 + 展开 + 滚动）
+const pendingFocusUpload = ref<{ waybillNo: string, innerWaybillNo?: string } | null>(null)
+// 重新构建表格时需要强制展开的船运 waybill_no 集合
+const forceExpandVesselSet = ref<Set<string>>(new Set())
+
+// 记录上传/查看的目标行（用于刷新后定位 + 展开父船运）
+function markFocusRow(row: any) {
+  pendingFocusUpload.value = row.isSubItem
+    ? { waybillNo: row.waybill_no, innerWaybillNo: row.inner_waybill_no }
+    : { waybillNo: row.waybill_no }
+  if (row.isSubItem && row.waybill_no) {
+    forceExpandVesselSet.value.add(row.waybill_no)
+  }
+}
+
 // 上传回执
 function handleUploadReceipt(row: any) {
+  markFocusRow(row)
   const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
   uploadReceiptDialog.value?.open(wno)
 }
 
-// 查看回执
+// 查看回执（查看对话框内也支持继续追加上传，因此同样要标记）
 function handleViewReceipt(row: any) {
+  markFocusRow(row)
   const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
   receiptImageDialog.value?.open(wno)
 }
@@ -2944,8 +2972,60 @@ function handlePrintConfirm(forPay: boolean) {
   }
 }
 
-function handleUploadReceiptConfirm() {
-  handleSearch(true)
+async function handleUploadReceiptConfirm() {
+  await handleSearch(true)
+  await restoreFocusAfterUpload()
+}
+
+// 上传/追加回执成功并刷新后：展开父船运行 + 滚动到刚上传的记录 + 高亮提示
+async function restoreFocusAfterUpload() {
+  const target = pendingFocusUpload.value
+  if (!target) return
+  pendingFocusUpload.value = null
+  // 清理强制展开集合（下次用户手动操作不再保留）
+  forceExpandVesselSet.value = new Set()
+
+  // 用纯 waybill_no 匹配父船运（不依赖任何对象引用，避免 proxy 引用陷阱）
+  // 这里直接构造一个新数组，强制 pagedData computed 重新求值，
+  // 同时保证父船运 expanded 与所有同船子行 parentExpanded 必为 true。
+  const targetWaybill = target.waybillNo
+  const isSub = !!target.innerWaybillNo
+  const next = tableData.value.map((row: any) => {
+    if (!isSub) return row
+    if (!row.isSubItem && row.isVessel && row.waybill_no === targetWaybill) {
+      return { ...row, expanded: true }
+    }
+    if (row.isSubItem && row.waybill_no === targetWaybill) {
+      return { ...row, parentExpanded: true }
+    }
+    return row
+  })
+  // 修复 parentRow 引用：让新生成的子行 parentRow 指向新的父行对象
+  if (isSub) {
+    const newParent = next.find(
+      (r: any) => !r.isSubItem && r.isVessel && r.waybill_no === targetWaybill,
+    )
+    if (newParent) {
+      next.forEach((r: any) => {
+        if (r.isSubItem && r.waybill_no === targetWaybill) {
+          r.parentRow = newParent
+        }
+      })
+    }
+  }
+  tableData.value = next
+
+  await nextTick()
+
+  const key = isSub
+    ? `sub-${target.innerWaybillNo}`
+    : `main-${target.waybillNo}`
+  const el = document.querySelector(`[data-row-key="${key}"]`) as HTMLElement | null
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('vessel-row-flash')
+    setTimeout(() => el.classList.remove('vessel-row-flash'), 2000)
+  }
 }
 </script>
 
@@ -3274,9 +3354,18 @@ function handleUploadReceiptConfirm() {
       <!-- 筛选区域 -->
       <div
         v-show="showFilter"
-        class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4"
+        class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4 relative overflow-hidden"
         :class="{ 'pointer-events-none opacity-50': loading }"
       >
+        <div
+          v-if="loading"
+          class="absolute inset-0 flex items-center justify-center bg-muted/80 backdrop-blur-sm z-10"
+        >
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="w-4 h-4 animate-spin" />
+            <span>{{ searchLoadingText }}</span>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-2" :class="hideCarrier ? 'md:grid-cols-3' : 'md:grid-cols-4'">
           <SearchableCombobox
             v-model="filterForm.vehicle"
@@ -3355,7 +3444,10 @@ function handleUploadReceiptConfirm() {
         class="hidden md:flex items-center gap-4 px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4 relative overflow-hidden"
       >
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-muted/80 backdrop-blur-sm z-10">
-          <Loader2 class="w-4 h-4 animate-spin text-muted-foreground" />
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="w-4 h-4 animate-spin" />
+            <span>{{ searchLoadingText }}</span>
+          </div>
         </div>
         <span class="text-muted-foreground text-xs">
           记录数:
@@ -3499,7 +3591,10 @@ function handleUploadReceiptConfirm() {
       <!-- 统计信息行：移动端 -->
       <div class="md:hidden px-3 py-2 bg-muted/50 rounded-lg border text-sm mb-4 space-y-2 relative overflow-hidden">
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-muted/80 backdrop-blur-sm z-10">
-          <Loader2 class="w-4 h-4 animate-spin text-muted-foreground" />
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="w-4 h-4 animate-spin" />
+            <span>{{ searchLoadingText }}</span>
+          </div>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-1">
           <span class="text-muted-foreground">
@@ -3545,7 +3640,7 @@ function handleUploadReceiptConfirm() {
         >
           <div class="flex items-center gap-2 text-muted-foreground">
             <Loader2 class="w-5 h-5 animate-spin" />
-            <span>加载中...</span>
+            <span>{{ searchLoadingText }}</span>
           </div>
         </div>
         <table class="w-full caption-bottom text-sm min-w-[1024px]">
@@ -3742,6 +3837,7 @@ function handleUploadReceiptConfirm() {
               <!-- 主行 -->
               <TableRow
                 v-if="!row.isSubItem"
+                :data-row-key="`main-${row.waybill_no}`"
                 class="border-b transition-colors"
                 :class="{
                   'bg-orange-100 hover:bg-orange-200 cursor-pointer':
@@ -3945,6 +4041,7 @@ function handleUploadReceiptConfirm() {
               <!-- 子行（车辆） -->
               <TableRow
                 v-if="row.isSubItem && row.parentExpanded"
+                :data-row-key="`sub-${row.inner_waybill_no}`"
                 class="border-b transition-colors"
                 :class="{
                   'bg-green-100 hover:bg-green-200 cursor-pointer': !row.selected && !isInBasket(row),
@@ -4186,7 +4283,7 @@ function handleUploadReceiptConfirm() {
         >
           <div class="flex items-center gap-2 text-muted-foreground">
             <Loader2 class="w-5 h-5 animate-spin" />
-            <span>加载中...</span>
+            <span>{{ searchLoadingText }}</span>
           </div>
         </div>
 
@@ -4202,6 +4299,7 @@ function handleUploadReceiptConfirm() {
           <!-- 主行卡片 -->
           <div
             v-if="!row.isSubItem"
+            :data-row-key="`main-${row.waybill_no}`"
             class="relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
               'bg-orange-50/60 border-l-4 border-l-orange-400':
@@ -4315,6 +4413,7 @@ function handleUploadReceiptConfirm() {
           <!-- 子行卡片（车辆） -->
           <div
             v-if="row.isSubItem && row.parentExpanded"
+            :data-row-key="`sub-${row.inner_waybill_no}`"
             class="ml-4 relative flex items-center gap-3 p-3 rounded-lg border transition-colors"
             :class="{
               'bg-green-50/60 border-l-4 border-l-green-400': !row.selected && !isInBasket(row),
@@ -4826,6 +4925,15 @@ function handleUploadReceiptConfirm() {
 </template>
 
 <style scoped>
+/* 上传回执成功后定位高亮 */
+.vessel-row-flash {
+  animation: vessel-row-flash 1.6s ease-out;
+}
+@keyframes vessel-row-flash {
+  0%, 100% { background-color: transparent; }
+  20%, 60% { background-color: rgba(250, 204, 21, 0.55); }
+}
+
 /* 价格模糊效果（无权限查看价格时） */
 .blurred-price {
   position: relative;

@@ -166,6 +166,18 @@ export async function exportBills(data: {
   queryTree?: any
   sort?: { field: string, order: 'asc' | 'desc' }[]
   columns?: { field: string, label: string }[]
+  filters?: {
+    billNo?: string
+    orderNo?: string
+    billingName?: string
+    brandNo?: string
+    contractNo?: string
+    status?: string
+    leftNumOnly?: boolean
+    startTime?: string
+    endTime?: string
+    creater?: string
+  }
 }) {
   const response = await axiosInstance.post('/bills/export', data, {
     responseType: 'blob',

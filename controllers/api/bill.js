@@ -26,50 +26,205 @@ function isEmpty(variable) {
   return typeof variable === "undefined" || !variable || 0 === variable.length;
 }
 
+function isFormulaBillSizeType(sizeType) {
+  const normalized = (sizeType || "").toString().trim();
+  return normalized === "定尺" || normalized === "双定尺";
+}
+
+function buildBillListBaseQuery(input = {}) {
+  const baseQuery = {};
+
+  if (input.billNo) {
+    baseQuery.bill_no = { $regex: input.billNo, $options: "i" };
+  }
+  if (input.orderNo) {
+    baseQuery.order_no = input.orderNo;
+  }
+  if (input.billingName) {
+    baseQuery.billing_name = input.billingName;
+  }
+  if (input.brandNo) {
+    baseQuery.brand_no = { $regex: input.brandNo, $options: "i" };
+  }
+  if (input.contractNo) {
+    baseQuery.contract_no = { $regex: input.contractNo, $options: "i" };
+  }
+  if (input.status) {
+    baseQuery.status = input.status;
+  }
+  if (input.leftNumOnly === true || input.leftNumOnly === "true") {
+    baseQuery.left_num = { $gt: 0 };
+  }
+  if (input.creater) {
+    baseQuery.creater = input.creater;
+  }
+
+  if (input.startTime || input.endTime) {
+    baseQuery.create_date = {};
+    if (input.startTime) {
+      baseQuery.create_date.$gte = utils.parseLocalDate(input.startTime);
+    }
+    if (input.endTime) {
+      const end = utils.parseLocalDate(input.endTime);
+      end.setDate(end.getDate() + 1);
+      baseQuery.create_date.$lt = end;
+    }
+  }
+
+  return baseQuery;
+}
+
+function getBillImportIdentity(row_data) {
+  const order_no = row_data.orderNo || row_data.order_no;
+  const order_item_no = utils.getIntValue(
+    row_data.orderItemNo || row_data.order_item_no,
+  );
+  const bill_no = row_data.billNo || row_data.bill_no;
+  const order = `${order_no}-${utils.leftPad(order_item_no, 3)}`;
+
+  return {
+    order,
+    order_no,
+    order_item_no,
+    bill_no,
+  };
+}
+
+function resolveBillImportAction(existingBill) {
+  if (!existingBill) {
+    return { action: "create" };
+  }
+
+  if (existingBill.status === "新建") {
+    return { action: "replace" };
+  }
+
+  return { action: "skip" };
+}
+
+function applyBillImportData({ bill, row_data, req, allBrandNo }) {
+  const { order, order_no, order_item_no, bill_no } =
+    getBillImportIdentity(row_data);
+  const billing_name = row_data.billingName || row_data.billing_name;
+
+  bill.order = order;
+  bill.bill_no = bill_no;
+  bill.order_no = order_no;
+  bill.order_item_no = order_item_no;
+  bill.billing_name = billing_name;
+  bill.sales_dep = row_data.saleDep || row_data.sale_dep;
+  bill.block_num = utils.getIntValue(row_data.blockNum || row_data.block_num);
+  bill.total_weight = utils.getFloatValue(
+    row_data.totalWeight || row_data.total_weight,
+    3,
+  );
+  bill.warehouse = row_data.warehouse;
+  bill.ship_warehouse = row_data.shipWarehouse || row_data.ship_warehouse;
+  bill.contract_no = row_data.contractNo || row_data.contract_no;
+  bill.shipping_address =
+    row_data.shippingAddress || row_data.shipping_address;
+  bill.product_type = row_data.productType || row_data.product_type;
+  bill.carrier = row_data.carrier;
+  bill.invoices = [];
+  bill.customer_price = 0;
+  bill.collection_price = 0;
+  bill.status = "新建";
+
+  // Handle Brand
+  let brandNo = row_data.brandNo || row_data.brand_no;
+  if (brandNo) {
+    let brd_list = brandNo.split(/\s*;\s*/);
+    if (brd_list.length) {
+      bill.brand_no = brd_list[brd_list.length - 1];
+      pushArr(allBrandNo, bill.brand_no);
+    }
+  } else {
+    bill.brand_no = undefined;
+  }
+
+  // Handle Dimensions
+  let dimensions = row_data.dimensions;
+  if (!isEmpty(dimensions)) {
+    bill.len = bill.width = bill.thickness = 0;
+    let temp = dimensions.replace(/≠/, "").split("*");
+    if (temp.length) {
+      bill.thickness = utils.getFloatValue(temp[0], 0);
+      if (temp.length === 2) {
+        bill.width = utils.getIntValue(temp[1]);
+        bill.len = 0;
+      } else if (temp.length === 3) {
+        bill.width = utils.getIntValue(temp[1]);
+        bill.len = utils.getIntValue(temp[2]);
+      }
+    }
+  } else {
+    bill.len = utils.getIntValue(row_data.len || row_data.length);
+    bill.width = utils.getIntValue(row_data.width);
+    bill.thickness = utils.getFloatValue(row_data.thickness, 0);
+  }
+
+  // Size Type: 保留原始值（定尺、双定尺、单定、非定尺等）
+  let sizeType = row_data.sizeType || row_data.size_type;
+  if (isEmpty(sizeType)) {
+    bill.size_type = "定尺";
+  } else if (sizeType === "单定尺") {
+    bill.size_type = "单定";
+  } else {
+    bill.size_type = sizeType;
+  }
+
+  // Calculate Weight
+  if (bill.total_weight > 0) {
+    if (isFormulaBillSizeType(bill.size_type)) {
+      if (bill.block_num > 0) {
+        bill.weight = bill.total_weight / bill.block_num;
+      } else {
+        bill.block_num = 0;
+        let weight = 0;
+        if (row_data.weight) {
+          weight = utils.getFloatValue(row_data.weight, 3);
+        } else if (bill.len > 0 && bill.width > 0 && bill.thickness > 0) {
+          weight = utils.toFixedNumber(
+            bill.len * bill.width * bill.thickness * 7.85 * Math.pow(10, -9),
+            3,
+          );
+        }
+
+        if (weight > 0) {
+          let n = bill.total_weight / weight;
+          if (isInteger(n)) {
+            bill.block_num = n;
+          } else {
+            let round = Math.round(n);
+            if (Math.abs(round - n) < 0.00001) {
+              bill.block_num = round;
+            }
+          }
+        }
+        bill.weight = bill.block_num > 0 ? weight : 0;
+      }
+    } else {
+      bill.weight = 0;
+      bill.block_num = 0;
+    }
+    bill.left_num = bill.block_num > 0 ? bill.block_num : bill.total_weight;
+  } else {
+    bill.weight = 0;
+    bill.left_num = 0;
+  }
+
+  if (!bill.creater) {
+    bill.creater = req.user ? req.user.userid : "admin";
+  }
+
+  return bill;
+}
+
 exports.getBills = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const baseQuery = {};
-
-    // Filters
-    if (req.query.billNo) {
-      baseQuery.bill_no = { $regex: req.query.billNo, $options: "i" };
-    }
-    if (req.query.orderNo) {
-      baseQuery.order_no = req.query.orderNo; // Use exact match for performance
-    }
-    if (req.query.billingName) {
-      baseQuery.billing_name = req.query.billingName;
-    }
-    if (req.query.brandNo) {
-      baseQuery.brand_no = { $regex: req.query.brandNo, $options: "i" };
-    }
-    if (req.query.contractNo) {
-      baseQuery.contract_no = { $regex: req.query.contractNo, $options: "i" };
-    }
-    if (req.query.status) {
-      baseQuery.status = req.query.status;
-    }
-    if (req.query.leftNumOnly === "true") {
-      baseQuery.left_num = { $gt: 0 };
-    }
-    if (req.query.creater) {
-      baseQuery.creater = req.query.creater;
-    }
-
-    if (req.query.startTime || req.query.endTime) {
-      baseQuery.create_date = {};
-      if (req.query.startTime) {
-        baseQuery.create_date.$gte = utils.parseLocalDate(req.query.startTime);
-      }
-      if (req.query.endTime) {
-        // Add 1 day to include the end date fully
-        const end = utils.parseLocalDate(req.query.endTime);
-        end.setDate(end.getDate() + 1);
-        baseQuery.create_date.$lt = end;
-      }
-    }
+    const baseQuery = buildBillListBaseQuery(req.query);
 
     const query = buildTenantQuery(req, baseQuery);
     const count = await Bill.countDocuments(query);
@@ -388,13 +543,15 @@ exports.createBills = async (req, res) => {
   let allBrandNo = [];
   let allocatedData = [];
   let createdCount = 0;
+  let replacedCount = 0;
 
   try {
     for (let row_data of req.body) {
-      let order_no = row_data.orderNo || row_data.order_no;
-      let order_item_no = row_data.orderItemNo || row_data.order_item_no;
-      let bno = row_data.billNo || row_data.bill_no;
-      let order_combined = order_no + "-" + utils.leftPad(order_item_no, 3);
+      const identity = getBillImportIdentity(row_data);
+      let order_no = identity.order_no;
+      let order_item_no = identity.order_item_no;
+      let bno = identity.bill_no;
+      let order_combined = identity.order;
 
       // Validate billing_name is required
       let billing_name = row_data.billingName || row_data.billing_name;
@@ -406,123 +563,32 @@ exports.createBills = async (req, res) => {
       }
 
       let bill = await Bill.findOne(
-        buildTenantQuery(req, { order: order_combined, bill_no: bno }),
+        buildTenantQuery(req, {
+          order: order_combined,
+          order_no: order_no,
+          order_item_no: order_item_no,
+          bill_no: bno,
+        }),
       ).exec();
+      const importAction = resolveBillImportAction(bill);
+
+      if (importAction.action === "skip") {
+        allocatedData.push(bill);
+        continue;
+      }
+
       if (!bill) {
-        bill = new Bill(
-          injectTenantId(req, {
-            order: order_combined,
-            bill_no: bno,
-            order_no: order_no,
-            order_item_no: order_item_no,
-            billing_name: billing_name,
-            sale_dep: row_data.saleDep || row_data.sale_dep,
-            block_num: utils.getIntValue(
-              row_data.blockNum || row_data.block_num,
-            ),
-            total_weight: utils.getFloatValue(
-              row_data.totalWeight || row_data.total_weight,
-              3,
-            ),
+        bill = new Bill(injectTenantId(req, {}));
+      }
 
-            warehouse: row_data.warehouse,
-            ship_warehouse: row_data.shipWarehouse || row_data.ship_warehouse,
-            contract_no: row_data.contractNo || row_data.contract_no,
-            shipping_address:
-              row_data.shippingAddress || row_data.shipping_address,
-            product_type: row_data.productType || row_data.product_type,
-            carrier: row_data.carrier,
-            creater: req.user ? req.user.userid : "admin",
-            invoices: [],
-            customer_price: 0,
-            collection_price: 0,
-          }),
-        );
+      applyBillImportData({ bill, row_data, req, allBrandNo });
 
-        // Handle Brand
-        let brandNo = row_data.brandNo || row_data.brand_no;
-        if (brandNo) {
-          let brd_list = brandNo.split(/\s*;\s*/);
-          if (brd_list.length) {
-            bill.brand_no = brd_list[brd_list.length - 1];
-            pushArr(allBrandNo, bill.brand_no);
-          }
-        }
-
-        // Handle Dimensions
-        let dimensions = row_data.dimensions;
-        if (!isEmpty(dimensions)) {
-          bill.len = bill.width = bill.thickness = 0;
-          let temp = dimensions.replace(/≠/, "").split("*");
-          if (temp.length) {
-            bill.thickness = utils.getFloatValue(temp[0], 0);
-            if (temp.length === 2) {
-              bill.width = utils.getIntValue(temp[1]);
-            } else if (temp.length === 3) {
-              bill.width = utils.getIntValue(temp[1]);
-              bill.len = utils.getIntValue(temp[2]);
-            }
-          }
-        } else {
-          bill.len = utils.getIntValue(row_data.len || row_data.length);
-          bill.width = utils.getIntValue(row_data.width);
-          bill.thickness = utils.getFloatValue(row_data.thickness, 0);
-        }
-
-        // Size Type: 保留原始值（定尺、双定尺、单定、非定尺等）
-        let sizeType = row_data.sizeType || row_data.size_type;
-        if (isEmpty(sizeType)) {
-          bill.size_type = "定尺";
-        } else if (sizeType === "单定尺") {
-          bill.size_type = "单定";
-        } else {
-          bill.size_type = sizeType;
-        }
-
-        // Calculate Weight
-        if (bill.total_weight > 0) {
-          if (bill.block_num > 0) {
-            bill.weight = bill.total_weight / bill.block_num;
-          } else {
-            bill.block_num = 0;
-            let weight = 0;
-            if (row_data.weight) {
-              weight = utils.getFloatValue(row_data.weight, 3);
-            } else {
-              if (bill.len > 0 && bill.width > 0 && bill.thickness > 0) {
-                weight = utils.toFixedNumber(
-                  bill.len *
-                    bill.width *
-                    bill.thickness *
-                    7.85 *
-                    Math.pow(10, -9),
-                  3,
-                );
-              }
-            }
-
-            if (weight > 0) {
-              let n = bill.total_weight / weight;
-              if (isInteger(n)) {
-                bill.block_num = n;
-              } else {
-                let round = Math.round(n);
-                if (Math.abs(round - n) < 0.00001) {
-                  bill.block_num = round;
-                }
-              }
-            }
-            bill.weight = bill.block_num > 0 ? weight : 0;
-          }
-          bill.left_num =
-            bill.block_num > 0 ? bill.block_num : bill.total_weight;
-
-          await bill.save();
+      if (bill.total_weight > 0) {
+        await bill.save();
+        if (importAction.action === "create") {
           createdCount++;
-        }
-      } else {
-        if (bill.status != "新建") {
-          allocatedData.push(bill);
+        } else if (importAction.action === "replace") {
+          replacedCount++;
         }
       }
 
@@ -588,7 +654,13 @@ exports.createBills = async (req, res) => {
       }
     }
 
-    res.json({ ok: true, count: createdCount, allocatedData });
+    res.json({
+      ok: true,
+      count: createdCount,
+      replacedCount,
+      allocatedData,
+      noUpdatedData: allocatedData,
+    });
   } catch (err) {
     console.error("createBills error:", err);
     res.status(500).json({ ok: false, error: err.message });
@@ -762,10 +834,12 @@ exports.searchBills = async (req, res) => {
 
 exports.exportBills = async (req, res) => {
   try {
-    const { queryTree, sort, columns } = req.body;
+    const { queryTree, sort, columns, filters } = req.body;
     let baseQuery = {};
     if (queryTree) {
       baseQuery = buildQuery(queryTree);
+    } else if (filters) {
+      baseQuery = buildBillListBaseQuery(filters);
     }
     const query = buildTenantQuery(req, baseQuery);
 
@@ -809,4 +883,12 @@ exports.exportBills = async (req, res) => {
     console.error("exportBills error:", e);
     res.status(500).end();
   }
+};
+
+exports.__testables = {
+  applyBillImportData,
+  buildBillListBaseQuery,
+  getBillImportIdentity,
+  isFormulaBillSizeType,
+  resolveBillImportAction,
 };

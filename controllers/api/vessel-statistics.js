@@ -7,6 +7,7 @@ const DrayageForklift = require("../../models/DrayageForklift");
 const Tenant = require("../../models/Tenant");
 const utils = require("../utils");
 const { buildTenantQuery, isPlatformUser } = require("../../utils/tenant");
+const { normalizeStringArrayParam } = require("../../utils/query-params");
 
 function getBillRecordWeight(bill, invRecord) {
   return bill.block_num > 0
@@ -287,7 +288,8 @@ function buildDetailUnionPipeline(invMatch, vehNames, drayageRate = 0) {
 exports.getVesselRevenueData = async (req, res) => {
   try {
     const { fDate1, fDate2, fMonths } = req.query;
-    if (!fMonths || !Array.isArray(fMonths)) {
+    const months = normalizeStringArrayParam(fMonths);
+    if (months.length === 0) {
       return res.json({ ok: false, message: "缺少月份列表" });
     }
 
@@ -295,7 +297,6 @@ exports.getVesselRevenueData = async (req, res) => {
     const drayageRate = tenant?.settings?.drayageRate || 0;
     const ownVehicleDeductPayable = tenant?.settings?.ownVehicleDeductPayable !== false; // 默认 true
 
-    const months = fMonths;
     const resultData = months.map((m) => ({
       month: m,
       vhTotal: 0,

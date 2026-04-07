@@ -4,6 +4,7 @@ const Settle = require('../../models/Settle');
 const Vehicle = require('../../models/Vehicle');
 const utils = require('../../controllers/utils');
 const { buildTenantQuery, isPlatformUser } = require('../../utils/tenant');
+const { normalizeStringArrayParam } = require('../../utils/query-params');
 const { isAdmin: isAdminPrivilege } = require('../../utils/permissions');
 
 // 财务月日期解析：YYYY-MM → 上月26日 00:00:00 ~ 本月25日 23:59:59
@@ -295,7 +296,7 @@ exports.getCustomerDetail = async function (req, res) {
  */
 exports.getCustomerChartData = async function (req, res) {
   var query = req.query;
-  var months = query.fMonths || [];
+  var months = normalizeStringArrayParam(query.fMonths);
 
   try {
     // Ensure fName is handled correctly if it's "undefined" or empty string
