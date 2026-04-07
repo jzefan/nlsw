@@ -28,5 +28,8 @@ uploads/
 keys/
 *.pem
 
+# 部署脚本含服务器密码，不要上传
+deploy/deploy.sh
+
 conductor/
 
