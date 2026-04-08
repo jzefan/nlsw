@@ -71,6 +71,7 @@ const editForm = ref({
   sizeType: '',
   blockNum: 0,
   totalWeight: 0,
+  weight: 0,
 })
 
 // 批量编辑对话框
@@ -322,6 +323,7 @@ function openEditDialog(bill: Bill) {
     sizeType: bill.size_type || '定尺',
     blockNum: bill.block_num || 0,
     totalWeight: bill.total_weight,
+    weight: bill.weight || 0,
   }
   showEditDialog.value = true
 }
@@ -332,18 +334,30 @@ async function saveEdit() {
     return
 
   try {
-    const result = await updateBill({
+    const payload: Record<string, any> = {
       _id: editingBill.value._id!,
-      billNo: editForm.value.billNo,
-      billingName: editForm.value.billingName,
-      brandNo: editForm.value.brandNo,
-      shipWarehouse: editForm.value.shipWarehouse,
-      contractNo: editForm.value.contractNo,
-      salesDep: editForm.value.salesDep,
-      sizeType: editForm.value.sizeType,
-      blockNum: editForm.value.blockNum,
-      totalWeight: editForm.value.totalWeight,
-    })
+      bill_no: editForm.value.billNo,
+      billing_name: editForm.value.billingName,
+      brand_no: editForm.value.brandNo,
+      ship_warehouse: editForm.value.shipWarehouse,
+      contract_no: editForm.value.contractNo,
+      sales_dep: editForm.value.salesDep,
+      size_type: editForm.value.sizeType,
+      block_num: editForm.value.blockNum,
+      total_weight: editForm.value.totalWeight,
+    }
+    // 双定尺：允许独立修改单重/块数/总重量，不做联动
+    if (editForm.value.sizeType === '双定尺') {
+      if (editForm.value.weight > editForm.value.totalWeight) {
+        toast.error('单重不能大于总重量')
+        return
+      }
+      payload.weight = editForm.value.weight
+      const shippedNum = (editingBill.value.invoices || [])
+        .reduce((sum: number, inv: any) => sum + (inv.num || 0), 0)
+      payload.left_num = Math.max(editForm.value.blockNum - shippedNum, 0)
+    }
+    const result = await updateBillRaw(payload)
     if (result.ok) {
       toast.success('更新成功')
       showEditDialog.value = false
@@ -1090,7 +1104,7 @@ onMounted(() => {
             <span class="ml-1 text-[10px]">(计算值)</span>
           </span>
           <span v-if="editingBill.size_type">尺寸: <strong class="text-foreground">{{ editingBill.size_type }}</strong></span>
-          <UiButton v-if="needsWeightFix" variant="outline" size="sm" class="h-6 px-2 text-xs text-orange-600 border-orange-300" @click="fixWeightAndBlockNum">
+<UiButton v-if="needsWeightFix" variant="outline" size="sm" class="h-6 px-2 text-xs text-orange-600 border-orange-300" @click="fixWeightAndBlockNum">
             修正单重和块数
           </UiButton>
         </div>
@@ -1119,14 +1133,30 @@ onMounted(() => {
             <label class="text-sm font-medium">销售部门</label>
             <SearchableCombobox v-model="editForm.salesDep" :search-fn="searchSaleDeps" placeholder="选择部门" />
           </div>
-          <div>
-            <label class="text-sm font-medium">块数</label>
-            <UiInput v-model.number="editForm.blockNum" type="number" min="0" :disabled="editingBill?.status !== '新建'" />
-          </div>
-          <div>
-            <label class="text-sm font-medium">总重量</label>
-            <UiInput v-model.number="editForm.totalWeight" type="number" min="0" step="0.01" :disabled="editingBill?.status !== '新建'" />
-          </div>
+          <template v-if="editForm.sizeType === '双定尺'">
+            <div>
+              <label class="text-sm font-medium">单重</label>
+              <UiInput v-model.number="editForm.weight" type="number" min="0" step="0.0001" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">块数</label>
+              <UiInput v-model.number="editForm.blockNum" type="number" min="0" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">总重量</label>
+              <UiInput v-model.number="editForm.totalWeight" type="number" min="0" step="0.01" />
+            </div>
+          </template>
+          <template v-else>
+            <div>
+              <label class="text-sm font-medium">块数</label>
+              <UiInput v-model.number="editForm.blockNum" type="number" min="0" :disabled="editingBill?.status !== '新建'" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">总重量</label>
+              <UiInput v-model.number="editForm.totalWeight" type="number" min="0" step="0.01" :disabled="editingBill?.status !== '新建'" />
+            </div>
+          </template>
         </div>
         <UiDialogFooter>
           <UiButton variant="outline" @click="showEditDialog = false">

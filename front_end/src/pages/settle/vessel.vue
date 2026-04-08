@@ -18,6 +18,7 @@ import {
   List,
   Loader2,
   Printer,
+  RefreshCw,
   ShoppingCart,
   Filter,
   Settings2,
@@ -3347,6 +3348,10 @@ async function restoreFocusAfterUpload() {
           <UiButton variant="outline" size="sm" @click="showFilter = !showFilter">
             <Filter class="w-4 h-4 mr-1" />
             筛选
+          </UiButton>
+          <UiButton variant="outline" size="sm" :disabled="loading" @click="handleSearch(false)">
+            <RefreshCw class="w-4 h-4 mr-1" :class="{ 'animate-spin': loading }" />
+            刷新
           </UiButton>
         </div>
       </div>
