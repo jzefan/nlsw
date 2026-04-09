@@ -334,7 +334,7 @@ async function saveEdit() {
     return
 
   try {
-    const payload: Record<string, any> = {
+    const payload: Record<string, any> & { _id: string } = {
       _id: editingBill.value._id!,
       bill_no: editForm.value.billNo,
       billing_name: editForm.value.billingName,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // @ts-nocheck
-import { Download, Printer, Search } from 'lucide-vue-next'
+import { Download, Pencil, Printer, Search } from 'lucide-vue-next'
 import { computed, ref, watch, watchEffect } from 'vue'
 import { toast } from 'vue-sonner'
 import ExcelJS from 'exceljs'
@@ -10,6 +10,7 @@ import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -40,6 +41,7 @@ import {
   getInvoiceDetail,
   getInvoiceList,
   getInvoices,
+  updateInvoiceReportTitle,
   type Invoice,
 } from '@/services/api/invoice.api'
 import { getCompanies, getVehicles } from '@/services/api/data-dict.api'
@@ -72,10 +74,14 @@ const isOperatorOnly = computed(() =>
 
 // State
 const loading = ref(false)
+const savingReportTitle = ref(false)
+const showReportTitleDialog = ref(false)
 const searchKeyword = ref('')
 const selectedWaybillNo = ref('')
 const myWaybills = ref(false)
 const invoiceDetail = ref<any>(null)
+const reportTitleDraft = ref('')
+const reportTitleOptions = ref<string[]>([])
 
 // Advanced Search State
 const showAdvancedSearch = ref(false)
@@ -88,6 +94,7 @@ const advForm = ref({
   state: '',
   startDate: '',
   endDate: '',
+  totalWeight: '' as number | string,
 })
 
 // 业务权限用户强制只看自己的运单
@@ -214,6 +221,7 @@ async function handleAdvancedSearch() {
       state: advForm.value.state || undefined,
       startDate: advForm.value.startDate || undefined,
       endDate: advForm.value.endDate || undefined,
+      totalWeight: advForm.value.totalWeight !== '' ? advForm.value.totalWeight : undefined,
       page: 1,
       limit: 50, // Limit to 50 results for preview
     })
@@ -271,16 +279,22 @@ async function loadInvoice() {
     const result = await getInvoiceDetail(selectedWaybillNo.value)
     if (result.ok && result.data) {
       invoiceDetail.value = result.data
+      reportTitleDraft.value = result.data.report_title || companyName.value
+      await loadReportTitleOptions(result.data)
       toast.success('运单加载成功')
     }
     else {
       toast.error(result.message || '加载运单失败')
       invoiceDetail.value = null
+      reportTitleDraft.value = ''
+      reportTitleOptions.value = []
     }
   }
   catch (error: any) {
     toast.error(error.message || '加载运单失败')
     invoiceDetail.value = null
+    reportTitleDraft.value = ''
+    reportTitleOptions.value = []
   }
   finally {
     loading.value = false
@@ -294,6 +308,8 @@ watch(selectedWaybillNo, (newVal) => {
   }
   else {
     invoiceDetail.value = null
+    reportTitleDraft.value = ''
+    reportTitleOptions.value = []
   }
 })
 
@@ -301,7 +317,75 @@ watch(myWaybills, () => {
   // Clear selection when filter changes to force re-search with new filter
   selectedWaybillNo.value = ''
   invoiceDetail.value = null
+  reportTitleDraft.value = ''
+  reportTitleOptions.value = []
 })
+
+const currentReportTitle = computed(() => {
+  const title = invoiceDetail.value?.report_title?.trim()
+  return title || companyName.value
+})
+
+async function loadReportTitleOptions(detail: any) {
+  reportTitleOptions.value = detail?.ship_customer ? [detail.ship_customer] : []
+
+  if (!detail?.ship_name) {
+    return
+  }
+
+  try {
+    const result = await getCompanies({
+      search: detail.ship_name,
+      limit: 20,
+      page: 1,
+    })
+
+    if (!result.ok) {
+      return
+    }
+
+    const matched = result.data.find(item => item.name === detail.ship_name)
+    const options = matched?.customers?.filter(Boolean) || []
+    if (detail.ship_customer && !options.includes(detail.ship_customer)) {
+      options.unshift(detail.ship_customer)
+    }
+    reportTitleOptions.value = Array.from(new Set(options))
+  }
+  catch (error) {
+    console.error('loadReportTitleOptions error:', error)
+  }
+}
+
+async function handleSaveReportTitle() {
+  if (!invoiceDetail.value?.waybill_no) {
+    return
+  }
+
+  savingReportTitle.value = true
+  try {
+    const result = await updateInvoiceReportTitle(invoiceDetail.value.waybill_no, reportTitleDraft.value)
+    if (result.ok) {
+      invoiceDetail.value.report_title = result.data?.report_title || ''
+      reportTitleDraft.value = invoiceDetail.value.report_title || companyName.value
+      showReportTitleDialog.value = false
+      toast.success('运单报告抬头已保存')
+    }
+    else {
+      toast.error(result.message || '保存失败')
+    }
+  }
+  catch (error: any) {
+    toast.error(error.message || '保存失败')
+  }
+  finally {
+    savingReportTitle.value = false
+  }
+}
+
+function openReportTitleDialog() {
+  reportTitleDraft.value = invoiceDetail.value?.report_title || companyName.value
+  showReportTitleDialog.value = true
+}
 
 
 function getOrderDisplay(bill: any) {
@@ -347,7 +431,7 @@ function handlePrint() {
 
   const content = `
     <div class="header">
-      <h2><i class="fa fa-globe"></i> ${companyName.value}发货单</h2>
+      <h2><i class="fa fa-globe"></i> ${currentReportTitle.value}发货单</h2>
     </div>
     <div class="info-grid">
       <div class="info-column">
@@ -545,7 +629,7 @@ async function handleExport() {
   // 标题行
   sheet.mergeCells(rowNum, 1, rowNum, 12)
   const titleCell = sheet.getCell(rowNum, 1)
-  const titleText = `${companyName.value}发货单`
+  const titleText = `${currentReportTitle.value}发货单`
   titleCell.value = titleText
   titleCell.font = { bold: true, size: 16 }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -967,7 +1051,15 @@ const calculateTotals = computed(() => {
       <div class="text-center mb-8">
         <h2 class="text-2xl font-bold flex items-center justify-center gap-2">
           <i class="hidden print:inline-block">🌏</i> <!-- Icon placeholder for print -->
-          {{ companyName }}发货单
+          {{ currentReportTitle }}发货单
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-7 w-7 print:hidden"
+            @click="openReportTitleDialog"
+          >
+            <Pencil class="h-3.5 w-3.5" />
+          </Button>
         </h2>
       </div>
 
@@ -1126,6 +1218,45 @@ const calculateTotals = computed(() => {
       <p>请选择运单号以查看报表</p>
     </div>
 
+    <Dialog v-model:open="showReportTitleDialog">
+      <DialogContent class="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>修改运单报告抬头</DialogTitle>
+          <DialogDescription>
+            可以从该开单名称对应的发货单位里直接选择，也可以手动输入。
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 py-2">
+          <div>
+            <Label class="mb-2 block">发货单位候选</Label>
+            <Select
+              :model-value="reportTitleOptions.includes(reportTitleDraft) ? reportTitleDraft : undefined"
+              @update:model-value="(value) => { if (value) reportTitleDraft = value }"
+            >
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="从发货单位列表选择" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="item in reportTitleOptions" :key="item" :value="item">{{ item }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label class="mb-2 block">运单报告抬头</Label>
+            <Input v-model="reportTitleDraft" placeholder="默认使用物流公司抬头，也支持手动输入" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showReportTitleDialog = false">
+            取消
+          </Button>
+          <Button :disabled="savingReportTitle" @click="handleSaveReportTitle">
+            保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <!-- Advanced Search Dialog -->
     <Dialog v-model:open="showAdvancedSearch">
       <DialogContent class="min-w-[1000px] max-w-[90vw] flex flex-col max-h-[85vh]">
@@ -1169,8 +1300,15 @@ const calculateTotals = computed(() => {
             </Select>
             <DatePicker v-model="advForm.startDate" placeholder="开始日期" :disabled-date="disableStartDate" disabled-hint="开始日期不能晚于结束日期" class="h-9 w-full" />
             <DatePicker v-model="advForm.endDate" placeholder="结束日期" :disabled-date="disableEndDate" disabled-hint="结束日期不能早于开始日期" class="h-9 w-full" />
-            
-            <div class="col-span-2 flex justify-end gap-2">
+            <Input
+              v-model.number="advForm.totalWeight"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="发运总量"
+              class="h-9 w-full"
+            />
+            <div class="col-span-1 flex justify-end gap-2">
               <Button variant="outline" size="sm" @click="resetAdvForm" class="h-9">
                 重置
               </Button>
@@ -1193,6 +1331,7 @@ const calculateTotals = computed(() => {
                   <TableHead>开单名称</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>发货日期</TableHead>
+                  <TableHead class="text-right">总重量</TableHead>
                   <TableHead class="w-20 text-center">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1204,6 +1343,7 @@ const calculateTotals = computed(() => {
                     <TableCell class="py-2">{{ inv.ship_name }}</TableCell>
                     <TableCell class="py-2">{{ inv.state }}</TableCell>
                     <TableCell class="py-2">{{ formatDate(inv.ship_date) }}</TableCell>
+                    <TableCell class="py-2 text-right">{{ formatNumber(inv.total_weight, 3) }}</TableCell>
                     <TableCell class="py-2 text-center">
                       <Button size="sm" variant="outline" class="h-7 px-2" @click="selectAdvResult(inv)">
                         选择
@@ -1213,7 +1353,7 @@ const calculateTotals = computed(() => {
                 </template>
                 <template v-else>
                   <TableRow>
-                    <TableCell colspan="6" class="h-32 text-center text-muted-foreground">
+                    <TableCell colspan="7" class="h-32 text-center text-muted-foreground">
                       {{ advLoading ? '查询中...' : '请输入条件查询' }}
                     </TableCell>
                   </TableRow>

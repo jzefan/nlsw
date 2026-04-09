@@ -73,6 +73,7 @@ module.exports = function (app) {
   app.get('/get_max_waybill_no', requireTenant, invoiceApiController.getMaxWaybillNo);
   app.get('/invoices', requireTenant, invoiceApiController.getInvoiceList);
   app.get('/invoices/:waybillNo', requireTenant, invoiceApiController.getInvoiceDetail);
+  app.post('/invoices/:waybillNo/report-title', requireTenant, invoiceApiController.updateInvoiceReportTitle);
   app.post('/build_ship_invoice', requireTenant, invoiceApiController.buildShipInvoice);
   app.post('/build_truck_invoice', requireTenant, invoiceApiController.buildTruckInvoice);
   app.post('/delete_invoice', requireTenant, invoiceApiController.deleteInvoice);

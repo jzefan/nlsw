@@ -312,6 +312,13 @@ exports.getInvoiceList = async (req, res) => {
     if (req.query.shipperName && !query.shipper) {
       query.shipper = { $regex: req.query.shipperName, $options: 'i' };
     }
+    // 发运总量近似筛选（与车船结算吨位筛选保持一致：±0.005）
+    if (req.query.totalWeight !== undefined && req.query.totalWeight !== '') {
+      const target = parseFloat(req.query.totalWeight);
+      if (!Number.isNaN(target)) {
+        query.total_weight = { $gte: target - 0.005, $lte: target + 0.005 };
+      }
+    }
     if (startDate || endDate) {
       query.ship_date = {};
       if (startDate) {
@@ -389,6 +396,38 @@ exports.getInvoiceDetail = async (req, res) => {
   } catch (error) {
     console.error('getInvoiceDetail error:', error);
     res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+/**
+ * 更新运单报告抬头
+ */
+exports.updateInvoiceReportTitle = async (req, res) => {
+  try {
+    const { waybillNo } = req.params;
+    const reportTitle = typeof req.body?.report_title === 'string'
+      ? req.body.report_title.trim()
+      : '';
+
+    const invoice = await Invoice.findOne(buildTenantQuery(req, { waybill_no: waybillNo })).exec();
+
+    if (!invoice) {
+      return res.json({ ok: false, message: '运单不存在' });
+    }
+
+    invoice.report_title = reportTitle;
+    await invoice.save();
+
+    res.json({
+      ok: true,
+      data: {
+        waybill_no: invoice.waybill_no,
+        report_title: invoice.report_title || '',
+      },
+    });
+  } catch (error) {
+    console.error('updateInvoiceReportTitle error:', error);
+    res.status(500).json({ ok: false, message: error.message });
   }
 };
 

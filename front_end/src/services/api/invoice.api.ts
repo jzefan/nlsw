@@ -39,6 +39,7 @@ export interface Invoice {
   vehicle_vessel_name: string
   ship_name: string
   ship_customer?: string
+  report_title?: string
   ship_from: string
   ship_to: string
   ship_date?: Date | string
@@ -76,6 +77,7 @@ export async function getInvoices(params: {
   state?: string
   startDate?: string
   endDate?: string
+  totalWeight?: number | string
 }) {
   const response = await axiosInstance.get<InvoiceListResponse>('/invoices', { params })
   return response.data
@@ -113,6 +115,20 @@ export async function getInvoiceDetail(waybillNo: string) {
     data: any
     message?: string
   }>(`/invoices/${waybillNo}`)
+  return response.data
+}
+
+export async function updateInvoiceReportTitle(waybillNo: string, reportTitle: string) {
+  const response = await axiosInstance.post<{
+    ok: boolean
+    data?: {
+      waybill_no: string
+      report_title: string
+    }
+    message?: string
+  }>(`/invoices/${waybillNo}/report-title`, {
+    report_title: reportTitle,
+  })
   return response.data
 }
 

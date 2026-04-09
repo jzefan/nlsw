@@ -22,6 +22,7 @@ var invoiceSchema = new Schema({
   ship_warehouse: String,       // 发货仓库
   ship_name: String,             // 发货名称/单位
   ship_customer: String,        // 发货单位/客户
+  report_title: String,         // 运单报告抬头
   ship_date: Date,  // 发货日期
   ship_to: String,  // 发货目的地
   ship_from: String,
