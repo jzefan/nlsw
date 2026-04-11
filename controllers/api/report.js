@@ -269,8 +269,28 @@ function combineBill(bills, invs) {
   return copied;
 }
 
+function buildIntegratedQueryEmptyResponse(extra = {}) {
+  return {
+    ok: true,
+    bills: [],
+    total: 0,
+    message: '暂无符合条件的数据',
+    ...extra,
+  };
+}
+
+function normalizeIntegratedQueryTextFields(query) {
+  if (!query || typeof query !== 'object') return query;
+
+  return {
+    ...query,
+    fOrder: typeof query.fOrder === 'string' ? query.fOrder.trim() : query.fOrder,
+    fBno: typeof query.fBno === 'string' ? query.fBno.trim() : query.fBno,
+  };
+}
+
 exports.getIntegratedQuery = async function (req, res) {
-  var query = req.query;
+  var query = normalizeIntegratedQueryTextFields(req.query);
   var obj = {};
 
   // 确保数组参数始终为数组（单值时 Express 解析为字符串）
@@ -353,10 +373,10 @@ exports.getIntegratedQuery = async function (req, res) {
           const pagedData = isExport ? combined : combined.slice(skip, skip + limit);
           res.json({ bills: stripPriceFields(pagedData), ok: true, total, page, limit, totalSendNum, totalSendWeight });
         } else {
-          res.json({ ok: false, bills: [], total: 0 });
+          res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
         }
       } else {
-        res.json({ ok: false, bills: [], total: 0 });
+        res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
       }
     } else {  // bill first
       var showVehicles = (utils.isExist(query.fShowDestForVessel) && (query.fShowDestForVessel == 1)) ? 1 : 0;
@@ -400,13 +420,13 @@ exports.getIntegratedQuery = async function (req, res) {
 
         const matchedBills = await Bill.find(buildTenantQuery(req, billFilter)).lean().exec();
         if (!matchedBills || matchedBills.length === 0) {
-          return res.json({ ok: false, bills: [], total: 0 });
+          return res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
         }
 
         // 2) 提取关联运单号，查 Invoice（走 waybill_no + ship_date 索引）
         const invNoList = utils.getAllList(true, matchedBills, "invoices", "inv_no");
         if (invNoList.length === 0) {
-          return res.json({ ok: false, bills: [], total: 0 });
+          return res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
         }
 
         const invQuery = { $and: [{ waybill_no: { $in: invNoList } }] };
@@ -440,7 +460,7 @@ exports.getIntegratedQuery = async function (req, res) {
           .exec();
 
         if (!invoices || invoices.length === 0) {
-          return res.json({ ok: false, bills: [], total: 0 });
+          return res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
         }
 
         // 3) 用已有的 getBillArray 组合结果
@@ -477,7 +497,7 @@ exports.getIntegratedQuery = async function (req, res) {
           // 开单名称在 Bill 上，先查 Bill 获取 id 列表
           const nameBills = await Bill.find(buildTenantQuery(req, { billing_name: { $in: query.fName } })).select('_id').lean().exec();
           if (nameBills.length === 0) {
-            return res.json({ ok: false, bills: [], total: 0 });
+            return res.json(buildIntegratedQueryEmptyResponse({ page, limit }));
           }
           invMatch['bills.bill_id'] = { $in: nameBills.map(b => b._id) };
         }
@@ -706,6 +726,11 @@ exports.getIntegratedQuery = async function (req, res) {
     console.error("getIntegratedQuery error:", err);
     res.json({ ok: false, error: err.message });
   }
+};
+
+exports.__testables = {
+  buildIntegratedQueryEmptyResponse,
+  normalizeIntegratedQueryTextFields,
 };
 
 exports.getInvoiceReport = async function (req, res) {

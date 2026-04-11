@@ -62,6 +62,8 @@ export interface IntegratedQueryBill {
 export interface IntegratedQueryResponse {
   ok: boolean
   bills: IntegratedQueryBill[]
+  message?: string
+  error?: string
   total?: number
   page?: number
   limit?: number
@@ -129,4 +131,3 @@ export async function getWaybillDetail(wno: string) {
   })
   return response.data
 }
-

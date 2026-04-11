@@ -13,13 +13,16 @@ import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getMoneyList, updateMoney, updateRealPrice } from '@/services/api/money.api'
 import { getSettleDetail } from '@/services/api/ticket.api'
+import { useAuthStore } from '@/stores/auth'
 
 import { formatNumber, sortByOrder, toExcelDate, toExcelNum } from '@/utils/format'
 import type { DisplayMode, SettleRecord } from './ticket-types'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const { confirm } = useConfirmDialog()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+const currentOperator = computed(() => authStore.user?.name || authStore.user?.userid || '')
 
 // 自有车模式（从路由参数读取）
 const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
@@ -306,7 +309,7 @@ async function handleReturnMoney() {
       ticketedSettles.map((settle) => ({
         _id: settle._id,
         return_money_date: new Date(),
-        return_person: 'current_user', // TODO: 从用户信息获取
+        return_person: currentOperator.value,
         status: '已回款',
       })),
     )

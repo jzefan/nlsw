@@ -109,6 +109,9 @@ async function handleQuery(resetPage = true) {
 
   loading.value = true
   try {
+    const normalizedBillNo = filter.billNo.trim()
+    const normalizedOrderNo = filter.orderNo.trim()
+
     const params: any = {
       fName: filter.billingName ? [filter.billingName] : undefined,
       fVeh: filter.vehicle ? [filter.vehicle] : undefined,
@@ -116,8 +119,8 @@ async function handleQuery(resetPage = true) {
       fDest: filter.destination ? [filter.destination] : undefined,
       fFrom: filter.origin ? [filter.origin] : undefined,
       fCustomerName: filter.customer || undefined,
-      fBno: filter.billNo || undefined,
-      fOrder: filter.orderNo || undefined,
+      fBno: normalizedBillNo || undefined,
+      fOrder: normalizedOrderNo || undefined,
       fType: 'bill-first',
       fShowDestForVessel: showDestForVessel.value ? 1 : 0,
       fShowUnsend: showNotSent.value ? 1 : 0,
@@ -149,13 +152,19 @@ async function handleQuery(resetPage = true) {
         }, 0)
       }
       if (resetPage) {
-        toast.success(`查询成功，共 ${total.value} 条记录`)
+        if (total.value > 0) {
+          toast.success(`查询成功，共 ${total.value} 条记录`)
+        } else {
+          toast.warning(res.message || '暂无符合条件的数据，请调整筛选条件后重试')
+        }
       }
     } else {
-      toast.error('查询失败')
+      toast.error('查询失败', {
+        description: res.error || res.message || '接口返回异常，请稍后重试',
+      })
     }
   } catch (e: any) {
-    toast.error('查询出错', { description: e.message })
+    toast.error('查询出错', { description: e.message || '网络或服务异常' })
   } finally {
     loading.value = false
   }

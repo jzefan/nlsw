@@ -10,6 +10,7 @@ import ExportDialog from '@/components/export-dialog.vue'
 import { useExport } from '@/composables/use-export'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { deleteSettle, getSettleList, updateTicket } from '@/services/api/ticket.api'
+import { useAuthStore } from '@/stores/auth'
 
 import { formatNumber, toExcelDate, toExcelNum } from '@/utils/format'
 import type { DisplayMode, SettleRecord, SettleType } from './ticket-types'
@@ -20,8 +21,10 @@ import SettleRecordFilter from './components/SettleRecordFilter.vue'
 import type { SettleRecordFilterParams } from './components/SettleRecordFilter.vue'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const { confirm } = useConfirmDialog()
 const { exportWithPicker, showExportDialog, exportFileName, confirmExport } = useExport()
+const currentOperator = computed(() => authStore.user?.name || authStore.user?.userid || '')
 
 // 自有车模式（从路由参数读取）
 const isSelfOwnedMode = computed(() => route.query.selfOwned === 'true')
@@ -271,7 +274,7 @@ async function confirmTicket() {
         _id: settle._id,
         ticket_no: settle.ticket_no,
         ticket_date: new Date(),
-        ticket_person: 'current_user', // TODO: 从用户信息获取
+        ticket_person: currentOperator.value,
         status: '已开票',
       },
     ])
