@@ -12,6 +12,22 @@ function areFloatsEqual(a, b) {
   return Math.abs(a - b) < EPSILON;
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildCaseInsensitiveRegexQuery(keyword) {
+  const normalizedKeyword = typeof keyword === 'string' ? keyword.trim() : '';
+  if (!normalizedKeyword) {
+    return null;
+  }
+
+  return {
+    $regex: escapeRegex(normalizedKeyword),
+    $options: 'i'
+  };
+}
+
 const INVOICE_STATE_ORDER = ['新建', '已配发', '已结算', '已付款'];
 
 function getMergedInvoiceState(currentState, requestedState) {
@@ -198,6 +214,58 @@ function validateInnerWaybillAssignments(flatBills, defaultShipFrom) {
   }
 }
 
+function normalizeGlobalSearchLimit(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return 8;
+  }
+
+  return Math.min(Math.max(parsed, 1), 20);
+}
+
+function normalizeGlobalSearchPage(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return parsed;
+}
+
+async function resolveTransportTypeMap(req, vehicleNames) {
+  const uniqueNames = Array.from(new Set((vehicleNames || []).filter(Boolean)));
+  if (uniqueNames.length === 0) {
+    return {};
+  }
+
+  const vehicles = await Vehicle.find(
+    buildTenantQuery(req, { name: { $in: uniqueNames } })
+  )
+    .select('name veh_type')
+    .lean()
+    .exec();
+
+  return vehicles.reduce((acc, vehicle) => {
+    acc[vehicle.name] = vehicle.veh_type === '船' ? '船运' : '车运';
+    return acc;
+  }, {});
+}
+
+function resolveGlobalSearchInvoiceTransportType(invoice, transportTypeMap) {
+  const hasShipBillVehicles = Array.isArray(invoice?.bills)
+    && invoice.bills.some((bill) => Array.isArray(bill?.vehicles) && bill.vehicles.length > 0);
+
+  if (hasShipBillVehicles) {
+    return '船运';
+  }
+
+  const vehicleName = typeof invoice?.vehicle_vessel_name === 'string'
+    ? invoice.vehicle_vessel_name
+    : '';
+
+  return transportTypeMap[vehicleName] || '车运';
+}
+
 exports.getMaxWaybillNo = async (req, res) => {
   try {
     const user = req.user || { no: 0 };
@@ -369,6 +437,129 @@ exports.getInvoiceList = async (req, res) => {
     });
   } catch (error) {
     console.error('getInvoiceList error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+exports.searchGlobalRecords = async (req, res) => {
+  try {
+    const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : '';
+    const limit = normalizeGlobalSearchLimit(req.query.limit);
+    const page = normalizeGlobalSearchPage(req.query.page);
+    const skip = (page - 1) * limit;
+
+    if (!keyword) {
+      return res.json({ ok: true, resultType: 'none', items: [], total: 0, page, limit, hasMore: false });
+    }
+
+    const regexQuery = buildCaseInsensitiveRegexQuery(keyword);
+    if (!regexQuery) {
+      return res.json({ ok: true, resultType: 'none', items: [], total: 0, page, limit, hasMore: false });
+    }
+
+    const billQuery = buildTenantQuery(req, {
+      $or: [
+        { bill_no: regexQuery },
+        { order_no: regexQuery },
+      ],
+    });
+
+    const billTotal = await Bill.countDocuments(billQuery);
+
+    if (billTotal > 0) {
+      const bills = await Bill.find(billQuery)
+        .select('bill_no order_no billing_name thickness width len weight total_weight create_date')
+        .sort({ create_date: -1, bill_no: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec();
+
+      return res.json({
+        ok: true,
+        resultType: 'bill',
+        items: bills.map((bill) => ({
+          type: 'bill',
+          id: String(bill._id),
+          bill_no: bill.bill_no,
+          order_no: bill.order_no,
+          billing_name: bill.billing_name,
+          thickness: bill.thickness || 0,
+          width: bill.width || 0,
+          len: bill.len || 0,
+          weight: bill.weight || 0,
+          total_weight: bill.total_weight || 0,
+          create_date: bill.create_date || null,
+        })),
+        total: billTotal,
+        page,
+        limit,
+        hasMore: skip + bills.length < billTotal,
+      });
+    }
+
+    const user = req.user || { userid: 'admin', privilege: ['admin'] };
+    const userId = user.userid;
+    const canViewAll = isAdminPrivilege(user.privilege)
+      || hasPermission(user.privilege, PERMISSIONS.STATISTICS)
+      || hasPermission(user.privilege, PERMISSIONS.ACCOUNT);
+
+    const invoiceQuery = {
+      $or: [
+        { waybill_no: regexQuery },
+        { vehicle_vessel_name: regexQuery },
+      ],
+    };
+
+    if (!canViewAll) {
+      invoiceQuery.shipper = userId;
+    }
+
+    const invoiceTenantQuery = buildTenantQuery(req, invoiceQuery);
+    const invoiceTotal = await Invoice.countDocuments(invoiceTenantQuery);
+
+    const invoices = await Invoice.find(invoiceTenantQuery)
+      .select('waybill_no vehicle_vessel_name ship_name ship_to ship_from create_date ship_date shipper total_weight bills')
+      .sort({ create_date: -1, ship_date: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    const transportTypeMap = await resolveTransportTypeMap(
+      req,
+      invoices.map((invoice) => invoice.vehicle_vessel_name)
+    );
+
+    return res.json({
+      ok: true,
+      resultType: invoices.length > 0 ? 'invoice' : 'none',
+      items: invoices.map((invoice) => {
+        const transportType = resolveGlobalSearchInvoiceTransportType(invoice, transportTypeMap);
+        return {
+          type: 'invoice',
+          id: String(invoice._id),
+          waybill_no: invoice.waybill_no,
+          vehicle_vessel_name: invoice.vehicle_vessel_name,
+          ship_name: invoice.ship_name,
+          ship_to: invoice.ship_to,
+          ship_from: invoice.ship_from,
+          shipper: invoice.shipper || '',
+          transport_type: transportType,
+          target_path: '/reports/invoice',
+          total_number: (invoice.bills || []).reduce((sum, bill) => sum + (bill.num || 0), 0),
+          total_weight: invoice.total_weight || 0,
+          create_date: invoice.create_date || null,
+          ship_date: invoice.ship_date || null,
+        };
+      }),
+      total: invoiceTotal,
+      page,
+      limit,
+      hasMore: skip + invoices.length < invoiceTotal,
+    });
+  } catch (error) {
+    console.error('searchGlobalRecords error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 };

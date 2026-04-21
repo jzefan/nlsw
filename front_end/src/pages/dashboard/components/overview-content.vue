@@ -149,6 +149,13 @@ const vehicleMonthOptions = computed(() => {
   return months
 })
 
+function resolveDrillDownRange(month: string) {
+  if (month === 'all') {
+    return { start: startDate.value, end: endDate.value }
+  }
+  return { start: month, end: month }
+}
+
 const vehicleTypeFilter: Record<string, (v: VehicleData) => boolean> = {
   own: (v) => v.veh_category === '自有',
   outsourced: (v) => v.veh_category === '外挂',
@@ -222,11 +229,13 @@ const vehicleDrillDownTotalTonnage = computed(() => {
 const showInvoiceDialog = ref(false)
 const invoiceData = ref<InvoiceDetail[]>([])
 const invoiceLoading = ref(false)
+const invoiceDrillDownMonth = ref('all')
 
 // 开单名称下钻对话框状态
 const showBillingNameDialog = ref(false)
 const billingNameData = ref<BillingNameStats[]>([])
 const billingNameLoading = ref(false)
+const billingNameDrillDownMonth = ref('all')
 
 // 导出对话框状态
 const showExportDialog = ref(false)
@@ -255,12 +264,17 @@ function drillDownVehicle(type: 'own' | 'outsourced' | 'truck' | 'vessel') {
 
 // 运单明细下钻函数
 async function drillDownInvoices() {
-  invoiceLoading.value = true
+  invoiceDrillDownMonth.value = 'all'
   showInvoiceDialog.value = true
   exportType.value = 'invoice'
+  await loadInvoiceDetails()
+}
 
+async function loadInvoiceDetails() {
+  invoiceLoading.value = true
   try {
-    const res = await getDashboardInvoiceDetails(startDate.value, endDate.value)
+    const { start, end } = resolveDrillDownRange(invoiceDrillDownMonth.value)
+    const res = await getDashboardInvoiceDetails(start, end)
     if (res.ok) {
       invoiceData.value = res.data
     } else {
@@ -276,12 +290,17 @@ async function drillDownInvoices() {
 
 // 开单名称下钻函数
 async function drillDownBillingNames() {
-  billingNameLoading.value = true
+  billingNameDrillDownMonth.value = 'all'
   showBillingNameDialog.value = true
   exportType.value = 'billingName'
+  await loadBillingNameDetails()
+}
 
+async function loadBillingNameDetails() {
+  billingNameLoading.value = true
   try {
-    const res = await getDashboardBillingNamesStats(startDate.value, endDate.value)
+    const { start, end } = resolveDrillDownRange(billingNameDrillDownMonth.value)
+    const res = await getDashboardBillingNamesStats(start, end)
     if (res.ok) {
       billingNameData.value = res.data
     } else {
@@ -294,6 +313,16 @@ async function drillDownBillingNames() {
     billingNameLoading.value = false
   }
 }
+
+watch(invoiceDrillDownMonth, () => {
+  if (!showInvoiceDialog.value) return
+  loadInvoiceDetails()
+})
+
+watch(billingNameDrillDownMonth, () => {
+  if (!showBillingNameDialog.value) return
+  loadBillingNameDetails()
+})
 
 // 导出函数
 function openExport() {
@@ -770,8 +799,23 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           <DialogTitle>运单明细</DialogTitle>
           <DialogDescription>
             共 {{ invoiceData.length }} 条记录
+            <span v-if="invoiceDrillDownMonth !== 'all'" class="ml-2 text-xs text-muted-foreground">（财务月：上月26日 ~ 本月25日）</span>
           </DialogDescription>
         </DialogHeader>
+
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-muted-foreground">月份：</span>
+          <Select v-model="invoiceDrillDownMonth">
+            <SelectTrigger class="w-[120px] h-8">
+              <SelectValue placeholder="选择月份" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="opt in vehicleMonthOptions" :key="`invoice-${opt.value}`" :value="opt.value">
+                {{ opt.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         <div v-if="invoiceLoading" class="flex-1 flex items-center justify-center">
           <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
@@ -817,8 +861,23 @@ async function handleExport(fileName: string, directoryHandle: FileSystemDirecto
           <DialogTitle>开单名称统计明细</DialogTitle>
           <DialogDescription>
             共 {{ billingNameData.length }} 条记录
+            <span v-if="billingNameDrillDownMonth !== 'all'" class="ml-2 text-xs text-muted-foreground">（财务月：上月26日 ~ 本月25日）</span>
           </DialogDescription>
         </DialogHeader>
+
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-muted-foreground">月份：</span>
+          <Select v-model="billingNameDrillDownMonth">
+            <SelectTrigger class="w-[120px] h-8">
+              <SelectValue placeholder="选择月份" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="opt in vehicleMonthOptions" :key="`billing-${opt.value}`" :value="opt.value">
+                {{ opt.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         <div v-if="billingNameLoading" class="flex-1 flex items-center justify-center">
           <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>

@@ -163,6 +163,7 @@ const showFilter = ref(true)
 const showTruckToShip = ref(true)
 const filterForm = ref({
   vehicle: '',
+  vehicleOwnership: '全部',
   billName: '',
   origin: '',
   destination: '',
@@ -216,6 +217,8 @@ const hideCarrier = computed(() => {
   }
   return authStore.tenant?.code === 'xht'
 })
+
+const showVehicleOwnershipFilter = computed(() => hideCarrier.value)
 
 // 公司名含"鑫鸿图"时隐藏承运单位列
 watchEffect(() => {
@@ -575,7 +578,25 @@ function applyLocalFilters(records: any[]) {
     filteredRecords = filteredRecords.filter((inv) => inv.ship_to === filterForm.value.destination)
   }
 
+  if (showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部') {
+    filteredRecords = filteredRecords.filter((inv) => matchesInvoiceVehicleOwnership(inv))
+  }
+
   return filteredRecords
+}
+
+function getVehicleCategoryByName(vehicleName: string, fallback?: any) {
+  if (vehicleName && vehCategoryMap.value[vehicleName]) return vehCategoryMap.value[vehicleName]
+  if (fallback?.selfOwned === 1 || fallback?.selfOwned === '1') return '自有'
+  return ''
+}
+
+function matchesInvoiceVehicleOwnership(inv: any) {
+  if (!showVehicleOwnershipFilter.value || filterForm.value.vehicleOwnership === '全部') {
+    return true
+  }
+
+  return getVehicleCategoryByName(inv.vehicle_vessel_name, inv) === filterForm.value.vehicleOwnership
 }
 
 function collectReceiptDownloadTargets(records: any[]): ReceiptDownloadTarget[] {
@@ -1071,7 +1092,13 @@ watch(
 
 // combobox 变化 → 分页模式下重新请求后端，非分页模式客户端过滤
 watch(
-  () => [filterForm.value.vehicle, filterForm.value.billName, filterForm.value.origin, filterForm.value.destination],
+  () => [
+    filterForm.value.vehicle,
+    filterForm.value.vehicleOwnership,
+    filterForm.value.billName,
+    filterForm.value.origin,
+    filterForm.value.destination,
+  ],
   () => {
     if (usePagination.value) {
       currentPage.value = 1
@@ -1124,7 +1151,9 @@ function buildSearchParams() {
 
   // 发货单位/承运单位是客户端筛选，分页模式下后端不知道这些条件，
   // 会导致匹配记录不在当前页。有这些筛选时不使用后端分页。
-  const hasClientFilter = shipFilterSelected.value.length > 0 || carrierFilterSelected.value.length > 0
+  const hasClientFilter = shipFilterSelected.value.length > 0
+    || carrierFilterSelected.value.length > 0
+    || (showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部')
 
   if (usePagination.value && !hasClientFilter) {
     params.page = currentPage.value
@@ -1253,6 +1282,9 @@ function calcSummaryFromRecords(records: any[]) {
   }
   if (filterForm.value.destination) {
     filtered = filtered.filter((inv) => inv.ship_to === filterForm.value.destination)
+  }
+  if (showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部') {
+    filtered = filtered.filter((inv) => matchesInvoiceVehicleOwnership(inv))
   }
 
   const vehicleFilter = filterForm.value.vehicle || ''
@@ -1402,6 +1434,9 @@ function buildTableData() {
   // 应用目的地筛选（客户端）
   if (filterForm.value.destination) {
     filteredRecords = filteredRecords.filter((inv) => inv.ship_to === filterForm.value.destination)
+  }
+  if (showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部') {
+    filteredRecords = filteredRecords.filter((inv) => matchesInvoiceVehicleOwnership(inv))
   }
 
   // 是否按车辆筛选（用于船运下只显示匹配的车）
@@ -3372,7 +3407,29 @@ async function restoreFocusAfterUpload() {
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2" :class="hideCarrier ? 'md:grid-cols-3' : 'md:grid-cols-4'">
+          <div
+            v-if="showVehicleOwnershipFilter"
+            class="col-span-2 md:col-span-1 grid grid-cols-[minmax(0,2fr)_minmax(88px,1fr)] gap-2"
+          >
+            <SearchableCombobox
+              v-model="filterForm.vehicle"
+              :search-fn="searchVehicles"
+              placeholder="车船号"
+              class="h-8 text-sm w-full"
+            />
+            <Select v-model="filterForm.vehicleOwnership">
+              <SelectTrigger class="h-8 text-sm w-full">
+                <SelectValue placeholder="车归属" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="全部">全部</SelectItem>
+                <SelectItem value="自有">自有</SelectItem>
+                <SelectItem value="外挂">外挂</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <SearchableCombobox
+            v-else
             v-model="filterForm.vehicle"
             :search-fn="searchVehicles"
             placeholder="车船号"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { Download, Pencil, Printer, Search } from 'lucide-vue-next'
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, ref, watch, watchEffect } from 'vue'
 import { toast } from 'vue-sonner'
 import ExcelJS from 'exceljs'
 
@@ -61,6 +61,7 @@ const companyName = computed(() => {
 import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 
 const authStore = useAuthStore()
+const route = useRoute()
 
 // 权限
 const privilege = computed(() => authStore.user?.privilege ?? [])
@@ -320,6 +321,35 @@ watch(myWaybills, () => {
   reportTitleDraft.value = ''
   reportTitleOptions.value = []
 })
+
+async function openWaybillFromRouteQuery() {
+  const globalWaybillNo = typeof route.query.globalWaybillNo === 'string'
+    ? route.query.globalWaybillNo.trim()
+    : ''
+
+  if (!globalWaybillNo) {
+    return
+  }
+
+  if (selectedWaybillNo.value === globalWaybillNo) {
+    await loadInvoice()
+    return
+  }
+
+  selectedWaybillNo.value = globalWaybillNo
+}
+
+onMounted(async () => {
+  await openWaybillFromRouteQuery()
+})
+
+watch(
+  () => route.query.globalWaybillNo,
+  async (waybill, previousWaybill) => {
+    if (waybill === previousWaybill) return
+    await openWaybillFromRouteQuery()
+  },
+)
 
 const currentReportTitle = computed(() => {
   const title = invoiceDetail.value?.report_title?.trim()

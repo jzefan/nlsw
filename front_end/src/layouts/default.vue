@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 
 import AppSidebar from '@/components/app-sidebar/index.vue'
+import GlobalSearchDialog from '@/components/global-search-dialog.vue'
 import PaymentQRDialog from '@/components/subscription-reminder/PaymentQRDialog.vue'
 import SubscriptionBanner from '@/components/subscription-reminder/SubscriptionBanner.vue'
 import ThemePopover from '@/components/custom-theme/theme-popover.vue'
@@ -145,6 +146,7 @@ const breadcrumbs = computed(() => {
 
         <div class="flex-1" />
         <div class="ml-auto flex items-center space-x-2">
+          <GlobalSearchDialog />
           <template v-if="!authStore.isStandalone">
             <!-- 租户信息 (standalone 模式下隐藏, 移动端隐藏) -->
             <div v-if="tenant" class="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground">

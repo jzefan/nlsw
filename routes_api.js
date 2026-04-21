@@ -70,6 +70,7 @@ module.exports = function (app) {
   app.get('/plans/check', requireTenant, planController.orderPlanExist);
 
   // Invoice API (tenant-scoped)
+  app.get('/search/global', requireTenant, invoiceApiController.searchGlobalRecords);
   app.get('/get_max_waybill_no', requireTenant, invoiceApiController.getMaxWaybillNo);
   app.get('/invoices', requireTenant, invoiceApiController.getInvoiceList);
   app.get('/invoices/:waybillNo', requireTenant, invoiceApiController.getInvoiceDetail);

@@ -1,5 +1,48 @@
 # 结算页操作者姓名修复
 
+## 全局搜索运单跳转修复
+
+- [x] 排查全局搜索运单结果点击后的实际跳转链路
+- [x] 改为由搜索结果显式返回并使用修改运单目标页，避免前端二次猜测
+- [x] 运行前后端校验并记录结果
+
+## Review
+
+- 根因确认：这里用户要的是“查看运单”，不是“修改运单”。全局搜索运单结果之前被带去了编辑页，动作语义就错了。
+- 后端 `searchGlobalRecords` 现在会为运单结果显式返回查看页目标 `target_path=/reports/invoice`；前端点击时直接使用这个目标页。
+- 运单报表页 `invoice.vue` 已支持读取 `globalWaybillNo`，会自动选中并加载对应运单详情，因此从全局搜索进入后就是直接查看该运单。
+- 之前为了搜索跳转加在 `create-truck.vue` / `create-ship.vue` 里的 `globalWaybillNo` 自动打开逻辑已撤回，避免编辑页继续残留“查看入口”语义。
+- 校验通过：`node --check controllers/api/invoice.js`、`pnpm -C front_end exec vue-tsc --noEmit`
+
+## 工作台下钻月份筛选
+
+- [x] 梳理工作台“发运总吨数 / 配发开单名称数”下钻弹框与移动端抽屉的数据加载逻辑
+- [x] 为发运总吨数下钻增加月份筛选，并按所选月份重新请求数据
+- [x] 为配发开单名称数下钻增加月份筛选，并按所选月份重新请求数据
+- [x] 运行前端校验并记录结果
+
+## Review
+
+- 工作台桌面端 `overview-content.vue` 的“运单明细 / 开单名称统计明细”弹框均新增月份筛选，支持在当前统计区间内按财务月单独下钻；保留“全部”查看整个当前区间。
+- 工作台移动端 `dashboard-mobile.vue` 的底部抽屉同步新增相同月份筛选，避免桌面端和移动端行为不一致。
+- 复用现有 `/statistics/dashboard/invoices` 和 `/statistics/dashboard/billing-names` 接口，不新增后端接口；单月筛选时将开始和结束参数都传同一个 `YYYY-MM`，沿用现有财务月解析逻辑。
+- 校验通过：`pnpm -C front_end exec vue-tsc --noEmit`
+
+## 顶部全局搜索
+
+- [x] 梳理顶部布局、搜索弹窗和提单/运单打开路径
+- [x] 新增全局搜索接口，按“先提单、后运单”的优先级返回结果
+- [x] 在顶部接入 shadcn 风格搜索对话框和键盘快捷键
+- [x] 让提单列表和运单页面支持通过搜索结果自动定位
+- [x] 运行前后端校验并记录结果
+
+## Review
+
+- 新增顶部全局搜索弹窗：`front_end/src/components/global-search-dialog.vue`，支持按钮触发和 `⌘K / Ctrl+K` 快捷键，交互样式沿用 shadcn `CommandDialog`。
+- 新增前端 API：`front_end/src/services/api/global-search.api.ts`；新增后端接口：`GET /search/global`，实现“先查提单（订单号/提单号），查不到再查运单（运单号/车船号）”。
+- 结果跳转策略：提单结果跳到 `提单列表` 并按 `globalBillNo` 自动筛选；运单结果根据运输类型跳到 `配发货-车运/船运` 页面并按 `globalWaybillNo` 自动加载现有运单。
+- 已验证：`node --check controllers/api/invoice.js`、`node --check routes_api.js`、`pnpm -C front_end exec vue-tsc --noEmit`
+
 - [x] 排查 `front_end/src/pages/settle/money.vue` 的姓名显示来源，确认是写入占位值还是读取映射错误
 - [x] 确认同类逻辑在 `front_end/src/pages/settle/ticket.vue` 也存在相同问题
 - [x] 接入登录态用户信息，统一用真实姓名/账号写入开票人与回款人

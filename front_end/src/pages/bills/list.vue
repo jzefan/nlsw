@@ -26,6 +26,7 @@ import { getUserNames } from '@/services/api/user.api'
 import { formatDate, formatDim, formatNumber } from '@/utils/format'
 import BillCardList from './components/BillCardList.vue'
 const { confirm } = useConfirmDialog()
+const route = useRoute()
 
 // 状态
 const loading = ref(false)
@@ -763,11 +764,39 @@ async function loadUserNames() {
   }
 }
 
+async function applyGlobalSearchFromRoute() {
+  const globalBillNo = typeof route.query.globalBillNo === 'string'
+    ? route.query.globalBillNo.trim()
+    : ''
+
+  if (!globalBillNo) {
+    return false
+  }
+
+  showFilter.value = true
+  activeQuery.value = null
+  page.value = 1
+  filters.value.billNo = globalBillNo
+  await loadData()
+  return true
+}
+
 // 初始化
-onMounted(() => {
-  loadData()
-  loadUserNames()
+onMounted(async () => {
+  await loadUserNames()
+  const handled = await applyGlobalSearchFromRoute()
+  if (!handled) {
+    await loadData()
+  }
 })
+
+watch(
+  () => route.query.globalBillNo,
+  async (billNo, previousBillNo) => {
+    if (billNo === previousBillNo) return
+    await applyGlobalSearchFromRoute()
+  },
+)
 </script>
 
 <template>

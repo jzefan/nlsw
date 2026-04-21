@@ -1446,6 +1446,7 @@ function formatWeight(num: number | string | null | undefined) {
 function isBillHighlighted(bill: InvoiceBill) {
   return bill._id ? highlightedBillIds.value.has(bill._id) : false
 }
+
 </script>
 
 <template>
