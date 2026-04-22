@@ -104,6 +104,7 @@ export async function getVesselSettleData(params: any) {
 // 车船结算 - 查询运单
 export async function getInvoiceSettleVessel(params: {
   fVeh?: string | null
+  fVehCategory?: string | null
   fContact?: string | null
   fName?: string | null
   fDest?: string | null

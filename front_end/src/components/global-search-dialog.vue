@@ -3,7 +3,12 @@ import { useDebounceFn, useEventListener } from '@vueuse/core'
 import { FileText, LoaderCircle, PackageSearch, ReceiptText, Search } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
-import type { GlobalSearchItem, GlobalSearchResultType } from '@/services/api/global-search.api'
+import type {
+  GlobalBillSearchItem,
+  GlobalInvoiceSearchItem,
+  GlobalSearchItem,
+  GlobalSearchResultType,
+} from '@/services/api/global-search.api'
 
 import {
   CommandDialog,
@@ -43,6 +48,12 @@ const resultHeading = computed(() => {
 const dialogBodyHeightClass = 'h-[320px] min-h-[320px]'
 const billGridClass = 'grid-cols-[0.85fr_1.35fr_1.35fr_1.15fr_1.7fr_0.9fr_0.9fr_1.2fr]'
 const invoiceGridClass = 'grid-cols-[0.9fr_1.35fr_1.2fr_1.5fr_0.9fr_1fr_1.15fr_1.5fr]'
+const billItems = computed<GlobalBillSearchItem[]>(() =>
+  items.value.filter((item): item is GlobalBillSearchItem => item.type === 'bill'),
+)
+const invoiceItems = computed<GlobalInvoiceSearchItem[]>(() =>
+  items.value.filter((item): item is GlobalInvoiceSearchItem => item.type === 'invoice'),
+)
 
 function formatBillSpec(item: Extract<GlobalSearchItem, { type: 'bill' }>) {
   const parts = [item.thickness, item.width, item.len].filter(value => Number(value) > 0)
@@ -317,7 +328,7 @@ async function selectResult(item: GlobalSearchItem) {
               </div>
               <div ref="resultsScrollRef" class="max-h-[248px] overflow-y-auto" @scroll="handleResultsScroll">
                 <button
-                  v-for="item in items"
+                  v-for="item in billItems"
                   :key="`${item.type}-${item.id}`"
                   type="button"
                   :class="['grid w-full items-center gap-3 border-b px-3 py-2 text-left text-sm transition-colors last:border-b-0 hover:bg-accent hover:text-accent-foreground', billGridClass]"
@@ -361,7 +372,7 @@ async function selectResult(item: GlobalSearchItem) {
               </div>
               <div ref="resultsScrollRef" class="max-h-[248px] overflow-y-auto" @scroll="handleResultsScroll">
                 <button
-                  v-for="item in items"
+                  v-for="item in invoiceItems"
                   :key="`${item.type}-${item.id}`"
                   type="button"
                   :class="['grid w-full items-center gap-3 border-b px-3 py-2 text-left text-sm transition-colors last:border-b-0 hover:bg-accent hover:text-accent-foreground', invoiceGridClass]"

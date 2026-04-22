@@ -23,6 +23,25 @@ function applyApproximateTotalWeightFilter(matchStage, fWeight) {
   };
 }
 
+function appendOrCondition(matchStage, orConditions) {
+  if (!Array.isArray(orConditions) || orConditions.length === 0) return;
+
+  if (matchStage.$or) {
+    const existingOr = matchStage.$or;
+    delete matchStage.$or;
+    if (!matchStage.$and) matchStage.$and = [];
+    matchStage.$and.push({ $or: existingOr }, { $or: orConditions });
+    return;
+  }
+
+  if (matchStage.$and) {
+    matchStage.$and.push({ $or: orConditions });
+    return;
+  }
+
+  matchStage.$or = orConditions;
+}
+
 // 查询车船结算运单（优化版：使用聚合管道，避免 populate）
 exports.getInvoiceSettleVessel = async (req, res) => {
   try {
@@ -38,6 +57,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       fReceipt,
       fAmount,
       fWeight,
+      fVehCategory,
       selfOwned,
     } = req.query;
 
@@ -52,11 +72,35 @@ exports.getInvoiceSettleVessel = async (req, res) => {
       matchStage.tenantId = req.tenantId;
     }
 
-    if (fVeh)
-      matchStage.$or = [
+    if (fVeh) {
+      appendOrCondition(matchStage, [
         { vehicle_vessel_name: fVeh },
         { "bills.vehicles.veh_name": fVeh },
-      ];
+      ]);
+    }
+
+    if (fVehCategory && fVehCategory !== "全部") {
+      const vehCategoryQuery = buildTenantQuery(req, { veh_category: fVehCategory });
+      const vehNames = await Vehicle.find(vehCategoryQuery).distinct("name").exec();
+
+      if (!vehNames.length) {
+        return res.json({
+          ok: true,
+          invs: [],
+          vehPersonMap: {},
+          vehCategoryMap: {},
+          imageWaybills: [],
+          totalCount: page > 0 ? 0 : undefined,
+          summaryRecords: page > 0 ? [] : undefined,
+        });
+      }
+
+      appendOrCondition(matchStage, [
+        { vehicle_vessel_name: { $in: vehNames } },
+        { "bills.vehicles.veh_name": { $in: vehNames } },
+      ]);
+    }
+
     if (fName) matchStage.ship_name = fName;
     if (fOrigin) matchStage.ship_from = fOrigin;
     if (fDest) matchStage.ship_to = fDest;
@@ -76,15 +120,7 @@ exports.getInvoiceSettleVessel = async (req, res) => {
         { vessel_settle_state: fSettledState },
         { "inner_settle.state": fSettledState },
       ];
-      if (matchStage.$or) {
-        // 已有 $or（如车辆筛选），用 $and 合并
-        const existingOr = matchStage.$or;
-        delete matchStage.$or;
-        if (!matchStage.$and) matchStage.$and = [];
-        matchStage.$and.push({ $or: existingOr }, { $or: settleOr });
-      } else {
-        matchStage.$or = settleOr;
-      }
+      appendOrCondition(matchStage, settleOr);
     }
     if (fReceipt != null && fReceipt != 2)
       matchStage.receipt = parseInt(fReceipt);

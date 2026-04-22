@@ -596,7 +596,7 @@ function matchesInvoiceVehicleOwnership(inv: any) {
     return true
   }
 
-  return getVehicleCategoryByName(inv.vehicle_vessel_name, inv) === filterForm.value.vehicleOwnership
+  return getVehicleCategoryByName(inv.vehicle_vessel_name) === filterForm.value.vehicleOwnership
 }
 
 function collectReceiptDownloadTargets(records: any[]): ReceiptDownloadTarget[] {
@@ -1133,6 +1133,9 @@ const searchDestinations = computed(() => createLocalSearchFn(() => filterOption
 function buildSearchParams() {
   const params: any = {
     fVeh: filterForm.value.vehicle || null,
+    fVehCategory: showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部'
+      ? filterForm.value.vehicleOwnership
+      : null,
     fName: filterForm.value.billName || null,
     fOrigin: filterForm.value.origin || null,
     fDest: filterForm.value.destination || null,
@@ -1153,7 +1156,6 @@ function buildSearchParams() {
   // 会导致匹配记录不在当前页。有这些筛选时不使用后端分页。
   const hasClientFilter = shipFilterSelected.value.length > 0
     || carrierFilterSelected.value.length > 0
-    || (showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部')
 
   if (usePagination.value && !hasClientFilter) {
     params.page = currentPage.value
