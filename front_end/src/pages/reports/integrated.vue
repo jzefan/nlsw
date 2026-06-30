@@ -2,7 +2,7 @@
 // @ts-nocheck
 import type { ColumnDef } from '@tanstack/vue-table'
 
-import { Download, FileSpreadsheet, RefreshCcw, Search, Settings2, X } from 'lucide-vue-next'
+import { Download, FileSpreadsheet, RefreshCcw, Search, Settings2, Table2, X } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { computed, h, reactive, ref, toRef, watch } from 'vue'
 import { toast } from 'vue-sonner'
@@ -22,6 +22,7 @@ import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/ui/date-picker'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getCompanies, getDestinations, getVehicles } from '@/services/api/data-dict.api'
 import { getIntegratedQuery } from '@/services/api/report.api'
@@ -709,6 +710,85 @@ watch(showNotSent, (val) => {
 })
 
 
+// Summary by Date + Vehicle
+// sendWeightInt is stored as integer thousandths (weight × 1000) to avoid float accumulation drift
+interface SummaryRow {
+  date: string
+  vehicle: string
+  blockCount: number
+  sendWeightInt: number
+}
+
+const showSummaryDialog = ref(false)
+const summaryLoading = ref(false)
+const summaryRows = ref<SummaryRow[]>([])
+
+const summaryTotal = computed(() => ({
+  blockCount: summaryRows.value.reduce((sum, r) => sum + r.blockCount, 0),
+  sendWeightInt: summaryRows.value.reduce((sum, r) => sum + r.sendWeightInt, 0),
+}))
+
+async function handleSummary() {
+  summaryLoading.value = true
+  summaryRows.value = []
+  showSummaryDialog.value = true
+
+  try {
+    const params: any = {
+      fName: filter.billingName ? [filter.billingName] : undefined,
+      fVeh: filter.vehicle ? [filter.vehicle] : undefined,
+      fVehMode: filter.vehicleMode || undefined,
+      fDest: filter.destination ? [filter.destination] : undefined,
+      fFrom: filter.origin ? [filter.origin] : undefined,
+      fCustomerName: filter.customer || undefined,
+      fBno: filter.billNo.trim() || undefined,
+      fOrder: filter.orderNo.trim() || undefined,
+      fType: 'bill-first',
+      fShowDestForVessel: showDestForVessel.value ? 1 : 0,
+      fShowUnsend: 0,
+      isExport: true,
+    }
+
+    if (filter.startDate && filter.endDate) {
+      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
+      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
+    }
+
+    const res = await getIntegratedQuery(params)
+    if (!res.ok || !res.bills) {
+      toast.error('汇总失败: 获取数据错误')
+      return
+    }
+
+    const groupMap = new Map<string, SummaryRow>()
+    for (const bill of res.bills) {
+      const date = bill.inv_ship_date ? dayjs(bill.inv_ship_date).format('YYYY-MM-DD') : '(无日期)'
+      const vehicle = bill.veh_ves_name || '(无车船)'
+      const key = `${date}\x00${vehicle}`
+      const weightFloat = !bill.send_weight && bill.block_num > 0
+        ? (bill.send_num || 0) * (bill.weight || 0)
+        : (bill.send_weight || 0)
+      const weightInt = Math.round(weightFloat * 1000)
+
+      const existing = groupMap.get(key)
+      if (existing) {
+        groupMap.set(key, { ...existing, blockCount: existing.blockCount + (bill.send_num || 0), sendWeightInt: existing.sendWeightInt + weightInt })
+      } else {
+        groupMap.set(key, { date, vehicle, blockCount: bill.send_num || 0, sendWeightInt: weightInt })
+      }
+    }
+
+    summaryRows.value = [...groupMap.values()].sort((a, b) => {
+      const d = a.date.localeCompare(b.date)
+      return d !== 0 ? d : a.vehicle.localeCompare(b.vehicle)
+    })
+  } catch (e: any) {
+    toast.error('汇总出错', { description: e.message })
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
 // Pagination
 function handlePageChange(p: number) {
   page.value = p
@@ -750,6 +830,10 @@ function handlePageChange(p: number) {
   <!-- 桌面端视图 -->
   <BasicPage v-else title="综合查询" description="综合查询提单、运单及发货情况">
     <template #actions>
+      <UiButton variant="outline" size="sm" :disabled="summaryLoading" @click="handleSummary">
+        <Table2 class="w-4 h-4 mr-1" />
+        汇总
+      </UiButton>
       <UiButton variant="outline" size="sm" @click="handleExportAccount">
         <FileSpreadsheet class="w-4 h-4 mr-1" />
         导出对账数据
@@ -997,6 +1081,52 @@ function handlePageChange(p: number) {
 
   <!-- 导出对话框（移动端和桌面端共用） -->
   <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
+
+  <!-- 按日期车船汇总对话框 -->
+  <Dialog v-model:open="showSummaryDialog">
+    <DialogContent class="min-w-[560px] max-w-[90vw] max-h-[90vh] flex flex-col">
+      <DialogHeader>
+        <DialogTitle>按日期车船汇总</DialogTitle>
+      </DialogHeader>
+      <div class="flex-1 overflow-auto">
+        <div v-if="summaryLoading" class="flex justify-center py-10">
+          <UiSpinner />
+        </div>
+        <table v-else-if="summaryRows.length > 0" class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-muted/50 sticky top-0">
+              <th class="border px-3 py-2 text-left font-medium">发货日期</th>
+              <th class="border px-3 py-2 text-left font-medium">车船</th>
+              <th class="border px-3 py-2 text-right font-medium">块数</th>
+              <th class="border px-3 py-2 text-right font-medium">发运量</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, idx) in summaryRows" :key="idx" class="hover:bg-muted/20">
+              <td class="border px-3 py-1.5 text-muted-foreground">
+                {{ idx === 0 || summaryRows[idx - 1].date !== row.date ? row.date : '' }}
+              </td>
+              <td class="border px-3 py-1.5">{{ row.vehicle }}</td>
+              <td class="border px-3 py-1.5 text-right">{{ row.blockCount }}</td>
+              <td class="border px-3 py-1.5 text-right">{{ (row.sendWeightInt / 1000).toFixed(3) }}</td>
+            </tr>
+            <tr class="bg-muted/50 font-semibold">
+              <td class="border px-3 py-2">总计</td>
+              <td class="border px-3 py-2" />
+              <td class="border px-3 py-2 text-right">{{ summaryTotal.blockCount }}</td>
+              <td class="border px-3 py-2 text-right">{{ (summaryTotal.sendWeightInt / 1000).toFixed(3) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-center text-muted-foreground py-8">
+          暂无数据，请先查询后再汇总
+        </p>
+      </div>
+      <DialogFooter>
+        <UiButton variant="outline" @click="showSummaryDialog = false">关闭</UiButton>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <route lang="yaml">

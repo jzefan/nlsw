@@ -274,11 +274,31 @@ watch(carrierFilterSelected, () => {
   onCarrierFilterChanged()
 })
 
+function matchesCarrierFilter(inv: any, personMap = vehPersonMap.value) {
+  if (carrierFilterSelected.value.length === 0) return true
+
+  const carrier = personMap[inv.vehicle_vessel_name]
+  if (!carrier) return false
+  if (typeof carrier === 'string') return carrierFilterSelected.value.includes(carrier)
+
+  const boss = carrier.boss || ''
+  const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+  if (bossList.length <= 1) {
+    return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
+  }
+
+  const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
+  if (!found || !found.rb) return false
+  const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+  return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
+}
+
 // 级联筛选选项（每个下拉选项 = 全量记录按其他已选条件过滤后的唯一值）
 // 后端分页模式下使用 summaryRecords（全量轻量数据），否则使用 dbRecords
 const filterOptions = computed(() => {
   function applyOtherFilters(exclude: string) {
     let filtered = summaryRecords.value.length > 0 ? summaryRecords.value : dbRecords.value
+    filtered = filtered.filter((inv) => matchesCarrierFilter(inv))
     if (exclude !== 'vehicle' && filterForm.value.vehicle) {
       filtered = filtered.filter((inv) => inv.vehicle_vessel_name === filterForm.value.vehicle)
     }
@@ -549,22 +569,7 @@ function applyLocalFilters(records: any[]) {
     })
   }
 
-  if (carrierFilterSelected.value.length > 0) {
-    filteredRecords = filteredRecords.filter((inv) => {
-      const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
-      if (!carrier) return false
-      if (typeof carrier === 'string') return carrierFilterSelected.value.includes(carrier)
-      const boss = carrier.boss || ''
-      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
-      if (bossList.length <= 1) {
-        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
-      }
-      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
-      if (!found || !found.rb) return false
-      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
-      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
-    })
-  }
+  filteredRecords = filteredRecords.filter((inv) => matchesCarrierFilter(inv))
 
   if (filterForm.value.billName) {
     filteredRecords = filteredRecords.filter((inv) => inv.ship_name === filterForm.value.billName)
@@ -1258,24 +1263,7 @@ function calcSummaryFromRecords(records: any[]) {
       return shipFilterSelected.value.includes(sc)
     })
   }
-  if (carrierFilterSelected.value.length > 0) {
-    filtered = filtered.filter((inv) => {
-      const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
-      if (!carrier) return false
-      if (typeof carrier === 'string') {
-        return carrierFilterSelected.value.includes(carrier)
-      }
-      const boss = carrier.boss || ''
-      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
-      if (bossList.length <= 1) {
-        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
-      }
-      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
-      if (!found || !found.rb) return false
-      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
-      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
-    })
-  }
+  filtered = filtered.filter((inv) => matchesCarrierFilter(inv))
   if (filterForm.value.billName) {
     filtered = filtered.filter((inv) => inv.ship_name === filterForm.value.billName)
   }
@@ -1401,27 +1389,7 @@ function buildTableData() {
   }
 
   // 应用承运单位筛选（只匹配已确定承运单位的记录，多选未确定的不匹配）
-  if (carrierFilterSelected.value.length > 0) {
-    filteredRecords = filteredRecords.filter((inv) => {
-      const carrier = vehPersonMap.value[inv.vehicle_vessel_name]
-      if (!carrier) return false
-      if (typeof carrier === 'string') {
-        // 单一承运单位：直接匹配
-        return carrierFilterSelected.value.includes(carrier)
-      }
-      const boss = carrier.boss || ''
-      const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
-      if (bossList.length <= 1) {
-        // 单一承运单位
-        return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
-      }
-      // 多个承运单位：必须已选定（real_boss）且选定值包含筛选项
-      const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
-      if (!found || !found.rb) return false
-      const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
-      return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
-    })
-  }
+  filteredRecords = filteredRecords.filter((inv) => matchesCarrierFilter(inv))
 
   // 应用开单名称筛选（客户端）
   if (filterForm.value.billName) {
@@ -2707,17 +2675,7 @@ function buildExportRowsFromInvoices(records: any[], options: {
     })
   }
 
-  if (carrierFilterSelected.value.length > 0) {
-    filteredRecords = filteredRecords.filter((inv) => {
-      const carrier = options.vehPersonMap[inv.vehicle_vessel_name]
-      const boss = typeof carrier === 'string' ? carrier : carrier?.boss || ''
-      const bossList = boss
-        .split(/,|，/)
-        .map((b: string) => b.trim())
-        .filter(Boolean)
-      return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
-    })
-  }
+  filteredRecords = filteredRecords.filter((inv) => matchesCarrierFilter(inv, options.vehPersonMap))
 
   if (filterForm.value.billName) {
     filteredRecords = filteredRecords.filter((inv) => inv.ship_name === filterForm.value.billName)

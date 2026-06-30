@@ -8,6 +8,20 @@ const { isAdmin: isAdminPrivilege, hasPermission, PERMISSIONS } = require('../..
 
 const EPSILON = 0.0001;
 
+// 运单结算标志位（与 controllers/bill.js、controllers/api/settle.js 中保持一致）
+const CUSTOMER_SETTLE_FLAG = 1;     // 客户结算
+const COLLECTION_SETTLE_FLAG = 2;   // 代收代付结算
+
+/**
+ * 判断运单是否已结算（客户结算或代收代付结算）。
+ * 只要其中任一已完成结算，运单即不允许再修改/删除。
+ */
+function isWaybillSettled(invoice) {
+  if (!invoice) return false;
+  const flag = invoice.settle_flag || 0;
+  return (flag & (CUSTOMER_SETTLE_FLAG | COLLECTION_SETTLE_FLAG)) !== 0;
+}
+
 function areFloatsEqual(a, b) {
   return Math.abs(a - b) < EPSILON;
 }
@@ -667,6 +681,12 @@ exports.buildShipInvoice = async (req, res) => {
 
     // 1. 查找是否已存在该运单
     let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();
+
+    // 已结算的运单（客户结算或代收代付结算）不允许修改
+    if (isWaybillSettled(dbInv)) {
+      return res.json({ ok: false, message: '此运单已结算，不能修改' });
+    }
+
     let existingInvoiceVehicles = [];
     if (dbInv) {
       const billIds = (dbInv.bills || []).map((bill) => bill.bill_id).filter(Boolean);
@@ -1248,8 +1268,8 @@ exports.deleteInvoice = async (req, res) => {
       return res.json({ ok: false, message: '运单不存在' });
     }
 
-    // 2. 检查是否已结算
-    if (invoice.state === '已结算') {
+    // 2. 检查是否已结算（客户结算或代收代付结算均不允许删除）
+    if (isWaybillSettled(invoice)) {
       return res.json({ ok: false, message: '此运单已结算，不能删除' });
     }
 
@@ -1344,6 +1364,11 @@ exports.buildTruckInvoice = async (req, res) => {
 
     // 1. 查找是否已存在该运单
     let dbInv = await Invoice.findOne(buildTenantQuery(req, { waybill_no: data.waybill_no })).exec();
+
+    // 已结算的运单（客户结算或代收代付结算）不允许修改
+    if (isWaybillSettled(dbInv)) {
+      return res.json({ ok: false, message: '此运单已结算，不能修改' });
+    }
 
     // 2. 如果明细为空且运单已存在，清空明细并恢复所有提单
     if (flatBills.length === 0) {
