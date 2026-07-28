@@ -2717,22 +2717,27 @@ function buildExportRowsFromInvoices(records: any[], options: {
       }
     }
 
+    // 与列表保持一致：船主行状态不匹配时，仍保留状态匹配的内部运单行。
     const settleState = filterForm.value.settleState
-    if (settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState) {
+    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) {
       return
     }
+    const hideMainRow = vehicleFiltered || !mainStateMatch
 
     const mainRow = buildMainRow(inv, isVessel, vehObj, options)
     mainRow.vehicleFiltered = vehicleFiltered
-    if (!vehicleFiltered) {
+    if (!hideMainRow) {
       rows.push(mainRow)
     }
 
     const vesselNameMatched = vehicleFilter && isVessel && inv.vehicle_vessel_name === vehicleFilter
     if (isVessel && vehObj && !vesselNameMatched) {
       Object.keys(vehObj).forEach((key) => {
-        const subRow = buildSubRow(inv, vehObj[key], key, mainRow, options)
-        if (vehicleFiltered) {
+        const veh = vehObj[key]
+        if (settleState && settleState !== '全部' && veh.state !== settleState) return
+        const subRow = buildSubRow(inv, veh, key, mainRow, options)
+        if (hideMainRow) {
           subRow.parentExpanded = true
         }
         rows.push(subRow)
