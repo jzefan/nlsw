@@ -9,7 +9,13 @@ import { BasicPage } from '@/components/global-layout'
 import ConfirmDialog from '@/components/confirm-dialog.vue'
 import SearchableCombobox from '@/components/searchable-combobox.vue'
 import { DatePicker } from '@/components/ui/date-picker'
-import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select'
+import {
+  Select as UiSelect,
+  SelectContent as UiSelectContent,
+  SelectItem as UiSelectItem,
+  SelectTrigger as UiSelectTrigger,
+  SelectValue as UiSelectValue,
+} from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   buildShipInvoice,
@@ -1446,7 +1452,6 @@ function formatWeight(num: number | string | null | undefined) {
 function isBillHighlighted(bill: InvoiceBill) {
   return bill._id ? highlightedBillIds.value.has(bill._id) : false
 }
-
 </script>
 
 <template>
@@ -1579,6 +1584,10 @@ function isBillHighlighted(bill: InvoiceBill) {
             >
               <X class="w-3 h-3 mr-1" />
               清空
+            </UiButton>
+            <UiButton :disabled="!currentWagonNo || wagonTotalNumber === 0" @click="confirmWagon">
+              <Check class="w-4 h-4 mr-1" />
+              确认此车配发
             </UiButton>
           </div>
           <div class="text-xs sm:text-sm text-muted-foreground">

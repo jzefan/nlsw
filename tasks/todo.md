@@ -1,3 +1,16 @@
+# 车船结算“不需要结算”误报已结算排查
+
+- [x] 定位前端“不需要结算”动作及请求参数
+- [x] 追踪后端“已结算”判定并与真实 Bill 数据对照
+- [x] 建立最小复现/测试并记录根因与建议
+
+## Review
+
+- 根因：单行点击的前端拦截条件错误地依据顶部全局筛选 `filterForm.settleState`，而非该行的实际 `vessel_settle_state`。当页面在“全部”标签时，任何尚未标记“不需要结算”的行都会被提示“已结算”。
+- 该提示发生在 API 请求之前；本次记录没有被后端拒绝，也没有发生数据库写入。
+- 提供的 Bill 中 `settle_flag: 0`、`invoices[0].inv_settle_flag: 0` 均表示客户/代收结算未完成；车船结算页实际使用对应 Invoice 的 `vessel_settle_state`，截图显示该行是“未结算”。
+- 验证：针对性断言已复现“行=未结算、顶部=全部”必然误报，并确认 `node --check controllers/api/vessel_settle.js` 成功。现有 `test/vessel-settle-weight-range.test.js` 与当前重量筛选算法期待不一致而失败，和本问题无关，未改动。
+
 # 车船结算已结算导出空数据修复
 
 - [x] 比对列表和导出路径的状态筛选语义，确认内部运单状态被导出路径错误丢弃
@@ -110,3 +123,81 @@
 - 后端兜底：`controllers/api/report.js` 新增 `normalizeIntegratedQueryTextFields`，即使别的客户端直接调接口，`fOrder/fBno` 前后空格也会被清理后再参与查询。
 - 回归测试通过：`node --test test/integrated-query-response.test.js`
 - 前端校验通过：`pnpm exec vue-tsc -b`
+
+## 磊硕物流部署目标
+
+- [x] 将磊硕物流的 SSH 用户名和密码改为运行时输入，避免在仓库中新增凭据
+- [x] 在部署目标菜单和帮助文本中加入 `leishuo`（146.56.224.80）
+- [x] 让磊硕物流 Nginx 对外监听 3031，并在前端构建时使用对应 API 地址；其他目标保持 80 公网端口与 1080 后端端口
+- [x] 校验脚本语法与目标选择、端口替换逻辑
+
+## Review
+
+- `leishuo` 选择项使用 IP `146.56.224.80`，并在运行时收集 SSH 用户名和密码，不在脚本内新增凭据。
+- 该目标的前端产物将 API 地址设为 `http://146.56.224.80:3031/api`；远端部署时以仓库中的 Nginx 模板为基础生成 `listen 3031 default_server` 配置。后端仍使用原有 1080 端口。
+- 已验证：`bash -n deploy/deploy.sh`、`git diff --check` 均退出成功；对 Nginx 模板应用相同替换后得到 `listen 3031 default_server`。
+
+## 部署脚本远端 Node 运行时修复
+
+- [x] 根据磊硕服务器部署日志定位到两段远端 SSH 脚本均写死 Node 22 路径，导致非交互 shell 回退到系统 Node 12 且找不到 npm
+- [x] 根据磊硕服务器新环境移除全部 NVM 依赖
+- [x] 让磊硕固定使用 `~/sw/node-v22/bin`，其他目标保持 `~/sw/node-v22.22/bin`
+- [x] 校验两段远端命令均不会加载 NVM，且使用目标对应的固定目录
+
+## Review
+
+- `NODE_INSTALL_DIR` 默认为 `sw/node-v22.22`；选择 `leishuo` 时改为 `sw/node-v22`。
+- 两段远端 SSH 命令均直接将该目录加入 `PATH`，不会加载任何版本管理工具。
+- 验证：`bash -n deploy/deploy.sh`、`git diff --check` 均成功；检查确认两段远端命令均使用目标目录，脚本中没有 NVM 引用。
+
+## 部署时启动 MongoDB
+
+- [x] 根据后端 `ECONNREFUSED 127.0.0.1:27027` 日志定位 MongoDB 未运行
+- [x] 对照 `deploy/server-init.sh`，确认部署主流程错误地以“服务单元存在”代替“服务已运行”
+- [x] 改为启动 inactive 的 systemd `mongod`，并保留非 systemd 的 `startdb.sh` 回退路径
+- [x] 校验脚本语法和 MongoDB 启动分支
+
+## Review
+
+- 根因：部署脚本先前使用 `systemctl list-units --all` 判断 MongoDB 是否“由 systemd 管理”；inactive 服务也会出现在该列表，因此脚本错误跳过启动，后端连接 `127.0.0.1:27027` 被拒绝。
+- 修复：改用 `systemctl is-active --quiet mongod` 判断实际状态。服务已安装但 inactive 时执行 `sudo systemctl start mongod`；无 systemd 服务时才回退到 `startdb.sh`，并在后端重启前确认 `mongod` 进程存在。
+- 验证：`bash -n deploy/deploy.sh`、`git diff --check` 均成功；MongoDB 启动段包含 active 检查、systemd 启动、回退路径和进程复查，旧的 `list-units --all` 条件已不存在。
+
+## 非交互部署的 sudo 认证
+
+- [x] 根据 `sudo: a terminal is required` 确认 SSH 登录密码不会自动用于远端 sudo
+- [x] 清点部署主流程中的所有 sudo 调用，覆盖 MongoDB 与 Nginx
+- [x] 为远端 sudo 提供标准输入密码，并校验脚本与特权调用路径
+
+## Review
+
+- 根因：部署通过 SSH heredoc 执行，未分配终端；`sudo` 无法读取密码。MongoDB 的 `systemctl start` 因而失败，之后 Nginx 配置也会受相同问题影响。
+- 修复：磊硕部署目标新增可选 sudo 密码输入（空值复用 SSH 密码）。脚本以 Base64 在远端会话中传递密码，`run_sudo` 使用 `sudo -S` 从标准输入读取；MongoDB、Nginx 文件安装、配置校验和重载均通过该函数执行。
+- 验证：`bash -n deploy/deploy.sh`、`git diff --check` 均成功；模拟 `sudo -S` 接收正确密码且命令成功执行，并确认认证函数位于实际部署的远端会话中。
+
+## 磊硕物流项目 MongoDB 配置
+
+- [x] 根据 `ps` 输出确认 systemd 启动的是错误的 `/etc/mongod.conf` 实例
+- [x] 确认磊硕物流必须使用 `/home/leishuo/nlsw2/data/config/mongod.conf` 并监听 27027
+- [x] 仅为 leishuo 调用 `~/nlsw2/data/script/startdb.sh` 启动项目 MongoDB，其他目标保留既有启动方式
+- [x] 以 TCP 27027 连通性校验项目 MongoDB 已就绪
+
+## Review
+
+- 根因：`mongod` 进程来自 systemd 的 `/etc/mongod.conf`，并非磊硕项目的配置；该实例没有监听应用依赖的 27027，因此 Mongoose 报 `ECONNREFUSED`。
+- 修复：`leishuo` 专用 `project` 模式停止 active 的默认 systemd MongoDB 后，后台调用 `$DEPLOY_PATH/data/script/startdb.sh`；不再由部署脚本直接执行 `mongod`。其他目标保持现有 systemd / `startdb.sh` 策略。
+- 验证：`data/script/startdb.sh` 具备执行权限；`bash -n deploy/deploy.sh`、`git diff --check` 均成功；静态检查确认项目启动脚本、启动日志及 TCP 27027 就绪检查均已接入。
+
+## 部署脚本 PM2 运行时可靠性
+
+- [x] 先添加回归测试，固定前端必须使用目标 Node 的绝对 `serve` 路径
+- [x] 在前后端 PM2 启动后校验进程处于 online，失败时输出日志并终止部署
+- [x] 运行脚本语法、回归测试和远端服务连通性验证
+- [x] 让 PM2 systemd 开机服务通过 `run_sudo` 配置，避免 Node/NVM 迁移后重启丢失服务
+
+## Review
+
+- 根因：新 Node 目录里安装的是 PM2 7.0.3，而守护进程仍是旧 Node/NVM 环境的 PM2 5.4.3；后端因此停留在 `launching`。旧 PM2 保存的前端命令还是裸 `serve`，NVM 删除后会以 exit 127 无限重试。
+- 线上处置：执行 `pm2 update` 后发现旧条目已经失效，最终清洁重建 PM2，并仅恢复 `nlsw-backend`（Node 22.22.0）和以 `/home/leishuo/sw/node-v22/bin/serve` 启动的 `nlsw-frontend`。二者均为 `online`，本机 3000/1080 及 Nginx 3031/API 反代均验证成功。
+- 脚本修复：前端改用目标 Node 下的绝对 `serve` 路径；前后端在 `pm2 start` 后均通过 `pm2 pid` 验证在线，失败时输出最近 50 行日志并终止部署。PM2 的 systemd 开机服务改为通过 `run_sudo` 和目标 Node `PATH` 配置，失败不再静默跳过。
+- 校验：`node --test test/deploy-script-pm2.test.js`、`bash -n deploy/deploy.sh`、`git diff --check` 全部通过。

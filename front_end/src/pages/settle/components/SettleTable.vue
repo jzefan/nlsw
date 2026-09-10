@@ -23,37 +23,47 @@ export interface ColumnVisibility {
   spec: boolean
 }
 
-const props = withDefaults(defineProps<{
-  bills: SettleBill[]
-  settleMode: SettleMode
-  loading: boolean
-  otherModeHasData: boolean
-  selected: SettleBill[]
-  basketBills?: SettleBill[]
-  columnVisibility?: ColumnVisibility
-}>(), {
-  columnVisibility: () => ({
-    status: true, orderNo: true, billNo: true, billingName: true,
-    vehicle: true, num: true, weight: true, unitPrice: true,
-    totalPrice: true, route: true, warehouse: true, shipDate: true,
-    shipper: true, spec: true,
-  }),
-})
+const props = withDefaults(
+  defineProps<{
+    bills: SettleBill[]
+    settleMode: SettleMode
+    loading: boolean
+    otherModeHasData: boolean
+    selected: SettleBill[]
+    basketBills?: SettleBill[]
+    columnVisibility?: ColumnVisibility
+  }>(),
+  {
+    columnVisibility: () => ({
+      status: true,
+      orderNo: true,
+      billNo: true,
+      billingName: true,
+      vehicle: true,
+      num: true,
+      weight: true,
+      unitPrice: true,
+      totalPrice: true,
+      route: true,
+      warehouse: true,
+      shipDate: true,
+      shipper: true,
+      spec: true,
+    }),
+  },
+)
 
 const emit = defineEmits<{
   (e: 'update:selected', bills: SettleBill[]): void
   (e: 'switch-mode', mode: SettleMode): void
 }>()
 
-const visibleColCount = computed(() =>
-  1 + Object.values(props.columnVisibility).filter(Boolean).length
-)
+const visibleColCount = computed(() => 1 + Object.values(props.columnVisibility).filter(Boolean).length)
 
 // 可选的提单（排除已在结算篮中的）
 const selectableBills = computed(() => {
-  if (!props.basketBills)
-    return props.bills
-  return props.bills.filter(bill => !props.basketBills!.some(b => b._id === bill._id))
+  if (!props.basketBills) return props.bills
+  return props.bills.filter((bill) => !props.basketBills!.some((b) => b._id === bill._id))
 })
 
 // 是否全选（只计算可选的提单）
@@ -65,48 +75,46 @@ const allSelected = computed(() => {
 function toggleAll() {
   if (allSelected.value) {
     emit('update:selected', [])
-  }
-  else {
+  } else {
     emit('update:selected', [...selectableBills.value])
   }
 }
 
 // 判断两个提单是否相同（使用更精确的条件）
 function isSameBill(bill1: SettleBill, bill2: SettleBill) {
-  return bill1._id === bill2._id
-    && bill1.inv_no === bill2.inv_no
-    && bill1.veh_ves_name === bill2.veh_ves_name
-    && bill1.send_num === bill2.send_num
-    && bill1.send_weight === bill2.send_weight
+  return (
+    bill1._id === bill2._id &&
+    bill1.inv_no === bill2.inv_no &&
+    bill1.veh_ves_name === bill2.veh_ves_name &&
+    bill1.send_num === bill2.send_num &&
+    bill1.send_weight === bill2.send_weight
+  )
 }
 
 // 切换单个提单选择
 function toggleBill(bill: SettleBill) {
   // 如果已在结算篮中，不允许选择
-  if (isInBasket(bill))
-    return
+  if (isInBasket(bill)) return
 
-  const index = props.selected.findIndex(b => isSameBill(b, bill))
+  const index = props.selected.findIndex((b) => isSameBill(b, bill))
   if (index >= 0) {
     const newSelected = [...props.selected]
     newSelected.splice(index, 1)
     emit('update:selected', newSelected)
-  }
-  else {
+  } else {
     emit('update:selected', [...props.selected, bill])
   }
 }
 
 // 判断是否选中
 function isSelected(bill: SettleBill) {
-  return props.selected.some(b => isSameBill(b, bill))
+  return props.selected.some((b) => isSameBill(b, bill))
 }
 
 // 判断是否在结算篮中
 function isInBasket(bill: SettleBill) {
-  if (!props.basketBills)
-    return false
-  return props.basketBills.some(b => isSameBill(b, bill))
+  if (!props.basketBills) return false
+  return props.basketBills.some((b) => isSameBill(b, bill))
 }
 
 // 获取当前价格
@@ -116,10 +124,8 @@ function getPrice(bill: SettleBill) {
 
 // 获取价格显示
 function getPriceDisplay(price: number) {
-  if (price > 0)
-    return { text: price.toFixed(2), class: 'text-green-600 font-semibold' }
-  if (price < 0)
-    return { text: '不需要结算', class: 'text-blue-600' }
+  if (price > 0) return { text: price.toFixed(2), class: 'text-green-600 font-semibold' }
+  if (price < 0) return { text: '不需要结算', class: 'text-blue-600' }
   return { text: '0', class: 'text-red-600 font-semibold' }
 }
 
@@ -137,10 +143,8 @@ function getStatus(bill: SettleBill) {
   if (!bill.inv_settle_flag || bill.inv_settle_flag === 0) {
     if (bill.price === -1 && bill.collection_price === -1)
       return { text: '客户,代收不需结算', class: 'bg-blue-100 text-blue-700' }
-    if (bill.price === -1)
-      return { text: '客户不需结算', class: 'bg-blue-100 text-blue-700' }
-    if (bill.collection_price === -1)
-      return { text: '代收不需结算', class: 'bg-blue-100 text-blue-700' }
+    if (bill.price === -1) return { text: '客户不需结算', class: 'bg-blue-100 text-blue-700' }
+    if (bill.collection_price === -1) return { text: '代收不需结算', class: 'bg-blue-100 text-blue-700' }
     return { text: '未结算', class: 'bg-gray-100 text-gray-700' }
   }
 
@@ -161,8 +165,13 @@ function getStatus(bill: SettleBill) {
   }
 
   const text = parts.join(',')
-  const allDone = parts.length > 0 && parts.every(p => p.includes('已结算') || p.includes('不需结算'))
-  return { text, class: allDone ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
+  const allDone = parts.length > 0 && parts.every((p) => p.includes('已结算') || p.includes('不需结算'))
+  return {
+    text,
+    class: allDone
+      ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  }
 }
 
 // 获取订单显示（包含项次号）
@@ -182,7 +191,6 @@ function getBillingNameDisplay(bill: SettleBill) {
   return bill.billing_name
 }
 
-
 // 获取规格显示
 function getSpecDisplay(bill: SettleBill) {
   const width = bill.width || 0
@@ -191,14 +199,11 @@ function getSpecDisplay(bill: SettleBill) {
 
   if (width < 3000 && len < 13500) {
     return '正常'
-  }
-  else if ((width >= 3000 && width < 3300) || (len >= 13500 && len < 16500)) {
+  } else if ((width >= 3000 && width < 3300) || (len >= 13500 && len < 16500)) {
     return '超长宽'
-  }
-  else if (width >= 3300 || len >= 16500) {
+  } else if (width >= 3300 || len >= 16500) {
     return '特长宽'
-  }
-  else {
+  } else {
     // 如果不符合任何规格分类，显示实际尺寸（长*宽*厚）
     return `${len}*${width}*${thickness}`
   }
@@ -245,66 +250,112 @@ function switchToOtherMode() {
                 class="h-4 w-4 rounded border-gray-300"
                 :class="selectableBills.length === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
                 @change="toggleAll"
-              >
+              />
             </th>
-            <th v-if="columnVisibility.status" class="px-1.5 py-1.5 text-left min-w-[80px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.status"
+              class="px-1.5 py-1.5 text-left min-w-[80px] border-r border-border/50 text-xs"
+            >
               状态
             </th>
-            <th v-if="columnVisibility.orderNo" class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs whitespace-nowrap">
+            <th
+              v-if="columnVisibility.orderNo"
+              class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs whitespace-nowrap"
+            >
               订单号
             </th>
-            <th v-if="columnVisibility.billNo" class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.billNo"
+              class="px-1.5 py-1.5 text-left min-w-[95px] border-r border-border/50 text-xs"
+            >
               提单号
             </th>
-            <th v-if="columnVisibility.billingName" class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.billingName"
+              class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs"
+            >
               开单名称
             </th>
-            <th v-if="columnVisibility.vehicle" class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.vehicle"
+              class="px-1.5 py-1.5 text-left min-w-[110px] border-r border-border/50 text-xs"
+            >
               车船/运单号
             </th>
-            <th v-if="columnVisibility.num" class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.num"
+              class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs"
+            >
               块数
             </th>
-            <th v-if="columnVisibility.weight" class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.weight"
+              class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs"
+            >
               发运量
             </th>
-            <th v-if="columnVisibility.unitPrice" class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.unitPrice"
+              class="px-1.5 py-1.5 text-center min-w-[65px] border-r border-border/50 text-xs"
+            >
               单价
             </th>
-            <th v-if="columnVisibility.totalPrice" class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs">
-              总价格
+            <th
+              v-if="columnVisibility.totalPrice"
+              class="px-1.5 py-1.5 text-center min-w-[70px] border-r border-border/50 text-xs"
+            >
+              总金额
             </th>
-            <th v-if="columnVisibility.route" class="px-1.5 py-1.5 text-left min-w-[120px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.route"
+              class="px-1.5 py-1.5 text-left min-w-[120px] border-r border-border/50 text-xs"
+            >
               始发→目的地
             </th>
-            <th v-if="columnVisibility.warehouse" class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.warehouse"
+              class="px-1.5 py-1.5 text-left min-w-[70px] border-r border-border/50 text-xs"
+            >
               发货仓库
             </th>
-            <th v-if="columnVisibility.shipDate" class="px-1.5 py-1.5 text-left min-w-[90px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.shipDate"
+              class="px-1.5 py-1.5 text-left min-w-[90px] border-r border-border/50 text-xs"
+            >
               发货日期
             </th>
-            <th v-if="columnVisibility.shipper" class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs">
+            <th
+              v-if="columnVisibility.shipper"
+              class="px-1.5 py-1.5 text-left min-w-[65px] border-r border-border/50 text-xs"
+            >
               发货人
             </th>
-            <th v-if="columnVisibility.spec" class="px-1.5 py-1.5 text-left min-w-[85px] text-xs">
-              规格
-            </th>
+            <th v-if="columnVisibility.spec" class="px-1.5 py-1.5 text-left min-w-[85px] text-xs">规格</th>
           </tr>
         </thead>
         <tbody>
           <!-- 加载状态 -->
           <tr v-if="loading">
-            <td :colspan="visibleColCount" class="p-8 text-center text-muted-foreground">
-              加载中...
-            </td>
+            <td :colspan="visibleColCount" class="p-8 text-center text-muted-foreground">加载中...</td>
           </tr>
 
           <!-- 空状态 -->
           <tr v-else-if="bills.length === 0">
             <td :colspan="visibleColCount" class="p-8 text-center">
               <div class="flex flex-col items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-12 w-12 text-muted-foreground/50"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                  />
                 </svg>
                 <p v-if="emptyMessage.hasOtherMode" class="text-muted-foreground">
                   {{ emptyMessage.prefix }}
@@ -346,7 +397,7 @@ function switchToOtherMode() {
                 class="h-4 w-4 rounded border-gray-300"
                 :class="isInBasket(bill) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
                 @change="toggleBill(bill)"
-              >
+              />
             </td>
             <td v-if="columnVisibility.status" class="px-1.5 py-1.5 text-xs border-r border-border/50">
               <span class="px-2 py-0.5 rounded text-xs font-medium" :class="getStatus(bill).class">
@@ -363,7 +414,20 @@ function switchToOtherMode() {
                   v-if="isInBasket(bill)"
                   class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500 text-white rounded text-[10px] font-medium whitespace-nowrap"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1" /><circle cx="19" cy="21" r="1" /><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></svg>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="w-2.5 h-2.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="8" cy="21" r="1" />
+                    <circle cx="19" cy="21" r="1" />
+                    <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+                  </svg>
                   已在结算篮
                 </span>
               </div>
@@ -387,10 +451,17 @@ function switchToOtherMode() {
             <td v-if="columnVisibility.weight" class="px-1.5 py-1.5 text-center font-mono border-r border-border/50">
               {{ bill.send_weight.toFixed(3) }}
             </td>
-            <td v-if="columnVisibility.unitPrice" class="px-1.5 py-1.5 font-mono text-center border-r border-border/50" :class="getPriceDisplay(getPrice(bill)).class">
+            <td
+              v-if="columnVisibility.unitPrice"
+              class="px-1.5 py-1.5 font-mono text-center border-r border-border/50"
+              :class="getPriceDisplay(getPrice(bill)).class"
+            >
               {{ getPriceDisplay(getPrice(bill)).text }}
             </td>
-            <td v-if="columnVisibility.totalPrice" class="px-1.5 py-1.5 font-mono text-center border-r border-border/50">
+            <td
+              v-if="columnVisibility.totalPrice"
+              class="px-1.5 py-1.5 font-mono text-center border-r border-border/50"
+            >
               {{ getTotalPrice(bill) }}
             </td>
             <td v-if="columnVisibility.route" class="px-1.5 py-1.5 border-r border-border/50">

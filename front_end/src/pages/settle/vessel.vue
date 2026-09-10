@@ -47,7 +47,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -213,7 +220,7 @@ const billNameFilterOptions = ref<Array<{ value: string; label: string; checked:
 // 根据公司标识隐藏承运单位列：SaaS模式看tenant.code，独立部署看COMPANY_NAME
 const hideCarrier = computed(() => {
   if (authStore.isStandalone) {
-    return (authStore.standaloneCompany || '').includes('鑫鸿图')
+    return !(authStore.standaloneCompany || '').includes('军铁')
   }
   return authStore.tenant?.code === 'xht'
 })
@@ -261,10 +268,10 @@ const searchCarriers = computed(() => {
     let filtered = options
     if (search) {
       const s = search.toLowerCase()
-      filtered = filtered.filter(item => item.toLowerCase().includes(s))
+      filtered = filtered.filter((item) => item.toLowerCase().includes(s))
     }
     const start = (page - 1) * limit
-    const data = filtered.slice(start, start + limit).map(item => ({ name: item }))
+    const data = filtered.slice(start, start + limit).map((item) => ({ name: item }))
     return { ok: true, data, total: filtered.length }
   }
 })
@@ -282,14 +289,20 @@ function matchesCarrierFilter(inv: any, personMap = vehPersonMap.value) {
   if (typeof carrier === 'string') return carrierFilterSelected.value.includes(carrier)
 
   const boss = carrier.boss || ''
-  const bossList = boss.split(/,|，/).map((b: string) => b.trim()).filter(Boolean)
+  const bossList = boss
+    .split(/,|，/)
+    .map((b: string) => b.trim())
+    .filter(Boolean)
   if (bossList.length <= 1) {
     return bossList.some((b: string) => carrierFilterSelected.value.includes(b))
   }
 
   const found = carrier.real_boss?.find((rb: any) => rb.waybill_no === inv.waybill_no)
   if (!found || !found.rb) return false
-  const selectedBossList = found.rb.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+  const selectedBossList = found.rb
+    .split(/[,，]/)
+    .map((s: string) => s.trim())
+    .filter(Boolean)
   return selectedBossList.some((b: string) => carrierFilterSelected.value.includes(b))
 }
 
@@ -538,7 +551,9 @@ function getReceiptFileExtension(image: settleApi.ReceiptImageMeta) {
 
 function getStickyCellClass(row: any) {
   if (row.isSubItem) {
-    return row.selected ? 'bg-blue-100 dark:bg-blue-950 text-foreground dark:text-blue-50' : 'bg-green-100 dark:bg-green-950'
+    return row.selected
+      ? 'bg-blue-100 dark:bg-blue-950 text-foreground dark:text-blue-50'
+      : 'bg-green-100 dark:bg-green-950'
   }
   if (row.isVessel && !row.selected) {
     return 'bg-orange-100 dark:bg-orange-950'
@@ -550,9 +565,7 @@ function getStickyCellClass(row: any) {
 }
 
 function getNotNeedStarClass(notNeedColor: string) {
-  return notNeedColor === 'darkgray'
-    ? 'text-muted-foreground'
-    : 'text-foreground dark:text-amber-200'
+  return notNeedColor === 'darkgray' ? 'text-muted-foreground' : 'text-foreground dark:text-amber-200'
 }
 
 function getSelectedRowClass() {
@@ -634,7 +647,12 @@ function collectReceiptDownloadTargets(records: any[]): ReceiptDownloadTarget[] 
       }
     }
 
-    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    const mainStateMatch = !(
+      settleState &&
+      settleState !== '全部' &&
+      isVessel &&
+      inv.vessel_settle_state !== settleState
+    )
     if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) return
 
     const hideMainRow = vehicleFiltered || !mainStateMatch
@@ -765,7 +783,11 @@ function getReceiptZipFileName() {
 }
 
 function isReceiptDownloadAbortError(error: any) {
-  return error?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || /aborted|canceled|cancelled/i.test(error?.message || '')
+  return (
+    error?.name === 'AbortError' ||
+    error?.code === 'ERR_CANCELED' ||
+    /aborted|canceled|cancelled/i.test(error?.message || '')
+  )
 }
 
 async function refreshReceiptDownloadDirectoryView() {
@@ -937,10 +959,14 @@ async function handleDownloadReceipts() {
       }
       receiptDownloadState.value.currentFile = task.fileName
       try {
-        const response = await settleApi.downloadReceiptImageBlob(task.imageId, receiptDownloadAbortController.value?.signal)
-        const savedFileName = receiptDownloadMode.value === 'zip'
-          ? ensureUniqueZipFileName(task.fileName, usedZipFileNames)
-          : await writeReceiptFile(directoryHandle as LocalDirectoryHandle, task.fileName, response.data)
+        const response = await settleApi.downloadReceiptImageBlob(
+          task.imageId,
+          receiptDownloadAbortController.value?.signal,
+        )
+        const savedFileName =
+          receiptDownloadMode.value === 'zip'
+            ? ensureUniqueZipFileName(task.fileName, usedZipFileNames)
+            : await writeReceiptFile(directoryHandle as LocalDirectoryHandle, task.fileName, response.data)
 
         if (zip) {
           zip.file(savedFileName, response.data)
@@ -1138,9 +1164,10 @@ const searchDestinations = computed(() => createLocalSearchFn(() => filterOption
 function buildSearchParams() {
   const params: any = {
     fVeh: filterForm.value.vehicle || null,
-    fVehCategory: showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部'
-      ? filterForm.value.vehicleOwnership
-      : null,
+    fVehCategory:
+      showVehicleOwnershipFilter.value && filterForm.value.vehicleOwnership !== '全部'
+        ? filterForm.value.vehicleOwnership
+        : null,
     fName: filterForm.value.billName || null,
     fOrigin: filterForm.value.origin || null,
     fDest: filterForm.value.destination || null,
@@ -1154,13 +1181,12 @@ function buildSearchParams() {
     fReceipt: Number(filterForm.value.receiptState),
     fAmount: filterForm.value.amount,
     fWeight: filterForm.value.weight,
-    selfOwned: isSelfOwnedMode.value ? '1' : (authStore.features.selfVehicle ? '0' : undefined),
+    selfOwned: isSelfOwnedMode.value ? '1' : authStore.features.selfVehicle ? '0' : undefined,
   }
 
   // 发货单位/承运单位是客户端筛选，分页模式下后端不知道这些条件，
   // 会导致匹配记录不在当前页。有这些筛选时不使用后端分页。
-  const hasClientFilter = shipFilterSelected.value.length > 0
-    || carrierFilterSelected.value.length > 0
+  const hasClientFilter = shipFilterSelected.value.length > 0 || carrierFilterSelected.value.length > 0
 
   if (usePagination.value && !hasClientFilter) {
     params.page = currentPage.value
@@ -1306,7 +1332,12 @@ function calcSummaryFromRecords(records: any[]) {
     }
 
     const settleState = filterForm.value.settleState
-    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    const mainStateMatch = !(
+      settleState &&
+      settleState !== '全部' &&
+      isVessel &&
+      inv.vessel_settle_state !== settleState
+    )
     // 非船运记录主行状态不匹配则跳过
     if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) return
 
@@ -1446,7 +1477,12 @@ function buildTableData() {
 
     // 按状态筛选：船主行状态不匹配时，隐藏主行但仍处理子行（子行有独立状态）
     const settleState = filterForm.value.settleState
-    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    const mainStateMatch = !(
+      settleState &&
+      settleState !== '全部' &&
+      isVessel &&
+      inv.vessel_settle_state !== settleState
+    )
     // 非船运记录（运车到客户）主行状态不匹配则直接跳过
     if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) {
       return
@@ -1529,10 +1565,15 @@ function buildTableData() {
 }
 
 // 构建主行数据
-function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
-  vehPersonMap: vehPersonMap.value,
-  imageWaybillsSet: imageWaybillsSet.value,
-}) {
+function buildMainRow(
+  inv: any,
+  isVessel: boolean,
+  vehObj: any,
+  ctx = {
+    vehPersonMap: vehPersonMap.value,
+    imageWaybillsSet: imageWaybillsSet.value,
+  },
+) {
   const shipName = inv.ship_name || ''
   const shipCustomer = inv.ship_customer || ''
   const notNeedColor = inv.vessel_price < 0 ? 'darkgray' : 'red'
@@ -1569,7 +1610,10 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
 
   // 已选承运单位数组（支持多选）
   const selectedCarrierArr = carrierBoss
-    ? carrierBoss.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+    ? carrierBoss
+        .split(/[,，]/)
+        .map((s: string) => s.trim())
+        .filter(Boolean)
     : []
 
   // 价格文本
@@ -1633,10 +1677,16 @@ function buildMainRow(inv: any, isVessel: boolean, vehObj: any, ctx = {
 }
 
 // 构建子行数据
-function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any, ctx = {
-  vehPersonMap: vehPersonMap.value,
-  imageWaybillsSet: imageWaybillsSet.value,
-}) {
+function buildSubRow(
+  inv: any,
+  veh: any,
+  innerNo: string,
+  parentRow: any,
+  ctx = {
+    vehPersonMap: vehPersonMap.value,
+    imageWaybillsSet: imageWaybillsSet.value,
+  },
+) {
   const shipName = inv.ship_name || ''
   const shipCustomer = inv.ship_customer || ''
   const notNeedColor = veh.price < 0 ? 'darkgray' : 'red'
@@ -1672,7 +1722,10 @@ function buildSubRow(inv: any, veh: any, innerNo: string, parentRow: any, ctx = 
 
   // 已选承运单位数组（支持多选）
   const selectedCarrierArr = carrierBoss
-    ? carrierBoss.split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+    ? carrierBoss
+        .split(/[,，]/)
+        .map((s: string) => s.trim())
+        .filter(Boolean)
     : []
 
   // 价格文本
@@ -2207,7 +2260,9 @@ function handleConfirmBasketPrice() {
   // 选中这些没有价格的记录（包括子项）
   tableData.value.forEach((row) => {
     if (row.isSubItem) {
-      row.selected = itemsWithoutPrice.some((item: any) => item.inner_waybill_no && item.inner_waybill_no === row.inner_waybill_no)
+      row.selected = itemsWithoutPrice.some(
+        (item: any) => item.inner_waybill_no && item.inner_waybill_no === row.inner_waybill_no,
+      )
     } else {
       row.selected = itemsWithoutPrice.some((item: any) => !item.isSubItem && item.waybill_no === row.waybill_no)
     }
@@ -2540,7 +2595,7 @@ async function handleToggleReceipt(row: any) {
 }
 
 // 待恢复焦点的上传记录（上传成功刷新后用于定位 + 展开 + 滚动）
-const pendingFocusUpload = ref<{ waybillNo: string, innerWaybillNo?: string } | null>(null)
+const pendingFocusUpload = ref<{ waybillNo: string; innerWaybillNo?: string } | null>(null)
 // 重新构建表格时需要强制展开的船运 waybill_no 集合
 const forceExpandVesselSet = ref<Set<string>>(new Set())
 
@@ -2613,10 +2668,10 @@ function getExportColumns(includeUser = false) {
 
 function getExportColumnFormats(includeUser = false) {
   const fmtMap: Record<string, string> = {
-    '发运重量': '0.000',
-    '单价': '0.00',
-    '总价格': '0.00',
-    '预付': '0.00',
+    发运重量: '0.000',
+    单价: '0.00',
+    总价格: '0.00',
+    预付: '0.00',
   }
   return getExportColumns(includeUser).map((h) => fmtMap[h] || null)
 }
@@ -2662,10 +2717,13 @@ function appendExportRows(
   })
 }
 
-function buildExportRowsFromInvoices(records: any[], options: {
-  vehPersonMap: Record<string, any>
-  imageWaybillsSet: Set<string>
-}) {
+function buildExportRowsFromInvoices(
+  records: any[],
+  options: {
+    vehPersonMap: Record<string, any>
+    imageWaybillsSet: Set<string>
+  },
+) {
   let filteredRecords = records
 
   if (shipFilterSelected.value.length > 0) {
@@ -2719,7 +2777,12 @@ function buildExportRowsFromInvoices(records: any[], options: {
 
     // 与列表保持一致：船主行状态不匹配时，仍保留状态匹配的内部运单行。
     const settleState = filterForm.value.settleState
-    const mainStateMatch = !(settleState && settleState !== '全部' && isVessel && inv.vessel_settle_state !== settleState)
+    const mainStateMatch = !(
+      settleState &&
+      settleState !== '全部' &&
+      isVessel &&
+      inv.vessel_settle_state !== settleState
+    )
     if (settleState && settleState !== '全部' && !isVessel && inv.vessel_settle_state !== settleState) {
       return
     }
@@ -2820,7 +2883,7 @@ async function buildStyledMainExportBuffer(rows: any[], categoryMap: Record<stri
     const str = String(text ?? '')
     return [...str].reduce((sum, char) => sum + (char.charCodeAt(0) > 127 ? 2 : 1), 0)
   }
-  const columnWidths = headers.map(header => getTextWidth(header))
+  const columnWidths = headers.map((header) => getTextWidth(header))
 
   const headerRow = sheet.addRow(headers)
   headerRow.height = 22
@@ -3003,9 +3066,7 @@ async function restoreFocusAfterUpload() {
   })
   // 修复 parentRow 引用：让新生成的子行 parentRow 指向新的父行对象
   if (isSub) {
-    const newParent = next.find(
-      (r: any) => !r.isSubItem && r.isVessel && r.waybill_no === targetWaybill,
-    )
+    const newParent = next.find((r: any) => !r.isSubItem && r.isVessel && r.waybill_no === targetWaybill)
     if (newParent) {
       next.forEach((r: any) => {
         if (r.isSubItem && r.waybill_no === targetWaybill) {
@@ -3018,9 +3079,7 @@ async function restoreFocusAfterUpload() {
 
   await nextTick()
 
-  const key = isSub
-    ? `sub-${target.innerWaybillNo}`
-    : `main-${target.waybillNo}`
+  const key = isSub ? `sub-${target.innerWaybillNo}` : `main-${target.waybillNo}`
   const el = document.querySelector(`[data-row-key="${key}"]`) as HTMLElement | null
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -3224,12 +3283,7 @@ async function restoreFocusAfterUpload() {
               </span>
             </UiButton>
             <div class="flex items-center">
-              <UiButton
-                variant="outline"
-                size="sm"
-                class="h-9 rounded-r-none border-r-0"
-                @click="handleDelayInfo"
-              >
+              <UiButton variant="outline" size="sm" class="h-9 rounded-r-none border-r-0" @click="handleDelayInfo">
                 回执滞留
               </UiButton>
               <UiDropdownMenu>
@@ -3254,7 +3308,9 @@ async function restoreFocusAfterUpload() {
 
           <!-- 工具按钮组 -->
           <div class="flex items-center">
-            <UiButton variant="outline" size="sm" class="h-9 rounded-r-none border-r-0" @click="handleExport"> 导出 </UiButton>
+            <UiButton variant="outline" size="sm" class="h-9 rounded-r-none border-r-0" @click="handleExport">
+              导出
+            </UiButton>
             <UiDropdownMenu>
               <UiDropdownMenuTrigger as-child>
                 <UiButton variant="outline" size="icon" class="h-9 w-9 rounded-l-none px-0">
@@ -3362,10 +3418,7 @@ async function restoreFocusAfterUpload() {
         class="p-4 border rounded-lg bg-muted/30 space-y-2 mb-4 relative overflow-hidden"
         :class="{ 'pointer-events-none opacity-50': loading }"
       >
-        <div
-          v-if="loading"
-          class="absolute inset-0 flex items-center justify-center bg-muted/80 backdrop-blur-sm z-10"
-        >
+        <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-muted/80 backdrop-blur-sm z-10">
           <div class="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 class="w-4 h-4 animate-spin" />
             <span>{{ searchLoadingText }}</span>
@@ -3673,30 +3726,27 @@ async function restoreFocusAfterUpload() {
         <table class="w-full caption-bottom text-sm min-w-[1024px]">
           <TableHeader>
             <TableRow class="border-b">
-              <TableHead
-                class="px-1 py-1.5 text-left w-14 sticky top-0 bg-background z-20 shadow-sm"
-                nowrap
-              >
+              <TableHead class="px-1 py-1.5 text-left w-14 sticky top-0 bg-background z-20 shadow-sm" nowrap>
                 <div class="flex items-center">
-                <Checkbox v-model="selectAll" @update:model-value="handleSelectAll" />
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Toggle
-                        :pressed="allNotNeed"
-                        @click="handleBatchNotNeed"
-                        size="sm"
-                        class="ml-2 h-6 w-6 p-0"
-                        :class="getNotNeedStarClass(allNotNeed ? 'darkgray' : 'red')"
-                      >
-                        ★
-                      </Toggle>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                  <Checkbox v-model="selectAll" @update:model-value="handleSelectAll" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Toggle
+                          :pressed="allNotNeed"
+                          @click="handleBatchNotNeed"
+                          size="sm"
+                          class="ml-2 h-6 w-6 p-0"
+                          :class="getNotNeedStarClass(allNotNeed ? 'darkgray' : 'red')"
+                        >
+                          ★
+                        </Toggle>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{{ allNotNeed ? '批量取消不结算' : '批量不结算' }}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </TableHead>
               <TableHead
@@ -3940,8 +3990,17 @@ async function restoreFocusAfterUpload() {
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                   <Popover v-if="row.carrierOptions && row.carrierOptions.length > 1">
                     <PopoverTrigger as-child>
-                      <button class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full" @click.stop>
-                        <span class="truncate">{{ row.selectedCarrierArr.length === 0 ? '选择' : row.selectedCarrierArr.length <= 2 ? row.selectedCarrierArr.join(',') : `${row.selectedCarrierArr.slice(0,2).join(',')} +${row.selectedCarrierArr.length - 2}` }}</span>
+                      <button
+                        class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full"
+                        @click.stop
+                      >
+                        <span class="truncate">{{
+                          row.selectedCarrierArr.length === 0
+                            ? '选择'
+                            : row.selectedCarrierArr.length <= 2
+                              ? row.selectedCarrierArr.join(',')
+                              : `${row.selectedCarrierArr.slice(0, 2).join(',')} +${row.selectedCarrierArr.length - 2}`
+                        }}</span>
                         <ChevronsUpDown class="h-3 w-3 shrink-0 opacity-50 ml-1" />
                       </button>
                     </PopoverTrigger>
@@ -3952,7 +4011,10 @@ async function restoreFocusAfterUpload() {
                         class="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent cursor-pointer text-sm"
                         @click="toggleCarrier(row, opt)"
                       >
-                        <div class="h-4 w-4 border rounded flex items-center justify-center" :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''">
+                        <div
+                          class="h-4 w-4 border rounded flex items-center justify-center"
+                          :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''"
+                        >
                           <Check v-if="row.selectedCarrierArr.includes(opt)" class="h-3 w-3 text-primary-foreground" />
                         </div>
                         {{ opt }}
@@ -4011,18 +4073,18 @@ async function restoreFocusAfterUpload() {
                 <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                   {{ row.ticket_no || '-' }}
                 </TableCell>
-              <TableCell
-                class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
-                :class="getStickyCellClass(row)"
-                nowrap
-              >
-                {{ row.chargeText }}
-              </TableCell>
-              <TableCell
-                class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                :class="getStickyCellClass(row)"
-                nowrap
-              >
+                <TableCell
+                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
+                  :class="getStickyCellClass(row)"
+                  nowrap
+                >
+                  {{ row.chargeText }}
+                </TableCell>
+                <TableCell
+                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                  :class="getStickyCellClass(row)"
+                  nowrap
+                >
                   <div class="flex items-center justify-center gap-1">
                     <component
                       :is="row.receipt === 1 ? CheckSquare : Square"
@@ -4113,8 +4175,17 @@ async function restoreFocusAfterUpload() {
                 <TableCell v-if="showColCarrier" class="px-1.5 py-1.5">
                   <Popover v-if="row.carrierOptions && row.carrierOptions.length > 1">
                     <PopoverTrigger as-child>
-                      <button class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full" @click.stop>
-                        <span class="truncate">{{ row.selectedCarrierArr.length === 0 ? '选择' : row.selectedCarrierArr.length <= 2 ? row.selectedCarrierArr.join(',') : `${row.selectedCarrierArr.slice(0,2).join(',')} +${row.selectedCarrierArr.length - 2}` }}</span>
+                      <button
+                        class="h-7 px-2 text-xs border rounded-md hover:bg-accent flex items-center justify-between w-full"
+                        @click.stop
+                      >
+                        <span class="truncate">{{
+                          row.selectedCarrierArr.length === 0
+                            ? '选择'
+                            : row.selectedCarrierArr.length <= 2
+                              ? row.selectedCarrierArr.join(',')
+                              : `${row.selectedCarrierArr.slice(0, 2).join(',')} +${row.selectedCarrierArr.length - 2}`
+                        }}</span>
                         <ChevronsUpDown class="h-3 w-3 shrink-0 opacity-50 ml-1" />
                       </button>
                     </PopoverTrigger>
@@ -4125,7 +4196,10 @@ async function restoreFocusAfterUpload() {
                         class="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent cursor-pointer text-sm"
                         @click="toggleCarrier(row, opt)"
                       >
-                        <div class="h-4 w-4 border rounded flex items-center justify-center" :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''">
+                        <div
+                          class="h-4 w-4 border rounded flex items-center justify-center"
+                          :class="row.selectedCarrierArr.includes(opt) ? 'bg-primary border-primary' : ''"
+                        >
                           <Check v-if="row.selectedCarrierArr.includes(opt)" class="h-3 w-3 text-primary-foreground" />
                         </div>
                         {{ opt }}
@@ -4184,18 +4258,18 @@ async function restoreFocusAfterUpload() {
                 <TableCell v-if="showColTicketNo" class="px-1.5 py-1.5">
                   {{ row.ticket_no || '-' }}
                 </TableCell>
-              <TableCell
-                class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
-                :class="getStickyCellClass(row)"
-                nowrap
-              >
-                {{ row.chargeText }}
-              </TableCell>
-              <TableCell
-                class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
-                :class="getStickyCellClass(row)"
-                nowrap
-              >
+                <TableCell
+                  class="pl-1.5 pr-0 py-1.5 text-center text-xs sticky right-24 z-20 shadow-[-8px_0_12px_-10px_hsl(var(--border))]"
+                  :class="getStickyCellClass(row)"
+                  nowrap
+                >
+                  {{ row.chargeText }}
+                </TableCell>
+                <TableCell
+                  class="px-0 py-1.5 text-center sticky right-0 w-24 min-w-24 z-20"
+                  :class="getStickyCellClass(row)"
+                  nowrap
+                >
                   <div class="flex items-center justify-center gap-0.5">
                     <component
                       :is="row.receipt === 1 ? CheckSquare : Square"
@@ -4746,7 +4820,11 @@ async function restoreFocusAfterUpload() {
       <!-- 导出对话框 -->
       <ExportDialog v-model:open="showExportDialog" :default-file-name="exportFileName" @confirm="confirmExport" />
 
-      <Dialog :open="receiptDownloadDialogOpen" :modal="false" @update:open="(open) => !open && handleCloseReceiptDownloadDialog()">
+      <Dialog
+        :open="receiptDownloadDialogOpen"
+        :modal="false"
+        @update:open="(open) => !open && handleCloseReceiptDownloadDialog()"
+      >
         <DialogContent class="sm:max-w-[560px]" :show-close-button="false">
           <DialogHeader>
             <div class="flex items-start justify-between gap-4">
@@ -4762,7 +4840,7 @@ async function restoreFocusAfterUpload() {
                           ? '回执图片下载完成'
                           : receiptDownloadState.status === 'cancelled'
                             ? '回执图片下载已终止'
-                          : '回执图片下载结果'
+                            : '回执图片下载结果'
                     }}
                   </span>
                 </DialogTitle>
@@ -4776,9 +4854,7 @@ async function restoreFocusAfterUpload() {
                 </DialogDescription>
               </div>
               <div class="flex items-center gap-2">
-                <UiButton variant="outline" size="sm" @click="handleMinimizeReceiptDownloadDialog">
-                  最小化
-                </UiButton>
+                <UiButton variant="outline" size="sm" @click="handleMinimizeReceiptDownloadDialog"> 最小化 </UiButton>
                 <UiButton variant="ghost" size="icon" class="h-8 w-8" @click="handleCloseReceiptDownloadDialog">
                   <X class="h-4 w-4" />
                 </UiButton>
@@ -4821,11 +4897,17 @@ async function restoreFocusAfterUpload() {
 
             <div v-if="receiptDownloadDirectoryOpen" class="rounded-md border bg-muted/40 p-3">
               <div class="mb-2 flex items-center justify-between gap-2">
-                <div class="text-sm font-medium">{{ receiptDownloadMode === 'directory' ? '目录文件' : 'ZIP 文件清单' }}</div>
+                <div class="text-sm font-medium">
+                  {{ receiptDownloadMode === 'directory' ? '目录文件' : 'ZIP 文件清单' }}
+                </div>
                 <div class="text-xs text-muted-foreground">{{ receiptDownloadVisibleFiles.length }} 个文件</div>
               </div>
               <div v-if="receiptDownloadVisibleFiles.length === 0" class="text-sm text-muted-foreground">
-                {{ receiptDownloadMode === 'directory' ? '当前目录里还没有已写入的回执图片' : '当前还没有已打包的回执图片' }}
+                {{
+                  receiptDownloadMode === 'directory'
+                    ? '当前目录里还没有已写入的回执图片'
+                    : '当前还没有已打包的回执图片'
+                }}
               </div>
               <div v-else class="max-h-48 overflow-y-auto space-y-1 text-sm">
                 <div
@@ -4842,7 +4924,11 @@ async function restoreFocusAfterUpload() {
           <DialogFooter class="gap-2 sm:justify-between">
             <UiButton
               variant="outline"
-              :disabled="receiptDownloadMode === 'directory' ? !receiptDownloadDirectoryHandle : receiptDownloadState.recentFiles.length === 0"
+              :disabled="
+                receiptDownloadMode === 'directory'
+                  ? !receiptDownloadDirectoryHandle
+                  : receiptDownloadState.recentFiles.length === 0
+              "
               @click="handleViewReceiptDownloadDirectory"
             >
               {{
@@ -4856,18 +4942,10 @@ async function restoreFocusAfterUpload() {
               }}
             </UiButton>
             <div class="flex items-center gap-2">
-              <UiButton
-                v-if="isReceiptDownloadRunning"
-                variant="destructive"
-                @click="handleCancelReceiptDownload"
-              >
+              <UiButton v-if="isReceiptDownloadRunning" variant="destructive" @click="handleCancelReceiptDownload">
                 终止下载
               </UiButton>
-              <UiButton
-                v-if="!isReceiptDownloadRunning"
-                variant="default"
-                @click="handleCloseReceiptDownloadDialog"
-              >
+              <UiButton v-if="!isReceiptDownloadRunning" variant="default" @click="handleCloseReceiptDownloadDialog">
                 我知道了
               </UiButton>
             </div>
@@ -4875,10 +4953,7 @@ async function restoreFocusAfterUpload() {
         </DialogContent>
       </Dialog>
 
-      <div
-        v-if="hasReceiptDownloadTask && receiptDownloadMinimized"
-        class="fixed right-4 bottom-4 z-50"
-      >
+      <div v-if="hasReceiptDownloadTask && receiptDownloadMinimized" class="fixed right-4 bottom-4 z-50">
         <button
           class="flex min-w-[220px] items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg transition hover:border-primary/40"
           @click="handleOpenReceiptDownloadDialog"
@@ -4886,8 +4961,14 @@ async function restoreFocusAfterUpload() {
           <Loader2 v-if="isReceiptDownloadRunning" class="h-4 w-4 animate-spin text-primary" />
           <Download v-else class="h-4 w-4 text-primary" />
           <div class="min-w-0 flex-1 text-left">
-          <div class="text-sm font-medium">
-              {{ isReceiptDownloadRunning ? '回执下载进行中' : isReceiptDownloadCancelled ? '回执下载已终止' : '回执下载已完成' }}
+            <div class="text-sm font-medium">
+              {{
+                isReceiptDownloadRunning
+                  ? '回执下载进行中'
+                  : isReceiptDownloadCancelled
+                    ? '回执下载已终止'
+                    : '回执下载已完成'
+              }}
             </div>
             <div class="text-xs text-muted-foreground">
               {{ receiptDownloadState.completed }}/{{ receiptDownloadState.total }}
@@ -4957,8 +5038,14 @@ async function restoreFocusAfterUpload() {
   animation: vessel-row-flash 1.6s ease-out;
 }
 @keyframes vessel-row-flash {
-  0%, 100% { background-color: transparent; }
-  20%, 60% { background-color: rgba(250, 204, 21, 0.55); }
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  20%,
+  60% {
+    background-color: rgba(250, 204, 21, 0.55);
+  }
 }
 
 /* 价格模糊效果（无权限查看价格时） */
