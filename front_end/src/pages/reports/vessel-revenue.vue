@@ -107,17 +107,17 @@ const endYearMonth = computed({
 })
 
 const formattedStartDate = computed({
-  get: () => startDate.value ? startDate.value.toISOString().split('T')[0] : '',
+  get: () => startDate.value ? formatLocalDateOnly(startDate.value) : '',
   set: (val: string) => {
-    if (val) startDate.value = new Date(val)
+    if (val) startDate.value = parseLocalDateOnly(val)
     else startDate.value = undefined
   }
 })
 
 const formattedEndDate = computed({
-  get: () => endDate.value ? endDate.value.toISOString().split('T')[0] : '',
+  get: () => endDate.value ? formatLocalDateOnly(endDate.value) : '',
   set: (val: string) => {
-    if (val) endDate.value = new Date(val)
+    if (val) endDate.value = parseLocalDateOnly(val)
     else endDate.value = undefined
   }
 })
@@ -174,7 +174,7 @@ function getMonthDateRange(month: string): { fDate1: string, fDate2: string } {
   const s = m === 1
     ? new Date(y - 1, 11, 26, 0, 0, 0)
     : new Date(y, m - 2, 26, 0, 0, 0)
-  const e = new Date(y, m - 1, 25, 23, 59, 59)
+  const e = new Date(y, m - 1, 25, 23, 59, 59, 999)
   return {
     fDate1: toLocalDateTimeString(s),
     fDate2: toLocalDateTimeString(e),
@@ -288,11 +288,11 @@ function handleDateConfirm() {
     const endY = parseInt(endYear.value)
     const endM = parseInt(endMonth.value)
 
-    // 财务月：上月26日 00:00:00 到本月25日 23:59:59
+    // 财务月：上月26日 00:00:00 到本月25日 23:59:59.999
     const s = startM === 1
       ? new Date(startY - 1, 11, 26, 0, 0, 0)   // 1月→上月=上年12月
       : new Date(startY, startM - 2, 26, 0, 0, 0)
-    const e = new Date(endY, endM - 1, 25, 23, 59, 59)
+    const e = new Date(endY, endM - 1, 25, 23, 59, 59, 999)
 
     if (s >= e) { toast.error('开始月份不能晚于结束月份'); return }
     startDate.value = s
@@ -300,17 +300,19 @@ function handleDateConfirm() {
   } else if (dateSelectionMode.value === 'year') {
     const year = parseInt(startYear.value)
 
-    // 财务年：上年12月26日 00:00:00 到本年12月25日 23:59:59
+    // 财务年：上年12月26日 00:00:00 到本年12月25日 23:59:59.999
     startDate.value = new Date(year - 1, 11, 26, 0, 0, 0)
-    endDate.value = new Date(year, 11, 25, 23, 59, 59)
+    endDate.value = new Date(year, 11, 25, 23, 59, 59, 999)
   } else {
     if (!startDate.value || !endDate.value) { toast.error('请选择日期范围'); return }
+    startDate.value = startOfLocalDay(startDate.value)
+    endDate.value = endOfLocalDay(endDate.value)
   }
 
   // 统一截止到当前财务月（不显示未来月份）
   const nowFm = toFinancialMonth(new Date())
   const [fmY, fmM] = nowFm.split('-').map(Number)
-  const maxEnd = new Date(fmY, fmM - 1, 25, 23, 59, 59)
+  const maxEnd = new Date(fmY, fmM - 1, 25, 23, 59, 59, 999)
   if (endDate.value! > maxEnd) {
     endDate.value = maxEnd
   }
@@ -331,6 +333,26 @@ function formatDateRange(start?: Date, end?: Date) {
 const dateRange = computed(() => formatDateRange(startDate.value, endDate.value))
 
 // 格式化为本地时间字符串（与综合查询保持一致，避免时区偏差）
+function formatLocalDateOnly(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function parseLocalDateOnly(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number)
+  return new Date(y, m - 1, d, 0, 0, 0, 0)
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+}
+
+function endOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+}
+
 function toLocalDateTimeString(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -338,7 +360,8 @@ function toLocalDateTimeString(date: Date): string {
   const h = String(date.getHours()).padStart(2, '0')
   const min = String(date.getMinutes()).padStart(2, '0')
   const s = String(date.getSeconds()).padStart(2, '0')
-  return `${y}-${m}-${d} ${h}:${min}:${s}`
+  const ms = String(date.getMilliseconds()).padStart(3, '0')
+  return `${y}-${m}-${d} ${h}:${min}:${s}.${ms}`
 }
 
 // Drill-down Detail Handlers

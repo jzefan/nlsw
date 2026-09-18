@@ -46,28 +46,42 @@ Date.prototype.format = function(format) {
 };
 
 /**
- * 解析日期字符串为本地时间（北京时间）
- * new Date("2026-03-01") 按 JS 规范始终解析为 UTC 零点，导致查询偏移 8 小时
- * 本函数追加 T00:00:00 使其按本地时区解析
+ * Parse an input as a China-local date/time.
+ *
+ * Date strings without an explicit offset are user-entered wall-clock values,
+ * so append +08:00 instead of relying on the process timezone. Inputs that
+ * already carry Z or an offset keep their original instant for compatibility
+ * with older clients that send ISO timestamps.
  */
-exports.parseLocalDate = function (dateStr) {
+function parseChinaDate(dateStr, endOfDay) {
   if (!dateStr) return null;
-  // 已包含时间部分（T 或空格分隔），直接解析
-  if (dateStr.includes('T') || dateStr.includes(' ')) {
-    return new Date(dateStr);
+
+  const value = String(dateStr).trim();
+  if (!value) return null;
+
+  // Preserve an explicitly zoned ISO timestamp.
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) {
+    return new Date(value);
   }
-  return new Date(dateStr + 'T00:00:00');
+
+  const normalized = value.replace(' ', 'T');
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(normalized);
+  const localValue = dateOnly
+    ? `${normalized}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`
+    : normalized;
+
+  return new Date(`${localValue}+08:00`);
+}
+
+exports.parseLocalDate = function (dateStr) {
+  return parseChinaDate(dateStr, false);
 };
 
 /**
- * 解析日期字符串为当天最后一刻（23:59:59.999），用于日期区间的结束日期
+ * Parse an end date, including the entire China-local day for date-only input.
  */
 exports.parseLocalDateEnd = function (dateStr) {
-  if (!dateStr) return null;
-  if (dateStr.includes('T') || dateStr.includes(' ')) {
-    return new Date(dateStr);
-  }
-  return new Date(dateStr + 'T23:59:59.999');
+  return parseChinaDate(dateStr, true);
 };
 
 exports.leftPad = function (number, length) {

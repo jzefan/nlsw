@@ -217,17 +217,26 @@ const showBillNameFilter = ref(false)
 const shipFilterSelected = ref<string[]>([])
 const billNameFilterOptions = ref<Array<{ value: string; label: string; checked: boolean }>>([])
 
-// 根据公司标识隐藏承运单位列：SaaS模式看tenant.code，独立部署看COMPANY_NAME
-const hideCarrier = computed(() => {
+// 公司差异化展示规则：SaaS 模式看 tenant.code，独立部署看 COMPANY_NAME。
+const isXhtCompany = computed(() => {
   if (authStore.isStandalone) {
-    return !(authStore.standaloneCompany || '').includes('军铁')
+    return (authStore.standaloneCompany || '').includes('鑫鸿图')
   }
   return authStore.tenant?.code === 'xht'
 })
 
-const showVehicleOwnershipFilter = computed(() => hideCarrier.value)
+const isJuntieCompany = computed(() =>
+  authStore.isStandalone && (authStore.standaloneCompany || '').includes('军铁'),
+)
 
-// 公司名含"鑫鸿图"时隐藏承运单位列
+// 鑫鸿图显示车归属筛选但隐藏承运单位；军铁只隐藏车归属筛选；其他公司两者都显示。
+const hideCarrier = computed(() => isXhtCompany.value)
+const showVehicleOwnershipFilter = computed(() => !isJuntieCompany.value)
+const filterGridClass = computed(() =>
+  hideCarrier.value && showVehicleOwnershipFilter.value ? 'md:grid-cols-3' : 'md:grid-cols-4',
+)
+
+// 公司规则变化时隐藏承运单位列，其他公司保留用户对列显示的手动设置。
 watchEffect(() => {
   if (hideCarrier.value) showColCarrier.value = false
 })
@@ -3424,7 +3433,7 @@ async function restoreFocusAfterUpload() {
             <span>{{ searchLoadingText }}</span>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2" :class="hideCarrier ? 'md:grid-cols-3' : 'md:grid-cols-4'">
+        <div class="grid grid-cols-2 gap-2" :class="filterGridClass">
           <div
             v-if="showVehicleOwnershipFilter"
             class="col-span-2 md:col-span-1 grid grid-cols-[minmax(0,2fr)_minmax(88px,1fr)] gap-2"

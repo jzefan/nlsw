@@ -1,3 +1,17 @@
+# 车船结算公司差异化筛选与列显示
+
+- [x] 梳理公司标识与过滤区/表格列的现有显示条件
+- [x] 实现通用、鑫鸿图、军铁三种显示规则
+- [x] 运行前端类型检查并复核差异
+
+## Review
+
+- `isXhtCompany`：SaaS 使用 `tenant.code === 'xht'`，独立部署使用 `standaloneCompany` 是否包含“鑫鸿图”。
+- `isJuntieCompany`：独立部署公司名是否包含“军铁”。
+- 通用公司显示车归属筛选和承运单位；鑫鸿图仅显示车归属筛选；军铁仅隐藏车归属筛选并保留承运单位。
+- 过滤区网格列数随可见控件同步调整；后端接口与筛选参数未改动。
+- 校验通过：`pnpm -C front_end exec vue-tsc --noEmit`、三种公司场景逻辑断言、`git diff --check`。ESLint 未能运行：仓库仅有旧版 `.eslintrc.json`，当前 ESLint 9 默认配置入口不兼容，使用 legacy 模式时又无法解析现有共享配置。
+
 # 车船结算“不需要结算”误报已结算排查
 
 - [x] 定位前端“不需要结算”动作及请求参数
@@ -201,3 +215,17 @@
 - 线上处置：执行 `pm2 update` 后发现旧条目已经失效，最终清洁重建 PM2，并仅恢复 `nlsw-backend`（Node 22.22.0）和以 `/home/leishuo/sw/node-v22/bin/serve` 启动的 `nlsw-frontend`。二者均为 `online`，本机 3000/1080 及 Nginx 3031/API 反代均验证成功。
 - 脚本修复：前端改用目标 Node 下的绝对 `serve` 路径；前后端在 `pm2 start` 后均通过 `pm2 pid` 验证在线，失败时输出最近 50 行日志并终止部署。PM2 的 systemd 开机服务改为通过 `run_sudo` 和目标 Node `PATH` 配置，失败不再静默跳过。
 - 校验：`node --test test/deploy-script-pm2.test.js`、`bash -n deploy/deploy.sh`、`git diff --check` 全部通过。
+# 综合查询与车船营业额日期范围一致性
+
+- [x] 读取两份导出文件，按车号和发货日期对账，确认差异是否集中在边界日期/时刻
+- [x] 追踪 `integrated.vue` 与 `vessel-revenue.vue` 的请求参数、后端路由、查询条件和导出实现
+- [x] 列出并验证日期时区/闭区间/结束日处理的候选根因，形成最小可复现回归场景
+- [x] 若确认是代码问题，先补回归测试，再统一按中国时区的自然日范围实现并复核相关导出路径
+- [x] 运行针对性测试、前端/后端语法校验和 `git diff --check`
+
+## Review
+
+- 对账：两份导出中 `苏A1F413` 分别为 360 与 356 行，4 条差异全部是 2026-08-25；综合查询文件中的差异行是 14:09:52 与 22:29:00。
+- 根因：车船营业额页自定义日期模式把结束日期保留在当天 00:00:00，确认时未归一化到当天结束，导致结束日整天被排除；日期解析函数还依赖进程时区。
+- 修复：车船页三种日期模式统一使用中国自然日边界；综合查询各请求/导出路径补齐毫秒；后端无偏移量日期显式按 UTC+8 解析，带偏移量的旧 ISO 输入保持原语义。
+- 验证：`node --test test/china-date-range.test.js test/integrated-query-response.test.js test/query-params.test.js`、`pnpm exec vue-tsc -b`、三个后端 `node --check`、`git diff --check` 均通过。

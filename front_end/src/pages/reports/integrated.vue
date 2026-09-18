@@ -130,9 +130,9 @@ async function handleQuery(resetPage = true) {
     }
 
     if (filter.startDate && filter.endDate) {
-      // Ensure ISO format as backend expects
-      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
-      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
+      // Send the selected China-local natural-day boundaries.
+      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
+      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
     }
 
     const res = await getIntegratedQuery(params)
@@ -389,8 +389,8 @@ async function handleExport() {
     }
 
     if (filter.startDate && filter.endDate) {
-      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
-      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
+      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
+      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
     }
 
     const res = await getIntegratedQuery(params)
@@ -515,8 +515,8 @@ async function handleExportAccount() {
     }
 
     if (filter.startDate && filter.endDate) {
-      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
-      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
+      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
+      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
     }
 
     const res = await getIntegratedQuery(params)
@@ -750,8 +750,8 @@ async function handleSummary() {
     }
 
     if (filter.startDate && filter.endDate) {
-      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss')
-      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss')
+      params.fDate1 = dayjs(filter.startDate).startOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
+      params.fDate2 = dayjs(filter.endDate).endOf('day').format('YYYY-MM-DD HH:mm:ss.SSS')
     }
 
     const res = await getIntegratedQuery(params)
