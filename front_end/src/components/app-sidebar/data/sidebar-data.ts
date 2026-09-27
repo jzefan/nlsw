@@ -2,6 +2,7 @@ import {
   BarChart3,
   BookOpen,
   Building2,
+  CalendarDays,
   ClipboardList,
   CreditCard,
   Database,
@@ -10,6 +11,7 @@ import {
   LayoutDashboard,
   Receipt,
   Settings,
+  Settings2,
   Ship,
   ShoppingCart,
   TrendingUp,
@@ -20,8 +22,10 @@ import {
 import type { NavGroup } from '../types'
 import type { Features } from '@/stores/auth'
 import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
+import { getTitleCode } from '@/services/api/user.api'
+import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
 
-export function generateNavData(privilege: string[], features?: Features): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = ''): NavGroup[] {
   const groups: NavGroup[] = []
 
   // 总览 - 所有人可见
@@ -29,6 +33,52 @@ export function generateNavData(privilege: string[], features?: Features): NavGr
     title: '总览',
     items: [{ title: '首页', url: '/dashboard', icon: LayoutDashboard }],
   })
+
+  // 考勤入口仅在租户功能开关开启后显示；系统管理员、公司主账号和考勤审批角色可进入审批。
+  if (features?.attendance) {
+    const canApprove = isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role))
+    // 工资管理菜单：财务可录入发布，总经理与董事长只读查看（职务可能是 gm/ceo，也可能是老账号的中文写法）
+    const titleCode = getTitleCode(title)
+    const canManagePayroll = payrollRoles.some(role => ['finance', 'general_manager'].includes(role)) || titleCode === 'gm' || titleCode === 'ceo'
+    // 「设置」下的三个视图与考勤设置页共用同一份可见性规则，避免菜单能点、进了页面却说无权
+    const settingsViews = visibleAttendanceSettingsViews({
+      isOwner,
+      isAppAdmin: isAdmin(privilege),
+      attendanceRoles,
+      payrollRoles,
+    })
+    const attendanceItems: NavGroup['items'] = [
+      { title: '我的申请', icon: CalendarDays, items: [
+        { title: '请假申请', url: '/attendance/requests?type=leave' },
+        { title: '加班申请', url: '/attendance/requests?type=overtime' },
+        { title: '外勤申请', url: '/attendance/requests?type=fieldwork' },
+      ] },
+      ...(canApprove ? [{ title: '待我审批', url: '/attendance/approvals', icon: ClipboardList }] : []),
+      // 「考勤台账」内含「明细台账 / 统计汇总」两个视图；「工资管理」下分「工资表 / 薪资统计 / 薪资设置」三个入口
+      { title: '考勤台账', url: '/attendance/ledger', icon: ClipboardList },
+      { title: '我的工资条', url: '/attendance/payroll/my', icon: Receipt },
+      ...(canManagePayroll
+        ? [{
+            title: '工资管理',
+            icon: FileText,
+            items: [
+              { title: '工资表', url: '/attendance/payroll/statements' },
+              { title: '薪资统计', url: '/attendance/payroll/statistics' },
+              { title: '薪资设置', url: '/attendance/payroll/settings' },
+            ],
+          }]
+        : []),
+      // 「设置」下按视图展开：员工资料 / 薪资权限 / 工作日历设置
+      ...(settingsViews.length
+        ? [{
+            title: '设置',
+            icon: Settings2,
+            items: settingsViews.map(view => ({ title: view.label, url: view.url })),
+          }]
+        : []),
+    ]
+    groups.push({ title: '考勤与工资', items: attendanceItems })
+  }
 
   // 业务管理 - 业务员或客户结算或车船结算或管理员
   if (hasPermission(privilege, PERMISSIONS.OPERATOR) || hasPermission(privilege, PERMISSIONS.CUST_SETTLE) || hasPermission(privilege, PERMISSIONS.VESSEL_SETTLE)) {

@@ -48,9 +48,13 @@ block content
   form.form-horizontal(action='/account/password', method='POST')
     input(type='hidden', name='_csrf', value=_csrf)
     .form-group
+      label.col-sm-2.control-label(for='currentPassword') 当前密码
+      .col-sm-4
+        input.form-control(type='password', name='currentPassword', id='currentPassword', autocomplete='current-password', required)
+    .form-group
       label.col-sm-2.control-label(for='password') 新密码
       .col-sm-4
-        input.form-control(type='password', name='password', id='password')
+        input.form-control(type='password', name='password', id='password', minlength='8', required)
     .form-group
       label.col-sm-2.control-label(for='confirmPassword') 新密码确认
       .col-sm-4

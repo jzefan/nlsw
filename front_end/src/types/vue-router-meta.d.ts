@@ -10,5 +10,7 @@ declare module 'vue-router' {
     requiresOwner?: boolean
     // if true, requires platform user role
     requiresPlatformUser?: boolean
+    // if true, require the attendance module feature flag
+    attendance?: boolean
   }
 }

@@ -268,7 +268,8 @@ function onAdminChange(checked: boolean) {
 // 职务变更
 function onTitleChange(value: string | number | bigint | boolean | Record<string, any> | null) {
   if (!value || typeof value !== 'string') return
-  if (value === 'ceo' || value === 'mgr') {
+  // 董事长、总经理、经理都是管理岗：默认勾选全部业务权限
+  if (value === 'ceo' || value === 'gm' || value === 'mgr') {
     onAdminChange(true)
   } else {
     permissions.value.admin = false

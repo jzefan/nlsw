@@ -17,6 +17,7 @@ declare global {
   const THEMES: typeof import('../constants/themes').THEMES
   const THEMES_COLOR: typeof import('../constants/themes')['THEMES_COLOR']
   const THEME_PRIMARY_COLORS: typeof import('../constants/themes').THEME_PRIMARY_COLORS
+  const computePayrollTotals: typeof import('../constants/payroll-fields').computePayrollTotals
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
   const customRef: typeof import('vue').customRef
@@ -36,6 +37,9 @@ declare global {
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
+  const keyLeaveTypes: typeof import('../constants/attendance-labels').keyLeaveTypes
+  const leaveLabel: typeof import('../constants/attendance-labels').leaveLabel
+  const leaveTypeLabels: typeof import('../constants/attendance-labels').leaveTypeLabels
   const logout: typeof import('../composables/use-auth')['logout']
   const markRaw: typeof import('vue').markRaw
   const nextTick: typeof import('vue').nextTick
@@ -55,6 +59,12 @@ declare global {
   const onUnmounted: typeof import('vue').onUnmounted
   const onUpdated: typeof import('vue').onUpdated
   const onWatcherCleanup: typeof import('vue').onWatcherCleanup
+  const payrollAttendanceDeductionKeys: typeof import('../constants/payroll-fields').payrollAttendanceDeductionKeys
+  const payrollEmployeeDeductionKeys: typeof import('../constants/payroll-fields').payrollEmployeeDeductionKeys
+  const payrollEmployerContributionKeys: typeof import('../constants/payroll-fields').payrollEmployerContributionKeys
+  const payrollIncomeKeys: typeof import('../constants/payroll-fields').payrollIncomeKeys
+  const payrollTotalsLabels: typeof import('../constants/payroll-fields').payrollTotalsLabels
+  const payslipColumns: typeof import('../constants/payroll-fields').payslipColumns
   const provide: typeof import('vue').provide
   const reactive: typeof import('vue').reactive
   const readonly: typeof import('vue').readonly
@@ -63,6 +73,7 @@ declare global {
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
+  const showPayrollPayments: typeof import('../constants/payroll-fields').showPayrollPayments
   const toRaw: typeof import('vue').toRaw
   const toRef: typeof import('vue').toRef
   const toRefs: typeof import('vue').toRefs
@@ -85,6 +96,7 @@ declare global {
   const useModel: typeof import('vue').useModel
   const useRoute: typeof import('vue-router').useRoute
   const useRouter: typeof import('vue-router').useRouter
+  const useServerVersionStore: typeof import('../stores/server-version').useServerVersionStore
   const useSessionMonitor: typeof import('../composables/use-session-monitor').useSessionMonitor
   const useSidebar: typeof import('../composables/use-sidebar').useSidebar
   const useSlots: typeof import('vue').useSlots
@@ -112,6 +124,9 @@ declare global {
   // @ts-ignore
   export type { Urgency } from '../composables/use-subscription-reminder'
   import('../composables/use-subscription-reminder')
+  // @ts-ignore
+  export type { PayrollColumnGroup, PayrollColumn } from '../constants/payroll-fields'
+  import('../constants/payroll-fields')
   // @ts-ignore
   export type { Permission } from '../constants/permissions'
   import('../constants/permissions')

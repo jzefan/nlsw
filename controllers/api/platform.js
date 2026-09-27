@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Tenant = require('../../models/Tenant');
 const User = require('../../models/User');
+const { hasProtectedIdentity, bumpSessionVersion, changePasswordWithCas } = require('../../utils/user-security');
 const Bill = require('../../models/Bill');
 const Invoice = require('../../models/Invoice');
 
@@ -42,6 +43,7 @@ exports.getTenants = async (req, res) => {
         name: t.name,
         fullName: t.fullName,
         status: t.status,
+        attendanceEnabled: t.settings?.attendanceEnabled === true,
         plan: t.plan,
         maxUsers: t.maxUsers,
         contact: t.contact,
@@ -332,6 +334,7 @@ exports.createTenant = async (req, res) => {
     const owner = new User({
       userid: String(ownerData.userid).trim(),
       password: '123456',
+      mustChangePassword: true,
       phone: phoneNumber || undefined, // 顶层phone字段用于登录
       no: 1,
       title: 'ceo',
@@ -408,6 +411,9 @@ exports.updateTenant = async (req, res) => {
       }
       if (tenantData.plan !== undefined) tenant.plan = tenantData.plan;
       if (tenantData.maxUsers !== undefined) tenant.maxUsers = Number(tenantData.maxUsers);
+      if (tenantData.attendanceEnabled !== undefined) {
+        tenant.settings.attendanceEnabled = tenantData.attendanceEnabled === true;
+      }
       if (tenantData.expireDate !== undefined) {
         tenant.expireDate = tenantData.expireDate ? new Date(tenantData.expireDate) : undefined;
       }
@@ -425,8 +431,13 @@ exports.updateTenant = async (req, res) => {
         if (ownerData.name !== undefined) owner.profile.name = String(ownerData.name).trim();
         if (ownerData.phone !== undefined) {
           const phoneNumber = String(ownerData.phone).trim();
+          const identityChanged = owner.phone !== (phoneNumber || undefined) || (owner.profile?.phone || '') !== phoneNumber;
+          if (identityChanged && hasProtectedIdentity(owner)) {
+            return res.status(403).json({ ok: false, msg: '平台不能直接修改受保护账号的登录手机号' });
+          }
           owner.phone = phoneNumber || undefined; // 顶层phone字段用于登录
           owner.profile.phone = phoneNumber; // 保留profile.phone用于向后兼容
+          if (identityChanged) bumpSessionVersion(owner);
         }
         await owner.save();
       }
@@ -496,11 +507,14 @@ exports.resetUserPassword = async (req, res) => {
     if (user.role === 'platform') {
       return res.status(403).json({ ok: false, msg: '无权重置平台用户密码' });
     }
+    if (hasProtectedIdentity(user)) {
+      return res.status(403).json({ ok: false, msg: '不能重置员工、管理员或薪资账号的密码' });
+    }
 
     // 重置密码为默认值
     const defaultPassword = '123456';
-    user.password = defaultPassword;
-    await user.save();
+    const changed = await changePasswordWithCas(User, user, defaultPassword, {}, { mustChangePassword: true, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });
+    if (!changed) return res.status(409).json({ ok: false, msg: '用户身份已变化，请刷新后重试' });
 
     res.json({
       ok: true,

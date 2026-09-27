@@ -10,6 +10,7 @@ export interface TenantItem {
   name: string
   fullName?: string
   status: 'active' | 'suspended'
+  attendanceEnabled?: boolean
   plan: string
   maxUsers: number
   contact?: {
@@ -108,6 +109,7 @@ export interface UpdateTenantData {
     plan?: string
     maxUsers?: number
     expireDate?: string
+    attendanceEnabled?: boolean
   }
   owner?: {
     userid: string

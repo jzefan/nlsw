@@ -6,6 +6,7 @@ let homeController = require("./controllers/home");
 let userController = require("./controllers/user");
 let contactController = require("./controllers/contact");
 let passportConf = require("./config/passport");
+const { requireSameOrigin } = require("./middleware/requireSameOrigin");
 let billController = require("./controllers/bill");
 let nlDataController = require("./controllers/nldata");
 let vehvesController = require("./controllers/vehves");
@@ -33,7 +34,7 @@ module.exports = function (app) {
   app.get("/forgot", userController.getForgot);
   app.post("/forgot", userController.postForgot);
   app.get("/reset/:token", userController.getReset);
-  app.post("/reset/:token", userController.postReset);
+  app.post("/reset/:token", requireSameOrigin, userController.postReset);
   app.get("/signup", userController.getSignup);
   app.post("/signup", userController.postSignup);
   app.get("/contact", contactController.getContact);
@@ -42,22 +43,25 @@ module.exports = function (app) {
   app.post(
     "/account/profile",
     passportConf.isAuthenticated,
+    requireSameOrigin,
     userController.postUpdateProfile,
   );
   app.post(
     "/account/password",
     passportConf.isAuthenticated,
+    requireSameOrigin,
     userController.postUpdatePassword,
   );
   app.post(
     "/account/delete",
     passportConf.isAuthenticated,
+    requireSameOrigin,
     userController.postDeleteAccount,
   );
-  app.post("/resetPwd", userController.postResetPassword);
+  app.post("/resetPwd", passportConf.isAuthenticated, requireSameOrigin, userController.postResetPassword);
 
-  app.get("/user_mgr", userController.getUserMgr);
-  app.post("/user_mgr", userController.postUserMgr);
+  app.get("/user_mgr", passportConf.isAuthenticated, userController.getUserMgr);
+  app.post("/user_mgr", passportConf.isAuthenticated, requireSameOrigin, userController.postUserMgr);
 
   app.get("/search", homeController.search);
   app.post("/post_submit", homeController.postSubmitNews);

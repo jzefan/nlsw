@@ -69,5 +69,9 @@ export function authGuard(router: Router) {
     if (to.meta.requiresPlatformUser && !authStore.isPlatformUser) {
       return { path: '/dashboard' }
     }
+
+    if (to.meta.attendance && !authStore.features.attendance) {
+      return { path: '/dashboard' }
+    }
   })
 }

@@ -1,430 +1,72 @@
 ---
 name: nlsw-patterns
-description: Coding patterns extracted from nlsw repository - a logistics/shipping management system
-version: 1.0.0
-source: local-git-analysis
-analyzed_commits: 15
+description: nlsw 仓储的编码约定与模式速查（Vue3+TS 前端 / Express+Mongo 后端）
+version: 2.0.0
+source: condensed from local git history analysis
 ---
 
-# NLSW Patterns
+# NLSW 编码约定
 
-This skill documents the coding patterns and conventions used in the NLSW logistics management system.
+**技术栈**：前端 Vue 3 + TypeScript + shadcn-vue(reka-ui) + Vite；后端 Node + Express + Mongoose(MongoDB)；包管理 pnpm。
+**业务**：货运/集装箱物流管理 SaaS（订单 → 配发 → 结算 → 开票 → 回款），多租户，另含考勤与薪资模块。业务字段与用户可见文案用中文。
 
-## Project Overview
+> 本文件是速查表，**不是代码模板**。示例以仓库里的现有文件为准，不要照抄这里的片段。
 
-NLSW is a full-stack logistics/shipping management system with:
-- **Frontend**: Vue 3 + TypeScript + Shadcn-vue + Vite
-- **Backend**: Node.js + Express + MongoDB (Mongoose)
-- **Package Manager**: pnpm
-
-## Commit Conventions
-
-This project uses a mix of conventional commits and Chinese descriptions:
-
-| Prefix | Usage |
-|--------|-------|
-| `feat:` | New features |
-| `fix:` | Bug fixes |
-| `refactor:` / `refacotor:` | Code refactoring |
-| `优化` | Optimization (Chinese) |
-| `bug fixed` | Bug fixes (informal) |
-
-**Recommendation**: Standardize to conventional commits format:
-```
-feat: add vessel settlement feature
-fix: correct bill calculation logic
-refactor: extract excel transform utilities
-```
-
-## Code Architecture
-
-### Frontend Structure
+## 目录骨架
 
 ```
 front_end/src/
-├── components/           # Reusable Vue components
-│   ├── ui/              # Base UI components (shadcn-vue)
-│   ├── data-table/      # Table components with pagination
-│   ├── global-layout/   # Layout components (BasicPage, BasicHeader)
-│   └── app-sidebar/     # Navigation sidebar
-├── composables/         # Vue composables (use-*.ts pattern)
-│   ├── use-auth.ts      # Authentication logic
-│   ├── use-axios.ts     # HTTP client wrapper
-│   └── use-export.ts    # Export utilities
-├── pages/               # File-based routing (unplugin-vue-router)
-│   ├── bills/           # Bill management
-│   ├── settle/          # Settlement pages
-│   ├── reports/         # Report generation
-│   └── invoices/        # Invoice management
-├── services/api/        # API service layer (*.api.ts)
-├── stores/              # Pinia stores
-├── types/               # TypeScript type definitions
-└── utils/               # Utility functions
+├── components/{ui,data-table,global-layout,app-sidebar}/
+├── composables/        # use-*.ts
+├── pages/              # 文件路由 (unplugin-vue-router)：bills/settle/invoices/reports/attendance/admin/platform/settings
+├── services/api/       # *.api.ts
+├── stores/             # pinia
+├── types/  utils/
+后端：controllers/api/*.js + models/*.js + routes_api.js（接口）/ routes.js（页面）
 ```
 
-### Backend Structure
+## 命名
 
-```
-├── controllers/
-│   ├── api/            # REST API controllers
-│   └── *.js            # Legacy page controllers
-├── models/             # Mongoose schemas
-├── config/             # Configuration files
-├── routes_api.js       # API route definitions
-└── routes.js           # Page route definitions
-```
+| 位置 | 约定 | 例 |
+|---|---|---|
+| Vue 组件 / 类型 | PascalCase | `BillFilter.vue`、`BillCreateData` |
+| composable | `use-` 前缀 | `use-auth.ts`、`use-axios.ts` |
+| API 服务 | kebab + `.api.ts` | `vessel-settle.api.ts` |
+| 页面文件 | kebab-case | `create-ship.vue` |
+| 后端 model | PascalCase | `Bill.js`、`PayrollStatement.js` |
+| 后端 controller / DB 字段 | snake_case | `vessel_settle.js`、`bill_no` |
 
-## Naming Conventions
+## 接口约定
 
-### Frontend
+- 成功 `{ ok: true, data, total?, page?, totalPages? }`；失败 `{ ok: false, error }`（部分老接口用 `msg`，前端两者都要兜）。
+- 控制器一律 try/catch，异常走 `res.status(500).json({ ok: false, error })` 并 `console.error`，不许吞。
+- 分页从 query 解析并给默认值（`page=1`、`limit=20`）；列表模糊搜 `{ $regex, $options: 'i' }`；读多写少的查询加 `.lean()`。
+- 前端请求统一走 `composables/use-axios.ts` 的 `axiosInstance`，服务层函数返回 `response.data`（不给调用方留 `response` 包装）。
+- 页面鉴权用 `<route lang="yaml">meta: { auth: true }</route>`。
 
-| Type | Convention | Example |
-|------|------------|---------|
-| Vue components | PascalCase | `BillFilter.vue`, `SettleTable.vue` |
-| Composables | camelCase with `use-` prefix | `use-auth.ts`, `use-axios.ts` |
-| API services | kebab-case with `.api.ts` suffix | `bill.api.ts`, `settle.api.ts` |
-| Types/Interfaces | PascalCase | `Bill`, `BillCreateData` |
-| Pages | kebab-case | `create-ship.vue`, `customer-revenue.vue` |
+## 数据模型
 
-### Backend
+- 派生字段（如 `status` ↔ `status_flag`）在 `pre('save')` / `pre('findOneAndUpdate')` 里统一同步，不要散在控制器里改。
+- 常用查询字段建索引；导出/解析 Excel 用 `xlsx` / `exceljs`。
 
-| Type | Convention | Example |
-|------|------------|---------|
-| Models | PascalCase | `Bill.js`, `Invoice.js` |
-| Controllers | snake_case | `bill.js`, `vessel_settle.js` |
-| DB fields | snake_case | `bill_no`, `order_item_no` |
+## 前端模式
 
-## API Patterns
+- 页面骨架用 `BasicPage`（`title` / `description` + `#actions` 插槽）包住内容。
+- 弹窗用 `UiDialog`（内容区 `max-h-[90vh] overflow-y-auto`），反馈用 `vue-sonner` 的 `toast`。
+- 表格必须两套：桌面 `<table>`（外层 `hidden lg:block border rounded-lg overflow-x-auto`）+ 移动端卡片（`lg:hidden`）。
+- 全局状态进 Pinia，页面内状态用 `ref`。
+- **视觉基调默认收敛克制**：文案只留必要、辅助控件不抢中心、图标用通用隐喻、层级靠位置与分组表达；细则见 `AGENTS.md` §5。
 
-### Frontend API Service Pattern
+## 常用流程（最短路径）
 
-```typescript
-// services/api/bill.api.ts
-import { useAxios } from '@/composables/use-axios'
+- **加页面**：`pages/<模块>/<名>.vue` →（需鉴权）加 route meta → `services/api/<名>.api.ts` → `controllers/api/<名>.js` → 注册 `routes_api.js`。
+- **加接口**：控制器函数 → `routes_api.js` → `.api.ts` 类型化函数（补 request/response interface）。
+- **改模型**：`models/*.js`（含索引与钩子）→ 前端类型同步，别只改一处。
 
-const { axiosInstance } = useAxios()
+## 业务状态值（保持中文原文，勿翻译）
 
-// Interface definitions
-export interface Bill {
-  _id?: string
-  bill_no: string
-  order_no: string
-  // ...
-}
+新建 / 待配发 / 部分配发 / 已配发 / 已结算 / 已开票 / 已回款
 
-// API functions with typed responses
-export async function getBills(params: {
-  page?: number
-  limit?: number
-  billNo?: string
-}) {
-  const response = await axiosInstance.get<BillListResponse>('/bills', { params })
-  return response.data
-}
-```
+## 提交信息
 
-### Backend Controller Pattern
-
-```javascript
-// controllers/api/bill.js
-exports.getBills = async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const query = {};
-
-    // Build query from request params
-    if (req.query.billNo) {
-      query.bill_no = { $regex: req.query.billNo, $options: 'i' };
-    }
-
-    const count = await Bill.countDocuments(query);
-    const bills = await Bill.find(query)
-      .sort({ create_date: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
-
-    res.json({
-      ok: true,
-      data: bills,
-      total: count,
-      page: page,
-      totalPages: Math.ceil(count / limit)
-    });
-  } catch (error) {
-    console.error('getBills error:', error);
-    res.status(500).json({ ok: false, error: error.message });
-  }
-};
-```
-
-### API Response Format
-
-```typescript
-// Standard success response
-{
-  ok: true,
-  data: [...],      // Result data
-  total: 100,       // For paginated responses
-  page: 1,
-  totalPages: 5
-}
-
-// Standard error response
-{
-  ok: false,
-  error: "Error message",
-  response: "User-friendly message"  // Alternative field
-}
-```
-
-## Vue Component Patterns
-
-### Page Component Structure
-
-```vue
-<script setup lang="ts">
-import { toast } from 'vue-sonner'
-import type { Bill } from '@/services/api/bill.api'
-import { BasicPage } from '@/components/global-layout'
-
-// State
-const loading = ref(false)
-const data = ref<Bill[]>([])
-
-// Lifecycle
-onMounted(() => {
-  loadData()
-})
-
-// Methods
-async function loadData() {
-  loading.value = true
-  try {
-    const result = await getBills({ page: 1 })
-    if (result.ok) {
-      data.value = result.data
-    }
-  } catch (e: any) {
-    toast.error('加载失败', { description: e.message })
-  } finally {
-    loading.value = false
-  }
-}
-</script>
-
-<template>
-  <BasicPage title="页面标题" description="页面描述">
-    <template #actions>
-      <!-- Action buttons -->
-    </template>
-
-    <!-- Page content -->
-  </BasicPage>
-</template>
-
-<route lang="yaml">
-meta:
-  auth: true
-</route>
-```
-
-### Composable Pattern
-
-```typescript
-// composables/use-auth.ts
-export function useAuth() {
-  const router = useRouter()
-  const { axiosInstance } = useAxios()
-  const authStore = useAuthStore()
-
-  const loading = ref(false)
-  const error = ref<string | null>(null)
-
-  async function login(userid: string, password: string) {
-    loading.value = true
-    error.value = null
-    try {
-      const response = await axiosInstance.post('/login', { userid, password })
-      if (response.data.ok) {
-        authStore.setUser(response.data.user)
-        router.push('/dashboard')
-      } else {
-        error.value = response.data.msg || '登录失败'
-      }
-    } catch (e: any) {
-      error.value = e.response?.data?.msg || '网络错误'
-    } finally {
-      loading.value = false
-    }
-  }
-
-  return { loading, error, login }
-}
-```
-
-## Mongoose Model Patterns
-
-### Schema with Hooks
-
-```javascript
-// models/Bill.js
-const billSchema = new Schema({
-  bill_no: String,
-  status: { type: String, default: '新建' },
-  status_flag: { type: Number, default: 0 },
-  create_date: { type: Date, default: Date.now },
-});
-
-// Indexes for common queries
-billSchema.index({ order: 1, bill_no: 1 });
-billSchema.index({ billing_name: 1, create_date: -1 });
-
-// Pre-save hook for derived fields
-billSchema.pre('save', function (next) {
-  if (this.isModified('status')) {
-    this.status_flag = mapStatusToFlag(this.status);
-  }
-  next();
-});
-
-// Pre-update hook for consistency
-billSchema.pre('findOneAndUpdate', function (next) {
-  const update = this.getUpdate();
-  // Handle status_flag updates
-  next();
-});
-
-module.exports = mongoose.model('Bill', billSchema);
-```
-
-## UI Patterns
-
-### Form with Dialog
-
-```vue
-<UiDialog v-model:open="showDialog">
-  <UiDialogContent class="max-w-2xl max-h-[90vh] overflow-y-auto">
-    <UiDialogHeader>
-      <UiDialogTitle>标题</UiDialogTitle>
-      <UiDialogDescription>描述</UiDialogDescription>
-    </UiDialogHeader>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-      <div>
-        <label class="text-sm font-medium">字段名</label>
-        <UiInput v-model="form.field" />
-      </div>
-    </div>
-
-    <UiDialogFooter>
-      <UiButton variant="outline" @click="showDialog = false">取消</UiButton>
-      <UiButton @click="handleSubmit">确认</UiButton>
-    </UiDialogFooter>
-  </UiDialogContent>
-</UiDialog>
-```
-
-### Data Table with Selection
-
-```vue
-<!-- Desktop table -->
-<div class="hidden lg:block border rounded-lg overflow-x-auto">
-  <table class="text-sm min-w-[1024px]">
-    <thead class="bg-muted/50">
-      <tr>
-        <th class="p-2 w-10">
-          <input type="checkbox" @change="toggleSelectAll" />
-        </th>
-        <!-- columns -->
-      </tr>
-    </thead>
-    <tbody>
-      <tr v-for="item in items" :key="item._id"
-          class="border-t hover:bg-muted/30 cursor-pointer"
-          :class="{ 'bg-primary/10': isSelected(item) }"
-          @click="toggleSelect(item)">
-        <!-- row content -->
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- Mobile cards -->
-<div class="lg:hidden space-y-2">
-  <div v-for="item in items" class="border rounded-lg p-3">
-    <!-- card content -->
-  </div>
-</div>
-```
-
-## Testing Patterns
-
-Tests are located in `test/` directory using Mocha:
-
-```javascript
-// test/app.js
-describe('Application', function() {
-  it('should pass', function() {
-    // test assertions
-  });
-});
-```
-
-## Key Libraries
-
-| Library | Purpose |
-|---------|---------|
-| `shadcn-vue` / `reka-ui` | UI component primitives |
-| `@tanstack/vue-table` | Table management |
-| `@tanstack/vue-query` | Server state management |
-| `vee-validate` + `zod` | Form validation |
-| `vue-sonner` | Toast notifications |
-| `lucide-vue-next` | Icons |
-| `pinia` | State management |
-| `xlsx` / `exceljs` | Excel file handling |
-
-## Bilingual Patterns
-
-This codebase uses Chinese for:
-- User-facing strings (labels, messages, statuses)
-- Some commit messages
-- Comments in complex business logic
-
-Status values in Chinese:
-- `新建` (New)
-- `待配发` (Pending Distribution)
-- `部分配发` (Partial Distribution)
-- `已配发` (Distributed)
-- `已结算` (Settled)
-- `已开票` (Invoiced)
-- `已回款` (Payment Received)
-
-## Common Workflows
-
-### Adding a New Page
-
-1. Create page in `front_end/src/pages/<module>/<name>.vue`
-2. Add route meta if auth required: `<route lang="yaml">meta: { auth: true }</route>`
-3. Create API service in `front_end/src/services/api/<name>.api.ts`
-4. Add backend controller in `controllers/api/<name>.js`
-5. Register route in `routes_api.js`
-
-### Adding a New API Endpoint
-
-1. Add controller function in `controllers/api/*.js`
-2. Register route in `routes_api.js`
-3. Add typed API function in `front_end/src/services/api/*.api.ts`
-4. Add TypeScript interfaces for request/response
-
-### Database Changes
-
-1. Update Mongoose schema in `models/*.js`
-2. Add indexes for frequently queried fields
-3. Add pre-save/pre-update hooks for derived fields
-4. Update TypeScript interfaces in frontend
-
----
-
-*Generated from git history analysis of nlsw repository*
+现状中英混用（`feat:` / `fix:` / `优化` / `bug fixed`）。新提交统一 `feat: / fix: / refactor: / chore:` + 简短描述。

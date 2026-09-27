@@ -24,17 +24,29 @@ const orderApiController = require('./controllers/api/order');
 const orderNumberApiController = require('./controllers/api/order_number');
 const paymentQRController = require('./controllers/api/payment-qr');
 const dataProcessApiController = require('./controllers/api/data_process');
+const attendanceApiController = require('./controllers/api/attendance');
+const attendanceLedgerController = require('./controllers/api/attendance-ledger');
+const payrollController = require('./controllers/api/payroll');
 
 const planController = require('./controllers/order_plan');
 
 // Tenant middleware guards
 const { requireTenant, requirePlatformUser, requireOwnerOrPlatform } = require('./middleware/tenantContext');
 const { isSaas, getDeployMode, getStandaloneCompany } = require('./utils/deploy-mode');
+const { requireAttendanceEnabled, requireEmployee } = require('./utils/attendance-permissions');
+const { requireSameOrigin } = require('./middleware/requireSameOrigin');
+const { parseAttendanceAttachments } = require('./middleware/attendance-attachments');
+const { serverVersion } = require('./utils/server-version');
 
 module.exports = function (app) {
   // Deploy info (public, no auth required)
   app.get('/deploy-info', (req, res) => {
-    res.json({ deployMode: getDeployMode(), standaloneCompany: getStandaloneCompany() });
+    res.json({ deployMode: getDeployMode(), standaloneCompany: getStandaloneCompany(), server: serverVersion.status() });
+  });
+
+  // 运行中的后端是否为旧代码（public，前端据此提示重启；前端改动不需要重启后端）
+  app.get('/server-version', (req, res) => {
+    res.json({ ok: true, data: serverVersion.status() });
   });
 
   // New API Routes for Frontend - Data Dictionary (tenant-scoped)
@@ -84,11 +96,56 @@ module.exports = function (app) {
   app.get('/me', userApiController.getMe);  // Public (authenticated)
   app.get('/users', requireTenant, userApiController.getUsers);  // Tenant-scoped user list
   app.get('/user_mgr', requireOwnerOrPlatform, userApiController.getUserMgr);  // Owner or platform only
-  app.post('/user_mgr', requireOwnerOrPlatform, userApiController.postUserMgr);  // Owner or platform only
-  app.post('/resetPwd', requireOwnerOrPlatform, userApiController.resetPassword);  // Owner or platform only
+  app.post('/user_mgr', requireOwnerOrPlatform, requireSameOrigin, userApiController.postUserMgr);  // Owner or platform only
+  app.post('/resetPwd', requireOwnerOrPlatform, requireSameOrigin, userApiController.resetPassword);  // Owner or platform only
+  app.post('/payroll/users/:userId/roles', requireTenant, requireAttendanceEnabled, requireSameOrigin, userApiController.updatePayrollRoles); // Exact owner check in controller
+  app.get('/payroll/users/candidates', requireTenant, requireAttendanceEnabled, userApiController.getPayrollRoleCandidates);
+  app.post('/payroll/general-manager/handover', requireTenant, requireAttendanceEnabled, requireSameOrigin, userApiController.handoverPayrollGeneralManager);
+  app.get('/payroll/role-locks', requireTenant, requireAttendanceEnabled, userApiController.listPayrollRoleLocks);
+  app.post('/payroll/role-locks/release', requireTenant, requireAttendanceEnabled, requireSameOrigin, userApiController.releaseStalePayrollRoleLock);
   app.post('/user/preferences', userApiController.updatePreferences);  // Authenticated user
   app.get('/tenant/settings', requireOwnerOrPlatform, userApiController.getTenantSettings);
-  app.post('/tenant/settings', requireOwnerOrPlatform, userApiController.updateTenantSettings);
+  app.post('/tenant/settings', requireOwnerOrPlatform, requireSameOrigin, userApiController.updateTenantSettings);
+
+  // Attendance (tenant-scoped; the feature flag is enforced on every endpoint)
+  app.get('/attendance/requests', requireTenant, requireAttendanceEnabled, requireEmployee, attendanceApiController.listRequests);
+  app.post('/attendance/requests', requireTenant, requireAttendanceEnabled, requireEmployee, requireSameOrigin, parseAttendanceAttachments, attendanceApiController.createRequest);
+  app.get('/attendance/requests/:id/attachments/:attachmentId', requireTenant, requireAttendanceEnabled, attendanceApiController.getRequestAttachment);
+  app.post('/attendance/requests/:id/withdraw', requireTenant, requireAttendanceEnabled, requireEmployee, requireSameOrigin, attendanceApiController.withdrawRequest);
+  app.post('/attendance/requests/:id/review', requireTenant, requireAttendanceEnabled, requireEmployee, requireSameOrigin, attendanceApiController.reviewRequest);
+  app.get('/attendance/users/people', requireTenant, requireAttendanceEnabled, attendanceApiController.listPeople);
+  app.post('/attendance/users/profile', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateEmployeeProfile);
+  app.get('/attendance/calendar', requireTenant, requireAttendanceEnabled, attendanceApiController.getCalendar);
+  app.post('/attendance/calendar/day', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendarDay);
+  app.post('/attendance/calendar', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendar);
+  app.get('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, attendanceApiController.getGeneralManagerDelegate);
+  app.post('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.setGeneralManagerDelegate);
+  app.get('/attendance/settings/submission-locks', requireTenant, requireAttendanceEnabled, attendanceApiController.listSubmissionLocks);
+  app.post('/attendance/settings/submission-locks/:applicantId/release', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.releaseStaleSubmissionLock);
+  app.get('/attendance/ledger', requireTenant, requireAttendanceEnabled, attendanceLedgerController.getLedger);
+  app.post('/attendance/ledger/rows/:employeeId', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.saveRow);
+  app.post('/attendance/ledger/close', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.closeMonth);
+  app.post('/attendance/ledger/reopen', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.reopenMonth);
+  app.get('/attendance/ledger/statistics', requireTenant, requireAttendanceEnabled, attendanceLedgerController.getStatistics);
+  app.get('/attendance/ledger/locks', requireTenant, requireAttendanceEnabled, attendanceLedgerController.listMonthLocks);
+  app.post('/attendance/ledger/locks/:month/release', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.releaseStaleMonthLock);
+
+  // Payroll: employee endpoints are self-scoped in the controller; company data
+  // requires an explicit payroll role and never inherits legacy admin privileges.
+  app.get('/attendance/payroll/my', requireTenant, requireAttendanceEnabled, requireEmployee, payrollController.getMyStatements);
+  app.get('/attendance/payroll/statements', requireTenant, requireAttendanceEnabled, payrollController.listStatements);
+  // 累计预扣预缴个税的往月累计基数（只读，供录入弹窗算个税）
+  app.get('/attendance/payroll/statements/:employeeId/:month/tax-basis', requireTenant, requireAttendanceEnabled, payrollController.getTaxBasis);
+  app.get('/attendance/payroll/standards', requireTenant, requireAttendanceEnabled, payrollController.listStandards);
+  app.post('/attendance/payroll/standards/:employeeId', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.saveStandard);
+  app.post('/attendance/payroll/statements/:employeeId/:month/draft', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.saveDraft);
+  app.post('/attendance/payroll/statements/:employeeId/:month/publish', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.publish);
+  app.post('/attendance/payroll/statements/:employeeId/:month/withdraw', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.withdraw);
+  app.post('/attendance/payroll/statements/:employeeId/:month/payments', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.addPayment);
+  // 按月批量：导入工资草稿（名单匹配在前端完成，这里只收员工与金额）与批量发布待发布草稿
+  app.post('/attendance/payroll/import/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.importDrafts);
+  app.post('/attendance/payroll/publish-batch/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.publishBatch);
+  app.get('/attendance/payroll/statistics', requireTenant, requireAttendanceEnabled, payrollController.getStatistics);
 
   // Report API (tenant-scoped)
   app.get('/report/integrated_query', requireTenant, reportApiController.getIntegratedQuery);
@@ -178,12 +235,12 @@ module.exports = function (app) {
   // Platform Admin API (platform-only, SaaS mode only)
   if (isSaas()) {
     app.get('/platform/tenants', requirePlatformUser, platformApiController.getTenants);
-    app.post('/platform/tenants', requirePlatformUser, platformApiController.createTenant);
-    app.post('/platform/tenants/update', requirePlatformUser, platformApiController.updateTenant);
-    app.post('/platform/tenants/delete', requirePlatformUser, platformApiController.deleteTenant);
-    app.post('/platform/tenants/status', requirePlatformUser, platformApiController.updateTenantStatus);
+    app.post('/platform/tenants', requirePlatformUser, requireSameOrigin, platformApiController.createTenant);
+    app.post('/platform/tenants/update', requirePlatformUser, requireSameOrigin, platformApiController.updateTenant);
+    app.post('/platform/tenants/delete', requirePlatformUser, requireSameOrigin, platformApiController.deleteTenant);
+    app.post('/platform/tenants/status', requirePlatformUser, requireSameOrigin, platformApiController.updateTenantStatus);
     app.get('/platform/tenants/:tenantId/users', requirePlatformUser, platformApiController.getTenantUsers);
-    app.post('/platform/users/reset-password', requirePlatformUser, platformApiController.resetUserPassword);
+    app.post('/platform/users/reset-password', requirePlatformUser, requireSameOrigin, platformApiController.resetUserPassword);
     app.get('/platform/tenants/:tenantId/bills', requirePlatformUser, platformApiController.getTenantBills);
     app.get('/platform/tenants/:tenantId/invoices', requirePlatformUser, platformApiController.getTenantInvoices);
     app.get('/platform/statistics', requirePlatformUser, platformApiController.getPlatformStats);

@@ -63,6 +63,7 @@ module.exports = {
   enableSelfVehicle: process.env.ENABLE_SELF_VEHICLE === "true",
   serveFrontend: process.env.SERVE_FRONTEND === "true",
   enablePublicBasket: process.env.ENABLE_PUBLIC_BASKET === "true",
+  enableAttendance: process.env.ENABLE_ATTENDANCE === "true",
 
   // MinIO 配置
   minio: {

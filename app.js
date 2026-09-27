@@ -34,6 +34,7 @@ var routesApi = require("./routes_api");
 
 const dataCfg = require("./controllers/cache");
 const { migrateAllUsers } = require("./utils/privilege-migration");
+const { loadChinaAttendanceCalendar } = require("./utils/china-attendance-calendar");
 const User = require("./models/User");
 const { isStandalone } = require("./utils/deploy-mode");
 const { initStandalone } = require("./utils/standalone-init");
@@ -61,6 +62,15 @@ mongoose
     migrateAllUsers(User).catch((err) => {
       console.error("✗ Privilege migration error:", err);
     });
+
+    // 已抓取过的国务院节假日安排预热进内存（取值接口是同步的，离线部署也要能用）
+    loadChinaAttendanceCalendar()
+      .then((count) => {
+        if (count) console.log(`✔ Holiday calendars loaded: ${count}`);
+      })
+      .catch((err) => {
+        console.error("✗ Holiday calendar preload error:", err);
+      });
 
     if (isStandalone()) {
       try {

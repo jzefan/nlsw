@@ -44,6 +44,76 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/attendance/approval-history': RouteRecordInfo<
+      '/attendance/approval-history',
+      '/attendance/approval-history',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/approvals': RouteRecordInfo<
+      '/attendance/approvals',
+      '/attendance/approvals',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/ledger/': RouteRecordInfo<
+      '/attendance/ledger/',
+      '/attendance/ledger',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/ledger/statistics': RouteRecordInfo<
+      '/attendance/ledger/statistics',
+      '/attendance/ledger/statistics',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/payroll/my': RouteRecordInfo<
+      '/attendance/payroll/my',
+      '/attendance/payroll/my',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/payroll/settings': RouteRecordInfo<
+      '/attendance/payroll/settings',
+      '/attendance/payroll/settings',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/payroll/statements': RouteRecordInfo<
+      '/attendance/payroll/statements',
+      '/attendance/payroll/statements',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/payroll/statistics': RouteRecordInfo<
+      '/attendance/payroll/statistics',
+      '/attendance/payroll/statistics',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/requests': RouteRecordInfo<
+      '/attendance/requests',
+      '/attendance/requests',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/attendance/settings': RouteRecordInfo<
+      '/attendance/settings',
+      '/attendance/settings',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/auth': RouteRecordInfo<
       '/auth',
       '/auth',
@@ -459,6 +529,66 @@ declare module 'vue-router/auto-routes' {
     'src/pages/admin/users.vue': {
       routes:
         | '/admin/users'
+      views:
+        | never
+    }
+    'src/pages/attendance/approval-history.vue': {
+      routes:
+        | '/attendance/approval-history'
+      views:
+        | never
+    }
+    'src/pages/attendance/approvals.vue': {
+      routes:
+        | '/attendance/approvals'
+      views:
+        | never
+    }
+    'src/pages/attendance/ledger/index.vue': {
+      routes:
+        | '/attendance/ledger/'
+      views:
+        | never
+    }
+    'src/pages/attendance/ledger/statistics.vue': {
+      routes:
+        | '/attendance/ledger/statistics'
+      views:
+        | never
+    }
+    'src/pages/attendance/payroll/my.vue': {
+      routes:
+        | '/attendance/payroll/my'
+      views:
+        | never
+    }
+    'src/pages/attendance/payroll/settings.vue': {
+      routes:
+        | '/attendance/payroll/settings'
+      views:
+        | never
+    }
+    'src/pages/attendance/payroll/statements.vue': {
+      routes:
+        | '/attendance/payroll/statements'
+      views:
+        | never
+    }
+    'src/pages/attendance/payroll/statistics.vue': {
+      routes:
+        | '/attendance/payroll/statistics'
+      views:
+        | never
+    }
+    'src/pages/attendance/requests.vue': {
+      routes:
+        | '/attendance/requests'
+      views:
+        | never
+    }
+    'src/pages/attendance/settings.vue': {
+      routes:
+        | '/attendance/settings'
       views:
         | never
     }

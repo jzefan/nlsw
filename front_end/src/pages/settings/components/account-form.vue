@@ -6,13 +6,14 @@ import { useAxios } from '@/composables/use-axios'
 const { axiosInstance } = useAxios()
 
 const loading = ref(false)
+const currentPassword = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 
 // 密码验证
 const passwordError = computed(() => {
-  if (password.value && password.value.length < 2) {
-    return '密码长度至少2位'
+  if (password.value && password.value.length < 8) {
+    return '新密码至少8位'
   }
   return ''
 })
@@ -25,7 +26,8 @@ const confirmError = computed(() => {
 })
 
 const canSubmit = computed(() => {
-  return password.value.length >= 2
+  return currentPassword.value.length > 0
+    && password.value.length >= 8
     && confirmPassword.value === password.value
     && !loading.value
 })
@@ -37,6 +39,7 @@ async function handleSubmit() {
   loading.value = true
   try {
     const response = await axiosInstance.post('/account/password', {
+      currentPassword: currentPassword.value,
       password: password.value,
       confirmPassword: confirmPassword.value,
     })
@@ -45,6 +48,7 @@ async function handleSubmit() {
       toast.success('密码修改成功')
       password.value = ''
       confirmPassword.value = ''
+      currentPassword.value = ''
     }
     else {
       toast.error('密码修改失败', { description: response.data.msg })
@@ -71,11 +75,16 @@ async function handleSubmit() {
   <UiSeparator class="my-4" />
   <form class="space-y-6 max-w-md" @submit.prevent="handleSubmit">
     <div class="space-y-2">
+      <label class="text-sm font-medium">当前密码</label>
+      <UiInput v-model="currentPassword" type="password" autocomplete="current-password" placeholder="请输入当前密码" />
+    </div>
+
+    <div class="space-y-2">
       <label class="text-sm font-medium">新密码</label>
       <UiInput
         v-model="password"
         type="password"
-        placeholder="请输入新密码"
+        placeholder="请输入至少8位的新密码"
       />
       <p v-if="passwordError" class="text-xs text-destructive">
         {{ passwordError }}

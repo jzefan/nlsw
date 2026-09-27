@@ -50,6 +50,10 @@ var tenantSchema = new mongoose.Schema({
     logo: String,
     theme: String,
     companyName: String,  // 显示在界面上的公司名称
+    attendanceEnabled: { type: Boolean, default: false }, // 考勤模块开关
+    attendanceCalendarOverrides: { type: mongoose.Schema.Types.Mixed, default: {} }, // YYYY-MM-DD: holiday | workday
+    attendanceCalendarYears: { type: [Number], default: [] }, // 管理员已确认日历的年份
+    attendanceGeneralManagerDelegateId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // 总经理本人长假代理审批人
     requireReceiptForSettle: { type: Boolean, default: false },  // 结算前是否必须有回执
     drayageRate: { type: Number, default: 0 },  // 车运到船应收单价（元/吨），0=使用原有计算逻辑
     ownVehicleDeductPayable: { type: Boolean, default: true },  // 自有车利润是否减去应付金额，true=减去（默认），false=不减

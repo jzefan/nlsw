@@ -1,69 +1,54 @@
-## Workflow Orchestration
+# AGENTS.md
 
-### 1. Plan Mode Default
+## 1. 先规划后实现
 
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways,SToP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+- 多步任务、跨模块改动、有架构取舍 → 先出方案再动手。
+- 小改动（改文案、调样式、修一个已定位的 bug）→ 直接改完收工，不要为它写计划、建 todo。
+- 方向走偏了立刻停下重新规划，不要硬推。
 
-### 2. Subagent strategy
+## 2. 分级验证（核心规则）
 
-- Use subagents liberally to keep main context window clean
-- Offload research,exploration,and parallel analysis to subagents
-- For complex problems,throw more compute at it via subagents
-- One task per subagent for focused execution
+**验证强度跟着「改动影响面」走，不跟着改动行数，也不跟着仪式感走。默认取最低档，只有确实碰到共享代码才升级。**
 
-### 3. Self-Improvement Loop
+| 档位 | 什么改动 | 要做到 | 不必做 |
+|---|---|---|---|
+| **L0 界面微调** | 文案、样式、间距、颜色、图标、单个页面的展示细节 | 改的文件能编译；能开页面就扫一眼 | ❌ 不跑测试套件　❌ 不补新测试　❌ 不写 todo 文档 |
+| **L1 单页逻辑** | 某页交互逻辑、局部组件、单个 API 调用 | 相关文件类型检查；该模块已有测试跑一下 | ❌ 不跑全量回归 |
+| **L2 跨模块** | 后端接口、数据模型、权限、多页共用的 composable/store | 相关模块测试 + 真实走一遍主流程 | — |
+| **L3 高危** | 部署配置、数据迁移、批量改写、不可逆操作 | 全量验证 + 备份 + 明确回滚方式 | — |
 
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
+- 只有用户明确要求时才跑全量回归。
+- **禁止为了"看起来很严谨"而堆测试**：一次界面微调后面跟着一长串回归用例，是浪费，不是负责。
+- 但"不测"不等于"不报"：跑了什么、没跑什么、为什么不需要跑，如实说清。错误必须暴露，不许静默失败。
+- 判不准档位时按低档执行，并在回复里说明你的判断依据。
 
-### 4. Verification Before Done
+## 3. 子代理与自改进
 
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself:"Would a staff engineer approve this?"
-- Run tests, check logs,demonstrate correctness
+- 代码库探索、调研、并行分析 → 交给子代理，保持主上下文干净；一个子代理只干一件事。
+- 被用户纠正后 → 立刻把模式写进 `tasks/lessons.md`，写成可执行规则；开工前扫一眼相关教训。
 
-### 5. Demand Elegance(Balanced)
+## 4. 修 bug 的态度
 
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky:"Knowing everything I know now,implement the elegant solution"
-- Skip this for simple,obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
+拿到 bug 直接定位并修，不要反过来问用户要步骤。看日志、看报错、看失败用例，然后解决。
 
-### 6. Autonomous Bug Fixing
+## 5. UI 约定（默认收敛、克制、常规）
 
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs,errors,failing tests-then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
+**文案**：不写解释性、啰嗦的文案，只显示最必要的内容和元素。标题、说明、空状态、按钮都说人话且短——一句话能说清就不写两句，不重复屏幕上已经有的信息。
 
-## Task Management
+**形态**：
+- 尺寸与间距按**界面类型、信息密度、平台习惯、使用频率、视觉层级**判断，不写死统一规格，也不主动放大。
+- 辅助入口、设置、开关、工具按钮**不抢视觉中心**。
+- 常见功能必须用大众通用、一眼可识别的图标隐喻：优先成熟图标库、系统图标、行业通用符号；不为差异化自创奇怪图标，自定义图标也要保持常见轮廓、比例和语义。
+- 除明确要求强调外，层级靠**位置、分组、轻微颜色、hover、tooltip、分隔线、状态反馈**表达；避免夸张尺寸、重色块、大圆角、厚边框、强阴影、装饰性渐变、营销页式布局。
 
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to tasks/todo.md
-6. **Capture Lessons**: Update `tasks/lessons.md ` after corrections
+**收尾自检**：实现后与**同屏其他元素对比**，若显得突兀、过大、过重或破坏信息密度，主动收敛后再交付。
 
-## Core Principles
+## 6. 核心原则
 
-- **simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs
-- **优先使用胶水编程思维**: 复用现成库，不重复造轮子
-- **先规划后实现**: 不要一上来就写代码
-- **持续自我改进**: 从每次错误中学习，更新规则，降低未来错误率
-- **验证为王**: 任何时候都要证明你的改动是正确的，不要假设它们是正确的
-- **优雅但实用**: 在追求优雅的同时，确保解决方案是实用的，不要过度设计
-- **错误处理**: 始终处理错误，避免静默失败，使用 try-catch 或错误返回
-- **日志记录**: 适当记录日志，帮助调试和监控，但避免过度日志
-- **安全第一**: 处理用户输入时要小心，避免注入攻击
-- **性能意识**: 在编写代码时考虑性能，但不要过早优化
-- **代码可读性**: 写清晰、易读的代码，使用有意义的变量和函数名，添加必要的注释
-- **测试驱动**: 在可能的情况下编写测试，确保代码的正确性和可维护性
+- **简洁优先**：能改一处就不改十处，影响面最小。
+- **找根因**：不做临时补丁。动手前问一句"有没有更干净的做法"，但明显的小修复别过度设计。
+- **复用优先**：现状库和既有工具先用，不重复造轮子。
+- **错误处理**：不吞异常，不静默失败。
+- **安全**：用户输入要校验。
+- **可读性**：命名达意，只在逻辑不直观处写注释。
+- **性能**：顺手考虑，别过早优化。

@@ -18,7 +18,11 @@ const navMain = computed(() => {
     return generatePlatformNavData()
   }
   const privilege = user.value?.privilege ?? []
-  return generateNavData(privilege, features.value)
+  const roles = user.value?.attendanceRoles
+  const attendanceRoles = Array.isArray(roles) ? roles : roles ? [roles] : []
+  const payroll = user.value?.payrollRoles
+  const payrollRoles = Array.isArray(payroll) ? payroll : payroll ? [payroll] : []
+  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '')
 })
 
 // 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名

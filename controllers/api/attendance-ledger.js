@@ -1,0 +1,533 @@
+const mongoose = require('mongoose');
+const { randomUUID } = require('crypto');
+const os = require('os');
+const User = require('../../models/User');
+const AttendanceRequest = require('../../models/AttendanceRequest');
+const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
+const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
+const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
+
+const OFFSET_MS = 8 * 60 * 60 * 1000;
+const activeMutationTokens = new Set();
+const LOCK_RECOVERY_MIN_AGE_MS = 10 * 60 * 1000;
+const LEAVE_TYPES = ['personal', 'sick', 'annual', 'marriage', 'maternity', 'paternity', 'bereavement', 'parental', 'compensatory', 'other'];
+const leaveField = type => LEAVE_TYPES.includes(type) ? type : 'other';
+const err = (res, status, message, code) => res.status(status).json({ ok: false, error: message, ...(code ? { code } : {}) });
+
+function parseMonth(raw) {
+  if (typeof raw !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) return null;
+  const [year, month] = raw.split('-').map(Number);
+  const start = Date.UTC(year, month - 1, 1) - OFFSET_MS;
+  const end = Date.UTC(year, month, 1) - OFFSET_MS;
+  return { year, month, start, end };
+}
+
+function isMonthAdmin(user) {
+  return user?.role === 'owner' || hasAttendanceRole(user, 'attendance_admin');
+}
+function isCompanyViewer(user) {
+  return isMonthAdmin(user) || hasAttendanceRole(user, 'general_manager');
+}
+
+function hasLedgerIdentity(req) {
+  const userTenantId = req.user?.tenantId?._id || req.user?.tenantId;
+  // 未设置 status 的历史账号视为在职，只有显式 disabled 才拦
+  return req.user?.status !== 'disabled' &&
+    req.tenantId && String(userTenantId) === String(req.tenantId);
+}
+
+function requireLedgerIdentity(req, res) {
+  if (hasLedgerIdentity(req)) return true;
+  err(res, 403, '账号需处于启用状态并匹配当前公司后才能访问月台账');
+  return false;
+}
+
+function isMonthLockOwnerAlive(lock) {
+  if (!lock.mutationOwnerHost || lock.mutationOwnerHost !== os.hostname()) return null;
+  if (!Number.isInteger(lock.mutationOwnerPid) || lock.mutationOwnerPid <= 0) return null;
+  if (lock.mutationOwnerPid === process.pid) return false;
+  try {
+    process.kill(lock.mutationOwnerPid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'ESRCH' ? false : true;
+  }
+}
+
+function monthLockRecoveryState(lock, now = Date.now()) {
+  const acquired = lock.mutationAcquiredAt ? new Date(lock.mutationAcquiredAt).getTime() : NaN;
+  const ageMs = Number.isFinite(acquired) ? Math.max(0, now - acquired) : null;
+  const token = lock.mutationToken;
+  const activeHere = Boolean(token && activeMutationTokens.has(token));
+  const ownerAlive = isMonthLockOwnerAlive(lock);
+  const oldEnough = ageMs !== null && ageMs >= LOCK_RECOVERY_MIN_AGE_MS;
+  return { ageMs, activeHere, ownerAlive, oldEnough, recoverable: oldEnough && !activeHere && ownerAlive === false };
+}
+
+function requireOwner(req, res) {
+  if (req.user?.role === 'owner' && req.tenantId && String(req.user.tenantId?._id || req.user.tenantId) === String(req.tenantId) && req.user.status !== 'disabled') return true;
+  err(res, 403, '仅本公司主账号可恢复月台账锁');
+  return false;
+}
+
+async function getScopedUsers(req, scope) {
+  // 平台账号不是公司员工，从不进入台账与统计；其余账号按各人的「纳入考勤统计」开关过滤（未设置视为纳入）。
+  const base = { tenantId: req.tenantId, role: { $ne: 'platform' }, attendanceTracked: { $ne: false } };
+  if (scope === 'mine') return User.find({ ...base, _id: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+  if (isCompanyViewer(req.user)) return User.find(base).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+  if (hasAttendanceRole(req.user, 'manager')) {
+    if (scope !== 'team') throw Object.assign(new Error('经理仅可查看本人或直属团队'), { status: 403 });
+    return User.find({ ...base, managerId: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+  }
+  if (scope === 'team') throw Object.assign(new Error('无权查看团队台账'), { status: 403 });
+  return User.find({ ...base, _id: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+}
+
+/** 平台账号与关闭考勤统计的账号不允许写入台账。 */
+function isAttendanceTracked(user) {
+  return user?.role !== 'platform' && user?.attendanceTracked !== false;
+}
+
+function defaultLedgerRow(user, expectedMinutes) {
+  return {
+    employeeId: user._id,
+    employeeNo: user.employeeNo || '',
+    phone: user.phone || user.profile?.phone || '',
+    userid: user.userid || '',
+    name: user.profile?.name || user.userid || '',
+    department: user.department || '',
+    expectedMinutes,
+    actualMinutes: null,
+    confirmationState: 'pending',
+    note: '',
+    version: 0
+  };
+}
+
+async function ensureLedger(tenantId, month) {
+  try {
+    return await AttendanceMonthLedger.findOneAndUpdate({ tenantId, month }, { $setOnInsert: { tenantId, month } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  } catch (e) {
+    if (e?.code === 11000) return AttendanceMonthLedger.findOne({ tenantId, month });
+    throw e;
+  }
+}
+
+async function acquireMonthMutationLock(tenantId, month) {
+  await ensureLedger(tenantId, month);
+  const token = randomUUID();
+  activeMutationTokens.add(token);
+  try {
+    const result = await AttendanceMonthLedger.updateOne({ tenantId, month, mutationToken: { $exists: false } }, {
+      $set: { mutationToken: token, mutationAcquiredAt: new Date(), mutationOwnerPid: process.pid, mutationOwnerHost: os.hostname() }
+    });
+    if ((result.modifiedCount ?? result.nModified) !== 1) {
+      const conflict = new Error('这个月的考勤正在更新，请稍后再试');
+      conflict.status = 409;
+      throw conflict;
+    }
+    return { month, token };
+  } catch (error) {
+    activeMutationTokens.delete(token);
+    throw error;
+  }
+}
+
+async function releaseMonthMutationLock(tenantId, lock) {
+  if (!lock?.token) return;
+  try {
+    await AttendanceMonthLedger.updateOne({ tenantId, month: lock.month, mutationToken: lock.token }, {
+      $unset: { mutationToken: 1, mutationAcquiredAt: 1, mutationOwnerPid: 1, mutationOwnerHost: 1 }
+    });
+  } finally {
+    activeMutationTokens.delete(lock.token);
+  }
+}
+
+async function expectedMinutesFor(user, monthStart, monthEnd, tenant) {
+  const year = new Date(monthStart + OFFSET_MS).getUTCFullYear();
+  if (!getAttendancePolicy(tenant).configuredYears.has(year)) {
+    throw Object.assign(new Error(`请先由考勤管理员确认 ${year} 年工作日历`), {
+      status: 409,
+      code: 'ATTENDANCE_CALENDAR_UNCONFIRMED'
+    });
+  }
+  let total = 0;
+  for (let day = monthStart; day < monthEnd; day += 86400000) {
+    const date = new Date(day + OFFSET_MS);
+    const localDate = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const start = new Date(`${localDate}T00:00:00.000+08:00`);
+    const end = new Date(start.getTime() + 86400000);
+    total += calculateLeaveMinutes(start, end, tenant).minutes;
+  }
+  return total;
+}
+
+function emptyAttendanceAggregate() {
+  return {
+    leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])),
+    overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0,
+    fieldworkApprovedMinutes: 0, requiresLeaveReconciliation: false
+  };
+}
+
+/** 把已审批的申请单折算成「员工 ID → 当月时长」：请假按天分摊到月内，加班/外勤按与月份的交集计。 */
+function aggregateApprovedRequests(requests, month) {
+  const stats = new Map();
+  const forEmployee = id => {
+    if (!stats.has(id)) stats.set(id, emptyAttendanceAggregate());
+    return stats.get(id);
+  };
+  for (const request of requests) {
+    const aggregate = forEmployee(String(request.applicantId));
+    if (request.type === 'leave') {
+      const allocations = request.leaveAllocations;
+      const validAllocation = Array.isArray(allocations) && allocations.length > 0 &&
+        allocations.every(item => /^\d{4}-\d{2}-\d{2}$/.test(item.date || '') && Number.isInteger(item.minutes) && item.minutes >= 0) &&
+        allocations.reduce((total, item) => total + item.minutes, 0) === request.durationMinutes;
+      if (!validAllocation) {
+        aggregate.requiresLeaveReconciliation = true;
+        continue;
+      }
+      for (const allocation of allocations) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(allocation.date || '')) continue;
+        const at = new Date(`${allocation.date}T00:00:00.000+08:00`).getTime();
+        if (at >= month.start && at < month.end) aggregate.leaveMinutesByType[leaveField(request.leaveType)] += Number(allocation.minutes) || 0;
+      }
+    } else {
+      const minutes = Math.max(0, Math.round((Math.min(request.endAt.getTime(), month.end) - Math.max(request.startAt.getTime(), month.start)) / 60000));
+      if (request.type === 'overtime') {
+        aggregate.overtimeApprovedMinutes += minutes;
+        if (request.compensation === 'comp_time') aggregate.overtimeCompTimeMinutes += minutes;
+        if (request.compensation === 'overtime_pay') aggregate.overtimePayMinutes += minutes;
+      } else if (request.type === 'fieldwork') aggregate.fieldworkApprovedMinutes += minutes;
+    }
+  }
+  return stats;
+}
+
+/**
+ * 工资条明细用：当月每名员工的考勤时长（请假按类型、加班含调休/加班费、外勤）。
+ * 只看已审批的申请单，不要求工作日历已确认，所以不会因为日历未确认而阻塞工资表；
+ * 台账里已登记的应出勤/实到有就一并带上，没有则为 null。
+ */
+async function getMonthlyAttendanceSummary(tenantId, month) {
+  const requests = await AttendanceRequest.find({ tenantId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  const stats = aggregateApprovedRequests(requests, month);
+  const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: month.value }).select('rows').lean();
+  const stored = new Map((ledger?.rows || []).map(row => [String(row.employeeId), row]));
+  const summary = {};
+  for (const [employeeId, aggregate] of stats) {
+    const row = stored.get(employeeId);
+    summary[employeeId] = { ...aggregate, expectedMinutes: row?.expectedMinutes ?? null, actualMinutes: row?.actualMinutes ?? null };
+  }
+  for (const [employeeId, row] of stored) {
+    if (summary[employeeId]) continue;
+    summary[employeeId] = { ...emptyAttendanceAggregate(), expectedMinutes: row.expectedMinutes ?? null, actualMinutes: row.actualMinutes ?? null };
+  }
+  return summary;
+}
+
+async function buildRows(req, month, scope, ledger) {
+  const users = await getScopedUsers(req, scope);
+  const storedById = new Map((ledger.rows || []).map(row => [String(row.employeeId), row.toObject ? row.toObject() : row]));
+  const requests = await AttendanceRequest.find({ tenantId: req.tenantId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  // Include inactive accounts: current status does not erase historical month records.
+  const allUsers = users;
+  const userById = new Map(allUsers.map(user => [String(user._id), user]));
+  const visibleIds = new Set(allUsers.map(user => String(user._id)));
+  const relevant = requests.filter(item => visibleIds.has(String(item.applicantId)));
+  const stats = aggregateApprovedRequests(relevant, month);
+  for (const user of allUsers) if (!stats.has(String(user._id))) stats.set(String(user._id), emptyAttendanceAggregate());
+  const rows = [];
+  for (const user of allUsers) {
+    const id = String(user._id);
+    const saved = storedById.get(id);
+    let expectedMinutes = saved?.expectedMinutes;
+    if (!Number.isFinite(expectedMinutes)) expectedMinutes = await expectedMinutesFor(user, month.start, month.end, req.tenant);
+    const row = saved ? {
+      ...saved,
+      phone: saved.phone || user.phone || user.profile?.phone || '',
+      userid: saved.userid || user.userid || '',
+      expectedMinutes
+    } : defaultLedgerRow(user, expectedMinutes);
+    const source = stats.get(id);
+    const { _id, __v, ...safe } = row;
+    rows.push({ ...safe, employeeId: user._id, ...source, actualMinutes: row.actualMinutes ?? null });
+  }
+  return rows;
+}
+
+/** 台账的姓名列不再拼接工号/手机号（下一行已经展示这些信息），同时清掉历史快照里存过的 displayName。 */
+function stripPersonLabels(rows) {
+  return rows.map(({ displayName: _displayName, ...row }) => row);
+}
+
+function sumRows(rows) {
+  const totals = { expectedMinutes: 0, leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])), overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0, fieldworkApprovedMinutes: 0, actualMinutes: null, confirmedCount: 0, pendingCount: 0, noBasisCount: 0, requiresLeaveReconciliationCount: 0 };
+  let actualTotal = 0, actualCount = 0;
+  for (const row of rows) {
+    totals.expectedMinutes += row.expectedMinutes || 0;
+    for (const type of LEAVE_TYPES) totals.leaveMinutesByType[type] += row.leaveMinutesByType?.[type] || 0;
+    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'fieldworkApprovedMinutes']) totals[key] += row[key] || 0;
+    if (row.actualMinutes !== null && row.actualMinutes !== undefined) { actualTotal += row.actualMinutes; actualCount++; }
+    if (row.confirmationState === 'confirmed') totals.confirmedCount++;
+    else if (row.confirmationState === 'no_basis') totals.noBasisCount++;
+    else totals.pendingCount++;
+    if (row.requiresLeaveReconciliation) totals.requiresLeaveReconciliationCount++;
+  }
+  totals.actualMinutes = actualCount === rows.length && rows.length > 0 ? actualTotal : null;
+  return totals;
+}
+
+exports.getLedger = async (req, res) => {
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    const month = parseMonth(req.query.month);
+    if (!month) return err(res, 400, '月份格式应为 YYYY-MM');
+    const scope = req.query.scope || 'mine';
+    if (!['mine', 'team', 'company'].includes(scope)) return err(res, 400, 'scope 仅支持 mine、team 或 company');
+    const ledger = await ensureLedger(req.tenantId, req.query.month);
+    let rows;
+    if (ledger.status === 'closed' && ledger.closedSnapshot?.rows) {
+      // 已结账月份用快照，但仍要按当前范围过滤：平台账号与关闭考勤统计的账号不再显示
+      const allowed = await getScopedUsers(req, scope);
+      const allowedIds = new Set(allowed.map(user => String(user._id)));
+      rows = ledger.closedSnapshot.rows.filter(row => allowedIds.has(String(row.employeeId)));
+    } else rows = await buildRows(req, month, scope, ledger);
+    return res.json({ ok: true, data: { month: req.query.month, status: ledger.status, version: ledger.version, rows: stripPersonLabels(rows), totals: sumRows(rows) } });
+  } catch (e) {
+    if (e.status) return err(res, e.status, e.message, e.code);
+    console.error('attendance ledger read failed:', e);
+    return err(res, 500, '读取月度考勤台账失败');
+  }
+};
+
+exports.saveRow = async (req, res) => {
+  let mutationLock;
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可确认月度台账');
+    const monthValue = req.body?.month, month = parseMonth(monthValue), employeeId = req.params.employeeId;
+    if (!month || !mongoose.Types.ObjectId.isValid(employeeId)) return err(res, 400, '月份或员工编号无效');
+    const { actualMinutes, confirmationState, note = '', version } = req.body || {};
+    if (!Number.isInteger(version) || !['confirmed', 'no_basis'].includes(confirmationState) || typeof note !== 'string' || note.length > 2000) return err(res, 400, '台账确认内容无效');
+    if (confirmationState === 'confirmed' && (!Number.isInteger(actualMinutes) || actualMinutes < 0)) return err(res, 400, '确认实到时必须填写非负整数分钟数');
+    if (confirmationState === 'no_basis' && actualMinutes !== null) return err(res, 400, '无实到依据时实际分钟数必须为空');
+    if (confirmationState === 'no_basis' && !note.trim()) return err(res, 400, '无实到依据时必须填写原因');
+    mutationLock = await acquireMonthMutationLock(req.tenantId, monthValue);
+    const [ledger, user] = await Promise.all([
+      AttendanceMonthLedger.findOne({ tenantId: req.tenantId, month: monthValue }),
+      User.findOne({ _id: employeeId, tenantId: req.tenantId }).select('employeeNo phone profile.phone profile.name userid department status role attendanceTracked')
+    ]);
+    if (!ledger || !user) return err(res, 404, '月度台账或员工不存在');
+    if (!isAttendanceTracked(user)) return err(res, 409, '该员工未纳入考勤统计，无法保存台账');
+    if (ledger.status === 'closed') return err(res, 409, '已结账月份不可修改');
+    if (ledger.version !== version) return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    let row = ledger.rows.find(item => String(item.employeeId) === String(user._id));
+    if (!row) { ledger.rows.push(defaultLedgerRow(user, await expectedMinutesFor(user, month.start, month.end, req.tenant))); row = ledger.rows[ledger.rows.length - 1]; }
+    row.actualMinutes = actualMinutes;
+    row.confirmationState = confirmationState;
+    row.note = note.trim();
+    row.version = (row.version || 0) + 1;
+    ledger.version++;
+    ledger.updatedAt = new Date();
+    await ledger.save();
+    return res.json({ ok: true, data: { month: monthValue, version: ledger.version, row } });
+  } catch (e) {
+    if (e.status === 409) return err(res, 409, e.message);
+    if (e.name === 'VersionError') return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    return err(res, 500, '保存月度台账失败');
+  } finally {
+    if (mutationLock) await releaseMonthMutationLock(req.tenantId, mutationLock).catch(() => {});
+  }
+};
+
+exports.closeMonth = async (req, res) => {
+  let auditRecord;
+  let mutationLock;
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可月结');
+    const month = req.body?.month;
+    if (!parseMonth(month) || !Number.isInteger(req.body.version)) return err(res, 400, '月份或版本无效');
+    mutationLock = await acquireMonthMutationLock(req.tenantId, month);
+    const parsedMonth = parseMonth(month);
+    const ledger = await AttendanceMonthLedger.findOne({ tenantId: req.tenantId, month });
+    if (!ledger) return err(res, 404, '月度台账不存在');
+    if (ledger.status === 'closed') return err(res, 409, '该月份已结账');
+    if (ledger.version !== req.body.version) return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    const ledgerRows = await buildRows(req, parsedMonth, 'company', ledger);
+    const incomplete = ledgerRows.filter(row => row.confirmationState === 'pending' ||
+      (row.confirmationState === 'confirmed' && (!Number.isInteger(row.actualMinutes) || row.actualMinutes < 0)) ||
+      (row.confirmationState === 'no_basis' && (!row.note.trim() || row.actualMinutes !== null)) ||
+      row.requiresLeaveReconciliation);
+    if (incomplete.length) return err(res, 409, `尚有 ${incomplete.length} 条台账待确认或请假需对账，不能结账`);
+    const snapshot = { rows: ledgerRows, totals: sumRows(ledgerRows), version: ledger.version };
+    ledger.closedSnapshot = snapshot;
+    ledger.status = 'closed';
+    ledger.closedAt = new Date(); ledger.closedBy = req.user._id; ledger.version++;
+    auditRecord = await AttendanceLedgerAudit.create({ tenantId: req.tenantId, ledgerId: ledger._id, month, action: 'closed', actorId: req.user._id, snapshot, at: new Date() });
+    ledger.closeAudit.push({ auditId: auditRecord._id, action: 'closed', actorId: req.user._id, reason: '', at: auditRecord.at });
+    ledger.updatedAt = new Date();
+    await ledger.save();
+    return res.json({ ok: true, data: { month, status: ledger.status, version: ledger.version, closedAt: ledger.closedAt } });
+  } catch (e) {
+    if (auditRecord?._id) await AttendanceLedgerAudit.deleteOne({ _id: auditRecord._id, tenantId: req.tenantId }).catch(() => {});
+    if (e.status === 409) return err(res, 409, e.message);
+    if (e.name === 'VersionError') return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    return err(res, 500, '月结失败');
+  } finally {
+    if (mutationLock) await releaseMonthMutationLock(req.tenantId, mutationLock).catch(() => {});
+  }
+};
+
+exports.reopenMonth = async (req, res) => {
+  let auditRecord;
+  let mutationLock;
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可重新开启月结');
+    const { month, version, reason } = req.body || {};
+    if (!parseMonth(month) || !Number.isInteger(version) || typeof reason !== 'string' || !reason.trim() || reason.length > 2000) return err(res, 400, '重新开启必须填写月份、版本及原因');
+    mutationLock = await acquireMonthMutationLock(req.tenantId, month);
+    const ledger = await AttendanceMonthLedger.findOne({ tenantId: req.tenantId, month });
+    if (!ledger) return err(res, 404, '月度台账不存在');
+    if (ledger.status !== 'closed') return err(res, 409, '该月份尚未结账');
+    if (ledger.version !== version) return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    const snapshot = ledger.closedSnapshot || { rows: ledger.rows.map(row => row.toObject()), version: ledger.version };
+    ledger.status = 'open'; ledger.closedAt = undefined; ledger.closedBy = undefined; ledger.version++;
+    auditRecord = await AttendanceLedgerAudit.create({ tenantId: req.tenantId, ledgerId: ledger._id, month, action: 'reopened', actorId: req.user._id, reason: reason.trim(), snapshot, at: new Date() });
+    ledger.closeAudit.push({ auditId: auditRecord._id, action: 'reopened', actorId: req.user._id, reason: reason.trim(), at: auditRecord.at });
+    ledger.updatedAt = new Date();
+    await ledger.save();
+    return res.json({ ok: true, data: { month, status: ledger.status, version: ledger.version } });
+  } catch (e) {
+    if (auditRecord?._id) await AttendanceLedgerAudit.deleteOne({ _id: auditRecord._id, tenantId: req.tenantId }).catch(() => {});
+    if (e.status === 409) return err(res, 409, e.message);
+    if (e.name === 'VersionError') return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    return err(res, 500, '重新开启月结失败');
+  } finally {
+    if (mutationLock) await releaseMonthMutationLock(req.tenantId, mutationLock).catch(() => {});
+  }
+};
+
+function sumMonthlyStatistics(byMonth) {
+  const totals = {
+    expectedMinutes: 0,
+    leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])),
+    overtimeApprovedMinutes: 0,
+    overtimeCompTimeMinutes: 0,
+    overtimePayMinutes: 0,
+    fieldworkApprovedMinutes: 0,
+    actualMinutes: null,
+    confirmedCount: 0,
+    pendingCount: 0,
+    noBasisCount: 0,
+    requiresLeaveReconciliationCount: 0,
+  };
+  let actualMinutes = 0;
+  let hasUnknownActual = false;
+  for (const item of byMonth) {
+    const monthly = item.totals;
+    totals.expectedMinutes += monthly.expectedMinutes || 0;
+    for (const type of LEAVE_TYPES) totals.leaveMinutesByType[type] += monthly.leaveMinutesByType?.[type] || 0;
+    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'fieldworkApprovedMinutes', 'confirmedCount', 'pendingCount', 'noBasisCount', 'requiresLeaveReconciliationCount']) totals[key] += monthly[key] || 0;
+    if (monthly.actualMinutes === null || monthly.actualMinutes === undefined) hasUnknownActual = true;
+    else actualMinutes += monthly.actualMinutes;
+  }
+  totals.actualMinutes = hasUnknownActual ? null : actualMinutes;
+  return totals;
+}
+
+exports.getStatistics = async (req, res) => {
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    const period = req.query.period || 'month';
+    const value = req.query.value;
+    const scope = req.query.scope || 'mine';
+    if (!['mine', 'team', 'company'].includes(scope)) return err(res, 400, 'scope 仅支持 mine、team 或 company');
+    let months;
+    if (period === 'month') {
+      if (!parseMonth(value)) return err(res, 400, '月份格式应为 YYYY-MM');
+      months = [value];
+    } else if (period === 'year' && typeof value === 'string' && /^\d{4}$/.test(value) && Number(value) >= 2000 && Number(value) <= 2200) {
+      months = Array.from({ length: 12 }, (_, index) => `${value}-${String(index + 1).padStart(2, '0')}`);
+    } else return err(res, 400, '统计周期或值无效');
+
+    const byMonth = [];
+    const shiftedNow = new Date(Date.now() + OFFSET_MS);
+    const currentMonth = `${shiftedNow.getUTCFullYear()}-${String(shiftedNow.getUTCMonth() + 1).padStart(2, '0')}`;
+    // 一年要算 12 个月，纳入考勤统计的员工范围只查一次
+    let allowedIdsPromise = null;
+    const getAllowedIds = () => {
+      if (!allowedIdsPromise) {
+        allowedIdsPromise = getScopedUsers(req, scope).then(users => new Set(users.map(user => String(user._id))));
+      }
+      return allowedIdsPromise;
+    };
+    for (const monthValue of months) {
+      const month = parseMonth(monthValue);
+      const savedLedger = await AttendanceMonthLedger.findOne({ tenantId: req.tenantId, month: monthValue });
+      if (!savedLedger && monthValue > currentMonth) {
+        byMonth.push({ month: monthValue, status: 'not_started', totals: sumRows([]) });
+        continue;
+      }
+      const ledger = savedLedger || { status: 'open', version: 0, rows: [], closedSnapshot: null };
+      let rows;
+      if (ledger.status === 'closed' && ledger.closedSnapshot?.rows) {
+        // 与台账一致：已结账月份的快照也要按当前范围过滤
+        const allowedIds = await getAllowedIds();
+        rows = ledger.closedSnapshot.rows.filter(row => allowedIds.has(String(row.employeeId)));
+      } else rows = await buildRows(req, month, scope, ledger);
+      byMonth.push({ month: monthValue, status: ledger.status, totals: sumRows(rows) });
+    }
+    const totals = sumMonthlyStatistics(byMonth);
+    return res.json({ ok: true, data: { period, value, scope, byMonth, totals } });
+  } catch (error) {
+    if (error.status) return err(res, error.status, error.message, error.code);
+    console.error('attendance statistics read failed:', error);
+    return err(res, 500, '读取考勤统计失败');
+  }
+};
+
+exports.listMonthLocks = async (req, res) => {
+  try {
+    if (!requireOwner(req, res)) return;
+    const locks = await AttendanceMonthLedger.find({ tenantId: req.tenantId, mutationToken: { $exists: true } })
+      .select('month mutationAcquiredAt mutationOwnerPid mutationOwnerHost +mutationToken').lean();
+    const now = Date.now();
+    return res.json({ ok: true, data: locks.map(lock => {
+      const state = monthLockRecoveryState(lock, now);
+      return { month: lock.month, acquiredAt: lock.mutationAcquiredAt, ageMinutes: state.ageMs === null ? null : Math.floor(state.ageMs / 60000), minimumRecoveryAgeMinutes: LOCK_RECOVERY_MIN_AGE_MS / 60000, mutationActive: state.activeHere || state.ownerAlive !== false, recoverable: state.recoverable };
+    }) });
+  } catch (error) {
+    return err(res, 500, '读取月台账锁状态失败');
+  }
+};
+
+exports.releaseStaleMonthLock = async (req, res) => {
+  try {
+    if (!requireOwner(req, res)) return;
+    const month = parseMonth(req.params.month);
+    if (!month) return err(res, 400, '月份必须为 YYYY-MM');
+    if (req.body?.confirmNoLiveMutation !== true) return err(res, 400, '请明确确认该月没有进行中的台账操作');
+    const lock = await AttendanceMonthLedger.findOne({ tenantId: req.tenantId, month: req.params.month })
+      .select('month mutationAcquiredAt mutationOwnerPid mutationOwnerHost +mutationToken').lean();
+    if (!lock?.mutationToken) return err(res, 404, '月台账锁不存在');
+    const state = monthLockRecoveryState(lock);
+    if (!state.oldEnough) return err(res, 409, `月台账锁需至少保留 ${LOCK_RECOVERY_MIN_AGE_MS / 60000} 分钟后才能恢复`);
+    if (state.activeHere || state.ownerAlive !== false) return err(res, 409, '无法确认原进程已停止，未解除月台账锁');
+    const result = await AttendanceMonthLedger.updateOne({ tenantId: req.tenantId, month: req.params.month, mutationToken: lock.mutationToken, mutationAcquiredAt: lock.mutationAcquiredAt }, {
+      $unset: { mutationToken: 1, mutationAcquiredAt: 1, mutationOwnerPid: 1, mutationOwnerHost: 1 }
+    });
+    if ((result.modifiedCount ?? result.nModified) !== 1) return err(res, 409, '月台账锁状态已变化，请刷新后重试');
+    return res.json({ ok: true, data: { month: req.params.month, released: true } });
+  } catch (error) {
+    return err(res, 500, '恢复月台账锁失败');
+  }
+};
+
+exports._test = { parseMonth, sumRows, sumMonthlyStatistics, getScopedUsers, expectedMinutesFor, buildRows, monthLockRecoveryState, aggregateApprovedRequests };
+exports._coordination = { acquireMonthMutationLock, releaseMonthMutationLock, activeMutationTokens };
+exports.getMonthlyAttendanceSummary = getMonthlyAttendanceSummary;

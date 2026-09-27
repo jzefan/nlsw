@@ -6,8 +6,24 @@ var User = require("../models/User");
 var Tenant = require("../models/Tenant");
 var secrets = require("../config/secrets");
 var { isAdmin } = require("../utils/permissions");
-var { getDeployMode, getStandaloneCompany } = require("../utils/deploy-mode");
+var { isStandalone, getDeployMode, getStandaloneCompany } = require("../utils/deploy-mode");
 var { getBillImportCarrierRule } = require("../utils/tenant-settings");
+var { hasProtectedIdentity, bumpSessionVersion, changePasswordWithCas, identityVersionFilter } = require("../utils/user-security");
+var { migrateBinaryToArray } = require("../utils/privilege-migration");
+
+function canUseLegacyUserManagement(req) {
+  return Boolean(req.user && (req.user.role === 'owner' || req.user.role === 'platform' || isAdmin(req.user.privilege)));
+}
+
+function legacyUserQuery(req, criteria) {
+  return req.user?.role === 'platform' ? criteria : { ...criteria, tenantId: req.tenantId || req.user?.tenantId?._id || req.user?.tenantId };
+}
+
+function refreshLoginSession(req, user) {
+  return new Promise((resolve, reject) => {
+    req.logIn(user, err => err ? reject(err) : resolve());
+  });
+}
 
 /**
  * GET /login
@@ -86,10 +102,16 @@ exports.postLogin = async function (req, res, next) {
           // Build user response with role
           var userRole = user.role || "member";
           var userData = {
+            id: user._id,
             userid: user.userid,
             name: user.profile.name,
             privilege: user.privilege,
             role: userRole,
+            employeeNo: user.employeeNo || '',
+            department: user.department || '',
+            attendanceRoles: Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [],
+            payrollRoles: Array.isArray(user.payrollRoles) ? user.payrollRoles : [],
+            mustChangePassword: user.mustChangePassword === true,
             preferences: user.preferences || {},
           };
 
@@ -108,6 +130,9 @@ exports.postLogin = async function (req, res, next) {
                   maxUsers: t.maxUsers,
                   expireDate: t.expireDate || null,
                   billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
+                  attendanceEnabled: t.settings?.attendanceEnabled === true,
+                  requireReceiptForSettle: t.settings?.requireReceiptForSettle === true,
+                  drayageRate: Number(t.settings?.drayageRate) || 0,
                 };
               }
             } catch (e) {
@@ -119,6 +144,13 @@ exports.postLogin = async function (req, res, next) {
             ok: true,
             user: userData,
             tenant: tenantData,
+            features: {
+              attendance: isStandalone() ? secrets.enableAttendance === true : tenantData?.attendanceEnabled === true,
+              selfVehicle: secrets.enableSelfVehicle,
+              publicBasket: secrets.enablePublicBasket,
+              requireReceiptForSettle: tenantData?.requireReceiptForSettle || false,
+              drayageRate: tenantData?.drayageRate || 0,
+            },
             deployMode: getDeployMode(),
             standaloneCompany: getStandaloneCompany(),
           });
@@ -194,8 +226,8 @@ exports.getSignup = function (req, res) {
 exports.postSignup = async function (req, res, next) {
   await body("userid").notEmpty().withMessage("用户名不能为空").run(req);
   await body("password")
-    .isLength({ min: 2 })
-    .withMessage("密码长度至少2位长")
+    .isLength({ min: 8 })
+    .withMessage("密码长度至少8位")
     .run(req);
   await body("confirmPassword")
     .equals(req.body.password)
@@ -236,6 +268,7 @@ exports.postSignup = async function (req, res, next) {
     var user = new User({
       userid: req.body.userid,
       password: req.body.password,
+      mustChangePassword: false,
       no: maxNo,
       title: title,
       privilege: privilege,
@@ -281,13 +314,27 @@ exports.postUpdateProfile = async function (req, res, next) {
     const user = await User.findById(req.user.id);
     if (!req.body.userid) return next(new Error("Userid missing")); // slightly adapted error handling
 
-    user.userid = req.body.userid || "";
-    user.profile.name = req.body.name || "";
-    user.profile.gender = req.body.gender || "";
-    user.profile.location = req.body.location || "";
-    user.profile.phone = req.body.phone || "";
+    const profilePhone = req.body.phone || "";
+    const loginIdentityChanged = user.userid !== (req.body.userid || "") || (user.profile?.phone || "") !== profilePhone;
+    if (loginIdentityChanged && hasProtectedIdentity(user)) {
+      req.flash("errors", { msg: "员工、管理员或薪资账号暂不支持直接修改登录身份" });
+      return res.redirect("/account");
+    }
 
-    await user.save();
+    const update = { $set: {
+      userid: req.body.userid || "",
+      'profile.name': req.body.name || "",
+      'profile.gender': req.body.gender || "",
+      'profile.location': req.body.location || "",
+      'profile.phone': profilePhone
+    }, $inc: { securityIdentityVersion: 1 } };
+    if (loginIdentityChanged) update.$inc.sessionVersion = 1;
+    const write = await User.updateOne(identityVersionFilter(user, { _id: user._id }), update);
+    if ((write.modifiedCount ?? write.nModified) !== 1) {
+      req.flash("errors", { msg: "账号资料刚发生变化，请刷新后重试" });
+      return res.redirect("/account");
+    }
+    if (loginIdentityChanged) await refreshLoginSession(req, await User.findById(user._id));
     req.flash("success", { msg: "用户信息已更新." });
     res.redirect("/account");
   } catch (err) {
@@ -302,9 +349,13 @@ exports.postUpdateProfile = async function (req, res, next) {
  */
 
 exports.postUpdatePassword = async function (req, res, next) {
-  await body("password")
-    .isLength({ min: 2 })
-    .withMessage("密码长度至少2位长")
+    await body("password")
+    .isLength({ min: 8 })
+    .withMessage("新密码长度至少8位")
+    .run(req);
+  await body("currentPassword")
+    .notEmpty()
+    .withMessage("请输入当前密码")
     .run(req);
   await body("confirmPassword")
     .equals(req.body.password)
@@ -319,10 +370,18 @@ exports.postUpdatePassword = async function (req, res, next) {
 
   try {
     const user = await User.findById(req.user.id);
-    user.password = req.body.password;
-    console.log("postUpdatePassword:" + req.body.password);
-
-    await user.save();
+    const currentPasswordMatches = await user.comparePassword(req.body.currentPassword);
+    if (!currentPasswordMatches) {
+      req.flash("errors", [{ msg: "当前密码不正确" }]);
+      return res.redirect("/account");
+    }
+    const changed = await changePasswordWithCas(User, user, req.body.password, {}, { mustChangePassword: false, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });
+    if (!changed) {
+      req.flash("errors", [{ msg: "账号资料刚发生变化，请刷新后重试" }]);
+      return res.redirect("/account");
+    }
+    const freshUser = await User.findById(user._id);
+    await refreshLoginSession(req, freshUser);
     req.flash("success", { msg: "密码修改成功." });
     res.redirect("/account");
   } catch (err) {
@@ -331,16 +390,20 @@ exports.postUpdatePassword = async function (req, res, next) {
 };
 
 exports.postResetPassword = async function (req, res, next) {
-  console.log("postResetPassword", req.body.user);
   try {
-    const user = await User.findOne({ userid: req.body.user.userid });
+    if (!canUseLegacyUserManagement(req)) return res.status(403).json({ ok: false, msg: "无权限操作" });
+    const targetUserId = req.body?.user?.userid;
+    const user = await User.findOne(legacyUserQuery(req, { userid: targetUserId }));
     if (!user) {
       // Handle case where user is not found, though original code implied it would exist or error out
       return res.json({ ok: false, msg: "User not found" });
     }
-    user.password = "123456";
-
-    await user.save();
+    if (hasProtectedIdentity(user)) {
+      return res.status(403).json({ ok: false, msg: "员工、管理员或薪资账号只能通过本人凭据或身份核验流程改密" });
+    }
+    const changed = await changePasswordWithCas(User, user, "123456", legacyUserQuery(req, {}), { mustChangePassword: true, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });
+    if (!changed) return res.status(409).json({ ok: false, msg: "用户身份已变化，请刷新后重试" });
+    if (String(user._id) === String(req.user._id)) await refreshLoginSession(req, await User.findById(user._id));
     res.json({ ok: true, msg: "密码重置成功!" });
   } catch (err) {
     return next(err);
@@ -355,7 +418,11 @@ exports.postResetPassword = async function (req, res, next) {
 
 exports.postDeleteAccount = async function (req, res, next) {
   try {
-    await User.deleteOne({ _id: req.user.id });
+    const user = await User.findById(req.user.id);
+    if (!user) return res.redirect("/");
+    if (hasProtectedIdentity(user)) return res.status(403).send("员工、管理员或薪资账号不可直接删除，请联系公司主账号处理");
+    const deleted = await User.deleteOne(identityVersionFilter(user, {}));
+    if ((deleted.deletedCount ?? deleted.n) !== 1) return res.status(409).send("账号资料已变化，请刷新后重试");
     req.logout(function (err) {
       if (err) return next(err);
       res.redirect("/");
@@ -433,8 +500,8 @@ exports.getReset = async function (req, res) {
 
 exports.postReset = async function (req, res, next) {
   await body("password")
-    .isLength({ min: 4 })
-    .withMessage("Password must be at least 4 characters long.")
+    .isLength({ min: 8 })
+    .withMessage("Password must be at least 8 characters long.")
     .run(req);
   await body("confirm")
     .equals(req.body.password)
@@ -460,18 +527,18 @@ exports.postReset = async function (req, res, next) {
       return res.redirect("back");
     }
 
-    user.password = req.body.password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
-
-    await user.save();
+    const changed = await changePasswordWithCas(User, user, req.body.password, { resetPasswordToken: req.params.token, resetPasswordExpires: { $gt: new Date() } }, { mustChangePassword: false, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });
+    if (!changed) {
+      req.flash("errors", { msg: "Password reset token is invalid or has expired." });
+      return res.redirect("back");
+    }
 
     // Login the user
     await new Promise((resolve, reject) => {
-      req.logIn(user, function (err) {
+      User.findById(user._id).then(freshUser => req.logIn(freshUser, function (err) {
         if (err) reject(err);
         else resolve();
-      });
+      })).catch(reject);
     });
 
     // Email notification removed - nodemailer not in use
@@ -552,14 +619,10 @@ exports.postForgot = async function (req, res, next) {
 };
 
 exports.getUserMgr = async function (req, res) {
-  if (!isAdmin(req.user.privilege)) {
-    res.status(404);
-    res.render("404");
-    return;
-  }
+  if (!canUseLegacyUserManagement(req)) return res.status(403).render("404");
 
   try {
-    const users = await User.find({}).exec();
+    const users = await User.find(legacyUserQuery(req, {})).exec();
     var uData = [];
     if (users) {
       users.forEach(function (u) {
@@ -592,11 +655,12 @@ exports.getUserMgr = async function (req, res) {
 };
 
 exports.postUserMgr = async function (req, res) {
+  if (!canUseLegacyUserManagement(req)) return res.status(403).json({ ok: false, response: "无权限操作" });
   var action = req.body.act;
   if (action === "add") {
     var data = req.body.data;
     try {
-      const users = await User.find({}).sort({ no: "desc" }).exec();
+      const users = await User.find(legacyUserQuery(req, {})).sort({ no: "desc" }).exec();
 
       let maxNo = 1;
       if (users && users.length > 0 && users[0].no) {
@@ -606,6 +670,7 @@ exports.postUserMgr = async function (req, res) {
       var user = new User({
         userid: data.userid,
         password: "123456",
+        mustChangePassword: true,
         no: maxNo,
         title: data.title,
         privilege: data.privilege,
@@ -624,7 +689,14 @@ exports.postUserMgr = async function (req, res) {
   } else if (action === "delete") {
     var uid = req.body.userid;
     try {
-      await User.deleteOne({ userid: uid });
+      const target = await User.findOne(legacyUserQuery(req, { userid: uid }));
+      if (target && hasProtectedIdentity(target)) {
+        return res.status(403).json({ ok: false, response: "不能删除受保护的员工、管理员或薪资用户" });
+      }
+      if (target) {
+        const deleted = await User.deleteOne(identityVersionFilter(target, legacyUserQuery(req, {})));
+        if ((deleted.deletedCount ?? deleted.n) !== 1) return res.status(409).json({ ok: false, response: "用户身份已变化，请刷新后重试" });
+      }
       res.end(JSON.stringify({ ok: true }));
     } catch (remove_err) {
       console.error("remove user error! %s", remove_err);
@@ -635,17 +707,26 @@ exports.postUserMgr = async function (req, res) {
   } else if (action === "modify") {
     var mod_data = req.body.data;
     try {
-      const user = await User.findOne({ userid: mod_data.userid }).exec();
+      const user = await User.findOne(legacyUserQuery(req, { userid: mod_data.userid })).exec();
       if (!user) {
         res.end(JSON.stringify({ ok: false, response: "用户未找到" }));
         return;
       }
-      user.title = mod_data.title;
-      user.privilege = mod_data.privilege;
-      user.profile.name = mod_data.name;
-      user.profile.phone = mod_data.phone;
-
-      await user.save();
+      const profilePhone = mod_data.phone || "";
+      if ((user.profile?.phone || "") !== profilePhone && hasProtectedIdentity(user)) {
+        return res.status(403).json({ ok: false, response: "员工、管理员或薪资账号暂不支持直接修改登录手机号" });
+      }
+      const previousPrivilege = Array.isArray(user.privilege) ? user.privilege : migrateBinaryToArray(user.privilege);
+      const nextPrivilege = Array.isArray(mod_data.privilege) ? mod_data.privilege : migrateBinaryToArray(mod_data.privilege);
+      const privilegeChanged = JSON.stringify(previousPrivilege) !== JSON.stringify(nextPrivilege);
+      if (privilegeChanged && hasProtectedIdentity(user) && String(user._id) !== String(req.user._id)) {
+        return res.status(403).json({ ok: false, response: "不能通过通用用户管理变更受保护账号的系统权限" });
+      }
+      const identityChanged = (user.profile?.phone || "") !== profilePhone || privilegeChanged;
+      const update = { $set: { title: mod_data.title, privilege: mod_data.privilege, 'profile.name': mod_data.name, 'profile.phone': profilePhone }, $inc: { securityIdentityVersion: 1 } };
+      if (identityChanged) update.$inc.sessionVersion = 1;
+      const write = await User.updateOne(identityVersionFilter(user, legacyUserQuery(req, {})), update);
+      if ((write.modifiedCount ?? write.nModified) !== 1) return res.status(409).json({ ok: false, response: "用户身份已变化，请刷新后重试" });
       res.end(JSON.stringify({ ok: true }));
     } catch (err) {
       res.end(JSON.stringify({ ok: false, response: err.message }));
@@ -697,10 +778,16 @@ exports.postPhoneLogin = async function (req, res, next) {
         // Build user response with role
         var userRole = user.role || "member";
         var userData = {
+          id: user._id,
           userid: user.userid,
           name: user.profile.name,
           privilege: user.privilege,
           role: userRole,
+          employeeNo: user.employeeNo || '',
+          department: user.department || '',
+          attendanceRoles: Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [],
+          payrollRoles: Array.isArray(user.payrollRoles) ? user.payrollRoles : [],
+          mustChangePassword: user.mustChangePassword === true,
           preferences: user.preferences || {},
         };
 
@@ -718,7 +805,10 @@ exports.postPhoneLogin = async function (req, res, next) {
                 plan: t.plan,
                 maxUsers: t.maxUsers,
                 expireDate: t.expireDate || null,
-                billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
+                  billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
+                  attendanceEnabled: t.settings?.attendanceEnabled === true,
+                  requireReceiptForSettle: t.settings?.requireReceiptForSettle === true,
+                  drayageRate: Number(t.settings?.drayageRate) || 0,
               };
             }
           } catch (e) {
@@ -730,6 +820,13 @@ exports.postPhoneLogin = async function (req, res, next) {
           ok: true,
           user: userData,
           tenant: tenantData,
+          features: {
+            attendance: isStandalone() ? secrets.enableAttendance === true : tenantData?.attendanceEnabled === true,
+            selfVehicle: secrets.enableSelfVehicle,
+            publicBasket: secrets.enablePublicBasket,
+            requireReceiptForSettle: tenantData?.requireReceiptForSettle || false,
+            drayageRate: tenantData?.drayageRate || 0,
+          },
           deployMode: getDeployMode(),
           standaloneCompany: getStandaloneCompany(),
         });

@@ -2,11 +2,17 @@ import { defineStore } from 'pinia'
 import { isAdmin } from '@/constants/permissions'
 
 export interface User {
+  id?: string
   userid: string
   name: string
   title?: string
   privilege: string[]
   role: 'platform' | 'owner' | 'member'
+  employeeNo?: string
+  department?: string
+  attendanceRoles?: string[] | string
+  payrollRoles?: string[] | string
+  mustChangePassword?: boolean
 }
 
 export interface Tenant {
@@ -26,6 +32,7 @@ export interface Features {
   selfVehicle: boolean
   publicBasket: boolean
   requireReceiptForSettle: boolean
+  attendance?: boolean
 }
 
 export const useAuthStore = defineStore('user', () => {
@@ -34,7 +41,7 @@ export const useAuthStore = defineStore('user', () => {
   const tenant = ref<Tenant | null>(null)
   const deployMode = ref<DeployMode>('saas')
   const standaloneCompany = ref('')
-  const features = ref<Features>({ selfVehicle: false, publicBasket: false, requireReceiptForSettle: false })
+  const features = ref<Features>({ selfVehicle: false, publicBasket: false, requireReceiptForSettle: false, attendance: false })
 
   function setUser(userData: User | null, tenantData: Tenant | null = null) {
     user.value = userData
@@ -50,14 +57,15 @@ export const useAuthStore = defineStore('user', () => {
     standaloneCompany.value = name
   }
 
-  function setFeatures(featureData: Features) {
-    features.value = featureData
+  function setFeatures(featureData: Partial<Features>) {
+    features.value = { ...features.value, ...featureData }
   }
 
   function clearUser() {
     user.value = null
     tenant.value = null
     isLogin.value = false
+    features.value = { selfVehicle: false, publicBasket: false, requireReceiptForSettle: false, attendance: false }
     // deployMode is not cleared — it persists across login/logout
   }
 

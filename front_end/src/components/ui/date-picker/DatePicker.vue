@@ -13,15 +13,26 @@ const props = defineProps<{
   disabled?: boolean
   disabledDate?: (date: Date) => boolean
   disabledHint?: string
+  dateIndicator?: (date: Date) => string | undefined
   clearable?: boolean
+  minDate?: string
+  maxDate?: string
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'visible-year-change': [year: number]
 }>()
 
-// Min date: 2015-01-01
-const minDate = new CalendarDate(2015, 1, 1)
+const minDate = computed(() => {
+  const [year, month, day] = (props.minDate ?? '2015-01-01').split('-').map(Number)
+  return new CalendarDate(year, month, day)
+})
+const maxDate = computed(() => {
+  if (!props.maxDate) return undefined
+  const [year, month, day] = props.maxDate.split('-').map(Number)
+  return new CalendarDate(year, month, day)
+})
 
 // Import missing types
 import type { DateValue } from '@internationalized/date'
@@ -67,6 +78,14 @@ watch(() => props.modelValue, (newValue) => {
     calendarPlaceholder.value = new CalendarDate(year, month, day)
   }
 }, { immediate: true })
+
+watch(
+  () => [calendarPlaceholder.value.year, Boolean(props.disabledDate)] as const,
+  ([year, enabled]) => {
+    if (enabled) emit('visible-year-change', year)
+  },
+  { immediate: true },
+)
 
 function isDateUnavailable(date: DateValue) {
   if (props.disabledDate) {
@@ -114,7 +133,9 @@ function handleCalendarClick(e: MouseEvent) {
           v-model="dateValue"
           v-model:placeholder="calendarPlaceholder"
           :min-value="minDate"
+          :max-value="maxDate"
           :is-date-unavailable="isDateUnavailable"
+          :date-indicator="dateIndicator"
           layout="month-and-year"
           locale="zh-CN"
         />

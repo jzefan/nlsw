@@ -12,13 +12,13 @@ import { cn } from "@/lib/utils"
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { CalendarCell, CalendarCellTrigger, CalendarGrid, CalendarGridBody, CalendarGridHead, CalendarGridRow, CalendarHeadCell, CalendarHeader, CalendarHeading, CalendarNextButton, CalendarPrevButton } from "."
 
-const props = withDefaults(defineProps<CalendarRootProps & { class?: HTMLAttributes["class"], layout?: LayoutTypes, yearRange?: DateValue[] }>(), {
+const props = withDefaults(defineProps<CalendarRootProps & { class?: HTMLAttributes["class"], layout?: LayoutTypes, yearRange?: DateValue[], dateIndicator?: (date: Date) => string | undefined }>(), {
   modelValue: undefined,
   layout: undefined,
 })
 const emits = defineEmits<CalendarRootEmits>()
 
-const delegatedProps = reactiveOmit(props, "class", "layout", "placeholder")
+const delegatedProps = reactiveOmit(props, "class", "layout", "placeholder", "dateIndicator")
 
 const placeholder = useVModel(props, "placeholder", emits, {
   passive: true,
@@ -41,6 +41,10 @@ const [DefineMonthTemplate, ReuseMonthTemplate] = createReusableTemplate<{ date:
 const [DefineYearTemplate, ReuseYearTemplate] = createReusableTemplate<{ date: DateValue }>()
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+
+function getDateIndicator(date: DateValue) {
+  return props.dateIndicator?.(date.toDate(getLocalTimeZone())) ?? ''
+}
 </script>
 
 <template>
@@ -68,13 +72,13 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
   </DefineMonthTemplate>
 
   <DefineYearTemplate v-slot="{ date }">
-    <div class="**:data-[slot=native-select-icon]:right-1">
+    <div class="min-w-[5.5rem] **:data-[slot=native-select-icon]:right-1">
       <div class="relative">
-        <div class="absolute inset-0 flex h-full items-center text-sm pl-2 pointer-events-none">
+        <div class="absolute inset-0 flex h-full items-center whitespace-nowrap text-sm pl-2 pointer-events-none">
           {{ formatter.custom(toDate(date), { year: 'numeric' }) }}
         </div>
         <NativeSelect
-          class="text-xs h-8 pr-6 pl-2 text-transparent relative"
+          class="relative h-8 w-[5.5rem] min-w-[5.5rem] whitespace-nowrap pr-6 pl-2 text-xs text-transparent"
           :model-value="date.year"
           @update:model-value="(v) => {
             placeholder = placeholder.set({
@@ -153,7 +157,13 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
               <CalendarCellTrigger
                 :day="weekDate"
                 :month="month.value"
-              />
+                :class="getDateIndicator(weekDate) ? 'relative' : undefined"
+                :title="getDateIndicator(weekDate) || undefined"
+              >
+                {{ weekDate.day }}
+                <span v-if="getDateIndicator(weekDate)" class="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full bg-amber-600" aria-hidden="true" />
+                <span v-if="getDateIndicator(weekDate)" class="sr-only">{{ getDateIndicator(weekDate) }}</span>
+              </CalendarCellTrigger>
             </CalendarCell>
           </CalendarGridRow>
         </CalendarGridBody>

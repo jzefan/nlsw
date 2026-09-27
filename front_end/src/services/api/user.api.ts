@@ -23,6 +23,7 @@ export interface UserFormData {
 // 职务选项
 export const titleOptions = [
   { value: 'ceo', label: '董事长' },
+  { value: 'gm', label: '总经理' },
   { value: 'mgr', label: '经理' },
   { value: 'operator', label: '业务员' },
   { value: 'account', label: '会计' },

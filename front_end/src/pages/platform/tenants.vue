@@ -40,6 +40,7 @@ const tenantForm = ref({
   plan: 'basic',
   maxUsers: 5,
   expireDate: '',
+  attendanceEnabled: false,
 })
 const ownerForm = ref({
   userid: '',
@@ -145,6 +146,7 @@ function openCreateDialog() {
     plan: 'basic',
     maxUsers: 5,
     expireDate: '',
+    attendanceEnabled: false,
   }
   ownerForm.value = { userid: '', name: '', phone: '' }
   showFormDialog.value = true
@@ -167,6 +169,7 @@ async function openEditDialog(tenant: TenantItem) {
     plan: tenant.plan,
     maxUsers: tenant.maxUsers,
     expireDate: tenant.expireDate ? tenant.expireDate.slice(0, 10) : '',
+    attendanceEnabled: tenant.attendanceEnabled === true,
   }
 
   // Fetch owner info
@@ -229,6 +232,7 @@ async function handleFormSubmit() {
           plan: tenantForm.value.plan,
           maxUsers: tenantForm.value.maxUsers,
           expireDate: tenantForm.value.expireDate || undefined,
+          attendanceEnabled: tenantForm.value.attendanceEnabled,
         },
         owner: ownerForm.value.userid
           ? {
@@ -720,6 +724,24 @@ onMounted(() => {
                 <p class="text-xs text-muted-foreground">到期后该公司将被自动暂停，用户无法登录</p>
               </div>
             </div>
+          </div>
+
+          <div v-if="formMode === 'edit'" class="flex items-center justify-between gap-4 border-t pt-4">
+            <div>
+              <label for="tenant-attendance-enabled" class="text-sm font-medium">考勤管理</label>
+              <p class="text-xs text-muted-foreground">开启后，该公司可使用考勤功能</p>
+            </div>
+            <button
+              id="tenant-attendance-enabled"
+              type="button"
+              role="switch"
+              :aria-checked="tenantForm.attendanceEnabled"
+              class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="tenantForm.attendanceEnabled ? 'bg-primary' : 'bg-input'"
+              @click="tenantForm.attendanceEnabled = !tenantForm.attendanceEnabled"
+            >
+              <span class="pointer-events-none inline-block size-4 rounded-full bg-background shadow-sm transition-transform" :class="tenantForm.attendanceEnabled ? 'translate-x-4' : 'translate-x-0.5'" />
+            </button>
           </div>
         </div>
 

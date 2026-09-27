@@ -7,6 +7,10 @@ const deployScript = fs.readFileSync(
   path.join(__dirname, '..', 'deploy', 'deploy.sh'),
   'utf8',
 );
+const envExample = fs.readFileSync(
+  path.join(__dirname, '..', '.env.example'),
+  'utf8',
+);
 
 test('starts the frontend with the target Node installation absolute serve path', () => {
   assert.match(
@@ -31,4 +35,10 @@ test('configures PM2 systemd startup through sudo with the target Node PATH', ()
     deployScript,
     /pm2 startup systemd -u \$SERVER_USER --hp \/home\/\$SERVER_USER \|\| true/,
   );
+});
+
+test('standalone deployment can enable attendance and persists the setting', () => {
+  assert.match(deployScript, /DEPLOY_MODE="standalone"[\s\S]*?read -p "启用考勤管理\? \(y\/n\) \[n\]: /);
+  assert.match(deployScript, /ENABLE_ATTENDANCE="true"[\s\S]*?ENABLE_ATTENDANCE=\$ENABLE_ATTENDANCE/);
+  assert.match(envExample, /^ENABLE_ATTENDANCE=false$/m);
 });

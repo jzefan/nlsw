@@ -12,11 +12,12 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 const RouteGenerateExclude = ['**/components/**', '**/layouts/**', '**/types/**']
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     VueRouter({
       exclude: RouteGenerateExclude,
       dts: 'src/types/typed-router.d.ts',
+      watch: command !== 'build',
     }),
     vue(),
     vueJsx(),
@@ -69,4 +70,4 @@ export default defineConfig({
     },
   },
   */
-})
+}))

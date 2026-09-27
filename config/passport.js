@@ -7,6 +7,7 @@ var secrets = require('./secrets');
 var { decryptPassword, isEncryptedPassword } = require('../utils/crypto');
 var { isStandalone } = require('../utils/deploy-mode');
 var UAParser = require('ua-parser-js');
+var { isValidSessionIdentity } = require('../utils/session-version');
 
 /**
  * 解析请求中的 IP 地址和设备信息
@@ -29,18 +30,29 @@ function parseLoginMeta(req) {
   return { ip, device };
 }
 
-passport.serializeUser(function(user, done) {
-  done(null, user.id);
-});
+function serializeUser(user, done) {
+  done(null, { id: user.id, sessionVersion: Number.isInteger(user.sessionVersion) ? user.sessionVersion : 0 });
+}
 
-passport.deserializeUser(async function(id, done) {
+async function deserializeUser(identity, done) {
   try {
-    const user = await User.findById(id).populate('tenantId');
+    // Existing sessions stored only the user id. Reject them deliberately so
+    // deployment revokes all pre-version sessions instead of silently trusting them.
+    if (!isValidSessionIdentity(identity)) return done(null, false);
+    const user = await User.findById(identity.id).populate('tenantId');
+    if (!user || user.status === 'disabled' || Number(user.sessionVersion || 0) !== identity.sessionVersion) {
+      return done(null, false);
+    }
     done(null, user);
   } catch (err) {
     done(err);
   }
-});
+}
+
+passport.serializeUser(serializeUser);
+passport.deserializeUser(deserializeUser);
+
+exports.__testables = { serializeUser, deserializeUser };
 
 // Sign in using userid and Password.
 // SaaS: 支持租户代码登录
@@ -157,7 +169,11 @@ passport.use('phone-local', new LocalStrategy(
       // 通过手机号查找用户（跨租户），先查顶层phone，再查profile.phone
       var user = await User.findOne({ phone: phoneNumber }).populate('tenantId');
       if (!user) {
-        user = await User.findOne({ 'profile.phone': phoneNumber }).populate('tenantId');
+        const matches = await User.find({ 'profile.phone': phoneNumber }).limit(2).populate('tenantId');
+        if (matches.length > 1) {
+          return done(null, false, { message: '该手机号关联多个账号，请使用用户名登录并联系管理员处理' });
+        }
+        user = matches[0];
       }
 
       if (!user) {
