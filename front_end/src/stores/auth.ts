@@ -13,6 +13,7 @@ export interface User {
   attendanceRoles?: string[] | string
   payrollRoles?: string[] | string
   mustChangePassword?: boolean
+  isSealCustodian?: boolean
 }
 
 export interface Tenant {
@@ -24,6 +25,8 @@ export interface Tenant {
   maxUsers?: number
   expireDate?: string | null
   billImportCarrierRule?: 'contains_company_name' | 'unrestricted'
+  sealCustodianId?: string | null
+  sealCustodianIds?: string[]
 }
 
 export type DeployMode = 'saas' | 'standalone'
@@ -33,6 +36,7 @@ export interface Features {
   publicBasket: boolean
   requireReceiptForSettle: boolean
   attendance?: boolean
+  seal?: boolean
 }
 
 export const useAuthStore = defineStore('user', () => {

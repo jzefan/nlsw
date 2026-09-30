@@ -9,16 +9,22 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   getAttendanceCalendar,
+  getAttendanceLedgerActualRule,
   getAttendancePeople,
   getGeneralManagerDelegate,
   saveAttendanceCalendarDay,
+  saveAttendanceCalendarSaturdayMorning,
+  saveAttendanceLedgerActualRule,
   saveAttendanceProfile,
   saveGeneralManagerDelegate,
   type AttendanceCalendarDay,
+  type AttendanceLedgerActualRule,
+  type AttendanceLedgerActualRuleField,
   type AttendancePerson,
 } from '@/services/api/attendance.api'
 import { getPayrollRoleCandidates, savePayrollRoles, type PayrollRoleCandidate } from '@/services/api/payroll.api'
@@ -55,6 +61,7 @@ const settingsRoles = computed(() => ({
   payrollRoles: payrollRoles.value,
 }))
 const canManageCalendar = computed(() => canViewAttendanceSettingsView('calendar', settingsRoles.value))
+const canManagePeople = computed(() => canViewAttendanceSettingsView('people', settingsRoles.value))
 const canManagePayrollRoles = computed(() => canViewAttendanceSettingsView('payroll', settingsRoles.value))
 const visibleViews = computed(() => visibleAttendanceSettingsViews(settingsRoles.value))
 const canSeeSettings = computed(() => canSeeAttendanceSettings(settingsRoles.value))
@@ -84,6 +91,27 @@ const calendarLoadedYear = ref(0)
 const calendarRequestId = ref(0)
 /** 该年度国务院安排的获取结果：'' 尚未请求 / cached 本地已有 / fetched 本次从线上取得并入库 / unpublished 官方尚未公布 / unavailable 没连上 */
 const officialStatus = ref<'' | 'cached' | 'fetched' | 'unpublished' | 'unavailable'>('')
+/** 实到分钟计算规则：字段标签与单位由后端给，前端只负责渲染，避免两处口径写法漂移。 */
+const actualRuleFields = ref<AttendanceLedgerActualRuleField[]>([])
+const actualRuleDraft = ref<Record<string, string>>({})
+const actualRuleBaseline = ref<AttendanceLedgerActualRule | null>(null)
+const actualRuleDayMinutes = ref(0)
+const actualRuleSaving = ref(false)
+const actualRuleLoaded = ref(false)
+/** 「1 个工作日 = 几小时」，无打卡记录按工作日扣，写出来免得使用者猜。 */
+const actualRuleDayHours = computed(() => {
+  const hours = actualRuleDayMinutes.value / 60
+  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1)
+})
+const actualRuleDirty = computed(() => {
+  const baseline = actualRuleBaseline.value
+  if (!baseline) return false
+  return actualRuleFields.value.some(field => Number(actualRuleDraft.value[field.key]) !== Number(baseline[field.key]))
+})
+/** 特殊情况：每周六上午算工作日（法定节假日与调休上班日除外），租户级开关，不按年度区分。 */
+const saturdayMorning = ref(false)
+const saturdayMorningPeriods = ref<{ start: string, end: string }[]>([])
+const savingSaturdayMorning = ref(false)
 const CALENDAR_BASE_YEAR = 2026
 /** 年度下拉：2026 年（国务院安排起始年）到当前年份后 10 年；当前年份早于 2026 时从当前年份起。 */
 const yearOptions = computed(() => {
@@ -232,7 +260,7 @@ function applyPersonLabels() {
   }
 }
 async function loadPeople() {
-  if (!isOwner.value) return
+  if (!canManagePeople.value) return
   peopleLoading.value = true
   try {
     const result = await getAttendancePeople()
@@ -244,8 +272,10 @@ async function loadPeople() {
     editingUserId.value = ''
     for (const key of Object.keys(personDrafts)) delete personDrafts[key]
     for (const person of people.value) personDrafts[person.userId] = makePersonDraft(person)
-    const delegate = await getGeneralManagerDelegate()
-    delegateId.value = String(delegate.data?.generalManagerDelegateId ?? '')
+    if (isOwner.value) {
+      const delegate = await getGeneralManagerDelegate()
+      delegateId.value = String(delegate.data?.generalManagerDelegateId ?? '')
+    }
   }
   catch (error) { showError(error) }
   finally { peopleLoading.value = false }
@@ -271,7 +301,54 @@ async function loadViewData(view: AttendanceSettingsView) {
   loadedViews.add(view)
   if (view === 'people') await loadPeople()
   else if (view === 'payroll') await loadPayrollCandidates()
-  else await loadCalendar()
+  else {
+    await loadCalendar()
+    await loadActualRule()
+  }
+}
+
+async function loadActualRule() {
+  if (!canManageCalendar.value) return
+  try {
+    const response = await getAttendanceLedgerActualRule()
+    if (response.ok === false) throw new Error(String(response.error || '读取实到计算规则失败'))
+    const data = response.data
+    if (!data?.rule) throw new Error('读取实到计算规则失败')
+    actualRuleFields.value = data.fields ?? []
+    actualRuleBaseline.value = data.rule
+    actualRuleDraft.value = Object.fromEntries(Object.entries(data.rule).map(([key, value]) => [key, String(value)]))
+    actualRuleDayMinutes.value = data.dayMinutes ?? 0
+    actualRuleLoaded.value = true
+  }
+  catch (error) { showError(error) }
+}
+
+async function saveActualRule() {
+  if (actualRuleSaving.value || !actualRuleFields.value.length) return
+  const rule = {} as AttendanceLedgerActualRule
+  for (const field of actualRuleFields.value) {
+    const text = String(actualRuleDraft.value[field.key] ?? '').trim()
+    const value = Number(text)
+    if (!text || !Number.isFinite(value) || value < 0 || value > field.max) {
+      toast.error(`${field.label}应填写 0 至 ${field.max} 之间的数字`)
+      return
+    }
+    rule[field.key] = value
+  }
+  actualRuleSaving.value = true
+  try {
+    const response = await saveAttendanceLedgerActualRule(rule)
+    if (response.ok === false) throw new Error(String(response.error || '保存实到计算规则失败'))
+    const data = response.data
+    if (data?.rule) {
+      actualRuleBaseline.value = data.rule
+      actualRuleDraft.value = Object.fromEntries(Object.entries(data.rule).map(([key, value]) => [key, String(value)]))
+    }
+    if (typeof data?.dayMinutes === 'number') actualRuleDayMinutes.value = data.dayMinutes
+    toast.success('实到计算规则已保存')
+  }
+  catch (error) { showError(error) }
+  finally { actualRuleSaving.value = false }
 }
 
 /** 左侧菜单切换视图只改查询参数，页面不会重建，所以在地址变化时响应。 */
@@ -424,6 +501,8 @@ async function loadCalendar(targetYear = year.value) {
     days.value = data?.days ?? (Array.isArray(response.data) ? response.data : [])
     calendarConfirmed.value = data?.confirmed === true
     officialStatus.value = data?.official?.status ?? ''
+    saturdayMorning.value = data?.saturdayMorning?.enabled === true
+    saturdayMorningPeriods.value = data?.saturdayMorning?.periods ?? []
     calendarLoadSucceeded.value = true
   }
   catch (error) {
@@ -443,11 +522,20 @@ function dayType(date: string) {
   return weekday === 0 || weekday === 6 ? 'holiday' : 'workday'
 }
 
+/** 周六上午上班的普通周六：国务院放假/调休与管理员单日覆盖都不涉及它，才按半天算。 */
+function isHalfDaySaturday(date: string) {
+  if (!saturdayMorning.value) return false
+  if (days.value.some(item => item.date === date)) return false
+  if (defaultDays.value.some(item => item.date === date)) return false
+  return new Date(`${date}T00:00:00.000Z`).getUTCDay() === 6
+}
+
 function holidayName(date: string) {
   return defaultDays.value.find(item => item.date === date && item.type === 'holiday')?.name || ''
 }
 
 function dayLabel(date: string) {
+  if (isHalfDaySaturday(date)) return '周六上午上班'
   return dayType(date) === 'workday' ? '上班' : '休息'
 }
 
@@ -481,6 +569,30 @@ async function toggleCalendarDay(date: string) {
   }
 }
 
+/** 周六上午上班是租户级设置，影响所有年度，所以派发不带年度的失效事件。 */
+async function saveSaturdayMorning(enabled: boolean) {
+  if (savingSaturdayMorning.value) return
+  const previousEnabled = saturdayMorning.value
+  const previousPeriods = saturdayMorningPeriods.value
+  saturdayMorning.value = enabled
+  savingSaturdayMorning.value = true
+  try {
+    const result = await saveAttendanceCalendarSaturdayMorning(enabled)
+    if (result.ok === false) throw new Error(String(result.error || '保存周六上午上班失败'))
+    saturdayMorningPeriods.value = result.data?.periods ?? []
+    window.dispatchEvent(new CustomEvent('attendance-calendar-updated'))
+    toast.success(enabled ? '周六上午已按工作日计' : '周六上午不再计入工作日')
+  }
+  catch (error) {
+    saturdayMorning.value = previousEnabled
+    saturdayMorningPeriods.value = previousPeriods
+    showError(error)
+  }
+  finally {
+    savingSaturdayMorning.value = false
+  }
+}
+
 // 年度只能从下拉里选，非法值进不来，不再需要范围校验
 watch(year, (nextYear) => {
   if (nextYear === calendarLoadedYear.value) return
@@ -496,8 +608,8 @@ onMounted(() => { void applyRouteView() })
     <div v-if="!canSeeSettings" class="rounded-md border p-8 text-center text-sm text-muted-foreground">无权查看设置</div>
 
     <div v-else-if="activeView === 'people'" class="space-y-3">
-      <div class="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 class="text-lg font-semibold">员工资料</h1><p class="mt-1 text-xs text-muted-foreground">工号选填；可用手机号、部门或姓名区分员工</p></div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h1 class="text-lg font-semibold">员工资料</h1>
         <div class="flex items-center gap-2">
           <Badge variant="outline">{{ people.length }} 人</Badge>
           <Button variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="peopleLoading" @click="reloadPeople">刷新</Button>
@@ -560,7 +672,7 @@ onMounted(() => { void applyRouteView() })
           </TableBody>
         </Table>
       </div>
-      <div class="flex flex-wrap items-end gap-3 rounded-md border bg-background p-3">
+      <div v-if="isOwner" class="flex flex-wrap items-end gap-3 rounded-md border bg-background p-3">
         <div class="min-w-44 flex-1">
           <label for="gm-delegate" class="text-sm font-medium">总经理申请审批人</label>
           <p class="mt-0.5 text-xs text-muted-foreground">总经理本人提交的申请由该员工审批</p>
@@ -577,8 +689,8 @@ onMounted(() => { void applyRouteView() })
     </div>
 
     <div v-else-if="activeView === 'payroll'" class="space-y-3">
-      <div class="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 class="text-lg font-semibold">薪资权限</h1><p class="mt-1 text-xs text-muted-foreground">有薪资权限的只有总经理和财务，财务人员负责填写工资；总经理在用户管理里通过「职位」设置</p></div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h1 class="text-lg font-semibold">薪资权限</h1>
         <div class="flex items-center gap-1">
           <Button variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="payrollCandidatesLoading" @click="reloadPayrollCandidates">刷新</Button>
         </div>
@@ -619,11 +731,8 @@ onMounted(() => { void applyRouteView() })
     </div>
 
     <div v-else-if="activeView === 'calendar'" class="space-y-3">
-      <div class="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 class="text-lg font-semibold">工作日历设置</h1>
-          <p class="mt-1 text-xs text-muted-foreground">点选日期即可切换上班 / 休息，修改后自动保存</p>
-        </div>
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <h1 class="text-lg font-semibold">工作日历设置</h1>
         <div class="flex items-center gap-2">
           <label class="text-sm text-muted-foreground" for="attendance-year">年度</label>
           <Select v-model="selectedYear" :disabled="calendarLoading || calendarSaving">
@@ -638,12 +747,42 @@ onMounted(() => { void applyRouteView() })
       <div class="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-xs text-muted-foreground">
         <span class="inline-flex items-center gap-1.5"><span class="inline-flex size-5 items-center justify-center rounded bg-rose-50 font-semibold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">休</span>休息日</span>
         <span class="inline-flex items-center gap-1.5"><span class="inline-flex size-5 items-center justify-center rounded bg-sky-50 font-semibold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">班</span>周末调休上班</span>
+        <span v-if="saturdayMorning" class="inline-flex items-center gap-1.5"><span class="inline-flex size-5 items-center justify-center rounded bg-sky-50 font-semibold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">半</span>周六上午上班</span>
         <span v-if="officialHolidayCount" class="sm:ml-auto">国务院安排：{{ officialHolidayCount }} 个假期日 · {{ officialWorkdayCount }} 个调休工作日</span>
-        <span v-else-if="officialStatus === 'unpublished'" class="sm:ml-auto">{{ year }} 年国务院安排尚未公布，按周一至周五上班、周末休息</span>
-        <span v-else-if="officialStatus === 'unavailable'" class="sm:ml-auto">未能在线获取 {{ year }} 年国务院安排，按周一至周五上班、周末休息</span>
-        <span v-else class="sm:ml-auto">按周一至周五上班、周末休息</span>
+        <span v-else-if="officialStatus === 'unpublished'" class="sm:ml-auto">{{ year }} 年国务院安排尚未公布，法定节假日与调休上班日暂未知</span>
+        <span v-else-if="officialStatus === 'unavailable'" class="sm:ml-auto">未能在线获取 {{ year }} 年国务院安排，法定节假日与调休上班日暂未知</span>
+        <span v-else class="sm:ml-auto">{{ saturdayMorning ? '按周一至周五上班、周六上午上班' : '按周一至周五上班、周末休息' }}</span>
         <span v-if="calendarSaving" class="basis-full text-primary sm:basis-auto">正在保存 {{ savingCalendarDate }}…</span>
       </div>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2">
+        <Switch
+          id="attendance-saturday-morning"
+          :model-value="saturdayMorning"
+          :disabled="savingSaturdayMorning || calendarLoading || !calendarLoadSucceeded"
+          @update:model-value="saveSaturdayMorning"
+        />
+        <label for="attendance-saturday-morning" class="text-sm">周六上午按工作日计</label>
+        <span v-if="saturdayMorning" class="text-xs text-muted-foreground">计入 {{ saturdayMorningPeriods.map(item => `${item.start}–${item.end}`).join('、') }}，法定节假日与调休上班日除外</span>
+        <span v-else class="text-xs text-muted-foreground">法定节假日与调休上班日除外，半天计入月应出勤</span>
+        <span v-if="savingSaturdayMorning" class="text-primary">正在保存…</span>
+      </div>
+      <section class="rounded-lg border px-3 py-2.5">
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <div class="min-w-0">
+            <h2 class="text-sm font-medium">实到分钟计算规则</h2>
+            <p class="mt-0.5 text-xs text-muted-foreground">台账的实到 = 应出勤 − 请假 − 以下扣减，自动填入供确认，可改成实际值；改过的行不再被覆盖。1 个工作日 = {{ actualRuleDayHours }} 小时。</p>
+          </div>
+          <Button size="sm" variant="outline" :disabled="actualRuleSaving || !actualRuleDirty" @click="saveActualRule">{{ actualRuleSaving ? '保存中…' : '保存' }}</Button>
+        </div>
+        <div v-if="actualRuleFields.length" class="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <label v-for="field in actualRuleFields" :key="field.key" class="flex items-center gap-2 text-xs">
+            <span class="text-muted-foreground">{{ field.label }}</span>
+            <Input v-model="actualRuleDraft[field.key]" class="h-7 w-16 text-right tabular-nums" inputmode="decimal" :aria-label="`${field.label}每次扣减`" />
+            <span class="text-muted-foreground">{{ field.unit === 'hour' ? '小时/次' : '工作日/次' }}</span>
+          </label>
+        </div>
+        <p v-else class="mt-2 text-xs text-muted-foreground">{{ actualRuleLoaded ? '规则不可用' : '加载中…' }}</p>
+      </section>
       <div v-if="calendarLoading" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <div v-for="month in 12" :key="month" class="h-64 animate-pulse rounded-lg border bg-muted/30" />
       </div>
@@ -663,7 +802,7 @@ onMounted(() => { void applyRouteView() })
                 type="button"
                 class="relative flex aspect-square min-w-0 flex-col items-center justify-center rounded-md text-xs tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
                 :class="[
-                  dayType(date) === 'holiday' ? 'bg-rose-50/80 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-900/50' : 'text-foreground',
+                  dayType(date) === 'holiday' && !isHalfDaySaturday(date) ? 'bg-rose-50/80 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-900/50' : 'text-foreground',
                   date === todayDate ? 'ring-1 ring-primary ring-offset-1 ring-offset-background' : '',
                   date === savingCalendarDate ? 'animate-pulse' : '',
                 ]"
@@ -675,10 +814,10 @@ onMounted(() => { void applyRouteView() })
                 <span>{{ Number(date.slice(-2)) }}</span>
                 <span v-if="holidayName(date)" class="max-w-full truncate text-[9px] leading-3 text-rose-700/80 dark:text-rose-300/80">{{ holidayName(date) }}</span>
                 <span
-                  v-if="dayType(date) === 'holiday' || (new Date(`${date}T00:00:00.000Z`).getUTCDay() % 6 === 0 && dayType(date) === 'workday')"
+                  v-if="isHalfDaySaturday(date) || dayType(date) === 'holiday' || (new Date(`${date}T00:00:00.000Z`).getUTCDay() % 6 === 0 && dayType(date) === 'workday')"
                   class="absolute right-0.5 top-0.5 text-[9px] font-bold leading-none"
-                  :class="dayType(date) === 'holiday' ? 'text-rose-700 dark:text-rose-300' : 'text-sky-700 dark:text-sky-300'"
-                >{{ dayType(date) === 'holiday' ? '休' : '班' }}</span>
+                  :class="dayType(date) === 'holiday' && !isHalfDaySaturday(date) ? 'text-rose-700 dark:text-rose-300' : 'text-sky-700 dark:text-sky-300'"
+                >{{ isHalfDaySaturday(date) ? '半' : (dayType(date) === 'holiday' ? '休' : '班') }}</span>
               </button>
             </template>
           </div>

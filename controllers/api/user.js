@@ -180,6 +180,10 @@ exports.getMe = async (req, res) => {
       employeeNo: req.user.employeeNo || '',
       department: req.user.department || '',
       attendanceRoles: Array.isArray(req.user.attendanceRoles) ? req.user.attendanceRoles : [],
+      isSealCustodian: Boolean(
+        (Array.isArray(req.tenant?.settings?.sealCustodianIds) && req.tenant.settings.sealCustodianIds.some(id => String(id) === String(req.user._id))) ||
+        (req.tenant?.settings?.sealCustodianId && String(req.tenant.settings.sealCustodianId) === String(req.user._id))
+      ),
       mustChangePassword: req.user.mustChangePassword === true,
       preferences: req.user.preferences || {},
     };
@@ -195,6 +199,8 @@ exports.getMe = async (req, res) => {
         maxUsers: req.tenant.maxUsers,
         expireDate: req.tenant.expireDate || null,
         billImportCarrierRule: getBillImportCarrierRule(req.tenant.settings || {}),
+        sealCustodianId: req.tenant.settings?.sealCustodianId || null,
+        sealCustodianIds: (req.tenant.settings?.sealCustodianIds || []).map(String),
       } : null
     );
 
@@ -208,6 +214,9 @@ exports.getMe = async (req, res) => {
         attendance: isStandalone()
           ? secrets.enableAttendance
           : req.tenant?.settings?.attendanceEnabled === true,
+        seal: isStandalone()
+          ? secrets.enableSeal
+          : req.tenant?.settings?.sealEnabled === true,
         selfVehicle: secrets.enableSelfVehicle,
         publicBasket: secrets.enablePublicBasket,
         requireReceiptForSettle: req.tenant?.settings?.requireReceiptForSettle || false,

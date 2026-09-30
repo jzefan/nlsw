@@ -1,96 +1,149 @@
 # nlsw-saas 项目长期笔记
 
-## 运行环境与验证方式（2026-09 定）
+## 环境 / 验证
+- 后端 `npm run dev`（`node --watch app.js`，改 .js 自动重启）；`npm start` / `dev:saas` 是裸 `node app.js` —— **改后端必须重启**
+  （症状：新字段/新文案拿不到）。`--watch` 不监听 `.env` / `views` / `public` / `data` / `uploads`。**别 kill 用户正在跑的进程**。
+- 端口：后端 1080、前端 vite 5173。`deploy/ecosystem.config.js` 是服务器 pm2 配置，本机没装 pm2。
+- `npm run lint` **跑不起来**（仓里 v8 的 `.eslintrc.json`，npx 解析到 ESLint 9）——既有问题，别当自己改坏了。
+- 类型检查 `npx vue-tsc -b`（增量 ~40s）；构建校验 `npx vite build --outDir .build-checkMMDD --emptyOutDir`，**每次换新目录名**
+  （复用旧目录会撞沙箱批量删除保护，看着像构建失败；看日志 `✓ N modules transformed` 区分）。
+- 验证分级 L0–L3 见用户级 MEMORY.md 与 `AGENTS.md`。
 
-- 后端启动脚本（2026-09-26 起）：`npm run dev` = `node --watch app.js`（Node 22 自带监听，改 .js 自动整进程重启）；
-  `npm start` 与 `pnpm run dev:saas` 仍是裸 `node app.js`，部署侧无 pm2/守护进程。
-  `deploy/ecosystem.config.js` 是给服务器用的 pm2 配置，本机没装 pm2。
-  → 用 `dev` 跑时改后端会自动重启；用 `start`/`dev:saas` 跑时**改后端代码必须重启才生效**，
-  不重启时进程持旧代码，症状是新字段/新文案拿不到
-  （判断办法：拿线上响应的文案或字段去磁盘代码里搜，搜不到就是旧代码；也可看 `/server-version` 的 `stale`）。
-  → `--watch` 只监听进程 require 过的模块，`.env`、`views/*.pug`、`public/`、`data/`、`uploads/` 不在其中（pug 模板开发态每次请求重读，不用重启）。
-  → **不要 kill 用户正在跑的进程**：杀了没人自动拉起来，会让用户失去服务。重启交给用户自己做。
-- 端口：后端 `1080`，前端 vite `5173`，`8000` 是另一个项目（python）的端口，别混。
-- 前端 `npm run lint` **在本仓跑不起来**：仓库是 `.eslintrc.json`（v8 格式），
-  而 npx 解析到 ESLint 9（只认 `eslint.config.js`）→ `ESLint couldn't find an eslint.config.*`。既有问题。
-- 前端类型检查用 `npx vue-tsc -b`：**增量**跑，改了几个文件约 40 秒（2026-09-27 实测）；
-  `--force` 才是全量重建，8–9 分钟。所以不必因为「怕慢」而跳过类型检查。
-- 构建校验（不想跑整链 `vue-tsc -b && vite build` 时）：
-  `npx vite build --outDir .build-check-0927 --emptyOutDir`，**每次换一个新目录名**——
-  复用旧目录会走到「清空输出目录」，被沙箱的批量删除保护拦下（`[SAFE_DELETE_BULK_CONFIRM_REQUIRED]`），
-  看起来像构建失败。看日志里 `✓ N modules transformed` 是否出现即可区分：出现即模板/TS 全过，失败的只是清目录那一步。
+## 免密码验证（复用在线会话）
+- 会话在 Mongo `sessions`（`session` 是 **JSON 字符串**）；cookie `connect.sid = s:<sid>.<HMAC-SHA256(sid,SESSION_SECRET) 去=>`，
+  可直打 1080 接口 / 注入 playwright（`domain:'localhost'` 不带端口）。**别写死 sid**（重登即失效）——按目标用户 + 最新 + 探 `/me` 动态挑。
+- `deserializeUser` 每请求 `User.findById().populate('tenantId')` → 改用户字段（工号/角色）不用重新登录。
+- playwright：`require('playwright-core')` + `NODE_PATH=<workbuddy workspace node_modules>:<项目>/node_modules`。
+  拦截接口用**端口 + pathname 谓词**，**别用 `**/xxx**`**（会连 vite 的 `/src/pages/xxx/index.vue` 一起拦，页面白屏）。
+- 细坑见技能 `live-session-api-replay`。
 
-## 免密码验证（复用用户在线会话）
+## 角色与权限
+- **管理员 ≠ owner**：管理员 = `privilege` 含 `'admin'`（`utils/permissions.js`）；owner = `role === 'owner'`（公司主账号）。
+- 守卫：`requireExactOwner`（仅主账号）、`requirePeopleManager`（owner 或 admin）——用户说「由管理员维护」照后者写。
+- **总经理** = `attendanceRoles` 含 `general_manager`，租户内唯一（`User.attendanceGeneralManagerTenantId`，`select:false`，
+  由「用户管理 → 职位」同步）；代理审批人 = `Tenant.settings.attendanceGeneralManagerDelegateId`。
+  审批链「一般是总经理」时**别加部门主管一级，也别留「可配置审批层级」开关**（实测被否）。
+  催办链的「通知部门主管」是 `user.managerId`（**上报对象，非审批人**）。
+- **审批权不看角色**：`reviewRequest` 只认审批链里的 `approverId`，派单按申请人 `managerId` ——
+  「勾了 manager」≠「被设为直属经理」，会出现「收得到单子没入口」「空入口」。要收敛统一按 `User.exists({managerId: 自己})` 推导。
+- **三个考勤角色**（2026-09-27 排查，别凭直觉删）：`attendance_admin` 是刚需（工作日历维护、月台账结账/重开、全公司范围、读任意附件）；
+  `manager` 只管**入口与范围**（自己申请跳过直属经理、团队申请/台账、侧栏「待我审批」）。
+- `requireEmployee` 需**有工号**，覆盖 `/attendance/requests*` 与 `GET /attendance/payroll/my`，
+  缺工号返回 `code:'EMPLOYEE_NO_MISSING'`（前端 `isEmployeeNoMissing()` 判断，**别匹配文案**）。
+  **存量账号普遍没工号**（12 个里 7 个没有，含 admin）→ 要给可操作引导而不是一句报错。
+- `models/User.js` 的 `mustChangePassword` 是 `default: undefined` + 守卫 `!== true`（放行），注释与代码相反。
 
-- 后端会话在 Mongo 的 `sessions` 集合，`session` 字段是 **JSON 字符串**。
-  cookie 值 = `s:<sid>.<HMAC-SHA256(sid, SESSION_SECRET) base64 去= >`，拼成 `connect.sid` 即可直打 1080 接口。
-- 同一个 cookie 注入 playwright context（`domain: 'localhost'`，不带端口）→ 可免密码打开受保护页面。
-- `config/passport.js` 的 `deserializeUser` **每个请求都 `User.findById().populate('tenantId')`**，
-  所以改了用户字段（工号、角色）**不需要重新登录**，前端重新拉数据即可。
-- 详见技能 `live-session-api-replay`。
+## 编号 / 流水号
+- **本仓没有流水号发生器**。`models/OrderNumber.js` 只是「已用编号去重字典」（唯一索引 `{tenantId,type,value}`，
+  type 枚举 `order_no|bill_no`），**不是计数器**。
+- 要租户内自增号：独立集合 + `findOneAndUpdate({tenantId},{$inc:{n:1}},{upsert:true,new:true})`，
+  业务表加 `{tenantId,号}` 唯一索引兜底。**别用 `countDocuments()+1`**。
 
-## 考勤/薪资模块权限口径
+## 工作日历（国务院安排）
+- 三层来源：内置 `YEARLY_SCHEDULES`（离线兜底）→ `holiday_calendars` 集合（全国数据**故意不挂 tenantId**）→
+  线上 `china-holiday-source.js`。某年首次被需要时抓一次，**成功才落库**（含可换的数据源白名单，见该文件注释）。
+- `getChinaAttendanceCalendar(year)` 必须**同步**；异步的 `ensureChinaAttendanceCalendar(year)` **只在 `GET /attendance/calendar`**；
+  `loadChinaAttendanceCalendar()` 在 app.js 连库后预热。**别把抓取塞进同步链路。**
+- **「某天算不算工作日」唯一入口 = `workIntervalMinutes(date, policy)`**（返回有效分钟数或 `null`）。
+  优先级：租户单日覆盖 > 国务院安排 > 周六上午 > 周一至周五。新增规则只改这里。
+- 星期一律 `new Date(date+'T00:00:00.000Z').getUTCDay()`。月度应出勤**与人员无关**，整月只算一次；
+  未结账月份不沿用快照，已结账走 `closedSnapshot`。
+- 日历角标：`休` / `班`（**只画周末**）/ `半`（中性底，别用玫瑰底）。年度下拉 `2026 .. 当前年份+10`。
+- 测试不走真实网络（注入 fetch；mock `HolidayCalendar.findOne()` 那层是 Query，要还原 `.lean()`）。
 
-- `utils/attendance-permissions.js`：
-  - `requireAttendanceEnabled`：需 `status==='active'`、非 platform、有租户、且功能开关开（standalone 下看 `ENABLE_ATTENDANCE`）。
-  - `requireEmployee`：另需**有员工工号**（`hasLinkedEmployee`）。覆盖 `/attendance/requests*`（读/建/撤/审）
-    与 `GET /attendance/payroll/my`。**没有工号时返回 `code: 'EMPLOYEE_NO_MISSING'`**，
-    前端 `utils/attendance-error.ts` 的 `isEmployeeNoMissing()` 据此给引导（不要匹配文案字符串）。
-  - 请假与工资条都按工号归属到人，所以这道守卫不能省。
-- `models/User.js` 的 `mustChangePassword` 用 `default: undefined` + 守卫 `!== true`（放行）——
-  注释曾写成「legacy accounts require a self-change」与代码相反，**改这块时先看清楚语义**。
-- **存量账号普遍没有工号**（实测 12 个里 7 个没有，含 admin/平台管理员），
-  任何「要求工号」的功能都要考虑这个默认状态，并给出可操作的引导而不是一句报错。
+## 考勤月台账
+- **两层状态**：① 整月 `status: open|closed`——`open` 时**应出勤按当前日历实时重算**；`closed` 后整月只读、读结账快照 `closedSnapshot`，
+  要改必须「重新开启」并填原因（写 `AttendanceLedgerAudit`）。
+  ② 每人一行 `confirmationState: pending|confirmed|no_basis`——`confirmed` 必须有非负整数实到，`no_basis` 必须填原因且实到留空。
+- **结账前置（`closeMonth` 硬校验，缺一即 409）**：有 pending / confirmed 无分钟 / no_basis 无原因或有实到 /
+  `requiresLeaveReconciliation`（请假未按天分摊，界面提示「请假分配待核对」）。
+  确认与结账仅 **主账号 + `attendance_admin`**（`isMonthAdmin`）。可见范围：主账号/考勤管理员/总经理=全公司，经理=团队，其余=本人。
+- **「无依据」不是「没出勤」**，而是**手上有依据地算不出实到**。与「已确认 + 实到 0」（＝有依据认定一分钟没到）是硬口径差异，
+  **拿不准就填无依据，不许用 0 冒充**。
+- **台账的实到不参与算钱**：工资条「请假与旷工扣款」由财务手填；工资表明细「当月考勤时长」来自**已通过的申请单**
+  （`getMonthlyAttendanceSummary`），不依赖台账是否确认。
+- **系统不登记「实际加班 / 实际出差」**：只有已批时长 + 人工确认的实到。那两行写死文案 2026-09-30 已删，**别加回来**。
+- **加班补偿方式三种：调休 `comp_time` / 加班费 `overtime_pay` / 无补偿 `none`**（2026-09-30 加 `none`，
+  申请时必选、**默认「无补偿」**；`ALLOWED_COMPENSATION` 与模型 enum 同步。
+  展示名统一是「**无补偿**」，别写成「不补偿」——用户改过口径）。**加班总时长与方式无关**，三种都进 `overtimeApprovedMinutes`；
+  台账「已批加班」格第二行用 `overtimeMethodLabel()` 列出**真有时长的**方式（`调休 1 小时 · 无补偿 1 小时`），
+  **不写零**——用户明确否掉过「调休 0 小时 · 加班费 0 小时」那种每行都写零的样子。该格要 `whitespace-normal`，三种方式齐了会换行。
+- **待审批申请的提示**（2026-09-30）：`buildRows` 用一次 `status: {$in:['approved','pending']}` 查询后按状态切开，
+  `pending*` 字段（`pendingOvertimeMinutes / pendingFieldworkMinutes / pendingLeaveMinutes / pendingLeaveUnreconciled`）
+  只作提示，**不并入任何「已批」口径、不参与实到**；界面只在非零时多一行「待审批 X 小时」（没有就不出现）。
+  待审批请假若未按天分摊 → 只写「待审批请假（未按天分摊）」，不给时长。
+  **改这个查询会连坐测试**：夹具必须带 `status`，否则会被当成 pending（已踩过，3 个用例挂在夹具上）。
+- **导入考勤记录**（迟到/早退/无打卡/备注）：台账行加 `lateWithin10/lateOver10/lateTotal/earlyLeave/noClockRecord/importNote/importedAt`；
+  `POST /attendance/ledger/import`（`isMonthAdmin`、已结账 409、**只更新传入字段**、逐条返结果、走月份并发锁）；
+  前端 `components/LedgerImportDialog.vue` + 台账「考勤记录（导入）」列。
+  - **导入只登记次数**：不改实到与确认状态（次数只作为实到自动计算的扣减依据）；请假**不导入**；空单元格不动原值、`0` 是有效值。
+  - 解析按**表头文字**识别列（两级表头也要认），列顺序不限；表尾注释行/模板示例行用 `isNonEmployeeLabel` 跳过。
+  - 报错文案要用中文列名（`IMPORT_FIELD_LABELS`），**别漏出 `lateTotal` 这类 key**——它会直接显示在界面上。
+- **实到分钟自动计算**（2026-09-30 定）：`实到 = 应出勤 − 请假合计 − 迟到/早退/无打卡扣减`，下限 0。
+  - 默认值**唯一来源** `utils/attendance-ledger-actual.js` 的 `DEFAULT_ACTUAL_RULE`（0.5h / 1h / 1h / 1 个工作日）；
+    租户配置存 `Tenant.settings.attendanceLedgerActualRule`；界面在「考勤设置 → 工作日历设置 → 实到分钟计算规则」，
+    **字段标签/单位由后端 `ACTUAL_RULE_FIELDS` 下发**，前端不另写一份。接口 `GET/POST /attendance/ledger/actual-rule`
+    （读＝能看台账的人，写＝`isMonthAdmin`）。
+  - **建议值只算不写库**：读取时每行附 `suggestedActualMinutes / suggestedActualNote / actualMinutesIsManual`，
+    保存那一行才落库（`actualMinutesSource = 'auto' | 'manual'`）；已结账月份不算建议值。
+  - `auto` 由**服务端核对**：保存时重算一次建议值，`actualMinutes === 建议值` 才记 auto
+    （saveRow 因此多一次 `AttendanceRequest.find`，**测试必须打桩**，否则白等 mongoose 缓冲超时）。
+  - 不覆盖判据 `isActualManual(row)`：`manual` → 保护；`auto` → 可重算；**无来源标记的旧行，有值即视为人工**（免迁移）。
+  - 不给建议值：`requiresLeaveReconciliation`、本月无应出勤；扣成负数按 0 计；只导入「迟到合计」未分档 → **不扣**（均注明原因）。
+  - 前端必须有 `effectiveActualMinutes(row)`（人工看实际值，否则看建议值），`makeDraft` / `isRowDirty` 都用它，
+    否则一进页面就把预填值判成「未保存修改」，挡住切月与结账。
 
-## 工作日历（国务院节假日安排）数据链（2026-09-27 定）
+## 表格页验收：列可见性怎么断言（2026-09-30 踩过，且是自查回归）
+- shadcn 的 `Table` 组件在 `<Table>` 外**自带一层 `[data-slot="table-container"]`（`overflow-auto`）**，外面常常还包一层 `overflow-x-auto`。
+- **单元格溢出表格盒时，外层容器的 `scrollWidth` 仍等于 clientWidth** —— 只看外层会得出「没有溢出」的错误结论
+  （实测：`操作` 列被挤出 85px，外层报 0，我因此漏判了一整轮）。
+- 正确判据：取 `[data-slot="table-container"]` 的 `getBoundingClientRect().right`，与**每个 `thead th` 的 `right`** 比较
+  （`th.right > 容器 right + 1` 即被裁）；再确认窄窗口下 `scrollWidth > clientWidth`（真能滚到，而不是被静默裁掉）。
+- **`TableCell` / `TableHead` 自带 `whitespace-nowrap`**：格内文案一长就把列撑宽、把最后一列挤出可视区。
+  修法是该格加 `whitespace-normal`（或把文案写短）。**加列/改列头文案后必须重量一次这组几何。**
 
-- 三层来源：**内置兜底表**（`utils/china-attendance-calendar.js` 的 `YEARLY_SCHEDULES`，目前只有 2026，
-  离线可用）→ **`holiday_calendars` 集合**（`models/HolidayCalendar.js`，全国统一数据**故意不挂 tenantId**，
-  全局租户插件不会介入）→ **线上数据源**（`utils/china-holiday-source.js`，holiday-cn 优先、jiejiariapi 兜底；
-  timor.tech 被 Cloudflare 拦、apihubs 字段是数字编码，都别用）。
-  某个年度第一次被需要时抓一次，**成功才落库**，失败只回状态、下次再试。
-- `getChinaAttendanceCalendar(year)` 必须是**同步**的（请假时长、台账、日历渲染都在同步链路）。
-  所以内存注册表是唯一真源：新增的 `ensureChinaAttendanceCalendar(year)` 是异步的，**只在 `GET /attendance/calendar` 里调**；
-  `loadChinaAttendanceCalendar()` 在 `app.js` 连上 Mongo 后预热。**不要把抓取塞进请假/台账等同步链路。**
-- `official.status` 四态：`cached`（内存/库里已有）/ `fetched`（本次线上取得并落库）/
-  `unpublished`（数据源明确答复没有）/ `unavailable`（所有源都没答复）。抓取、读库、落库失败都只 warn。
-- **有官方安排的年度会被当作「已确认」**（沿用原有语义：内置年本来就算 configuredYears），
-  所以管理员在下拉里浏览过某年，该年的请假与台账就算日历可用，不必手工点一天。
-- 年度下拉（设置页日历视图）：`2026 .. 当前年份 + 10`，`yearOptions` 里对更早的已确认年度留了兜底项。
-- 测试都不走真实网络：`test/china-holiday-calendar.test.js` 注入 fetch + mock 模型；
-  `HolidayCalendar.findOne()` 那层是 Query，mock 要还原 `.lean()`。
+## 薪资：五险一金方案
+- **费率不由员工标准决定**：租户级 `Tenant.settings.payrollContributionScheme` 给费率，员工只填基数（公司/个人各一个）。
+  `单位社保 = 公司基数 × 五险单位合计%`；`个人社保 = 个人基数 × 五险个人合计% + 医疗个人固定额`。
+- 默认值**唯一来源** `utils/payroll-calculations.js` 的 `DEFAULT_CONTRIBUTION_SCHEME`；前端 `utils/payroll.ts` 是同一份兜底
+  （**改口径要同时改两处**，接口返回值才权威）；`models/Tenant.js` 不写默认值。
+- `PayrollStandard` 的**四个费率字段已废弃**（由 `withContributionSchemeRates` 对齐成方案值）；
+  前端 `PayrollStandardInput` / `StandardContributionInput` 只含基数。
+- `GET/POST /attendance/payroll/contribution-scheme`：读＝薪资读者，写＝**仅财务**。已发布工资条是快照不受影响。
+  边界：缴费基数为 0 时个人社保仍有 ¥3.00，是按规则算的。
+- 工资条 `components/payslip-table.vue` 员工端/财务端共用：**只暴露「发布日期」，不暴露版本号**；
+  `publishedAt` 是可选项，只有财务端 `statements.vue` 传。版本/撤回属内部审计（`revisions` / `events`）。
+- **`constants/payroll-fields.ts` 的 `showPayrollPayments = false`**：「发放状态 / 已付 / 剩余 / 收退款登记」整块隐藏
+  （工资表、我的工资条、薪资统计三处共用）；**接口与数据都保留**，别以为没做，也别删相关代码。
+- 五险一金方案入口 = 工具栏按钮 → **左侧抽屉**（576px）。两个坑：宽度要用**与组件同名的修饰符**覆盖
+  （`DrawerContent` 自带的 `data-[vaul-drawer-direction=left]:sm:max-w-sm` 与 `sm:max-w-lg` 不同名、tailwind-merge 不去重）；
+  **`direction` 是 `DrawerRoot` 的属性**（放 `DrawerContent` 会静默退回底部抽屉），vaul 默认 `shouldScaleBackground: true` 要显式关掉。
+
+## 站内通知
+- 基建：`models/Notice.js` + `GET /notices`、`/unread-count`、`POST /:id/read`、`/read-all` + 顶栏 `notice-bell.vue`（60s 轮询）。
+  **`Notice.link` 的约定是「前端可直接 `router.push` 的路径」**（可带 query）。
+- 登录弹窗挂 **`App.vue`**（不放 default 布局）；同一浏览器会话只弹一次（sessionStorage）。
+  **watch 必须用 `(isLogin, wasLogin)` 区分「刚挂载」与「真的登出」**，只写 `else` 清标记会让刷新后重复弹。
+- 产生点：用章 + 考勤（只通知当前审批人，顺延，末级通知申请人）。写通知一律包 try/catch，失败只 warn。
+- **两类审批的 decision 取值不一致**：考勤 `approve|reject`，用章 `approved|rejected`。
+- **测试里必须打桩 `Notice.create`**：否则每条提交/审批用例白等 mongoose 缓冲超时 10s（套件 2s → 85s）。
 
 ## 前端页面约定
-
-- 考勤页在 `front_end/src/pages/attendance/`，局部组件放 `pages/attendance/components/`。
-- **考勤设置的三个视图由左侧菜单驱动，不用页内 tab**（2026-09-27 改）：
-  App 侧栏「考勤与工资 → 设置」下挂三个子项，url 形如 `/attendance/settings?tab=people|payroll|calendar`；
-  页面只按 `route.query.tab` 渲染对应视图，组件不重建，**靠 `watch(() => route.query.tab)` 响应**，
-  地址里没带 `?tab=` 时 `router.replace` 补上（否则左侧菜单高亮不到）。
-  可见性规则抽在 `front_end/src/utils/attendance-settings.ts`，**菜单与页面共用一份**——
-  改权限口径只改这一处，否则会出现「菜单能点、进去说无权」。
-  副作用：只挂了考勤总经理角色的人没有任何可配项，侧栏不再出现「设置」（直接进地址仍给引导文案）。
-- tab 容器用现成的 `components/ui/tabs`（reka-ui）；`TabsContent` 只是隐藏，不卸载 DOM。
-- **内部/运维性质的功能不要放进用户界面**（例：孤儿并发锁恢复已从考勤设置页移除，
-  只保留后端接口给运维）。用户只关心「做申请、看工资条」。
-- **错误状态不许渲染成空状态**：读取失败时不能显示「暂无申请 / 暂无已发布工资条」，
-  要显示「读取失败 + 重试」或专门的引导态。已踩过两次。
-- **UI 基调：默认收敛、克制、常规**（细则见 `AGENTS.md` §5，2026-09-26 加入）：
-  文案不解释不啰嗦、只留必要信息；尺寸间距按界面类型/信息密度/使用频率/视觉层级判断，
-  不写死统一规格也不主动放大；辅助入口·设置·开关·工具按钮不抢视觉中心；常见功能用通用图标隐喻
-  （成熟图标库/系统图标/行业通用符号，不自创奇怪图标）；层级靠位置、分组、轻微颜色、hover、
-  tooltip、分隔线、状态反馈表达，避免夸张尺寸/重色块/大圆角/厚边框/强阴影/装饰性渐变/营销页式布局。
-  **交付前必须与同屏元素对比检查**，显得突兀、过大、过重或破坏信息密度就主动收敛。
-
-## 验证强度：分级，不要一律回归（2026-09-26 定）
-
-- `AGENTS.md`（42 行）已写入 **分级验证** 表，语义：
-  **L0** 文案/样式/图标/单页展示微调 → 能编译 + 开页面看一眼即可，**不跑测试套件、不补测试、不建 todo**；
-  **L1** 单页逻辑/局部组件 → 相关文件类型检查 + 该模块已有测试；
-  **L2** 接口/数据模型/权限/共享 composable·store → 模块测试 + 走一遍主流程；
-  **L3** 部署、迁移、批量、不可逆 → 全量 + 备份 + 回滚。
-- 档位按**影响面**判，不按改动行数；判不准取低档并说明依据。只有用户明确要求才跑全量回归。
-- 与之配套：删掉了旧文档里「验证为王 / 测试驱动 / Never mark complete without proving it works」这类绝对表述，
-  保留「不测 ≠ 不报」（跑了什么、没跑什么要如实说，错误不许静默失败）。
-- `SKILL.md` 同步瘦身为速查表（430 → 71 行）：长示例代码块一律删除（仓库里有真文件，且会腐烂），
-  只留目录骨架、命名表、接口/错误约定、派生字段钩子、两套表格、最短流程、中文状态值、提交前缀。
+- `fieldwork` 界面上一律叫**「出差」**（别改回去），类型 key 不变。展示名源头：`constants/attendance-labels.ts` +
+  后端 `ATTENDANCE_TYPE_LABELS` + `sidebar-data.ts`（别漏台账/工资表列头）。考勤页在 `pages/attendance/`，局部组件放 `pages/attendance/components/`。
+- **页头形态**：左 `h1.text-lg font-semibold` + 紧跟 `mt-1 text-xs text-muted-foreground` 说明（**只差 4px，不隔段**）+ 右操作按钮。
+  **页内 h1 保留**（面包屑 + 页内大标题两层是用户要的）；只有左边已有页签的页面（台账、待我审批/审核记录、用章申请/审批）不放 h1。
+- 面包屑写 `layouts/default.vue` 的 `routeMap`；**同路径按 query 给不同标题时值写成函数**
+  （`useRoute()` 是 reactive，函数里读 `route.query.x` 会被依赖收集）。
+- **考勤设置的三个视图由左侧菜单驱动，不用页内 tab**（`?tab=people|payroll|calendar`）；可见性规则
+  `utils/attendance-settings.ts` **菜单与页面共用一份**（改权限只改这一处，否则出现「菜单能点、进去说无权」）；
+  缺参数要 `router.replace` 补上，否则菜单高亮不到。
+- **「我的申请」「待我审批」在左侧菜单**，按类型拆子项（`?type=leave|overtime|fieldwork`，读参数在
+  `composables/use-request-type.ts`，未带/非法 → 全部类型）；**「审核记录」刻意不分类型**。
+  「用章审批」**没有独立页面**（→ `/seal/requests?view=inbox`）。页签用**胶囊按钮**，不用下划线 tab。
+- **列表页「页签 + 操作」合并成一行工具栏**（胶囊在左、筛选与操作在右，`border-b pb-2`）；
+  台账右侧控件组要 `v-show="activeView === 'detail'"`。同屏控件已表达的范围不要再写一行文字。
+- **错误状态不许渲染成空状态**：读取失败要显示「读取失败 + 重试」，不能显示「暂无申请 / 暂无已发布工资条」。已踩过两次。
+- 金额用**系统字体栈**（不引 webfont）+ `tabular-nums` + 右对齐（SF Pro 的 tnum 已严格等宽）。
+- **UI 基调：收敛、克制、常规**——细则见 `AGENTS.md` §5，交付前与同屏元素对比，突兀/过重就收敛。
+- **内部/运维性质的功能不要放进用户界面**（如孤儿并发锁恢复只留后端接口）。

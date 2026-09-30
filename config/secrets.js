@@ -64,6 +64,7 @@ module.exports = {
   serveFrontend: process.env.SERVE_FRONTEND === "true",
   enablePublicBasket: process.env.ENABLE_PUBLIC_BASKET === "true",
   enableAttendance: process.env.ENABLE_ATTENDANCE === "true",
+  enableSeal: process.env.ENABLE_SEAL === "true",
 
   // MinIO 配置
   minio: {

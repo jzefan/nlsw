@@ -7,7 +7,10 @@ const User = require('../../models/User');
 const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceSubmissionLock = require('../../models/AttendanceSubmissionLock');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
+const Notice = require('../../models/Notice');
 const { identityVersionFilter } = require('../../utils/user-security');
+const { isAdmin } = require('../../utils/permissions');
+const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { chinaAttendanceCalendarMeta, ensureChinaAttendanceCalendar, getChinaAttendanceCalendar, hasChinaAttendanceCalendar } = require('../../utils/china-attendance-calendar');
 const { _coordination: ledgerCoordination } = require('./attendance-ledger');
@@ -23,7 +26,7 @@ const {
 
 const ALLOWED_TYPES = ['leave', 'overtime', 'fieldwork'];
 const ALLOWED_LEAVE_TYPES = ['personal', 'sick', 'annual', 'marriage', 'maternity', 'paternity', 'bereavement', 'parental', 'compensatory', 'other'];
-const ALLOWED_COMPENSATION = ['comp_time', 'overtime_pay'];
+const ALLOWED_COMPENSATION = ['comp_time', 'overtime_pay', 'none'];
 const SUBMISSION_LOCK_RECOVERY_MIN_AGE_MS = 10 * 60 * 1000;
 const ATTENDANCE_UPLOAD_ROOT = path.resolve(__dirname, '../../uploads/attendance');
 const ATTACHMENT_EXTENSIONS = {
@@ -38,6 +41,68 @@ const ATTACHMENT_EXTENSIONS = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
 };
 const activeLeaveSubmissionTokens = new Set();
+
+const ATTENDANCE_TYPE_LABELS = { leave: '请假', overtime: '加班', fieldwork: '出差' };
+
+/** 取租户配置的时区偏移，配置坏了也不能影响通知本身。 */
+function tenantOffsetMinutes(tenant) {
+  try {
+    return getAttendancePolicy(tenant).offsetMinutes;
+  } catch {
+    return 480;
+  }
+}
+
+/** 北京时间的「2026-09-30 09:00」。 */
+function beijingTimestamp(value, offsetMinutes) {
+  const date = new Date(new Date(value).getTime() + offsetMinutes * 60000);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+function formatDurationText(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (!hours) return `${rest} 分钟`;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+/** 申请单的一句话摘要，站内通知正文用。 */
+function requestSummary(record, offsetMinutes) {
+  const range = `${beijingTimestamp(record.startAt, offsetMinutes)} ~ ${beijingTimestamp(record.endAt, offsetMinutes)}`;
+  const duration = record.durationMinutes ? `，共 ${formatDurationText(record.durationMinutes)}` : '';
+  const reason = String(record.reason || '').trim();
+  return `${range}${duration}${reason ? `｜${reason.slice(0, 60)}` : ''}`;
+}
+
+/** 写站内通知：通知是附属动作，失败只记日志，绝不把提交/审批主流程带崩。 */
+async function notifyAttendance(tenantId, userId, kind, title, body, link) {
+  if (!tenantId || !userId) return;
+  try {
+    await Notice.create({ tenantId, userId, kind, title, body, link });
+  } catch (error) {
+    console.warn('attendance notice failed:', error?.message || error);
+  }
+}
+
+/** 审批后的通知：顺延就提醒下一位审批人，走到末级才把结果告诉申请人。 */
+async function notifyReviewOutcome(record, { tenantId, tenant, decision, comment, nextApproverId }) {
+  const typeLabel = ATTENDANCE_TYPE_LABELS[record.type] || '考勤';
+  const summary = requestSummary(record, tenantOffsetMinutes(tenant));
+  if (nextApproverId) {
+    await notifyAttendance(tenantId, nextApproverId, 'attendance_pending',
+      `${record.applicant?.name || '同事'}的${typeLabel}申请待你审批`, summary,
+      `/attendance/approvals?type=${record.type}`);
+    return;
+  }
+  if (decision === 'reject') {
+    await notifyAttendance(tenantId, record.applicantId, 'attendance_rejected',
+      `${typeLabel}申请被驳回`, `${summary}｜驳回意见：${comment || '未填写'}`,
+      `/attendance/requests?type=${record.type}`);
+    return;
+  }
+  await notifyAttendance(tenantId, record.applicantId, 'attendance_approved',
+    `${typeLabel}申请已通过`, summary, `/attendance/requests?type=${record.type}`);
+}
 
 function fail(res, status, error) {
   return res.status(status).json({ ok: false, error });
@@ -155,7 +220,17 @@ function serializeRequest(request) {
 
 function requireExactOwner(req, res) {
   if (req.user?.role !== 'owner') {
-    fail(res, 403, '仅公司主账号可管理员工考勤资料');
+    fail(res, 403, '仅公司主账号可操作此项');
+    return false;
+  }
+  return true;
+}
+
+function requirePeopleManager(req, res) {
+  const privilege = req.user?.privilege;
+  const admin = isAdmin(Array.isArray(privilege) ? privilege : migrateBinaryToArray(privilege));
+  if (req.user?.role !== 'owner' && (req.user?.role === 'platform' || !admin)) {
+    fail(res, 403, '仅公司主账号或管理员可维护员工资料');
     return false;
   }
   return true;
@@ -192,7 +267,7 @@ function toPersonRow(user) {
 
 exports.listPeople = async (req, res) => {
   try {
-    if (!requireExactOwner(req, res)) return;
+    if (!requirePeopleManager(req, res)) return;
     // 平台账号不是公司员工，不出现在考勤员工资料里
     const people = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
       .select('employeeNo phone profile.name profile.phone userid department title managerId attendanceRoles attendanceTracked payrollRoles mustChangePassword status')
@@ -223,7 +298,7 @@ exports.listPeople = async (req, res) => {
 
 exports.updateEmployeeProfile = async (req, res) => {
   try {
-    if (!requireExactOwner(req, res)) return;
+    if (!requirePeopleManager(req, res)) return;
     const { userId } = req.body || {};
     if (!validObjectId(userId)) return fail(res, 400, '员工编号无效');
     const userQuery = User.findOne({ _id: userId, tenantId: req.tenantId });
@@ -347,6 +422,8 @@ exports.getCalendar = async (req, res) => {
         workPeriods: attendancePolicy.intervals,
         defaultDays: getChinaAttendanceCalendar(year),
         days: entries,
+        // 周六上午上班：enabled 关着时 periods 为空数组，界面据此决定要不要标「上午」
+        saturdayMorning: { enabled: attendancePolicy.saturdayMorning, periods: attendancePolicy.morningIntervals },
         official
       }
     });
@@ -423,6 +500,27 @@ exports.updateCalendarDay = async (req, res) => {
     console.error('attendance updateCalendarDay failed:', error);
     if (error?.name === 'VersionError') return fail(res, 409, '工作日历已被其他管理员更新，请刷新后重试');
     return fail(res, 500, '更新工作日失败');
+  }
+};
+
+/** 特殊情况：每周六上午算工作日（法定节假日与调休上班日除外），是租户级开关、不按年度区分。 */
+exports.updateCalendarSaturdayMorning = async (req, res) => {
+  try {
+    const isOwner = req.user?.role === 'owner';
+    if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
+    const enabled = req.body?.enabled;
+    if (typeof enabled !== 'boolean') return fail(res, 400, '周六上午上班取值无效');
+    const tenant = req.tenant;
+    if (!tenant) return fail(res, 403, '缺少租户配置');
+    tenant.settings.attendanceSaturdayMorningWorkday = enabled;
+    tenant.markModified('settings.attendanceSaturdayMorningWorkday');
+    await tenant.save();
+    const policy = getAttendancePolicy(tenant);
+    return res.json({ ok: true, data: { enabled: policy.saturdayMorning, periods: policy.morningIntervals } });
+  } catch (error) {
+    console.error('attendance updateCalendarSaturdayMorning failed:', error);
+    if (error?.name === 'VersionError') return fail(res, 409, '工作日历已被其他管理员更新，请刷新后重试');
+    return fail(res, 500, '更新周六上午上班设置失败');
   }
 };
 
@@ -549,7 +647,7 @@ exports.listRequests = async (req, res) => {
       }
     }
     if (req.query.status && ['pending', 'approved', 'rejected', 'withdrawn'].includes(req.query.status) && view !== 'inbox') query.status = req.query.status;
-    // 侧栏「我的申请」按类型分成请假/加班/外勤三个入口，列表据此过滤；未传时返回全部类型。
+    // 侧栏「我的申请」按类型分成请假/加班/出差三个入口，列表据此过滤；未传时返回全部类型。
     if (req.query.type && ALLOWED_TYPES.includes(req.query.type)) query.type = req.query.type;
     const [records, total] = await Promise.all([
       AttendanceRequest.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
@@ -653,11 +751,11 @@ exports.createRequest = async (req, res) => {
     }
     if (body.type === 'fieldwork' || body.type === 'overtime') {
       location = cleanText(body.location, 500, true);
-      if (!location) return fail(res, 400, body.type === 'fieldwork' ? '请填写外勤地点' : '请填写加班地点');
+      if (!location) return fail(res, 400, body.type === 'fieldwork' ? '请填写出差地点' : '请填写加班地点');
     }
     if (body.type === 'fieldwork') {
       contact = cleanText(body.contact, 500, true);
-      if (!contact) return fail(res, 400, '请填写外勤对接对象');
+      if (!contact) return fail(res, 400, '请填写出差对接对象');
     }
     if (body.type !== 'leave') {
       workContent = cleanText(body.workContent, 2000, true);
@@ -708,6 +806,15 @@ exports.createRequest = async (req, res) => {
       status: 'pending'
     });
     uploadedFilePaths.length = 0;
+    // 通知第一审批人；审批人恰好是申请人本人（自己申请跳过直属经理时会这样）就不必提醒自己
+    const firstApproverId = approvals[0]?.approverId;
+    if (firstApproverId && String(firstApproverId) !== String(req.user._id)) {
+      const typeLabel = ATTENDANCE_TYPE_LABELS[record.type] || '考勤';
+      await notifyAttendance(req.tenantId, firstApproverId, 'attendance_pending',
+        `${record.applicant?.name || '同事'}提交了${typeLabel}申请`,
+        requestSummary(record, tenantOffsetMinutes(req.tenant)),
+        `/attendance/approvals?type=${record.type}`);
+    }
     return res.status(201).json({ ok: true, data: serializeRequest(record) });
   } catch (error) {
     await Promise.allSettled(uploadedFilePaths.map(filePath => fs.promises.unlink(filePath)));
@@ -845,6 +952,7 @@ exports.reviewRequest = async (req, res) => {
       [`approvals.${currentIndex}.status`]: 'pending'
     }, update, { new: true });
     if (!updated) return fail(res, 409, '申请状态已变化，请刷新后再试');
+    await notifyReviewOutcome(updated, { tenantId: req.tenantId, tenant: req.tenant, decision, comment, nextApproverId });
     return res.json({ ok: true, data: serializeRequest(updated), nextApproverId });
   } catch (error) {
     console.error('attendance reviewRequest failed:', error);

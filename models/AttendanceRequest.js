@@ -26,7 +26,8 @@ const attendanceRequestSchema = new mongoose.Schema({
   },
   type: { type: String, enum: ['leave', 'overtime', 'fieldwork'], required: true },
   leaveType: { type: String, enum: ['personal', 'sick', 'annual', 'marriage', 'maternity', 'paternity', 'bereavement', 'parental', 'compensatory', 'other'] },
-  compensation: { type: String, enum: ['comp_time', 'overtime_pay'] },
+  /** 加班补偿方式：调休 / 加班费 / 无补偿（申请时默认无补偿） */
+  compensation: { type: String, enum: ['comp_time', 'overtime_pay', 'none'] },
   startAt: { type: Date, required: true },
   endAt: { type: Date, required: true },
   durationMinutes: { type: Number, required: true, min: 1 },

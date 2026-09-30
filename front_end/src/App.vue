@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import GlobalConfirmDialog from '@/components/global-confirm-dialog.vue'
 import Loading from '@/components/loading.vue'
+import NoticeLoginDialog from '@/components/notice/notice-login-dialog.vue'
 import ServerStaleBanner from '@/components/server-stale-banner.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { useSessionMonitor } from '@/composables/use-session-monitor'
@@ -13,6 +14,7 @@ useSessionMonitor()
 <template>
   <Toaster position="top-center" />
   <GlobalConfirmDialog />
+  <NoticeLoginDialog />
   <ServerStaleBanner />
 
   <Suspense>

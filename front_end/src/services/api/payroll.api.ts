@@ -61,6 +61,40 @@ export interface PayrollStandard {
   updatedAt: string | null
 }
 
+/**
+ * 五险一金费率方案（全公司统一，比例单位是百分比）：员工只填各自的缴费基数，
+ * 单位/个人社保与公积金金额由这张表汇总出的比例算出，社保个人另加医疗固定额。
+ */
+export interface PayrollContributionScheme {
+  pensionEmployerPercent: number
+  pensionEmployeePercent: number
+  medicalEmployerPercent: number
+  medicalEmployeePercent: number
+  /** 个人医疗固定额（大额医疗互助），按分 */
+  medicalEmployeeFlatCents: number
+  unemploymentEmployerPercent: number
+  unemploymentEmployeePercent: number
+  injuryEmployerPercent: number
+  maternityEmployerPercent: number
+  housingFundEmployerPercent: number
+  housingFundEmployeePercent: number
+}
+
+export interface PayrollContributionSchemeTotals {
+  /** 五险的单位合计比例 */
+  employerRatePercent: number
+  /** 五险的个人合计比例 */
+  employeeRatePercent: number
+  employeeFlatCents: number
+  housingFundEmployerPercent: number
+  housingFundEmployeePercent: number
+}
+
+export interface PayrollContributionSchemePayload {
+  scheme: PayrollContributionScheme
+  totals: PayrollContributionSchemeTotals
+}
+
 /** 工资条明细里展示的当月考勤时长；台账未登记时 expectedMinutes/actualMinutes 为 null。 */
 export interface PayrollAttendanceSummary {
   leaveMinutesByType: Record<string, number>
@@ -309,8 +343,25 @@ export async function getPayrollStandards() {
   return response.data
 }
 
-export async function savePayrollStandard(employeeId: string, standard: Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>, version: number) {
+/** 员工标准里可提交的部分：社保与公积金的费率都由租户「五险一金方案」决定，不再由这里提交。 */
+export type PayrollStandardInput = Omit<PayrollStandard,
+  'contributions' | 'version' | 'updatedAt'
+  | 'companySocialInsuranceRatePercent' | 'personalSocialInsuranceRatePercent'
+  | 'companyHousingFundRatePercent' | 'personalHousingFundRatePercent'>
+
+export async function savePayrollStandard(employeeId: string, standard: PayrollStandardInput, version: number) {
   const response = await axiosInstance.post<ApiResponse<PayrollStandard>>(`/attendance/payroll/standards/${encodeURIComponent(employeeId)}`, { standard, version })
+  return response.data
+}
+
+/** 五险一金方案：全公司统一，财务可改。 */
+export async function getPayrollContributionScheme() {
+  const response = await axiosInstance.get<ApiResponse<PayrollContributionSchemePayload>>('/attendance/payroll/contribution-scheme')
+  return response.data
+}
+
+export async function savePayrollContributionScheme(scheme: PayrollContributionScheme) {
+  const response = await axiosInstance.post<ApiResponse<PayrollContributionSchemePayload>>('/attendance/payroll/contribution-scheme', { scheme })
   return response.data
 }
 

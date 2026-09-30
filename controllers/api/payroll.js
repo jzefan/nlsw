@@ -5,7 +5,11 @@ const PayrollStandard = require('../../models/PayrollStandard');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const { _coordination: monthCoordination, getMonthlyAttendanceSummary } = require('./attendance-ledger');
 const { hasLinkedEmployee } = require('../../utils/attendance-permissions');
-const { validatePayrollComponents, validatePayrollStandard, computeStandardContributions, COMPONENT_KEYS, STANDARD_MONEY_KEYS, STANDARD_BASE_KEYS, STANDARD_RATE_KEYS } = require('../../utils/payroll-calculations');
+const {
+  validatePayrollComponents, validatePayrollStandard, computeStandardContributions,
+  normalizeContributionScheme, contributionSchemeTotals, validateContributionScheme, withContributionSchemeRates,
+  COMPONENT_KEYS, STANDARD_MONEY_KEYS, STANDARD_BASE_KEYS, STANDARD_RATE_KEYS,
+} = require('../../utils/payroll-calculations');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { isChairmanTitle, isGeneralManagerTitle } = require('../../utils/user-title');
 
@@ -58,25 +62,27 @@ function asObject(value) {
 }
 
 /** 薪资标准序列化：金额/比例全量补齐，并附上算好的社保公积金金额，前端只用一份口径。 */
-function serializeStandard(standard) {
+function serializeStandard(standard, scheme) {
   const data = asObject(standard);
   if (!data) return null;
   const result = {};
   for (const key of [...STANDARD_MONEY_KEYS, ...STANDARD_BASE_KEYS, ...STANDARD_RATE_KEYS]) result[key] = data[key] ?? 0;
   result.version = data.version || 0;
   result.updatedAt = data.updatedAt || null;
-  result.contributions = computeStandardContributions(result);
+  // 社保比例以租户五险方案为准（库里可能还是历史值），对齐后再算金额，保证回给前端的数据自洽
+  Object.assign(result, withContributionSchemeRates(result, scheme));
+  result.contributions = computeStandardContributions(result, scheme);
   return result;
 }
 
 /**
- * 每月草稿底稿：薪资标准里能自动带出的项目（固定工资项 + 基数×比例算出的社保公积金），
+ * 每月草稿底稿：薪资标准里能自动带出的项目（固定工资项 + 按五险方案算出的社保公积金），
  * 其余项目（绩效、补贴、考勤扣款、个税）按 0 起，由财务录入时补充。
  * 只用于给「未录入」的月份展示预估金额，不落库。
  */
-function standardDraft(standard) {
+function standardDraft(standard, scheme) {
   if (!standard) return null;
-  const contributions = standard.contributions || computeStandardContributions(standard);
+  const contributions = standard.contributions || computeStandardContributions(standard, scheme);
   const components = Object.fromEntries(COMPONENT_KEYS.map(key => [key, 0]));
   components.basicPayCents = standard.basicPayCents;
   components.positionPayCents = standard.positionPayCents;
@@ -313,7 +319,7 @@ async function collectTaxBasis(tenantId, employeeId, month) {
 }
 
 /** 给工资表每行补上该员工的薪资标准与当月考勤时长；这两项失败都不应影响工资表本身的读取。 */
-async function attachStandardAndAttendance(rows, tenantId, month) {
+async function attachStandardAndAttendance(rows, tenantId, month, scheme) {
   const [standards, attendance] = await Promise.all([
     PayrollStandard.find({ tenantId }).lean().catch(error => {
       console.error('payroll standards load failed:', error);
@@ -368,7 +374,7 @@ exports.listStatements = async (req, res) => {
       };
     }));
     for (const row of rows) row.displayName = displayNames.get(String(row.employeeId)) || row.name;
-    await attachStandardAndAttendance(rows, req.tenantId, month);
+    await attachStandardAndAttendance(rows, req.tenantId, month, req.tenant?.settings?.payrollContributionScheme);
     rows.sort((a, b) => (a.department || '').localeCompare(b.department || '') || (a.employeeNo || '').localeCompare(b.employeeNo || ''));
     const totals = rows.reduce((sum, row) => {
       if (row.statementStatus === 'draft') sum.draftCount++;
@@ -413,10 +419,11 @@ exports.listStandards = async (req, res) => {
     const standards = await PayrollStandard.find({ tenantId: req.tenantId }).lean();
     const standardByEmployee = new Map(standards.map(item => [String(item.employeeId), item]));
     const employeeById = new Map(employees.map(user => [String(user._id), user]));
+    const scheme = req.tenant?.settings?.payrollContributionScheme;
     const rows = employees.map(user => ({
       employeeId: user._id,
       ...employeeSnapshot(user),
-      standard: serializeStandard(standardByEmployee.get(String(user._id))),
+      standard: serializeStandard(standardByEmployee.get(String(user._id)), scheme),
     }));
     const displayNames = buildPersonLabels(rows.map(row => {
       const employee = employeeById.get(String(row.employeeId));
@@ -443,7 +450,8 @@ exports.saveStandard = async (req, res) => {
     if (!(await requireFinance(req, res))) return;
     const employee = await loadEmployee(req.params.employeeId, req.tenantId);
     const version = req.body?.version;
-    const validated = validatePayrollStandard(req.body?.standard);
+    const scheme = req.tenant?.settings?.payrollContributionScheme;
+    const validated = validatePayrollStandard(req.body?.standard, scheme);
     if (!employee || !Number.isInteger(version) || version < 0) return fail(res, 400, '员工或版本无效');
     if (!validated.ok) return fail(res, 400, validated.error);
     const now = new Date();
@@ -466,11 +474,41 @@ exports.saveStandard = async (req, res) => {
       }, { new: true, runValidators: true });
       if (!standard) return fail(res, 409, '薪资标准已被其他财务修改，请刷新后重试');
     }
-    return res.json({ ok: true, data: serializeStandard(standard) });
+    return res.json({ ok: true, data: serializeStandard(standard, scheme) });
   } catch (error) {
     if (error?.code === 11000 || error?.name === 'VersionError') return fail(res, 409, '薪资标准已被其他财务修改，请刷新后重试');
     console.error('payroll saveStandard failed:', error);
     return fail(res, 500, '保存薪资标准失败');
+  }
+};
+
+/** 社保五险方案（全公司统一）：薪资读者可读，财务可改。 */
+exports.getContributionScheme = async (req, res) => {
+  try {
+    if (!(await requirePayrollReader(req, res))) return;
+    const scheme = normalizeContributionScheme(req.tenant?.settings?.payrollContributionScheme);
+    return res.json({ ok: true, data: { scheme, totals: contributionSchemeTotals(scheme) } });
+  } catch (error) {
+    console.error('payroll getContributionScheme failed:', error);
+    return fail(res, 500, '读取社保方案失败');
+  }
+};
+
+exports.saveContributionScheme = async (req, res) => {
+  try {
+    if (!(await requireFinance(req, res))) return;
+    const validated = validateContributionScheme(req.body?.scheme);
+    if (!validated.ok) return fail(res, 400, validated.error);
+    const tenant = req.tenant;
+    if (!tenant?.settings) return fail(res, 403, '缺少租户配置');
+    tenant.settings.payrollContributionScheme = validated.scheme;
+    tenant.markModified('settings.payrollContributionScheme');
+    await tenant.save();
+    return res.json({ ok: true, data: { scheme: validated.scheme, totals: contributionSchemeTotals(validated.scheme) } });
+  } catch (error) {
+    if (error?.name === 'VersionError') return fail(res, 409, '社保方案已被其他人更新，请刷新后重试');
+    console.error('payroll saveContributionScheme failed:', error);
+    return fail(res, 500, '保存社保方案失败');
   }
 };
 

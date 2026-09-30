@@ -131,9 +131,16 @@ exports.postLogin = async function (req, res, next) {
                   expireDate: t.expireDate || null,
                   billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
                   attendanceEnabled: t.settings?.attendanceEnabled === true,
+                  sealEnabled: t.settings?.sealEnabled === true,
+                  sealCustodianId: t.settings?.sealCustodianId || null,
+                  sealCustodianIds: (t.settings?.sealCustodianIds || []).map(String),
                   requireReceiptForSettle: t.settings?.requireReceiptForSettle === true,
                   drayageRate: Number(t.settings?.drayageRate) || 0,
                 };
+                userData.isSealCustodian = Boolean(
+                  (Array.isArray(t.settings?.sealCustodianIds) && t.settings.sealCustodianIds.some(id => String(id) === String(user._id))) ||
+                  (t.settings?.sealCustodianId && String(t.settings.sealCustodianId) === String(user._id))
+                );
               }
             } catch (e) {
               console.error("Login tenant lookup error:", e);
@@ -146,6 +153,7 @@ exports.postLogin = async function (req, res, next) {
             tenant: tenantData,
             features: {
               attendance: isStandalone() ? secrets.enableAttendance === true : tenantData?.attendanceEnabled === true,
+              seal: isStandalone() ? secrets.enableSeal === true : tenantData?.sealEnabled === true,
               selfVehicle: secrets.enableSelfVehicle,
               publicBasket: secrets.enablePublicBasket,
               requireReceiptForSettle: tenantData?.requireReceiptForSettle || false,
@@ -807,6 +815,7 @@ exports.postPhoneLogin = async function (req, res, next) {
                 expireDate: t.expireDate || null,
                   billImportCarrierRule: getBillImportCarrierRule(t.settings || {}),
                   attendanceEnabled: t.settings?.attendanceEnabled === true,
+                  sealEnabled: t.settings?.sealEnabled === true,
                   requireReceiptForSettle: t.settings?.requireReceiptForSettle === true,
                   drayageRate: Number(t.settings?.drayageRate) || 0,
               };
@@ -822,6 +831,7 @@ exports.postPhoneLogin = async function (req, res, next) {
           tenant: tenantData,
           features: {
             attendance: isStandalone() ? secrets.enableAttendance === true : tenantData?.attendanceEnabled === true,
+            seal: isStandalone() ? secrets.enableSeal === true : tenantData?.sealEnabled === true,
             selfVehicle: secrets.enableSelfVehicle,
             publicBasket: secrets.enablePublicBasket,
             requireReceiptForSettle: tenantData?.requireReceiptForSettle || false,

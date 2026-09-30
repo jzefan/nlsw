@@ -1,0 +1,662 @@
+import os
+import subprocess
+import time
+
+html_content = '''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>薪资管理业务流程与需求对齐方案</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 14mm 16mm 14mm 16mm;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    line-height: 1.5;
+    font-size: 9.5pt;
+    margin: 0;
+    padding: 0;
+  }
+  .page {
+    position: relative;
+    min-height: 268mm;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .page:last-child {
+    page-break-after: avoid;
+  }
+  .page-content {
+    flex: 1;
+  }
+  .doc-header {
+    border-bottom: 2px solid #0f2744;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .doc-title-block h1 {
+    font-size: 19pt;
+    color: #0f2744;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .doc-title-block .subtitle {
+    font-size: 10pt;
+    color: #475569;
+    margin: 0;
+  }
+  .meta-tag-box {
+    text-align: right;
+  }
+  .doc-meta-text {
+    font-size: 8.5pt;
+    color: #64748b;
+  }
+  h2 {
+    font-size: 12pt;
+    color: #0f2744;
+    border-left: 4px solid #2563eb;
+    padding-left: 9px;
+    margin-top: 16px;
+    margin-bottom: 10px;
+    font-weight: 700;
+    break-after: avoid;
+  }
+  h3 {
+    font-size: 10pt;
+    color: #1e3a8a;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    font-weight: 600;
+    break-after: avoid;
+  }
+  p {
+    margin: 0 0 8px 0;
+    text-align: justify;
+    line-height: 1.55;
+  }
+  .flowchart-container {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 10px 8px 10px;
+    margin: 10px 0 14px 0;
+    break-inside: avoid;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 8px 0 0 0;
+    break-inside: avoid;
+  }
+  .card {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 9px 11px;
+  }
+  .card-title {
+    font-weight: 700;
+    color: #0f2744;
+    margin-bottom: 5px;
+    font-size: 9.5pt;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .card-content {
+    font-size: 8.8pt;
+    color: #334155;
+    line-height: 1.5;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px 0;
+    font-size: 8.8pt;
+    break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 9px;
+    text-align: left;
+  }
+  th {
+    background-color: #f1f5f9;
+    color: #0f2744;
+    font-weight: 700;
+  }
+  .formula-box {
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-left: 4px solid #3b82f6;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 8px 0 12px 0;
+    font-size: 8.8pt;
+    color: #1e3a8a;
+    break-inside: avoid;
+  }
+  .formula-line {
+    margin-bottom: 3px;
+  }
+  .formula-line:last-child {
+    margin-bottom: 0;
+  }
+  .issue-card {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-top: 3px solid #2563eb;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 11px;
+    break-inside: avoid;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  .issue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .issue-title {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #0f2744;
+  }
+  .issue-badge {
+    font-size: 7.5pt;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+    background-color: #e0f2fe;
+    color: #0369a1;
+  }
+  .issue-body {
+    font-size: 8.8pt;
+    color: #334155;
+  }
+  .issue-status-row {
+    background-color: #f8fafc;
+    border-radius: 4px;
+    padding: 5px 8px;
+    margin-bottom: 6px;
+    font-size: 8.5pt;
+    line-height: 1.45;
+  }
+  .issue-question-list {
+    margin: 5px 0 0 0;
+    padding-left: 16px;
+  }
+  .issue-question-list li {
+    margin-bottom: 4px;
+    line-height: 1.45;
+  }
+  .page-footer {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 6px;
+    margin-top: 10px;
+    font-size: 7.8pt;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    break-inside: avoid;
+  }
+</style>
+</head>
+<body>
+
+<!-- 第一页：封面概述与已实现的流程图 -->
+<div class="page">
+  <div class="page-content">
+    <div class="doc-header">
+      <div class="doc-title-block">
+        <h1>薪资管理业务流程与需求对齐方案</h1>
+        <div class="subtitle">系统现状综述、业务全景流程图与核心决策确认清单</div>
+      </div>
+      <div class="meta-tag-box">
+        <div class="doc-meta-text">编制日期：2026年9月</div>
+      </div>
+    </div>
+
+    <p>
+      本文档系统梳理企业薪资管理模块的现行设计、已实现的端到端业务闭环，并汇总明日与需求各方（业务主管、人事、财务、总经理）协同研讨的关键决策议题。系统立足于小微企业日常管薪特点，遵循<strong>“标准底稿沉淀、自动辅助推算、财务精细把关、员工自主查阅”</strong>的原则，构建兼顾规范性与操作灵活性的薪资管理体系。
+    </p>
+
+    <h2>一、 当前已实现的薪资业务闭环流程</h2>
+    <p>
+      薪资模块涵盖自考勤数据归档、固定薪资标准调用、当月变动数据核算、个人所得税推算，直至批量发布与员工自主查阅的全链条闭环。整体流转如下流程图所示：
+    </p>
+
+    <div class="flowchart-container">
+      <svg viewBox="0 0 740 405" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg" style="font-family: inherit;">
+        <!-- 泳道背景 -->
+        <rect x="10" y="10" width="165" height="385" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+        <rect x="190" y="10" width="175" height="385" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>
+        <rect x="380" y="10" width="170" height="385" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+        <rect x="565" y="10" width="165" height="385" rx="8" fill="#fdf4ff" stroke="#f5d0fe" stroke-width="1"/>
+
+        <!-- 泳道标题 -->
+        <text x="92" y="32" font-size="12" font-weight="700" fill="#334155" text-anchor="middle">一、考勤与人员准备</text>
+        <text x="277" y="32" font-size="12" font-weight="700" fill="#1e40af" text-anchor="middle">二、薪资编制与个税推算</text>
+        <text x="465" y="32" font-size="12" font-weight="700" fill="#166534" text-anchor="middle">三、财务核对与发布</text>
+        <text x="647" y="32" font-size="12" font-weight="700" fill="#86198f" text-anchor="middle">四、员工查阅与反馈</text>
+
+        <!-- 步骤1: 考勤月结 -->
+        <rect x="25" y="55" width="135" height="52" rx="6" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="92" y="76" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">考勤台账月结</text>
+        <text x="92" y="94" font-size="9" fill="#64748b" text-anchor="middle">确认请假与旷工工时</text>
+
+        <!-- 步骤2: 薪资标准设置 -->
+        <rect x="25" y="145" width="135" height="60" rx="6" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="92" y="166" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">薪资标准维护</text>
+        <text x="92" y="183" font-size="9" fill="#64748b" text-anchor="middle">维护基本与岗位工龄</text>
+        <text x="92" y="196" font-size="9" fill="#64748b" text-anchor="middle">设定社保公积金基数</text>
+
+        <!-- 连接线: 考勤 -> 编制 -->
+        <path d="M 160 81 L 205 81" stroke="#2563eb" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+        <path d="M 160 175 L 180 175 L 180 135 L 205 135" stroke="#2563eb" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+        <!-- 步骤3: 自动带出底稿 -->
+        <rect x="205" y="55" width="145" height="65" rx="6" fill="#ffffff" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="277" y="76" font-size="11" font-weight="700" fill="#1e3a8a" text-anchor="middle">自动带出预估底稿</text>
+        <text x="277" y="94" font-size="9" fill="#475569" text-anchor="middle">固定项与社保按比例生成</text>
+        <text x="277" y="108" font-size="9" fill="#475569" text-anchor="middle">联动调取考勤缺勤工时</text>
+
+        <!-- 步骤4: 电子表格导入/单人填报 -->
+        <rect x="205" y="145" width="145" height="60" rx="6" fill="#ffffff" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="277" y="166" font-size="11" font-weight="700" fill="#1e3a8a" text-anchor="middle">批量表格导入与手工录入</text>
+        <text x="277" y="183" font-size="9" fill="#475569" text-anchor="middle">按姓名匹配（重名辅以手机）</text>
+        <text x="277" y="196" font-size="9" fill="#475569" text-anchor="middle">填入绩效补贴与考勤扣款</text>
+
+        <!-- 步骤5: 累计预扣预缴算税 -->
+        <rect x="205" y="235" width="145" height="55" rx="6" fill="#ffffff" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="277" y="255" font-size="11" font-weight="700" fill="#1e3a8a" text-anchor="middle">个人所得税自动计算</text>
+        <text x="277" y="272" font-size="9" fill="#475569" text-anchor="middle">本年往月累计预扣预缴</text>
+        <text x="277" y="284" font-size="9" fill="#475569" text-anchor="middle">支持手动改税并锁定防覆盖</text>
+
+        <path d="M 277 120 L 277 145" stroke="#2563eb" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+        <path d="M 277 205 L 277 235" stroke="#2563eb" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+        <!-- 连接线: 编制 -> 发布 -->
+        <path d="M 350 262 L 395 262" stroke="#16a34a" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+        <!-- 步骤6: 考勤月结前置强校验 -->
+        <rect x="395" y="145" width="140" height="55" rx="6" fill="#ffffff" stroke="#16a34a" stroke-width="1.5"/>
+        <text x="465" y="166" font-size="11" font-weight="700" fill="#14532d" text-anchor="middle">前置合规校验</text>
+        <text x="465" y="183" font-size="9" fill="#15803d" text-anchor="middle">核验当月考勤已结账</text>
+        <text x="465" y="195" font-size="9" fill="#64748b" text-anchor="middle">获取防并发编辑锁</text>
+
+        <!-- 步骤7: 单人/批量发布 -->
+        <rect x="395" y="235" width="140" height="55" rx="6" fill="#ffffff" stroke="#16a34a" stroke-width="1.5"/>
+        <text x="465" y="255" font-size="11" font-weight="700" fill="#14532d" text-anchor="middle">正式发布生效</text>
+        <text x="465" y="272" font-size="9" fill="#475569" text-anchor="middle">单人核准或全员批量发布</text>
+        <text x="465" y="284" font-size="9" fill="#475569" text-anchor="middle">生成不可篡改版本号</text>
+
+        <path d="M 465 200 L 465 235" stroke="#16a34a" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+        <!-- 步骤8: 员工查看 -->
+        <rect x="580" y="235" width="135" height="55" rx="6" fill="#ffffff" stroke="#c026d3" stroke-width="1.5"/>
+        <text x="647" y="255" font-size="11" font-weight="700" fill="#701a75" text-anchor="middle">我的工资条查阅</text>
+        <text x="647" y="272" font-size="9" fill="#475569" text-anchor="middle">明细项目完全展开</text>
+        <text x="647" y="284" font-size="9" fill="#475569" text-anchor="middle">年度收入汇总看板</text>
+
+        <path d="M 535 262 L 580 262" stroke="#c026d3" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+        <!-- 异常与纠错流: 撤回 -->
+        <rect x="395" y="325" width="140" height="55" rx="6" fill="#fff1f2" stroke="#e11d48" stroke-width="1.5"/>
+        <text x="465" y="345" font-size="11" font-weight="700" fill="#9f1239" text-anchor="middle">差错撤回机制</text>
+        <text x="465" y="362" font-size="9" fill="#be123c" text-anchor="middle">必填撤回原因并留痕</text>
+        <text x="465" y="374" font-size="9" fill="#be123c" text-anchor="middle">员工端即时下线隐藏</text>
+
+        <path d="M 465 290 L 465 325" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="3,3" fill="none" marker-end="url(#arrow-red)"/>
+        <path d="M 395 352 L 310 352 L 310 205" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="3,3" fill="none" marker-end="url(#arrow-red)"/>
+        <text x="345" y="344" font-size="8.5" fill="#e11d48">撤回复核修改</text>
+
+        <!-- 标记箭头定义 -->
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#2563eb" />
+          </marker>
+          <marker id="arrow-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#e11d48" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title">1. 薪资标准与考勤联动</div>
+        <div class="card-content">
+          支持对每位员工预先设定基础薪资标准（基本工资、岗位工资、工龄工资、满勤奖）及社保公积金缴纳基数与比例。每月生成工资表时，若当月尚未录入，系统会自动根据标准生成预估底稿，同时调取考勤月结数据中的请假、旷工时数供核对。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">2. 灵活填报与智能纠偏</div>
+        <div class="card-content">
+          财务人员可在系统界面直接逐人填报、逐项微调，亦可通过固定样式的通用电子表格批量导入。系统支持两级复合表头自适应识别，录入项严格校验金额范围，计算列（工资总额、合计应发、实发金额等）均由系统统一定义计算，杜绝口径偏差。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">3. 个人所得税累计预扣预缴</div>
+        <div class="card-content">
+          内置国家税务主管机关现行的居民个人工资薪金累计预扣预缴算法。系统自动归集该员工当年历史月份的已发收入、专项扣除及已缴税额，智能推算本月应扣个税。财务可查阅完整的推算明细，若有特殊情况允许手动改写并锁定防覆盖。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">4. 发布管控与纠错撤回</div>
+        <div class="card-content">
+          为确保薪资严谨性，系统设定<strong>“当月考勤未结账严禁发布工资条”</strong>的前置强规则。发布支持单人核准与全员批量发布。若发布后发现个别员工数据有误，财务可执行“撤回”并登记原因，撤回后员工端即时不可见，修改后重发将递增版本。
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">
+    <div>薪资管理业务流程与需求对齐方案</div>
+    <div>第 1 页 / 共 4 页</div>
+  </div>
+</div>
+
+<!-- 第二页：薪资结构与现行计算公式、权限查看规则 -->
+<div class="page">
+  <div class="page-content">
+    <h2>二、 薪资结构与计算规则</h2>
+    <p>
+      系统现行数据模型采用<strong>“十六项细分录入项目 + 六项系统核算总额”</strong>的设计，严格按整数“分”进行精确运算与存储，杜绝尾数浮点偏差。
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 17%;">类别分组</th>
+          <th style="width: 43%;">包含明细项目</th>
+          <th style="width: 40%;">生成与填报方式</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>收入项目</strong></td>
+          <td>基本工资、绩效工资、岗位工资、工龄工资、满勤奖、交通补贴、午餐补贴、加班补贴</td>
+          <td>基本、岗位、工龄、满勤可由薪资标准预设自动带出；绩效与各项补贴由财务每月填报或表格导入。</td>
+        </tr>
+        <tr>
+          <td><strong>单位承担</strong></td>
+          <td>社会保险单位承担、住房公积金单位承担</td>
+          <td>系统按人员设定的单位缴纳基数乘以缴纳比例自动计算，四舍五入精确到分；亦可手工微调。</td>
+        </tr>
+        <tr>
+          <td><strong>考勤扣款</strong></td>
+          <td>病假扣款、事假扣款、旷工扣款</td>
+          <td>界面展示该员工当月考勤缺勤时长，具体扣款金额目前由财务人员根据制度线下核准后录入。</td>
+        </tr>
+        <tr>
+          <td><strong>个人代扣</strong></td>
+          <td>社会保险个人承担、住房公积金个人承担、个人所得税扣款</td>
+          <td>社保公积金按个人基数与比例自动计算；个税由系统根据本年度累计税法公式自动推算，支持手调。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="formula-box">
+      <div class="formula-line"><strong>系统统一核算公式：</strong></div>
+      <div class="formula-line">1. 收入合计 = 基本工资 + 绩效工资 + 岗位工资 + 工龄工资 + 满勤奖 + 交通补贴 + 午餐补贴 + 加班补贴</div>
+      <div class="formula-line">2. 工资总额（含单位社保公积金） = 收入合计 + 单位社会保险 + 单位住房公积金</div>
+      <div class="formula-line">3. 合计应发（不含单位承担） = 收入合计 − (病假扣款 + 事假扣款 + 旷工扣款)</div>
+      <div class="formula-line">4. 实发金额 = 合计应发 − 个人社会保险 − 个人住房公积金 − 个人所得税扣款</div>
+    </div>
+
+    <h2>三、 权限划分与查看规则</h2>
+    <p>
+      薪资模块按照岗位分工合理划分各角色的查看与操作边界，保障流程各司其职：
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 20%;">角色身份</th>
+          <th style="width: 32%;">薪资管理权限</th>
+          <th style="width: 48%;">范围与查看说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>财务专员</strong></td>
+          <td>全员薪资编制、修改、导入、发布、撤回、薪资标准维护</td>
+          <td>需由企业主账号在人员管理中分配财务角色，方可进入薪资管理模块进行日常编制与发布。</td>
+        </tr>
+        <tr>
+          <td><strong>总经理 / 董事长</strong></td>
+          <td>全员月度工资表、薪资统计报表、薪资标准<strong>只读查阅</strong></td>
+          <td>具备全公司工资数据汇总与明细查阅权，不参与日常录入与发布，保障数据查阅与审核独立。</td>
+        </tr>
+        <tr>
+          <td><strong>普通在职员工</strong></td>
+          <td>仅可查阅<strong>本人已发布的</strong>月度工资条及本人年度汇总</td>
+          <td>员工登录系统后仅展示绑定本人账号且已正式发布的工资单记录；草稿状态及他人工资不可见。</td>
+        </tr>
+        <tr>
+          <td><strong>系统超级管理员</strong></td>
+          <td><strong>默认不分配全员工资查看权</strong></td>
+          <td>管理员主要负责基础系统配置与账号管理，若未兼任财务或管理职务，不显示薪资明细数据。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="card" style="margin-top: 6px;">
+      <div class="card-title">权限与操作留痕说明</div>
+      <div class="card-content">
+        系统遵循<strong>“权责分明、留痕可溯”</strong>原则。所有工资条的保存、发布、撤回均自动记录操作人账号与操作时间；已发布的工资条若需更正，旧版本保留归档形成历史版本链，撤回必须登记原因，做到每笔改动皆有据可查。
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">
+    <div>薪资管理业务流程与需求对齐方案</div>
+    <div>第 2 页 / 共 4 页</div>
+  </div>
+</div>
+
+<!-- 第三页：核心研讨议题（前三项） -->
+<div class="page">
+  <div class="page-content">
+    <h2>四、 明日与需求方核心对齐清单（重点研讨议题）</h2>
+    <p>
+      结合业务实际落地需求与制度细则，建议在明日会议中重点与需求方确认以下五个关键议题：
+    </p>
+
+    <!-- 议题 1 -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <div class="issue-title">议题一：考勤扣款与加班补贴的核算模式（手工录入与自动折算的比对）</div>
+        <div class="issue-badge">重点确认项</div>
+      </div>
+      <div class="issue-body">
+        <div class="issue-status-row">
+          <strong>系统现状：</strong>工资表展开行会自动提取该员工当月的考勤台账数据（如事假、病假、旷工时数及加班工时）供财务核对，但具体扣款与补贴金额目前由财务在线下计算完毕后手工录入或通过表格导入。
+        </div>
+        <strong>请需求方决策以下问题：</strong>
+        <ul class="issue-question-list">
+          <li><strong>扣款自动化期望：</strong>后续是否需要系统根据审批通过的缺勤时数自动计算扣款金额，还是维持现状由财务核准后手填？</li>
+          <li><strong>计薪基数口径：</strong>若需系统自动计算扣款，日工资计算基数按什么标准核定？（是以“基本工资”为基数，还是以“全额应发工资”为基数？月计薪天数是按国家法定的二十一点七五天，还是按当月实际排班工作日折算？）</li>
+          <li><strong>病假与加班系数：</strong>病假扣款是否需结合员工司龄按比例发放（如发给百分之六十或八十）？加班补贴是按固定标准包干填报，还是需严格按工作日一点五倍、休息日两倍、法定节假日三倍自动折算？</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 议题 2 -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <div class="issue-title">议题二：个人所得税专项附加扣除与社保公积金核定</div>
+        <div class="issue-badge">税务与核算</div>
+      </div>
+      <div class="issue-body">
+        <div class="issue-status-row">
+          <strong>系统现状：</strong>系统已实现标准的年度累计预扣预缴算法，但由于目前未录入员工七项专项附加扣除（如子女教育、房贷利息、住房租金、赡养老人等），系统推算个税时该项暂按零计算；系统支持财务手工改写实际税额并锁定防覆盖。
+        </div>
+        <strong>请需求方决策以下问题：</strong>
+        <ul class="issue-question-list">
+          <li><strong>专项扣除采集方式：</strong>财务日常计算税金时，是否习惯从自然人电子税务局系统直接导出各员工的实扣税额，再直接手工录入或通过表格导入本系统？</li>
+          <li><strong>个税功能定位：</strong>目前系统支持“系统推算预估 + 财务手动微调并锁定”，该模式是否已能满足现阶段财务算税习惯？后续是否需要支持导入税务局导出的专项扣除表格？</li>
+          <li><strong>社保公积金定级：</strong>系统目前支持为员工单人或批量设定社保公积金基数和比例，是否满足每年年度社保基数调整的维护要求？</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 议题 3 -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <div class="issue-title">议题三：业务审批流与考勤闭环协同</div>
+        <div class="issue-badge">流程与规则</div>
+      </div>
+      <div class="issue-body">
+        <div class="issue-status-row">
+          <strong>系统现状：</strong>当前流程为“财务录入草稿 → 财务直接发布生效”，发布前系统硬性校验当月考勤台账必须处于“已结账”状态；流程中未设置额外审批节点。
+        </div>
+        <strong>请需求方决策以下问题：</strong>
+        <ul class="issue-question-list">
+          <li><strong>审批节点设置：</strong>在财务发布工资条面向全员公示前，是否需要在系统内增加审批环节？（例如：财务制表 → 部门主管/总经理线上审批 → 审批通过后自动对员工公开）。</li>
+          <li><strong>发薪日应急处理：</strong>若逢约定发薪日，但个别部门考勤审批存在延误导致考勤台账未结账，系统是否应允许财务在特批授权下“先行发放工资条”，还是必须严格坚持“考勤结账后方可算薪发薪”的原则？</li>
+          <li><strong>考勤重开防脱节：</strong>若考勤管理员在月结后因特殊原因“重新开启”并修改了考勤数据，对于该月已发布的工资条，系统应采取哪种策略？（推荐：若当月已发布工资条，先限制重开考勤；如确需调整，需先撤回工资条）。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">
+    <div>薪资管理业务流程与需求对齐方案</div>
+    <div>第 3 页 / 共 4 页</div>
+  </div>
+</div>
+
+<!-- 第四页：核心研讨议题（后两项）及边界风险应对 -->
+<div class="page">
+  <div class="page-content">
+    <!-- 议题 4 -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <div class="issue-title">议题四：实付发薪登记与资金流水管理功能</div>
+        <div class="issue-badge">功能解禁确认</div>
+      </div>
+      <div class="issue-body">
+        <div class="issue-status-row">
+          <strong>系统现状：</strong>系统底层数据模型已完整实现了实际发款批次登记、分批付款、退款记录、实际发薪日期、银行转账凭证附件存储及防超额校验功能；此前为突出工资条核算，前端界面暂将资金流水模块关闭隐藏。
+        </div>
+        <strong>请需求方决策以下问题：</strong>
+        <ul class="issue-question-list">
+          <li><strong>发薪记录需求：</strong>企业是否需要在本系统内登记“某年某月某日实际通过网银向某员工打款多少元，并上传银行回单凭证”？</li>
+          <li><strong>管理边界界定：</strong>还是本系统定位为“薪酬核定与电子工资条发放工具”，具体的打款支付与资金流水完全在线下网银处理，无需在系统内逐笔登记付款凭证？（若确认需要，系统可随时解禁展示该模块）。</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 议题 5 -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <div class="issue-title">议题五：电子表格导入与人员识别机制（无工号场景适配）</div>
+        <div class="issue-badge">人员匹配规则</div>
+      </div>
+      <div class="issue-body">
+        <div class="issue-status-row">
+          <strong>已明确规则：</strong>由于企业规模相对精简，内部日常不推行和维护统一员工工号。系统导入与考勤关联当前已全面优化为<strong>“以员工真实姓名作为核心匹配依据”</strong>。
+        </div>
+        <strong>请需求方决策以下问题：</strong>
+        <ul class="issue-question-list">
+          <li><strong>同名同姓辅助规则：</strong>当企业内部出现同名同姓人员时，系统要求在表格导入时补填手机号进行唯一性消歧；请确认各部门人事档案中的员工手机号是否已做到全员准确完备。</li>
+          <li><strong>模板样式核对：</strong>明天会议建议现场索取一份财务正在实际使用的电子表格空白样张，与系统内置的导入模板进行列名与顺序逐项核对，确保现有表格能够免修改直接导入。</li>
+          <li><strong>离职员工查阅权限：</strong>员工离职并在系统中停用账号后，目前默认无法登录查看其在职期间的历史工资条。从人事管理与员工关怀角度，是否需要为离职人员提供专用的受限查阅通道？</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>五、 特殊边界场景应对与规则建议</h2>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title">1. 考勤重开与工资条联动脱节防范</div>
+        <div class="card-content">
+          <strong>场景：</strong>行政在考勤结账后重新开启修改，若当月已发布工资条，容易出现考勤变动而工资条未同步更正的账实不符。<br>
+          <strong>建议：</strong>系统增加互斥控制——当月若存在已发布工资条，暂不开放直接修改已结账考勤台账；必须由财务先撤回该月工资条，方允许修改考勤，形成连贯闭环。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">2. 离职停用员工历史查阅便民保障</div>
+        <div class="card-content">
+          <strong>场景：</strong>员工离职后账号停用，无法查阅过往工资条，若发生收入核对需求需由财务人工翻找历史凭证。<br>
+          <strong>建议：</strong>对停用账号做精细化控制——仅阻断其业务操作与新数据查看，保留独立的“仅查阅本人在职历史工资条”受限入口，既安全又便于员工自查。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">3. 差错修改与版本留痕机制</div>
+        <div class="card-content">
+          <strong>机制：</strong>工资发布后若发现个别人员补贴录入错误，财务执行撤回后员工端即时不可见，修改后重新发布自动递增版次，系统保留原版本快照与撤回原因，确保每笔修改都有迹可循。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">4. 算税公式透明度与财务自主权</div>
+        <div class="card-content">
+          <strong>机制：</strong>系统个税推算提供透明的累计收入与减除费用明细看板；遇到跨年调薪或税局核定差异，财务可直接手填税额并锁定，兼顾了算法便捷性与财务自主裁量权。
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">
+    <div>薪资管理业务流程与需求对齐方案</div>
+    <div>第 4 页 / 共 4 页</div>
+  </div>
+</div>
+
+</body>
+</html>'''
+
+html_path = '/Users/jzefan/work/nlsw-saas/docs/薪资管理业务流程与需求对齐方案.html'
+pdf_path = '/Users/jzefan/work/nlsw-saas/薪资管理业务流程与需求对齐方案.pdf'
+os.makedirs(os.path.dirname(html_path), exist_ok=True)
+
+with open(html_path, 'w', encoding='utf-8') as f:
+    f.write(html_content)
+
+print(f"HTML 方案已更新: {html_path}")
+
+user_dir = '/tmp/chrome-pdf-render-v3'
+cmd = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '--headless=new',
+    '--disable-gpu',
+    '--no-sandbox',
+    f'--user-data-dir={user_dir}',
+    f'--print-to-pdf={pdf_path}',
+    '--no-pdf-header-footer',
+    f'file://{html_path}'
+]
+
+print('启动 Chrome 渲染更新后的 PDF...')
+proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+for _ in range(30):
+    time.sleep(0.5)
+    if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 1000:
+        print(f'PDF 生成成功! 大小: {os.path.getsize(pdf_path)} 字节')
+        break
+
+try:
+    proc.terminate()
+    proc.wait(timeout=2)
+except Exception:
+    proc.kill()
+
+print('PDF 渲染流程完成!')

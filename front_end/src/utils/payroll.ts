@@ -1,5 +1,5 @@
 import { getTitleCode } from '@/services/api/user.api'
-import type { PayrollStandard } from '@/services/api/payroll.api'
+import type { PayrollContributionScheme, PayrollStandard } from '@/services/api/payroll.api'
 
 export function formatCents(amount: number | null | undefined) {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return '—'
@@ -27,20 +27,54 @@ export function parsePercentInput(value: string | number | null | undefined): nu
   return Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent : null
 }
 
+/** 算社保公积金只需要四个缴费基数：费率一律取自租户「五险一金方案」。 */
 type StandardContributionInput = Pick<PayrollStandard,
-  | 'companySocialInsuranceBaseCents' | 'companySocialInsuranceRatePercent'
-  | 'personalSocialInsuranceBaseCents' | 'personalSocialInsuranceRatePercent'
-  | 'companyHousingFundBaseCents' | 'companyHousingFundRatePercent'
-  | 'personalHousingFundBaseCents' | 'personalHousingFundRatePercent'>
+  | 'companySocialInsuranceBaseCents' | 'personalSocialInsuranceBaseCents'
+  | 'companyHousingFundBaseCents' | 'personalHousingFundBaseCents'>
 
-/** 基数 × 比例 ÷ 100 四舍五入到分；口径与后端 utils/payroll-calculations.js 保持一致。 */
-export function computeStandardContributions(standard: StandardContributionInput): PayrollStandard['contributions'] {
-  const contribution = (baseCents: number, ratePercent: number) => Math.round((baseCents * ratePercent) / 100)
+/**
+ * 五险一金方案的兜底值，与后端 utils/payroll-calculations.js 的 DEFAULT_CONTRIBUTION_SCHEME 一致。
+ * 权威值来自接口返回的租户方案；这里只在拿不到方案时兜底，别在这里改成另一套口径。
+ */
+export const DEFAULT_CONTRIBUTION_SCHEME: PayrollContributionScheme = {
+  pensionEmployerPercent: 21,
+  pensionEmployeePercent: 8,
+  medicalEmployerPercent: 9,
+  medicalEmployeePercent: 2,
+  medicalEmployeeFlatCents: 300,
+  unemploymentEmployerPercent: 2,
+  unemploymentEmployeePercent: 1,
+  injuryEmployerPercent: 0.5,
+  maternityEmployerPercent: 1,
+  housingFundEmployerPercent: 12,
+  housingFundEmployeePercent: 12,
+}
+
+/** 方案合计：五险单位/个人各一个比例（个人另有医疗固定额）+ 公积金单位/个人比例。 */
+export function contributionSchemeTotals(scheme: PayrollContributionScheme = DEFAULT_CONTRIBUTION_SCHEME) {
+  const percent = (value: number) => Math.round(value * 100) / 100
   return {
-    employerSocialInsuranceCents: contribution(standard.companySocialInsuranceBaseCents, standard.companySocialInsuranceRatePercent),
-    employeeSocialInsuranceCents: contribution(standard.personalSocialInsuranceBaseCents, standard.personalSocialInsuranceRatePercent),
-    employerHousingFundCents: contribution(standard.companyHousingFundBaseCents, standard.companyHousingFundRatePercent),
-    employeeHousingFundCents: contribution(standard.personalHousingFundBaseCents, standard.personalHousingFundRatePercent),
+    employerRatePercent: percent(scheme.pensionEmployerPercent + scheme.medicalEmployerPercent
+      + scheme.unemploymentEmployerPercent + scheme.injuryEmployerPercent + scheme.maternityEmployerPercent),
+    employeeRatePercent: percent(scheme.pensionEmployeePercent + scheme.medicalEmployeePercent + scheme.unemploymentEmployeePercent),
+    employeeFlatCents: scheme.medicalEmployeeFlatCents,
+    housingFundEmployerPercent: scheme.housingFundEmployerPercent,
+    housingFundEmployeePercent: scheme.housingFundEmployeePercent,
+  }
+}
+
+/** 社保按方案的五险合计（个人另加医疗固定额），公积金按方案的公积金比例；口径与后端保持一致。 */
+export function computeStandardContributions(
+  standard: StandardContributionInput,
+  scheme: PayrollContributionScheme = DEFAULT_CONTRIBUTION_SCHEME,
+): PayrollStandard['contributions'] {
+  const contribution = (baseCents: number, ratePercent: number) => Math.round((baseCents * ratePercent) / 100)
+  const totals = contributionSchemeTotals(scheme)
+  return {
+    employerSocialInsuranceCents: contribution(standard.companySocialInsuranceBaseCents, totals.employerRatePercent),
+    employeeSocialInsuranceCents: contribution(standard.personalSocialInsuranceBaseCents, totals.employeeRatePercent) + totals.employeeFlatCents,
+    employerHousingFundCents: contribution(standard.companyHousingFundBaseCents, totals.housingFundEmployerPercent),
+    employeeHousingFundCents: contribution(standard.personalHousingFundBaseCents, totals.housingFundEmployeePercent),
   }
 }
 

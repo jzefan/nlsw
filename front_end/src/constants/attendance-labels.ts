@@ -1,3 +1,12 @@
+import type { AttendanceRequestKind } from '@/services/api/attendance.api'
+
+/** 考勤申请类型的展示名；申请/审批列表与顶部面包屑共用同一份。 */
+export const attendanceKindLabels: Record<AttendanceRequestKind, string> = {
+  leave: '请假',
+  overtime: '加班',
+  fieldwork: '出差',
+}
+
 /** 请假类型的展示名；台账、工资条明细等考勤相关界面共用同一份口径。 */
 export const leaveTypeLabels: Record<string, string> = {
   personal: '事假', sick: '病假', annual: '年假', marriage: '婚假', maternity: '产假',

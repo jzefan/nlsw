@@ -18,12 +18,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="space-y-4 p-4 md:p-0">
-    <div>
-      <h1 class="text-lg font-semibold">薪资设置</h1>
-      <p class="mt-1 text-xs text-muted-foreground">{{ canEdit ? '维护固定项与社保公积金基数、比例，录入工资条时自动带出' : '薪资标准仅供授权人员查看' }}</p>
-    </div>
-
+  <!-- 页头（标题 + 说明 + 操作）由面板组件统一渲染，标题与说明之间不留段落间距 -->
+  <main class="p-4 md:p-0">
     <div v-if="!canView" class="rounded-md border p-8 text-center text-sm text-muted-foreground">无权查看薪资设置</div>
     <PayrollStandardSettings v-else :can-edit="canEdit" />
   </main>

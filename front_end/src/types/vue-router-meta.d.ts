@@ -12,5 +12,7 @@ declare module 'vue-router' {
     requiresPlatformUser?: boolean
     // if true, require the attendance module feature flag
     attendance?: boolean
+    // layout name ('default' | 'blank' | 'marketing') or false for no layout
+    layout?: string | boolean
   }
 }

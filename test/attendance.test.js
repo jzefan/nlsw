@@ -3,12 +3,24 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const os = require('os');
 const AttendanceRequest = require('../models/AttendanceRequest');
+const AttendanceMonthLedger = require('../models/AttendanceMonthLedger');
 const AttendanceSubmissionLock = require('../models/AttendanceSubmissionLock');
 const HolidayCalendar = require('../models/HolidayCalendar');
+const Notice = require('../models/Notice');
 const Tenant = require('../models/Tenant');
 const User = require('../models/User');
 const attendance = require('../controllers/api/attendance');
 const { calculateLeaveMinutes, isWorkdayAt, requireAttendanceEnabled, requireEmployee } = require('../utils/attendance-permissions');
+
+// 测试进程不连数据库：站内通知写入统一打桩。不打桩的话每条提交/审批用例都会白等一次
+// mongoose 缓冲超时（默认 10 秒），而且断言不到通知内容。要断言就读 noticeWrites。
+const noticeWrites = [];
+let noticeFailure = null;
+Notice.create = async document => {
+  if (noticeFailure) throw noticeFailure;
+  noticeWrites.push(document);
+  return document;
+};
 
 function id() { return new mongoose.Types.ObjectId(); }
 
@@ -97,6 +109,33 @@ test('leave policy uses confirmed weekday schedule, holiday/workday overrides, a
   // 内置全国节假日表覆盖的年份视为已确认，表外年份仍需考勤管理员确认
   assert.equal(calculateLeaveMinutes(at('2026-09-21T09:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), { settings: {} }).minutes, 480);
   assert.throws(() => calculateLeaveMinutes(at('2027-09-21T09:00:00+08:00'), at('2027-09-21T18:00:00+08:00'), { settings: {} }), /确认 2027 年工作日历/);
+});
+
+test('saturday morning option only adds the morning half day on ordinary saturdays', () => {
+  const at = date => new Date(date);
+  const withSaturdayMorning = { settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true } };
+  // 普通周六（2026-09-19）：只有上午 09:00–12:00 计入，默认工作时段下是 180 分钟
+  assert.deepEqual(
+    calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), withSaturdayMorning).allocations,
+    [{ date: '2026-09-19', minutes: 180 }]
+  );
+  assert.equal(isWorkdayAt(at('2026-09-19T09:00:00+08:00').getTime(), withSaturdayMorning), true);
+  // 周日仍然是休息日
+  assert.equal(isWorkdayAt(at('2026-09-13T09:00:00+08:00').getTime(), withSaturdayMorning), false);
+  // 落在周六的法定节假日照休（2026-10-03 在国庆假期内）
+  assert.equal(calculateLeaveMinutes(at('2026-10-03T09:00:00+08:00'), at('2026-10-03T18:00:00+08:00'), withSaturdayMorning).minutes, 0);
+  // 国务院调休上班日按完整工作日计：2026-02-28 是周六，2026-09-20 是周日
+  assert.equal(calculateLeaveMinutes(at('2026-02-28T09:00:00+08:00'), at('2026-02-28T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
+  assert.equal(calculateLeaveMinutes(at('2026-09-20T09:00:00+08:00'), at('2026-09-20T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
+  // 管理员单日覆盖优先于开关
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), {
+    settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true, attendanceCalendarOverrides: { '2026-09-19': 'holiday' } }
+  }).minutes, 0);
+  assert.equal(calculateLeaveMinutes(at('2026-09-13T09:00:00+08:00'), at('2026-09-13T18:00:00+08:00'), {
+    settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true, attendanceCalendarOverrides: { '2026-09-13': 'workday' } }
+  }).minutes, 480);
+  // 开关关着时与原来一致
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), { settings: { attendanceCalendarYears: [2026] } }).minutes, 0);
 });
 
 test('leave endpoints must be workdays but an interval may cross weekends', async t => {
@@ -299,6 +338,26 @@ test('attendance requests require whole-hour endpoints for every request type', 
   assert.equal(wholeHourResponse.body.data.durationMinutes, 120);
 });
 
+test('overtime compensation accepts leave-in-lieu, overtime pay and no compensation, and rejects anything else', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id();
+  const user = employee({ tenantId, userId: applicantId, managerId });
+  t.mock.method(User, 'findOne', async () => ({ _id: managerId, employeeNo: 'M-1', status: 'active' }));
+  t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } }));
+  for (const compensation of ['comp_time', 'overtime_pay', 'none']) {
+    const request = requestFor(user, tenantId, '2026-09-21T18:00:00+08:00', '2026-09-21T20:00:00+08:00', 'overtime');
+    request.body.compensation = compensation;
+    const res = response();
+    await attendance.createRequest(request, res);
+    assert.equal(res.statusCode, 201, `${compensation} 应该可以提交`);
+  }
+  const invalid = requestFor(user, tenantId, '2026-09-21T18:00:00+08:00', '2026-09-21T20:00:00+08:00', 'overtime');
+  invalid.body.compensation = 'bonus';
+  const invalidResponse = response();
+  await attendance.createRequest(invalid, invalidResponse);
+  assert.equal(invalidResponse.statusCode, 400);
+  assert.match(invalidResponse.body.error, /补偿方式/);
+});
+
 test('three working days needs only manager approval; more than three adds general manager', async t => {
   const tenantId = id(), applicantId = id(), managerId = id(), gmId = id();
   const user = employee({ tenantId, userId: applicantId, managerId });
@@ -476,6 +535,39 @@ test('employee people list hides platform accounts', async t => {
   assert.deepEqual(filters[0], { tenantId, role: { $ne: 'platform' } });
 });
 
+test('app admin can manage employee profiles while ordinary members cannot', async t => {
+  const tenantId = id(), userId = id();
+  t.mock.method(User, 'find', () => ({ select() { return this; }, sort() { return this; }, lean: async () => [] }));
+  const admin = { role: 'member', privilege: ['admin'] };
+  const listRes = response();
+  await attendance.listPeople({ tenantId, user: admin }, listRes);
+  assert.equal(listRes.statusCode, 200);
+
+  const employeeUser = {
+    _id: userId, tenantId, userid: 'employee-1', role: 'member', status: 'active',
+    employeeNo: '', department: '', attendanceRoles: [], profile: { name: '员工' }
+  };
+  const profileQuery = Promise.resolve(employeeUser);
+  profileQuery.select = () => profileQuery;
+  t.mock.method(User, 'findOne', () => profileQuery);
+  t.mock.method(User, 'updateOne', async () => ({ modifiedCount: 1 }));
+  const updateRes = response();
+  await attendance.updateEmployeeProfile({ tenantId, user: admin, body: { userId, attendanceTracked: false } }, updateRes);
+  assert.equal(updateRes.statusCode, 200);
+
+  for (const user of [{ role: 'member', privilege: [] }, { role: 'platform', privilege: ['admin'] }]) {
+    const deniedList = response(), deniedUpdate = response();
+    await attendance.listPeople({ tenantId, user }, deniedList);
+    await attendance.updateEmployeeProfile({ tenantId, user, body: { userId } }, deniedUpdate);
+    assert.equal(deniedList.statusCode, 403);
+    assert.equal(deniedUpdate.statusCode, 403);
+  }
+
+  const delegateRes = response();
+  await attendance.getGeneralManagerDelegate({ tenantId, user: admin }, delegateRes);
+  assert.equal(delegateRes.statusCode, 403);
+});
+
 test('employee profile stores the attendance tracking switch and rejects platform accounts', async t => {
   const tenantId = id(), userId = id();
   const employeeUser = {
@@ -539,6 +631,86 @@ test('cross-person withdrawal is scoped to applicant and duplicate review return
   const foreignRes = response();
   await attendance.reviewRequest({ params: { id: String(requestId) }, tenantId, user, body: { decision: 'approve' } }, foreignRes);
   assert.equal(foreignRes.statusCode, 404);
+});
+
+test('attendance submissions and reviews notify the right person in app', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id(), gmId = id(), requestId = id();
+  const tenant = { settings: { attendanceCalendarYears: [2026] } };
+  noticeWrites.length = 0;
+
+  // ① 提交请假 → 通知第一审批人（直属经理）
+  const applicant = employee({ tenantId, userId: applicantId, managerId });
+  t.mock.method(User, 'findOne', async () => ({ _id: managerId, employeeNo: 'M-1', name: '张经理', status: 'active' }));
+  mockSubmissionLock(t);
+  t.mock.method(AttendanceRequest, 'exists', async () => false);
+  t.mock.method(AttendanceRequest, 'create', async document => ({ _id: requestId, ...document, toObject() { return { _id: this._id, ...document }; } }));
+  const submitted = requestFor(applicant, tenantId, '2026-11-06T09:00:00+08:00', '2026-11-06T18:00:00+08:00');
+  submitted.tenant = tenant;
+  const submitRes = response();
+  await attendance.createRequest(submitted, submitRes);
+  assert.equal(submitRes.statusCode, 201);
+  assert.equal(noticeWrites.length, 1);
+  assert.equal(noticeWrites[0].kind, 'attendance_pending');
+  assert.equal(String(noticeWrites[0].userId), String(managerId));
+  assert.equal(noticeWrites[0].link, '/attendance/approvals?type=leave');
+  assert.match(noticeWrites[0].title, /提交了请假申请/);
+  assert.match(noticeWrites[0].body, /2026-11-06 09:00 ~ 2026-11-06 18:00/);
+  assert.match(noticeWrites[0].body, /共 8 小时/);
+
+  // ② 驳回（末级）→ 通知申请人
+  const pending = {
+    _id: requestId, tenantId, applicantId, type: 'leave', leaveType: 'personal',
+    startAt: new Date('2026-11-06T01:00:00Z'), endAt: new Date('2026-11-06T10:00:00Z'),
+    durationMinutes: 480, reason: '家中有事', applicant: { name: '员工甲' },
+    approvals: [
+      { approverId: managerId, role: 'manager', status: 'pending' },
+      { approverId: gmId, role: 'general_manager', status: 'pending' }
+    ],
+    currentApproverId: managerId
+  };
+  t.mock.method(AttendanceRequest, 'findOne', async () => pending);
+  t.mock.method(AttendanceRequest, 'findOneAndUpdate', async () => ({ ...pending, status: 'rejected', currentApproverId: null }));
+  const rejectRes = response();
+  await attendance.reviewRequest({
+    params: { id: String(requestId) }, tenantId, tenant, user: employee({ tenantId, userId: managerId }),
+    body: { decision: 'reject', comment: '材料不全' }
+  }, rejectRes);
+  assert.equal(rejectRes.statusCode, 200);
+  assert.equal(noticeWrites.length, 2);
+  assert.equal(noticeWrites[1].kind, 'attendance_rejected');
+  assert.equal(String(noticeWrites[1].userId), String(applicantId));
+  assert.equal(noticeWrites[1].link, '/attendance/requests?type=leave');
+  assert.match(noticeWrites[1].body, /材料不全/);
+
+  // ③ 通过但不是末级 → 顺延通知下一位审批人，而不是申请人
+  const { _coordination: ledgerCoordination } = require('../controllers/api/attendance-ledger');
+  t.mock.method(ledgerCoordination, 'acquireMonthMutationLock', async (id, month) => ({ month, token: `t-${month}` }));
+  t.mock.method(ledgerCoordination, 'releaseMonthMutationLock', async () => {});
+  t.mock.method(AttendanceMonthLedger, 'exists', async () => null);
+  t.mock.method(AttendanceRequest, 'findOneAndUpdate', async () => ({ ...pending, currentApproverId: gmId }));
+  const forwardRes = response();
+  await attendance.reviewRequest({
+    params: { id: String(requestId) }, tenantId, tenant, user: employee({ tenantId, userId: managerId }),
+    body: { decision: 'approve' }
+  }, forwardRes);
+  assert.equal(forwardRes.statusCode, 200);
+  assert.equal(noticeWrites.length, 3);
+  assert.equal(noticeWrites[2].kind, 'attendance_pending');
+  assert.equal(String(noticeWrites[2].userId), String(gmId));
+  assert.equal(noticeWrites[2].link, '/attendance/approvals?type=leave');
+  assert.match(noticeWrites[2].title, /待你审批/);
+
+  // ④ 通知写失败不能把审批带崩
+  noticeFailure = new Error('notice store down');
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(AttendanceRequest, 'findOneAndUpdate', async () => ({ ...pending, status: 'approved', currentApproverId: null }));
+  const failingRes = response();
+  await attendance.reviewRequest({
+    params: { id: String(requestId) }, tenantId, tenant, user: employee({ tenantId, userId: gmId }),
+    body: { decision: 'approve' }
+  }, failingRes);
+  assert.equal(failingRes.statusCode, 200);
+  noticeFailure = null;
 });
 
 test('calendar stale document version is returned as a retryable conflict', async t => {

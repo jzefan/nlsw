@@ -13,21 +13,21 @@ const layouts: Record<string, () => Promise<any>> = {
 }
 
 // 递归处理路由，为每个路由添加布局
-function setupLayouts(routes: RouteRecordRaw[]): RouteRecordRaw[] {
+function setupLayouts(routes: RouteRecordRaw[], parentLayout?: string | boolean): RouteRecordRaw[] {
   return routes.map((route) => {
-    const layoutName = route.meta?.layout
+    const layoutName = (route.meta?.layout as string | boolean | undefined) ?? parentLayout
 
     // 如果布局为 false，不包装布局，但仍需递归处理子路由
     if (layoutName === false || layoutName === 'false') {
       if (route.children) {
-        route.children = setupLayouts(route.children)
+        route.children = setupLayouts(route.children, false)
       }
       return route
     }
 
     // 递归处理子路由
     if (route.children) {
-      route.children = setupLayouts(route.children)
+      route.children = setupLayouts(route.children, layoutName)
       // 有子路由的情况，不再包装（子路由会各自处理布局）
       return route
     }

@@ -17,10 +17,7 @@ onMounted(() => {
 
 <template>
   <main class="space-y-4 p-4 md:p-0">
-    <div>
-      <h1 class="text-lg font-semibold">薪资统计</h1>
-      <p class="mt-1 text-xs text-muted-foreground">按月度或年度汇总工资计提与实际收付</p>
-    </div>
+    <h1 class="text-lg font-semibold">薪资统计</h1>
 
     <div v-if="!canView" class="rounded-md border p-8 text-center text-sm text-muted-foreground">无权查看薪资统计</div>
     <PayrollStatistics v-else />

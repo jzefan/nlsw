@@ -24,6 +24,8 @@ uploads/
 .idea/
 *.swp
 
+.workbuddy/
+
 # RSA keys - NEVER commit
 keys/
 *.pem

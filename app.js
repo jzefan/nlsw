@@ -38,6 +38,7 @@ const { loadChinaAttendanceCalendar } = require("./utils/china-attendance-calend
 const User = require("./models/User");
 const { isStandalone } = require("./utils/deploy-mode");
 const { initStandalone } = require("./utils/standalone-init");
+const { startSealScheduler } = require("./services/seal-scheduler");
 
 /**
  * API keys.
@@ -80,6 +81,8 @@ mongoose
         console.error("✗ Standalone init error:", err);
       }
     }
+
+    startSealScheduler();
   })
   .catch((err) => {
     console.error("✗ MongoDB Connection Error: %s", err);

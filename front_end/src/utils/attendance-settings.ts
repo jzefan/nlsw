@@ -17,10 +17,10 @@ export const ATTENDANCE_SETTINGS_VIEWS: { value: AttendanceSettingsView, label: 
   { value: 'calendar', label: '工作日历设置', url: '/attendance/settings?tab=calendar' },
 ]
 
-/** 员工资料只有主账号能改；薪资权限给管理员与薪资总经理；工作日历给主账号与考勤管理员。 */
+/** 主账号可查看全部；管理员可维护员工资料和薪资权限；薪资总经理可维护薪资权限；考勤管理员可维护工作日历。 */
 export function canViewAttendanceSettingsView(view: AttendanceSettingsView, roles: AttendanceSettingsRoles): boolean {
   if (roles.isOwner) return true
-  if (view === 'people') return false
+  if (view === 'people') return roles.isAppAdmin
   if (view === 'payroll') return roles.isAppAdmin || roles.payrollRoles.includes('general_manager')
   return roles.attendanceRoles.includes('attendance_admin')
 }

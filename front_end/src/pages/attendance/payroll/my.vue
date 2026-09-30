@@ -68,10 +68,7 @@ onMounted(load)
 <template>
   <main class="space-y-4 p-4 md:p-0">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-lg font-semibold">我的工资条</h1>
-        <p class="mt-1 text-xs text-muted-foreground">{{ showPayrollPayments ? '仅显示已发布给本人的工资条；工资信息与付款记录为个人隐私。' : '仅显示已发布给本人的工资条；工资信息为个人隐私。' }}</p>
-      </div>
+      <h1 class="text-lg font-semibold">我的工资条</h1>
       <div class="flex flex-wrap items-center gap-2"><label for="my-payroll-year" class="flex items-center gap-2 text-xs text-muted-foreground"><span class="whitespace-nowrap">年度</span><Input id="my-payroll-year" v-model.number="year" type="number" min="2000" max="2100" class="h-9 w-28 text-foreground" /></label><Button size="sm" variant="outline" :disabled="loading" @click="load">查询</Button></div>
     </div>
     <div v-if="loadError && !loading" class="rounded-md border py-10 text-center"><p class="text-sm text-destructive">工资条读取失败，请稍后重试。</p><Button class="mt-3" size="sm" variant="outline" @click="load">重试</Button></div>

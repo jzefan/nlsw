@@ -14,6 +14,7 @@ import {
   Settings2,
   Ship,
   ShoppingCart,
+  Stamp,
   TrendingUp,
   Truck,
   Wrench,
@@ -25,7 +26,7 @@ import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 import { getTitleCode } from '@/services/api/user.api'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
 
-export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = ''): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false): NavGroup[] {
   const groups: NavGroup[] = []
 
   // 总览 - 所有人可见
@@ -47,13 +48,27 @@ export function generateNavData(privilege: string[], features?: Features, attend
       attendanceRoles,
       payrollRoles,
     })
+    const myRequestItems: { title: string; url: string }[] = [
+      { title: '请假申请', url: '/attendance/requests?type=leave' },
+      { title: '加班申请', url: '/attendance/requests?type=overtime' },
+      { title: '出差申请', url: '/attendance/requests?type=fieldwork' },
+    ]
+    // 「待我审批」与「我的申请」一一对应；用章审批落在印章模块的收件箱里
+    const approvalItems: { title: string; url: string }[] = [
+      { title: '请假审批', url: '/attendance/approvals?type=leave' },
+      { title: '加班审批', url: '/attendance/approvals?type=overtime' },
+      { title: '出差审批', url: '/attendance/approvals?type=fieldwork' },
+    ]
+    if (features?.seal) {
+      myRequestItems.push({ title: '用章申请', url: '/seal/requests' })
+      // 只有能审用章单的人（主账号 / 管理员 / 总经理职务或角色）才给审批入口，与后端 hasGlobalApprovalView 一致
+      const canApproveSeal = isOwner || isAdmin(privilege) || attendanceRoles.includes('general_manager') || titleCode === 'gm' || titleCode === 'ceo'
+      if (canApproveSeal) approvalItems.push({ title: '用章审批', url: '/seal/requests?view=inbox' })
+    }
+
     const attendanceItems: NavGroup['items'] = [
-      { title: '我的申请', icon: CalendarDays, items: [
-        { title: '请假申请', url: '/attendance/requests?type=leave' },
-        { title: '加班申请', url: '/attendance/requests?type=overtime' },
-        { title: '外勤申请', url: '/attendance/requests?type=fieldwork' },
-      ] },
-      ...(canApprove ? [{ title: '待我审批', url: '/attendance/approvals', icon: ClipboardList }] : []),
+      { title: '我的申请', icon: CalendarDays, items: myRequestItems },
+      ...(canApprove ? [{ title: '待我审批', icon: ClipboardList, items: approvalItems }] : []),
       // 「考勤台账」内含「明细台账 / 统计汇总」两个视图；「工资管理」下分「工资表 / 薪资统计 / 薪资设置」三个入口
       { title: '考勤台账', url: '/attendance/ledger', icon: ClipboardList },
       { title: '我的工资条', url: '/attendance/payroll/my', icon: Receipt },
@@ -64,7 +79,7 @@ export function generateNavData(privilege: string[], features?: Features, attend
             items: [
               { title: '工资表', url: '/attendance/payroll/statements' },
               { title: '薪资统计', url: '/attendance/payroll/statistics' },
-              { title: '薪资设置', url: '/attendance/payroll/settings' },
+              { title: '薪资标准设置', url: '/attendance/payroll/settings' },
             ],
           }]
         : []),
@@ -78,6 +93,29 @@ export function generateNavData(privilege: string[], features?: Features, attend
         : []),
     ]
     groups.push({ title: '考勤与工资', items: attendanceItems })
+  } else if (features?.seal) {
+    // 仅开启用章模块、未开考勤时，独立渲染「我的申请」
+    groups.push({
+      title: '我的申请',
+      items: [
+        { title: '用章申请', url: '/seal/requests', icon: CalendarDays }
+      ]
+    })
+  }
+
+  // 印章管理模块（若启用用章功能，具有管理权限或管理员可见）
+  if (features?.seal) {
+    const titleCode = getTitleCode(title)
+    const canManageSeal = isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['general_manager'].includes(role)) || titleCode === 'gm' || titleCode === 'ceo' || isCustodian
+    if (canManageSeal) {
+      const sealItems: NavGroup['items'] = [
+        { title: '印章工作台', url: '/seal/workbench', icon: Stamp },
+        { title: '印章台账', url: '/seal/items', icon: Database },
+        { title: '使用台账', url: '/seal/ledger', icon: FileText },
+        ...(isOwner || isAdmin(privilege) ? [{ title: '用章设置', url: '/seal/settings', icon: Settings2 }] : [])
+      ]
+      groups.push({ title: '印章管理', items: sealItems })
+    }
   }
 
   // 业务管理 - 业务员或客户结算或车船结算或管理员

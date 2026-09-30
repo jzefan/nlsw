@@ -84,10 +84,7 @@ function getAttendancePolicy(tenant) {
       throw new Error('考勤工作时段配置无效');
     }
   }
-  const normalizedWorkPeriods = normalizedIntervals.map(item => ({
-    start: `${String(Math.floor(item.start / 60)).padStart(2, '0')}:${String(item.start % 60).padStart(2, '0')}`,
-    end: `${String(Math.floor(item.end / 60)).padStart(2, '0')}:${String(item.end % 60).padStart(2, '0')}`
-  }));
+  const normalizedWorkPeriods = normalizedIntervals.map(formatWorkInterval);
   const overridesRaw = settings.attendanceCalendarOverrides;
   const overrides = new Map();
   if (Array.isArray(overridesRaw)) {
@@ -110,7 +107,44 @@ function getAttendancePolicy(tenant) {
   }
   const hoursPerDay = Number.isInteger(settings.attendanceHoursPerDay) && settings.attendanceHoursPerDay >= 1 && settings.attendanceHoursPerDay <= 24
     ? settings.attendanceHoursPerDay : normalizedIntervals.reduce((sum, item) => sum + (item.end - item.start) / 60, 0);
-  return { intervals: normalizedWorkPeriods, overrides, defaultOverrides, offsetMinutes, hoursPerDay, configuredYears };
+  // 周六上午上班（单休/大小周）：周六只算上午那一段，其余照休。法定节假日与调休上班日由 override 优先决定，不受这里影响。
+  const saturdayMorning = settings.attendanceSaturdayMorningWorkday === true;
+  const morningIntervals = saturdayMorning ? leadingWorkIntervals(normalizedIntervals) : [];
+  return {
+    intervals: normalizedWorkPeriods,
+    intervalMinutes: normalizedIntervals,
+    morningIntervals: morningIntervals.map(formatWorkInterval),
+    morningIntervalMinutes: morningIntervals,
+    saturdayMorning,
+    overrides, defaultOverrides, offsetMinutes, hoursPerDay, configuredYears
+  };
+}
+
+/** 把「距零点分钟数」的时段还原成 HH:MM，供接口与前端消费。 */
+function formatWorkInterval(item) {
+  return {
+    start: `${String(Math.floor(item.start / 60)).padStart(2, '0')}:${String(item.start % 60).padStart(2, '0')}`,
+    end: `${String(Math.floor(item.end / 60)).padStart(2, '0')}:${String(item.end % 60).padStart(2, '0')}`
+  };
+}
+
+/**
+ * 周六上午的时段：从第一段起连着取，遇到休息间隔就停；全天只有一个连续时段时取前一半。
+ * 默认配置 09:00–12:00 + 13:00–18:00 得到 09:00–12:00。
+ */
+function leadingWorkIntervals(intervals) {
+  if (!intervals.length) return [];
+  if (intervals.length === 1) {
+    const only = intervals[0];
+    const middle = Math.min(only.end, Math.max(only.start + 15, Math.round((only.start + only.end) / 2 / 15) * 15));
+    return [{ start: only.start, end: middle }];
+  }
+  const leading = [intervals[0]];
+  for (let i = 1; i < intervals.length; i++) {
+    if (intervals[i].start > intervals[i - 1].end) break;
+    leading.push(intervals[i]);
+  }
+  return leading;
 }
 
 function toMinutes(value) {
@@ -125,13 +159,23 @@ function businessDate(epoch, offsetMinutes) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
-function isWorkDate(date, policy) {
+/**
+ * 某天实际计入工作的时段（距零点分钟数）：null 表示当天休息。
+ * 优先级：租户单日覆盖 > 国务院安排 > 周六上午（开关开启时）> 默认周一至周五。
+ */
+function workIntervalMinutes(date, policy) {
   const override = policy.overrides.get(date);
-  if (override) return override === 'workday';
+  if (override) return override === 'workday' ? policy.intervalMinutes : null;
   const defaultOverride = policy.defaultOverrides.get(date);
-  if (defaultOverride) return defaultOverride === 'workday';
-  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-  return day !== 0 && day !== 6;
+  if (defaultOverride) return defaultOverride === 'workday' ? policy.intervalMinutes : null;
+  const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  if (weekday === 0) return null;
+  if (weekday === 6) return policy.saturdayMorning ? policy.morningIntervalMinutes : null;
+  return policy.intervalMinutes;
+}
+
+function isWorkDate(date, policy) {
+  return workIntervalMinutes(date, policy) !== null;
 }
 
 function isWorkdayAt(epoch, tenant) {
@@ -156,17 +200,15 @@ function calculateLeaveMinutes(startAt, endAt, tenant) {
     const dateObj = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate() + i));
     const date = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
     if (!policy.configuredYears.has(dateObj.getUTCFullYear())) throw new Error(`请先由考勤管理员确认 ${dateObj.getUTCFullYear()} 年工作日历`);
-    if (!isWorkDate(date, policy)) {
+    const dayIntervals = workIntervalMinutes(date, policy);
+    if (!dayIntervals) {
       allocations.push({ date, minutes: 0 });
       continue;
     }
     let dayMinutes = 0;
     const dayStart = Date.UTC(dateObj.getUTCFullYear(), dateObj.getUTCMonth(), dateObj.getUTCDate()) - policy.offsetMinutes * 60000;
-    for (const interval of policy.intervals) {
-      const from = dayStart + toMinutes(interval.start) * 60000;
-      const to = dayStart + toMinutes(interval.end) * 60000;
-      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) throw new Error('考勤工作时段配置无效');
-      dayMinutes += Math.max(0, Math.min(end, to) - Math.max(start, from)) / 60000;
+    for (const interval of dayIntervals) {
+      dayMinutes += Math.max(0, Math.min(end, dayStart + interval.end * 60000) - Math.max(start, dayStart + interval.start * 60000)) / 60000;
     }
     dayMinutes = Math.round(dayMinutes);
     minutes += dayMinutes;

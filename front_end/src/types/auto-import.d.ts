@@ -17,6 +17,7 @@ declare global {
   const THEMES: typeof import('../constants/themes').THEMES
   const THEMES_COLOR: typeof import('../constants/themes')['THEMES_COLOR']
   const THEME_PRIMARY_COLORS: typeof import('../constants/themes').THEME_PRIMARY_COLORS
+  const attendanceKindLabels: typeof import('../constants/attendance-labels').attendanceKindLabels
   const computePayrollTotals: typeof import('../constants/payroll-fields').computePayrollTotals
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp

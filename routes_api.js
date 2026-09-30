@@ -27,6 +27,8 @@ const dataProcessApiController = require('./controllers/api/data_process');
 const attendanceApiController = require('./controllers/api/attendance');
 const attendanceLedgerController = require('./controllers/api/attendance-ledger');
 const payrollController = require('./controllers/api/payroll');
+const sealApiController = require('./controllers/api/seal');
+const noticeApiController = require('./controllers/api/notice');
 
 const planController = require('./controllers/order_plan');
 
@@ -34,6 +36,7 @@ const planController = require('./controllers/order_plan');
 const { requireTenant, requirePlatformUser, requireOwnerOrPlatform } = require('./middleware/tenantContext');
 const { isSaas, getDeployMode, getStandaloneCompany } = require('./utils/deploy-mode');
 const { requireAttendanceEnabled, requireEmployee } = require('./utils/attendance-permissions');
+const { requireSealEnabled, requireSealManager, requireSealAdmin } = require('./utils/seal-permissions');
 const { requireSameOrigin } = require('./middleware/requireSameOrigin');
 const { parseAttendanceAttachments } = require('./middleware/attendance-attachments');
 const { serverVersion } = require('./utils/server-version');
@@ -118,15 +121,19 @@ module.exports = function (app) {
   app.get('/attendance/calendar', requireTenant, requireAttendanceEnabled, attendanceApiController.getCalendar);
   app.post('/attendance/calendar/day', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendarDay);
   app.post('/attendance/calendar', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendar);
+  app.post('/attendance/calendar/saturday-morning', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendarSaturdayMorning);
   app.get('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, attendanceApiController.getGeneralManagerDelegate);
   app.post('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.setGeneralManagerDelegate);
   app.get('/attendance/settings/submission-locks', requireTenant, requireAttendanceEnabled, attendanceApiController.listSubmissionLocks);
   app.post('/attendance/settings/submission-locks/:applicantId/release', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.releaseStaleSubmissionLock);
   app.get('/attendance/ledger', requireTenant, requireAttendanceEnabled, attendanceLedgerController.getLedger);
   app.post('/attendance/ledger/rows/:employeeId', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.saveRow);
+  app.post('/attendance/ledger/import', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.importLedgerRecords);
   app.post('/attendance/ledger/close', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.closeMonth);
   app.post('/attendance/ledger/reopen', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.reopenMonth);
   app.get('/attendance/ledger/statistics', requireTenant, requireAttendanceEnabled, attendanceLedgerController.getStatistics);
+  app.get('/attendance/ledger/actual-rule', requireTenant, requireAttendanceEnabled, attendanceLedgerController.getActualRule);
+  app.post('/attendance/ledger/actual-rule', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.saveActualRule);
   app.get('/attendance/ledger/locks', requireTenant, requireAttendanceEnabled, attendanceLedgerController.listMonthLocks);
   app.post('/attendance/ledger/locks/:month/release', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceLedgerController.releaseStaleMonthLock);
 
@@ -137,6 +144,8 @@ module.exports = function (app) {
   // 累计预扣预缴个税的往月累计基数（只读，供录入弹窗算个税）
   app.get('/attendance/payroll/statements/:employeeId/:month/tax-basis', requireTenant, requireAttendanceEnabled, payrollController.getTaxBasis);
   app.get('/attendance/payroll/standards', requireTenant, requireAttendanceEnabled, payrollController.listStandards);
+  app.get('/attendance/payroll/contribution-scheme', requireTenant, requireAttendanceEnabled, payrollController.getContributionScheme);
+  app.post('/attendance/payroll/contribution-scheme', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.saveContributionScheme);
   app.post('/attendance/payroll/standards/:employeeId', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.saveStandard);
   app.post('/attendance/payroll/statements/:employeeId/:month/draft', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.saveDraft);
   app.post('/attendance/payroll/statements/:employeeId/:month/publish', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.publish);
@@ -146,6 +155,36 @@ module.exports = function (app) {
   app.post('/attendance/payroll/import/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.importDrafts);
   app.post('/attendance/payroll/publish-batch/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.publishBatch);
   app.get('/attendance/payroll/statistics', requireTenant, requireAttendanceEnabled, payrollController.getStatistics);
+
+  // Seal API (用章管理) (tenant-scoped)
+  app.get('/seal/availability', requireTenant, requireSealEnabled, sealApiController.getAvailability);
+  app.get('/seal/items', requireTenant, requireSealEnabled, sealApiController.getItems);
+  app.post('/seal/items', requireTenant, requireSealEnabled, requireSealManager, requireSameOrigin, sealApiController.createItem);
+  app.patch('/seal/items/:id', requireTenant, requireSealEnabled, requireSealManager, requireSameOrigin, sealApiController.updateItem);
+
+  app.get('/seal/requests', requireTenant, requireSealEnabled, sealApiController.getRequests);
+  app.post('/seal/requests', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.createRequest);
+  app.get('/seal/requests/:id', requireTenant, requireSealEnabled, sealApiController.getRequestDetail);
+  app.post('/seal/requests/:id/withdraw', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.withdrawRequest);
+  app.post('/seal/requests/:id/review', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.reviewRequest);
+  app.post('/seal/requests/:id/checkout', requireTenant, requireSealEnabled, requireSealManager, requireSameOrigin, sealApiController.checkoutRequest);
+  app.post('/seal/requests/:id/return', requireTenant, requireSealEnabled, requireSealManager, requireSameOrigin, sealApiController.returnRequest);
+
+  app.get('/seal/ledger', requireTenant, requireSealEnabled, sealApiController.getLedger);
+  app.get('/seal/statistics', requireTenant, requireSealEnabled, sealApiController.getStatistics);
+
+  app.get('/seal/watches', requireTenant, requireSealEnabled, sealApiController.getWatches);
+  app.post('/seal/watches', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.createWatch);
+  app.delete('/seal/watches/:id', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.cancelWatch);
+
+  app.get('/seal/settings', requireTenant, requireSealEnabled, requireSealAdmin, sealApiController.getSettings);
+  app.post('/seal/settings', requireTenant, requireSealEnabled, requireSealAdmin, requireSameOrigin, sealApiController.updateSettings);
+
+  // Notice API (站内通知中心) (tenant-scoped)
+  app.get('/notices', requireTenant, noticeApiController.getNotices);
+  app.get('/notices/unread-count', requireTenant, noticeApiController.getUnreadCount);
+  app.post('/notices/:id/read', requireTenant, requireSameOrigin, noticeApiController.markAsRead);
+  app.post('/notices/read-all', requireTenant, requireSameOrigin, noticeApiController.markAllAsRead);
 
   // Report API (tenant-scoped)
   app.get('/report/integrated_query', requireTenant, reportApiController.getIntegratedQuery);

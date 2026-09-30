@@ -6,6 +6,7 @@ const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
 const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
+const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS } = require('../../utils/attendance-ledger-actual');
 
 const OFFSET_MS = 8 * 60 * 60 * 1000;
 const activeMutationTokens = new Set();
@@ -144,7 +145,8 @@ async function releaseMonthMutationLock(tenantId, lock) {
   }
 }
 
-async function expectedMinutesFor(user, monthStart, monthEnd, tenant) {
+/** 当月应出勤分钟数（与人员无关，只取决于工作日历与工作时段）。 */
+async function expectedMinutesFor(monthStart, monthEnd, tenant) {
   const year = new Date(monthStart + OFFSET_MS).getUTCFullYear();
   if (!getAttendancePolicy(tenant).configuredYears.has(year)) {
     throw Object.assign(new Error(`请先由考勤管理员确认 ${year} 年工作日历`), {
@@ -166,12 +168,12 @@ async function expectedMinutesFor(user, monthStart, monthEnd, tenant) {
 function emptyAttendanceAggregate() {
   return {
     leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])),
-    overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0,
+    overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0, overtimeUncompensatedMinutes: 0,
     fieldworkApprovedMinutes: 0, requiresLeaveReconciliation: false
   };
 }
 
-/** 把已审批的申请单折算成「员工 ID → 当月时长」：请假按天分摊到月内，加班/外勤按与月份的交集计。 */
+/** 把已审批的申请单折算成「员工 ID → 当月时长」：请假按天分摊到月内，加班/出差按与月份的交集计。 */
 function aggregateApprovedRequests(requests, month) {
   const stats = new Map();
   const forEmployee = id => {
@@ -200,6 +202,7 @@ function aggregateApprovedRequests(requests, month) {
         aggregate.overtimeApprovedMinutes += minutes;
         if (request.compensation === 'comp_time') aggregate.overtimeCompTimeMinutes += minutes;
         if (request.compensation === 'overtime_pay') aggregate.overtimePayMinutes += minutes;
+        if (request.compensation === 'none') aggregate.overtimeUncompensatedMinutes += minutes;
       } else if (request.type === 'fieldwork') aggregate.fieldworkApprovedMinutes += minutes;
     }
   }
@@ -207,7 +210,7 @@ function aggregateApprovedRequests(requests, month) {
 }
 
 /**
- * 工资条明细用：当月每名员工的考勤时长（请假按类型、加班含调休/加班费、外勤）。
+ * 工资条明细用：当月每名员工的考勤时长（请假按类型、加班含调休/加班费、出差）。
  * 只看已审批的申请单，不要求工作日历已确认，所以不会因为日历未确认而阻塞工资表；
  * 台账里已登记的应出勤/实到有就一并带上，没有则为 null。
  */
@@ -231,20 +234,24 @@ async function getMonthlyAttendanceSummary(tenantId, month) {
 async function buildRows(req, month, scope, ledger) {
   const users = await getScopedUsers(req, scope);
   const storedById = new Map((ledger.rows || []).map(row => [String(row.employeeId), row.toObject ? row.toObject() : row]));
-  const requests = await AttendanceRequest.find({ tenantId: req.tenantId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  // 一次取回已批与待审批：已批进「已批」口径，待审批只作提示（还没批完，这个月的数可能还会变）
+  const requests = await AttendanceRequest.find({ tenantId: req.tenantId, status: { $in: ['approved', 'pending'] }, startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
   // Include inactive accounts: current status does not erase historical month records.
   const allUsers = users;
   const userById = new Map(allUsers.map(user => [String(user._id), user]));
   const visibleIds = new Set(allUsers.map(user => String(user._id)));
   const relevant = requests.filter(item => visibleIds.has(String(item.applicantId)));
-  const stats = aggregateApprovedRequests(relevant, month);
+  const stats = aggregateApprovedRequests(relevant.filter(item => item.status === 'approved'), month);
+  const pendingStats = aggregateApprovedRequests(relevant.filter(item => item.status === 'pending'), month);
   for (const user of allUsers) if (!stats.has(String(user._id))) stats.set(String(user._id), emptyAttendanceAggregate());
   const rows = [];
+  // 应出勤只取决于当月工作日历与工作时段、与人员无关：整月算一次。
+  // 未结账月份一律按当前日历重算，不沿用库里可能过期的快照值——工作日历（含周六上午）一改就能立刻反映。
+  const monthExpectedMinutes = await expectedMinutesFor(month.start, month.end, req.tenant);
   for (const user of allUsers) {
     const id = String(user._id);
     const saved = storedById.get(id);
-    let expectedMinutes = saved?.expectedMinutes;
-    if (!Number.isFinite(expectedMinutes)) expectedMinutes = await expectedMinutesFor(user, month.start, month.end, req.tenant);
+    const expectedMinutes = monthExpectedMinutes;
     const row = saved ? {
       ...saved,
       phone: saved.phone || user.phone || user.profile?.phone || '',
@@ -252,8 +259,19 @@ async function buildRows(req, month, scope, ledger) {
       expectedMinutes
     } : defaultLedgerRow(user, expectedMinutes);
     const source = stats.get(id);
+    const pending = pendingStats.get(id) ?? emptyAttendanceAggregate();
     const { _id, __v, ...safe } = row;
-    rows.push({ ...safe, employeeId: user._id, ...source, actualMinutes: row.actualMinutes ?? null });
+    rows.push({
+      ...safe,
+      employeeId: user._id,
+      ...source,
+      actualMinutes: row.actualMinutes ?? null,
+      // 待审批（未批完）的申请：只做提示，不并入上面任何「已批」口径，也不参与实到
+      pendingOvertimeMinutes: pending.overtimeApprovedMinutes,
+      pendingFieldworkMinutes: pending.fieldworkApprovedMinutes,
+      pendingLeaveMinutes: Object.values(pending.leaveMinutesByType).reduce((sum, minutes) => sum + minutes, 0),
+      pendingLeaveUnreconciled: pending.requiresLeaveReconciliation === true
+    });
   }
   return rows;
 }
@@ -264,12 +282,12 @@ function stripPersonLabels(rows) {
 }
 
 function sumRows(rows) {
-  const totals = { expectedMinutes: 0, leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])), overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0, fieldworkApprovedMinutes: 0, actualMinutes: null, confirmedCount: 0, pendingCount: 0, noBasisCount: 0, requiresLeaveReconciliationCount: 0 };
+  const totals = { expectedMinutes: 0, leaveMinutesByType: Object.fromEntries(LEAVE_TYPES.map(type => [type, 0])), overtimeApprovedMinutes: 0, overtimeCompTimeMinutes: 0, overtimePayMinutes: 0, overtimeUncompensatedMinutes: 0, fieldworkApprovedMinutes: 0, actualMinutes: null, confirmedCount: 0, pendingCount: 0, noBasisCount: 0, requiresLeaveReconciliationCount: 0 };
   let actualTotal = 0, actualCount = 0;
   for (const row of rows) {
     totals.expectedMinutes += row.expectedMinutes || 0;
     for (const type of LEAVE_TYPES) totals.leaveMinutesByType[type] += row.leaveMinutesByType?.[type] || 0;
-    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'fieldworkApprovedMinutes']) totals[key] += row[key] || 0;
+    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'overtimeUncompensatedMinutes', 'fieldworkApprovedMinutes']) totals[key] += row[key] || 0;
     if (row.actualMinutes !== null && row.actualMinutes !== undefined) { actualTotal += row.actualMinutes; actualCount++; }
     if (row.confirmationState === 'confirmed') totals.confirmedCount++;
     else if (row.confirmationState === 'no_basis') totals.noBasisCount++;
@@ -278,6 +296,22 @@ function sumRows(rows) {
   }
   totals.actualMinutes = actualCount === rows.length && rows.length > 0 ? actualTotal : null;
   return totals;
+}
+
+/**
+ * 给每一行附上「实到分钟」的系统建议值。只算不写：采用还是修改由管理员保存那一行时决定，
+ * 所以读取接口不会因为日历或导入变化就偷偷改掉台账数据。
+ */
+function attachActualSuggestions(rows, tenant) {
+  const rule = readActualRule(tenant);
+  const dayMinutes = dailyWorkMinutes(getAttendancePolicy(tenant));
+  for (const row of rows) {
+    const suggestion = computeSuggestedActualMinutes(row, rule, dayMinutes);
+    row.suggestedActualMinutes = suggestion.minutes;
+    row.suggestedActualNote = suggestion.note;
+    row.actualMinutesIsManual = isActualManual(row);
+  }
+  return rows;
 }
 
 exports.getLedger = async (req, res) => {
@@ -295,6 +329,8 @@ exports.getLedger = async (req, res) => {
       const allowedIds = new Set(allowed.map(user => String(user._id)));
       rows = ledger.closedSnapshot.rows.filter(row => allowedIds.has(String(row.employeeId)));
     } else rows = await buildRows(req, month, scope, ledger);
+    // 已结账月份只读快照、不再算建议值；开放中的月份给每行带上系统建议值
+    if (ledger.status !== 'closed') attachActualSuggestions(rows, req.tenant);
     return res.json({ ok: true, data: { month: req.query.month, status: ledger.status, version: ledger.version, rows: stripPersonLabels(rows), totals: sumRows(rows) } });
   } catch (e) {
     if (e.status) return err(res, e.status, e.message, e.code);
@@ -303,6 +339,18 @@ exports.getLedger = async (req, res) => {
   }
 };
 
+/**
+ * 单独算某一行此刻的建议值：保存时用来核对「这个值确实等于规则输出」，对得上才记成 auto。
+ * 只查这名员工当月的已批申请，避免把整月台账都重算一遍。
+ */
+async function actualSuggestionFor(row, month, tenantId, tenant) {
+  const requests = await AttendanceRequest.find({ tenantId, applicantId: row.employeeId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  const stats = aggregateApprovedRequests(requests, month);
+  const source = stats.get(String(row.employeeId)) ?? emptyAttendanceAggregate();
+  const merged = { ...(row.toObject ? row.toObject() : row), ...source };
+  return computeSuggestedActualMinutes(merged, readActualRule(tenant), dailyWorkMinutes(getAttendancePolicy(tenant)));
+}
+
 exports.saveRow = async (req, res) => {
   let mutationLock;
   try {
@@ -310,8 +358,9 @@ exports.saveRow = async (req, res) => {
     if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可确认月度台账');
     const monthValue = req.body?.month, month = parseMonth(monthValue), employeeId = req.params.employeeId;
     if (!month || !mongoose.Types.ObjectId.isValid(employeeId)) return err(res, 400, '月份或员工编号无效');
-    const { actualMinutes, confirmationState, note = '', version } = req.body || {};
+    const { actualMinutes, confirmationState, note = '', version, actualMinutesSource } = req.body || {};
     if (!Number.isInteger(version) || !['confirmed', 'no_basis'].includes(confirmationState) || typeof note !== 'string' || note.length > 2000) return err(res, 400, '台账确认内容无效');
+    if (actualMinutesSource !== undefined && !['auto', 'manual'].includes(actualMinutesSource)) return err(res, 400, '实到来源无效');
     if (confirmationState === 'confirmed' && (!Number.isInteger(actualMinutes) || actualMinutes < 0)) return err(res, 400, '确认实到时必须填写非负整数分钟数');
     if (confirmationState === 'no_basis' && actualMinutes !== null) return err(res, 400, '无实到依据时实际分钟数必须为空');
     if (confirmationState === 'no_basis' && !note.trim()) return err(res, 400, '无实到依据时必须填写原因');
@@ -325,8 +374,16 @@ exports.saveRow = async (req, res) => {
     if (ledger.status === 'closed') return err(res, 409, '已结账月份不可修改');
     if (ledger.version !== version) return err(res, 409, '台账已被其他管理员修改，请刷新重试');
     let row = ledger.rows.find(item => String(item.employeeId) === String(user._id));
-    if (!row) { ledger.rows.push(defaultLedgerRow(user, await expectedMinutesFor(user, month.start, month.end, req.tenant))); row = ledger.rows[ledger.rows.length - 1]; }
+    if (!row) { ledger.rows.push(defaultLedgerRow(user, await expectedMinutesFor(month.start, month.end, req.tenant))); row = ledger.rows[ledger.rows.length - 1]; }
     row.actualMinutes = actualMinutes;
+    /**
+     * 「采用系统建议值」必须与规则此刻的输出对得上，才记成 auto（以后跟着重算）。
+     * 对不上就记人工——哪怕前端传了 auto，也不会把人工改过的值悄悄变成可覆盖。
+     */
+    const suggestion = confirmationState === 'confirmed' && actualMinutesSource === 'auto'
+      ? await actualSuggestionFor(row, month, req.tenantId, req.tenant)
+      : null;
+    row.actualMinutesSource = suggestion && suggestion.minutes !== null && suggestion.minutes === actualMinutes ? 'auto' : 'manual';
     row.confirmationState = confirmationState;
     row.note = note.trim();
     row.version = (row.version || 0) + 1;
@@ -340,6 +397,146 @@ exports.saveRow = async (req, res) => {
     return err(res, 500, '保存月度台账失败');
   } finally {
     if (mutationLock) await releaseMonthMutationLock(req.tenantId, mutationLock).catch(() => {});
+  }
+};
+
+/** 导入的考勤记录字段：单位都是**次数**；未提供的字段不动，避免把已确认的内容清空。 */
+const IMPORT_COUNT_FIELDS = ['lateWithin10', 'lateOver10', 'lateTotal', 'earlyLeave', 'noClockRecord'];
+/** 报错会直接显示在导入预览里，所以要用中文列名，不要漏出字段 key。 */
+const IMPORT_FIELD_LABELS = {
+  lateWithin10: '迟到（10分钟以内）',
+  lateOver10: '迟到（10分钟以上）',
+  lateTotal: '迟到合计',
+  earlyLeave: '早退',
+  noClockRecord: '无打卡记录',
+};
+const IMPORT_MAX_COUNT = 9999;
+
+/**
+ * 把一行导入内容归一化成要写入的字段。
+ * 返回 { ok: true, patch } 或 { ok: false, error } —— 单行出错只作废这一行，不影响其他行。
+ */
+function normalizeImportEntry(input) {
+  if (!input || typeof input !== 'object') return { ok: false, error: '导入行格式无效' };
+  const patch = {};
+  for (const key of IMPORT_COUNT_FIELDS) {
+    const raw = input[key];
+    // 空白单元格 = 不动（保持原值）；0 是有意义的值（确认没有这类违纪）
+    if (raw === undefined || raw === null || raw === '') continue;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0 || value > IMPORT_MAX_COUNT) {
+      return { ok: false, error: `${IMPORT_FIELD_LABELS[key]} 必须是 0 至 ${IMPORT_MAX_COUNT} 之间的整数（次数）` };
+    }
+    patch[key] = value;
+  }
+  if (typeof input.importNote === 'string') {
+    if (input.importNote.length > 2000) return { ok: false, error: '备注不能超过 2000 字' };
+    // 备注留空同样不动，避免覆盖管理员已经写好的说明
+    if (input.importNote.trim()) patch.importNote = input.importNote.trim();
+  }
+  if (!Object.keys(patch).length) return { ok: false, error: '这一行没有可导入的内容' };
+  return { ok: true, patch };
+}
+
+/**
+ * 批量导入考勤记录（迟到 / 早退 / 无打卡记录 / 备注）。
+ * 只登记次数，不直接等于实到、也不参与金额计算——实到按规则算成建议值后由考勤管理员确认或修改。
+ */
+exports.importLedgerRecords = async (req, res) => {
+  let mutationLock;
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可导入考勤记录');
+    const monthValue = req.body?.month;
+    const month = parseMonth(monthValue);
+    const list = req.body?.rows;
+    if (!month || !Array.isArray(list) || !list.length) return err(res, 400, '请提供月份与要导入的行');
+    if (list.length > 500) return err(res, 400, '一次最多导入 500 行');
+
+    mutationLock = await acquireMonthMutationLock(req.tenantId, monthValue);
+    const ledger = await ensureLedger(req.tenantId, monthValue);
+    if (ledger.status === 'closed') return err(res, 409, '已结账月份不可导入考勤记录');
+
+    const results = [];
+    for (const item of list) {
+      const employeeId = item?.employeeId;
+      if (!employeeId || !mongoose.Types.ObjectId.isValid(String(employeeId))) {
+        results.push({ employeeId: String(employeeId ?? ''), name: item?.name ?? '', status: 'failed', error: '员工编号无效' });
+        continue;
+      }
+      const normalized = normalizeImportEntry(item);
+      if (!normalized.ok) {
+        results.push({ employeeId: String(employeeId), name: item?.name ?? '', status: 'failed', error: normalized.error });
+        continue;
+      }
+      const user = await User.findOne({ _id: employeeId, tenantId: req.tenantId })
+        .select('employeeNo phone profile.phone profile.name userid department status role attendanceTracked');
+      if (!user) {
+        results.push({ employeeId: String(employeeId), name: item?.name ?? '', status: 'failed', error: '员工不存在或不属于本公司' });
+        continue;
+      }
+      if (!isAttendanceTracked(user)) {
+        results.push({ employeeId: String(employeeId), name: user.profile?.name || user.userid || '', status: 'failed', error: '该员工未纳入考勤统计' });
+        continue;
+      }
+      let row = ledger.rows.find(entry => String(entry.employeeId) === String(user._id));
+      let status = 'updated';
+      if (!row) {
+        ledger.rows.push(defaultLedgerRow(user, await expectedMinutesFor(month.start, month.end, req.tenant)));
+        row = ledger.rows[ledger.rows.length - 1];
+        status = 'created';
+      }
+      for (const [key, value] of Object.entries(normalized.patch)) row[key] = value;
+      row.importedAt = new Date();
+      row.version = (row.version || 0) + 1;
+      results.push({ employeeId: String(employeeId), name: user.profile?.name || user.userid || '', status, fields: Object.keys(normalized.patch) });
+    }
+
+    if (results.some(item => item.status !== 'failed')) {
+      ledger.updatedAt = new Date();
+      await ledger.save();
+    }
+    return res.json({ ok: true, data: { month: monthValue, results } });
+  } catch (e) {
+    if (e.status === 409) return err(res, 409, e.message);
+    if (e.name === 'VersionError') return err(res, 409, '台账已被其他管理员修改，请刷新重试');
+    console.error('attendance ledger import failed:', e);
+    return err(res, 500, '导入考勤记录失败');
+  } finally {
+    if (mutationLock) await releaseMonthMutationLock(req.tenantId, mutationLock).catch(() => {});
+  }
+};
+
+/**
+ * 实到计算规则（实到 = 应出勤 − 请假 − 迟到/早退/无打卡扣减）。
+ * 读：能看到台账的人；写：仅公司主账号或考勤管理员（与结账同口径）。
+ * 规则只影响「建议值」，改完不用重算已结账月份：已结账读的是快照。
+ */
+exports.getActualRule = async (req, res) => {
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    return res.json({ ok: true, data: { rule: readActualRule(req.tenant), dayMinutes: dailyWorkMinutes(getAttendancePolicy(req.tenant)), fields: ACTUAL_RULE_FIELDS } });
+  } catch (e) {
+    console.error('attendance ledger getActualRule failed:', e);
+    return err(res, 500, '读取实到计算规则失败');
+  }
+};
+
+exports.saveActualRule = async (req, res) => {
+  try {
+    if (!requireLedgerIdentity(req, res)) return;
+    if (!isMonthAdmin(req.user)) return err(res, 403, '仅公司主账号或考勤管理员可修改实到计算规则');
+    const validated = validateActualRule(req.body?.rule);
+    if (!validated.ok) return err(res, 400, validated.error);
+    if (!req.tenant?.settings) return err(res, 403, '缺少租户配置');
+    req.tenant.settings.attendanceLedgerActualRule = validated.rule;
+    req.tenant.markModified('settings.attendanceLedgerActualRule');
+    await req.tenant.save();
+    return res.json({ ok: true, data: { rule: validated.rule, dayMinutes: dailyWorkMinutes(getAttendancePolicy(req.tenant)), fields: ACTUAL_RULE_FIELDS } });
+  } catch (e) {
+    if (e?.name === 'VersionError') return err(res, 409, '实到计算规则已被其他人更新，请刷新后重试');
+    console.error('attendance ledger saveActualRule failed:', e);
+    return err(res, 500, '保存实到计算规则失败');
   }
 };
 
@@ -419,6 +616,7 @@ function sumMonthlyStatistics(byMonth) {
     overtimeApprovedMinutes: 0,
     overtimeCompTimeMinutes: 0,
     overtimePayMinutes: 0,
+    overtimeUncompensatedMinutes: 0,
     fieldworkApprovedMinutes: 0,
     actualMinutes: null,
     confirmedCount: 0,
@@ -432,7 +630,7 @@ function sumMonthlyStatistics(byMonth) {
     const monthly = item.totals;
     totals.expectedMinutes += monthly.expectedMinutes || 0;
     for (const type of LEAVE_TYPES) totals.leaveMinutesByType[type] += monthly.leaveMinutesByType?.[type] || 0;
-    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'fieldworkApprovedMinutes', 'confirmedCount', 'pendingCount', 'noBasisCount', 'requiresLeaveReconciliationCount']) totals[key] += monthly[key] || 0;
+    for (const key of ['overtimeApprovedMinutes', 'overtimeCompTimeMinutes', 'overtimePayMinutes', 'overtimeUncompensatedMinutes', 'fieldworkApprovedMinutes', 'confirmedCount', 'pendingCount', 'noBasisCount', 'requiresLeaveReconciliationCount']) totals[key] += monthly[key] || 0;
     if (monthly.actualMinutes === null || monthly.actualMinutes === undefined) hasUnknownActual = true;
     else actualMinutes += monthly.actualMinutes;
   }
@@ -528,6 +726,6 @@ exports.releaseStaleMonthLock = async (req, res) => {
   }
 };
 
-exports._test = { parseMonth, sumRows, sumMonthlyStatistics, getScopedUsers, expectedMinutesFor, buildRows, monthLockRecoveryState, aggregateApprovedRequests };
+exports._test = { parseMonth, sumRows, sumMonthlyStatistics, getScopedUsers, expectedMinutesFor, buildRows, monthLockRecoveryState, aggregateApprovedRequests, attachActualSuggestions, normalizeImportEntry };
 exports._coordination = { acquireMonthMutationLock, releaseMonthMutationLock, activeMutationTokens };
 exports.getMonthlyAttendanceSummary = getMonthlyAttendanceSummary;

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { useCookies } from '@vueuse/integrations/useCookies'
 import { storeToRefs } from 'pinia'
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 
 import AppSidebar from '@/components/app-sidebar/index.vue'
 import GlobalSearchDialog from '@/components/global-search-dialog.vue'
+import NoticeBell from '@/components/notice/notice-bell.vue'
 import PaymentQRDialog from '@/components/subscription-reminder/PaymentQRDialog.vue'
 import SubscriptionBanner from '@/components/subscription-reminder/SubscriptionBanner.vue'
 import ThemePopover from '@/components/custom-theme/theme-popover.vue'
@@ -21,9 +23,11 @@ import {
 import { SIDEBAR_COOKIE_NAME } from '@/components/ui/sidebar/utils'
 import { useSubscriptionReminder } from '@/composables/use-subscription-reminder'
 import { useKeyboardSafe } from '@/composables/use-keyboard-safe'
+import { attendanceKindLabels } from '@/constants/attendance-labels'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { ATTENDANCE_SETTINGS_VIEWS } from '@/utils/attendance-settings'
 
 useKeyboardSafe()
 
@@ -41,8 +45,9 @@ const roleBadgeText = computed(() => {
   return ''
 })
 
-// 路由到面包屑的映射
-const routeMap: Record<string, { parent?: string; title: string }> = {
+type BreadcrumbMeta = { parent?: string; title: string }
+// 路由到面包屑的映射；同一路径按 ?type= 呈现不同标题时用函数形式
+const routeMap: Record<string, BreadcrumbMeta | ((route: RouteLocationNormalizedLoaded) => BreadcrumbMeta)> = {
   '/dashboard': { title: '首页' },
   '/plans': { parent: '业务操作', title: '计划列表' },
   '/plans/create': { parent: '业务操作', title: '新建计划' },
@@ -78,6 +83,39 @@ const routeMap: Record<string, { parent?: string; title: string }> = {
   '/platform/orders': { parent: '平台管理', title: '订单管理' },
   '/platform/business': { parent: '平台管理', title: '公司业务查看' },
   '/platform/statistics': { parent: '平台管理', title: '平台统计报告' },
+  '/seal/requests': current => sealRequestsBreadcrumb(String(current.query.view ?? '')),
+  '/seal/workbench': { parent: '印章管理', title: '印章工作台' },
+  '/seal/items': { parent: '印章管理', title: '印章台账' },
+  '/seal/ledger': { parent: '印章管理', title: '使用台账' },
+  '/seal/settings': { parent: '印章管理', title: '用章设置' },
+  // 「考勤与工资」下的页面：标题都在这里，页内不再放 h1
+  '/attendance/requests': current => ({ parent: '我的申请', title: kindTitle(String(current.query.type ?? ''), '申请', '我的申请') }),
+  '/attendance/approvals': current => ({ parent: '待我审批', title: kindTitle(String(current.query.type ?? ''), '审批', '待我审批') }),
+  '/attendance/approval-history': { parent: '待我审批', title: '审核记录' },
+  '/attendance/ledger': { parent: '考勤与工资', title: '考勤台账' },
+  '/attendance/payroll/my': { parent: '考勤与工资', title: '我的工资条' },
+  '/attendance/payroll/statements': { parent: '工资管理', title: '工资表' },
+  '/attendance/payroll/statistics': { parent: '工资管理', title: '薪资统计' },
+  '/attendance/payroll/settings': { parent: '工资管理', title: '薪资标准设置' },
+  '/attendance/settings': current => ({ parent: '设置', title: settingsTabTitle(String(current.query.tab ?? '')) }),
+}
+
+/** 我的申请 / 待我审批按 ?type= 分请假·加班·出差；未带或非法时回落到整组名。 */
+function kindTitle(type: string, suffix: string, fallback: string) {
+  const label = (attendanceKindLabels as Record<string, string>)[type]
+  return label ? `${label}${suffix}` : fallback
+}
+
+/** 考勤设置的三个视图名与设置页共用一份（utils/attendance-settings.ts）。 */
+function settingsTabTitle(tab: string) {
+  return ATTENDANCE_SETTINGS_VIEWS.find(item => item.value === tab)?.label ?? '设置'
+}
+
+/** 用章申请页同一路径按 view 分视图：mine 属于「我的申请」，inbox / history 属于「待我审批」。 */
+function sealRequestsBreadcrumb(view: string) {
+  if (view === 'inbox') return { parent: '待我审批', title: '用章审批' }
+  if (view === 'history') return { parent: '待我审批', title: '审核记录' }
+  return { parent: '我的申请', title: '用章申请' }
 }
 
 // Subscription reminder
@@ -93,7 +131,8 @@ onMounted(() => {
 // 计算面包屑（不包括首页，首页在模板中固定显示）
 const breadcrumbs = computed(() => {
   const path = route.path
-  const info = routeMap[path]
+  const entry = routeMap[path]
+  const info = typeof entry === 'function' ? entry(route) : entry
 
   // 首页不需要额外的面包屑
   if (!info || path === '/dashboard') {
@@ -147,6 +186,7 @@ const breadcrumbs = computed(() => {
         <div class="flex-1" />
         <div class="ml-auto flex items-center space-x-2">
           <GlobalSearchDialog />
+          <NoticeBell />
           <template v-if="!authStore.isStandalone">
             <!-- 租户信息 (standalone 模式下隐藏, 移动端隐藏) -->
             <div v-if="tenant" class="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground">

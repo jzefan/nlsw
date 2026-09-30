@@ -274,7 +274,8 @@ test('statement rows carry the salary standard and the month attendance hours', 
   const row = res.body.data.rows[0];
   assert.equal(row.standard.basicPayCents, 500_000);
   assert.equal(row.standard.version, 2);
-  assert.equal(row.standard.contributions.employerSocialInsuranceCents, 60_000);
+  // 传了租户方案就按方案合计算，这里没传 tenant，落到默认五险口径：单位 33.5% / 个人 11% + 3 元
+  assert.equal(row.standard.contributions.employerSocialInsuranceCents, 167_500);
   assert.equal(row.standard.contributions.employeeHousingFundCents, 48_000);
   assert.equal(row.attendance.leaveMinutesByType.sick, 480);
   assert.equal(row.attendance.overtimePayMinutes, 120);
@@ -284,15 +285,48 @@ test('statement rows carry the salary standard and the month attendance hours', 
   // 没录入工资条的月份：按薪资标准给出底稿金额（固定项 + 基数×比例算出的社保公积金，其余为 0）
   assert.equal(row.standardDraft.components.basicPayCents, 500_000);
   assert.equal(row.standardDraft.components.attendanceBonusCents, 10_000);
-  assert.equal(row.standardDraft.components.employerSocialInsuranceCents, 60_000);
-  assert.equal(row.standardDraft.components.employeeSocialInsuranceCents, 42_500);
+  assert.equal(row.standardDraft.components.employerSocialInsuranceCents, 167_500);
+  assert.equal(row.standardDraft.components.employeeSocialInsuranceCents, 55_300);
   assert.equal(row.standardDraft.components.employeeHousingFundCents, 48_000);
   assert.equal(row.standardDraft.components.performancePayCents, 0);
   assert.equal(row.standardDraft.components.personalLeaveDeductionCents, 0);
   assert.equal(row.standardDraft.components.incomeTaxCents, 0);
   assert.equal(row.standardDraft.totals.incomeSubtotalCents, 560_000);
-  assert.equal(row.standardDraft.totals.totalCompensationCents, 668_000);
-  assert.equal(row.standardDraft.totals.netPayCents, 469_500);
+  // 公司承担 = 单位社保 167500 + 单位公积金 48000；实发 = 560000 −（个人社保 55300 + 个人公积金 48000）
+  assert.equal(row.standardDraft.totals.totalCompensationCents, 775_500);
+  assert.equal(row.standardDraft.totals.netPayCents, 456_700);
+});
+
+test('tenant social insurance scheme drives the amounts instead of per-employee rates', async t => {
+  const tenantId = id(), employeeId = id();
+  t.mock.method(User, 'find', () => query([{ _id: employeeId, employeeNo: 'E-1', profile: { name: '员工' }, department: '物流', status: 'active' }]));
+  t.mock.method(PayrollStandard, 'find', () => query([{ employeeId, version: 1, ...standardInput() }]));
+  // 标准里仍写着 12% / 8.5%，但方案生效后这两个数字不参与计算
+  const res = response();
+  await payroll.listStandards({
+    user: { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] },
+    tenantId,
+    tenant: { settings: { payrollContributionScheme: {
+      pensionEmployerPercent: 16, pensionEmployeePercent: 8,
+      medicalEmployerPercent: 8, medicalEmployeePercent: 2, medicalEmployeeFlatCents: 0,
+      unemploymentEmployerPercent: 0.5, unemploymentEmployeePercent: 0.5,
+      injuryEmployerPercent: 0.2, maternityEmployerPercent: 0,
+      housingFundEmployerPercent: 8, housingFundEmployeePercent: 8,
+    } } },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  const standard = res.body.data.rows[0].standard;
+  // 单位 16+8+0.5+0.2 = 24.7%；个人 8+2+0.5 = 10.5%，固定额 0
+  assert.equal(standard.contributions.employerSocialInsuranceCents, 123_500);
+  assert.equal(standard.contributions.employeeSocialInsuranceCents, 52_500);
+  // 回给前端的比例也换成方案值，界面上不会出现「基数 × 12%」这种旧口径
+  assert.equal(standard.companySocialInsuranceRatePercent, 24.7);
+  assert.equal(standard.personalSocialInsuranceRatePercent, 10.5);
+  // 公积金同理：标准里写的 12%（公积金基数 400000）不再作数，按方案的 8% 算
+  assert.equal(standard.contributions.employerHousingFundCents, 32_000);
+  assert.equal(standard.contributions.employeeHousingFundCents, 32_000);
+  assert.equal(standard.companyHousingFundRatePercent, 8);
+  assert.equal(standard.personalHousingFundRatePercent, 8);
 });
 
 test('recorded months ignore the salary standard and rows without a standard have no draft', async t => {
@@ -350,7 +384,11 @@ test('salary standards are readable by payroll readers and writable by finance o
   await payroll.saveStandard({ user: finance, tenantId, params: { employeeId }, body: { standard: standardInput(), version: 0 } }, saved);
   assert.equal(saved.statusCode, 200);
   assert.equal(saved.body.data.version, 1);
-  assert.equal(saved.body.data.contributions.employeeSocialInsuranceCents, 42_500);
+  // 个人社保 = 500000 × 11% + 300（大额医疗固定额）
+  assert.equal(saved.body.data.contributions.employeeSocialInsuranceCents, 55_300);
+  // 标准里带进来的社保比例会被对齐成租户方案合计，不再按员工各自填的数字算
+  assert.equal(saved.body.data.companySocialInsuranceRatePercent, 33.5);
+  assert.equal(saved.body.data.personalSocialInsuranceRatePercent, 11);
 
   const invalid = response();
   await payroll.saveStandard({ user: finance, tenantId, params: { employeeId }, body: { standard: { ...standardInput(), companyHousingFundRatePercent: 12.345 }, version: 0 } }, invalid);

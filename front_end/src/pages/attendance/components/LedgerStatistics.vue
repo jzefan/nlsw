@@ -45,9 +45,10 @@ const loading = ref(false)
 const requestValue = computed(() => period.value === 'month' ? month.value : String(year.value))
 let requestId = 0
 
+// 加班不区分调休 / 加班费，只统计一个「已批加班」口径
 const summaryFields = [
   ['expectedMinutes', '应出勤'], ['actualMinutes', '实到'], ['overtimeApprovedMinutes', '已批加班'],
-  ['overtimeCompTimeMinutes', '已批调休'], ['overtimePayMinutes', '已批加班费'], ['fieldworkApprovedMinutes', '已批外勤'],
+  ['fieldworkApprovedMinutes', '已批出差'],
 ] as const
 
 function formatMinutes(value: unknown) {
@@ -158,18 +159,18 @@ onMounted(load)
         <p v-else class="mt-2 border-t pt-2 text-xs text-muted-foreground">所选期间暂无请假记录</p>
       </details>
       <div class="overflow-x-auto rounded-md border bg-background">
-        <Table class="min-w-[940px]">
-          <TableHeader><TableRow><TableHead>月份</TableHead><TableHead>台账</TableHead><TableHead class="text-right">应出勤</TableHead><TableHead class="text-right">请假</TableHead><TableHead class="text-right">已批加班</TableHead><TableHead class="text-right">已批调休</TableHead><TableHead class="text-right">已批加班费</TableHead><TableHead class="text-right">已批外勤</TableHead><TableHead class="text-right">实到</TableHead><TableHead class="text-right">待确认</TableHead></TableRow></TableHeader>
+        <Table class="min-w-[760px]">
+          <TableHeader><TableRow><TableHead>月份</TableHead><TableHead>台账</TableHead><TableHead class="text-right">应出勤</TableHead><TableHead class="text-right">请假</TableHead><TableHead class="text-right">已批加班</TableHead><TableHead class="text-right">已批出差</TableHead><TableHead class="text-right">实到</TableHead><TableHead class="text-right">待确认</TableHead></TableRow></TableHeader>
           <TableBody>
             <TableRow v-for="row in stats.byMonth" :key="row.month">
               <TableCell class="font-medium tabular-nums">{{ row.month }}</TableCell><TableCell><Badge variant="outline">{{ statusLabel(row.status) }}</Badge></TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.expectedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(leaveTotal(row.totals.leaveMinutesByType)) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.overtimeApprovedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.overtimeCompTimeMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.overtimePayMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.fieldworkApprovedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.actualMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ row.totals.pendingCount ?? '—' }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.expectedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(leaveTotal(row.totals.leaveMinutesByType)) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.overtimeApprovedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.fieldworkApprovedMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ formatMinutes(row.totals.actualMinutes) }}</TableCell><TableCell class="text-right tabular-nums">{{ row.totals.pendingCount ?? '—' }}</TableCell>
             </TableRow>
-            <TableRow v-if="!stats.byMonth.length"><TableCell colspan="10" class="h-16 text-center text-muted-foreground">所选期间暂无考勤统计</TableCell></TableRow>
+            <TableRow v-if="!stats.byMonth.length"><TableCell colspan="8" class="h-16 text-center text-muted-foreground">所选期间暂无考勤统计</TableCell></TableRow>
           </TableBody>
         </Table>
       </div>
-      <p class="text-xs text-muted-foreground">已批加班与外勤代表审批通过时长，不等同于实际完成；实到仅来自人工确认。</p>
+      <p class="text-xs text-muted-foreground">已批加班与出差代表审批通过时长，不等同于实际完成；实到仅来自人工确认。</p>
     </template>
     <div v-else class="rounded-md border py-16 text-center text-sm text-muted-foreground">暂无统计数据</div>
   </div>

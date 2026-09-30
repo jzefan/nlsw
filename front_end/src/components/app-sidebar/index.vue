@@ -22,7 +22,12 @@ const navMain = computed(() => {
   const attendanceRoles = Array.isArray(roles) ? roles : roles ? [roles] : []
   const payroll = user.value?.payrollRoles
   const payrollRoles = Array.isArray(payroll) ? payroll : payroll ? [payroll] : []
-  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '')
+  const isCustodian = Boolean(
+    user.value?.isSealCustodian ||
+    (Array.isArray(authStore.tenant?.sealCustodianIds) && user.value?.id && authStore.tenant.sealCustodianIds.includes(user.value.id)) ||
+    (authStore.tenant?.sealCustodianId && user.value?.id && authStore.tenant.sealCustodianId === user.value.id)
+  )
+  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian)
 })
 
 // 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名

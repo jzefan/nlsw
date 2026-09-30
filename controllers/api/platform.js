@@ -44,6 +44,7 @@ exports.getTenants = async (req, res) => {
         fullName: t.fullName,
         status: t.status,
         attendanceEnabled: t.settings?.attendanceEnabled === true,
+        sealEnabled: t.settings?.sealEnabled === true,
         plan: t.plan,
         maxUsers: t.maxUsers,
         contact: t.contact,
@@ -326,6 +327,10 @@ exports.createTenant = async (req, res) => {
       maxUsers,
       expireDate: tenantData.expireDate ? new Date(tenantData.expireDate) : undefined,
       creator: req.user.userid,
+      settings: {
+        attendanceEnabled: tenantData.attendanceEnabled === true,
+        sealEnabled: tenantData.sealEnabled === true,
+      },
     });
     await tenant.save();
 
@@ -413,6 +418,9 @@ exports.updateTenant = async (req, res) => {
       if (tenantData.maxUsers !== undefined) tenant.maxUsers = Number(tenantData.maxUsers);
       if (tenantData.attendanceEnabled !== undefined) {
         tenant.settings.attendanceEnabled = tenantData.attendanceEnabled === true;
+      }
+      if (tenantData.sealEnabled !== undefined) {
+        tenant.settings.sealEnabled = tenantData.sealEnabled === true;
       }
       if (tenantData.expireDate !== undefined) {
         tenant.expireDate = tenantData.expireDate ? new Date(tenantData.expireDate) : undefined;

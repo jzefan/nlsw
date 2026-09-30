@@ -431,6 +431,41 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/seal/items': RouteRecordInfo<
+      '/seal/items',
+      '/seal/items',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/seal/ledger': RouteRecordInfo<
+      '/seal/ledger',
+      '/seal/ledger',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/seal/requests': RouteRecordInfo<
+      '/seal/requests',
+      '/seal/requests',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/seal/settings': RouteRecordInfo<
+      '/seal/settings',
+      '/seal/settings',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/seal/workbench': RouteRecordInfo<
+      '/seal/workbench',
+      '/seal/workbench',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/settings/': RouteRecordInfo<
       '/settings/',
       '/settings',
@@ -864,6 +899,36 @@ declare module 'vue-router/auto-routes' {
     'src/pages/reports/vessel-revenue.vue': {
       routes:
         | '/reports/vessel-revenue'
+      views:
+        | never
+    }
+    'src/pages/seal/items.vue': {
+      routes:
+        | '/seal/items'
+      views:
+        | never
+    }
+    'src/pages/seal/ledger.vue': {
+      routes:
+        | '/seal/ledger'
+      views:
+        | never
+    }
+    'src/pages/seal/requests.vue': {
+      routes:
+        | '/seal/requests'
+      views:
+        | never
+    }
+    'src/pages/seal/settings.vue': {
+      routes:
+        | '/seal/settings'
+      views:
+        | never
+    }
+    'src/pages/seal/workbench.vue': {
+      routes:
+        | '/seal/workbench'
       views:
         | never
     }

@@ -29,7 +29,7 @@ export interface AttendanceRequest {
   contact?: string
   workContent?: string
   attachments?: { id: string, name: string, mimeType: string, size: number }[]
-  compensation?: 'comp_time' | 'overtime_pay' | string
+  compensation?: 'comp_time' | 'overtime_pay' | 'none' | string
   approvals?: { approverId?: string, role?: string, status?: string, comment?: string, reviewedAt?: string }[]
   currentApproverId?: string | null
   createdAt?: string
@@ -111,12 +111,54 @@ export interface AttendanceLedgerRow {
   overtimeApprovedMinutes: number
   overtimeCompTimeMinutes: number
   overtimePayMinutes: number
+  overtimeUncompensatedMinutes?: number
   fieldworkApprovedMinutes: number
+  /** 待审批（未批完）的申请时长：只作提示，不并入已批口径、不参与实到；已结账月份没有这几个字段。 */
+  pendingOvertimeMinutes?: number
+  pendingFieldworkMinutes?: number
+  pendingLeaveMinutes?: number
+  /** 待审批的请假没有按天分摊，算不出时长，只能提示「有待审批请假」。 */
+  pendingLeaveUnreconciled?: boolean
   actualMinutes: number | null
+  /** 'auto' = 采用系统建议值（后续导入/日历变化会重算）；'manual' = 人工改过（不再被建议值覆盖）。 */
+  actualMinutesSource?: 'auto' | 'manual' | null
+  /** 按规则算出的实到建议值（只算不写库）；null 表示算不出来，原因见 suggestedActualNote。 */
+  suggestedActualMinutes?: number | null
+  suggestedActualNote?: string
+  /** true = 这一行的实到由人工确定，前端显示实际值而不是建议值。 */
+  actualMinutesIsManual?: boolean
   confirmationState: AttendanceLedgerConfirmationState
   note: string
+  /** 导入的考勤记录（次数）；null 表示没导入过。作为「实到」自动计算的依据，本身不直接等于实到。 */
+  lateWithin10: number | null
+  lateOver10: number | null
+  lateTotal: number | null
+  earlyLeave: number | null
+  noClockRecord: number | null
+  importNote: string
+  importedAt: string | null
   version: number
   requiresLeaveReconciliation?: boolean
+}
+
+/** 一行要导入的考勤记录：留空 / 不传的字段不会覆盖原有值。 */
+export interface AttendanceLedgerImportEntry {
+  employeeId: string
+  name?: string
+  lateWithin10?: number | null
+  lateOver10?: number | null
+  lateTotal?: number | null
+  earlyLeave?: number | null
+  noClockRecord?: number | null
+  importNote?: string
+}
+
+export interface AttendanceLedgerImportResult {
+  employeeId: string
+  name: string
+  status: 'created' | 'updated' | 'failed'
+  fields?: string[]
+  error?: string
 }
 
 export interface AttendanceLedgerTotals {
@@ -210,12 +252,23 @@ export async function saveAttendanceProfile(profile: Pick<AttendancePerson, 'use
 }
 
 export async function getAttendanceCalendar(year: number) {
-  const response = await axiosInstance.get<AttendanceResponse<{ year: number, confirmed: boolean, defaultDays: AttendanceCalendarDay[], days: AttendanceCalendarDay[], workPeriods?: { start: string, end: string }[], official?: AttendanceOfficialCalendar }>>('/attendance/calendar', { params: { year } })
+  const response = await axiosInstance.get<AttendanceResponse<{ year: number, confirmed: boolean, defaultDays: AttendanceCalendarDay[], days: AttendanceCalendarDay[], workPeriods?: { start: string, end: string }[], saturdayMorning?: AttendanceSaturdayMorning, official?: AttendanceOfficialCalendar }>>('/attendance/calendar', { params: { year } })
   return response.data
 }
 
 export async function saveAttendanceCalendarDay(year: number, date: string, type: AttendanceCalendarDay['type']) {
   const response = await axiosInstance.post<AttendanceResponse>('/attendance/calendar/day', { year, date, type })
+  return response.data
+}
+
+/** 每周六上午按工作日计：periods 是周六当天计入工作的时段（默认 09:00–12:00）。 */
+export interface AttendanceSaturdayMorning {
+  enabled: boolean
+  periods: { start: string, end: string }[]
+}
+
+export async function saveAttendanceCalendarSaturdayMorning(enabled: boolean) {
+  const response = await axiosInstance.post<AttendanceResponse<AttendanceSaturdayMorning>>('/attendance/calendar/saturday-morning', { enabled })
   return response.data
 }
 
@@ -278,8 +331,48 @@ export async function saveAttendanceLedgerEntry(employeeId: string, month: strin
   confirmationState: AttendanceLedgerConfirmationState
   note: string
   version: number
+  /** 没改动建议值时传 'auto'（以后跟着重算），其余传 'manual'（不再被覆盖）。 */
+  actualMinutesSource?: 'auto' | 'manual'
 }) {
   const response = await axiosInstance.post<AttendanceResponse<{ month: string, version: number, row: AttendanceLedgerRow }>>(`/attendance/ledger/rows/${encodeURIComponent(employeeId)}`, { ...entry, month })
+  return response.data
+}
+
+/** 实到计算规则：实到 = 应出勤 − 请假 − 迟到/早退/无打卡扣减。数值按小时（无打卡按工作日）。 */
+export interface AttendanceLedgerActualRule {
+  lateWithin10Hours: number
+  lateOver10Hours: number
+  earlyLeaveHours: number
+  noClockFullDays: number
+}
+
+/** 规则字段的标签与单位由后端给出，前端只负责渲染，避免两处口径写法漂移。 */
+export interface AttendanceLedgerActualRuleField {
+  key: keyof AttendanceLedgerActualRule
+  label: string
+  unit: 'hour' | 'day'
+  max: number
+}
+
+export interface AttendanceLedgerActualRulePayload {
+  rule: AttendanceLedgerActualRule
+  /** 一个工作日的有效时长（分钟），用于说明「1 个工作日 = 几小时」。 */
+  dayMinutes: number
+  fields: AttendanceLedgerActualRuleField[]
+}
+
+export async function getAttendanceLedgerActualRule() {
+  const response = await axiosInstance.get<AttendanceResponse<AttendanceLedgerActualRulePayload>>('/attendance/ledger/actual-rule')
+  return response.data
+}
+
+export async function saveAttendanceLedgerActualRule(rule: AttendanceLedgerActualRule) {
+  const response = await axiosInstance.post<AttendanceResponse<AttendanceLedgerActualRulePayload>>('/attendance/ledger/actual-rule', { rule })
+  return response.data
+}
+
+export async function importAttendanceLedgerRecords(month: string, rows: AttendanceLedgerImportEntry[]) {
+  const response = await axiosInstance.post<AttendanceResponse<{ month: string, results: AttendanceLedgerImportResult[] }>>('/attendance/ledger/import', { month, rows })
   return response.data
 }
 

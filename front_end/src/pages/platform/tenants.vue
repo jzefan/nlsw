@@ -41,6 +41,7 @@ const tenantForm = ref({
   maxUsers: 5,
   expireDate: '',
   attendanceEnabled: false,
+  sealEnabled: false,
 })
 const ownerForm = ref({
   userid: '',
@@ -147,6 +148,7 @@ function openCreateDialog() {
     maxUsers: 5,
     expireDate: '',
     attendanceEnabled: false,
+    sealEnabled: false,
   }
   ownerForm.value = { userid: '', name: '', phone: '' }
   showFormDialog.value = true
@@ -170,6 +172,7 @@ async function openEditDialog(tenant: TenantItem) {
     maxUsers: tenant.maxUsers,
     expireDate: tenant.expireDate ? tenant.expireDate.slice(0, 10) : '',
     attendanceEnabled: tenant.attendanceEnabled === true,
+    sealEnabled: tenant.sealEnabled === true,
   }
 
   // Fetch owner info
@@ -233,6 +236,7 @@ async function handleFormSubmit() {
           maxUsers: tenantForm.value.maxUsers,
           expireDate: tenantForm.value.expireDate || undefined,
           attendanceEnabled: tenantForm.value.attendanceEnabled,
+          sealEnabled: tenantForm.value.sealEnabled,
         },
         owner: ownerForm.value.userid
           ? {
@@ -370,7 +374,11 @@ onMounted(() => {
         <tbody>
           <tr v-for="tenant in filteredTenants" :key="tenant._id" class="border-t hover:bg-muted/30">
             <td class="p-2 font-medium">
-              {{ tenant.name }}
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span>{{ tenant.name }}</span>
+                <span v-if="tenant.attendanceEnabled" class="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-normal">考勤</span>
+                <span v-if="tenant.sealEnabled" class="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-normal">用章</span>
+              </div>
             </td>
             <td class="p-2 text-muted-foreground">
               {{ tenant.code }}
@@ -741,6 +749,24 @@ onMounted(() => {
               @click="tenantForm.attendanceEnabled = !tenantForm.attendanceEnabled"
             >
               <span class="pointer-events-none inline-block size-4 rounded-full bg-background shadow-sm transition-transform" :class="tenantForm.attendanceEnabled ? 'translate-x-4' : 'translate-x-0.5'" />
+            </button>
+          </div>
+
+          <div v-if="formMode === 'edit'" class="flex items-center justify-between gap-4 border-t pt-4">
+            <div>
+              <label for="tenant-seal-enabled" class="text-sm font-medium">用章管理</label>
+              <p class="text-xs text-muted-foreground">开启后，该公司可使用用章管理功能</p>
+            </div>
+            <button
+              id="tenant-seal-enabled"
+              type="button"
+              role="switch"
+              :aria-checked="tenantForm.sealEnabled"
+              class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="tenantForm.sealEnabled ? 'bg-primary' : 'bg-input'"
+              @click="tenantForm.sealEnabled = !tenantForm.sealEnabled"
+            >
+              <span class="pointer-events-none inline-block size-4 rounded-full bg-background shadow-sm transition-transform" :class="tenantForm.sealEnabled ? 'translate-x-4' : 'translate-x-0.5'" />
             </button>
           </div>
         </div>

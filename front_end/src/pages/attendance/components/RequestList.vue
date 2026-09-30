@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Clock3, Paperclip, Plus, RotateCcw, X
 import { toast } from 'vue-sonner'
 
 import { useAuthStore } from '@/stores/auth'
+import { attendanceKindLabels } from '@/constants/attendance-labels'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DateTimePicker } from '@/components/ui/date-picker'
@@ -41,8 +42,11 @@ const attachmentFiles = ref<File[]>([])
 const busyId = ref('')
 const expandedId = ref('')
 const reviewComment = ref('')
-const form = ref({ type: 'leave' as AttendanceRequestKind, leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'comp_time' })
-const calendarCache = ref<Record<number, { confirmed: boolean, defaultDays: { date: string, type: string }[], days: { date: string, type: string }[], workPeriods: { start: string, end: string }[] }>>({})
+/** 加班补偿方式的展示名，表单与列表共用一份。 */
+const compensationLabels: Record<string, string> = { comp_time: '调休', overtime_pay: '加班费', none: '无补偿' }
+
+const form = ref({ type: 'leave' as AttendanceRequestKind, leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'none' })
+const calendarCache = ref<Record<number, { confirmed: boolean, defaultDays: { date: string, type: string }[], days: { date: string, type: string }[], workPeriods: { start: string, end: string }[], saturdayMorning: { enabled: boolean, periods: { start: string, end: string }[] } }>>({})
 const calendarRequests = new Map<number, Promise<void>>()
 const calendarGenerations = new Map<number, number>()
 const existingLeaveDates = ref(new Set<string>())
@@ -52,8 +56,11 @@ let existingLeaveDatesRequest: Promise<void> | undefined
 
 const isInbox = computed(() => props.view === 'inbox')
 const isHistory = computed(() => props.view === 'history')
-/** 侧栏「我的申请」按类型拆成请假/加班/外勤三个入口，未指定类型时展示全部。 */
-const scopedType = computed<AttendanceRequestKind | ''>(() => (isInbox.value || isHistory.value ? '' : props.type))
+/**
+ * 侧栏把「我的申请」「待我审批」都按类型拆成请假/加班/出差三个入口，用 ?type= 区分，未指定时展示全部。
+ * 「审核记录」保持不分类型（它是「我审批过的全部记录」，没有类型入口）。
+ */
+const scopedType = computed<AttendanceRequestKind | ''>(() => (isHistory.value ? '' : props.type))
 const attendanceRoles = computed(() => {
   const roles = authStore.user?.attendanceRoles
   return Array.isArray(roles) ? roles : roles ? [roles] : []
@@ -84,11 +91,9 @@ const leaveNeedsGeneralManager = computed(() => {
   if (minutes === null || !minutesPerWorkday) return false
   return minutes > generalManagerThresholdDays * minutesPerWorkday
 })
-const kindOptions: { value: AttendanceRequestKind, label: string }[] = [
-  { value: 'leave', label: '请假' },
-  { value: 'overtime', label: '加班' },
-  { value: 'fieldwork', label: '外勤' },
-]
+/** 类型名与面包屑共用 constants/attendance-labels 里那份，避免「请假/审批」两处对不上。 */
+const kindOptions: { value: AttendanceRequestKind, label: string }[] = (Object.keys(attendanceKindLabels) as AttendanceRequestKind[])
+  .map(value => ({ value, label: attendanceKindLabels[value] }))
 const leaveTypes = [
   { value: 'personal', label: '事假' }, { value: 'sick', label: '病假' }, { value: 'annual', label: '年假' },
   { value: 'marriage', label: '婚假' }, { value: 'maternity', label: '产假' }, { value: 'paternity', label: '陪产假' },
@@ -98,7 +103,12 @@ const statusLabels: Record<string, string> = {
   pending: '审批中', awaiting_review: '审批中', approved: '已通过', rejected: '已驳回', withdrawn: '已撤回', draft: '草稿',
 }
 const scopedTypeLabel = computed(() => kindOptions.find(item => item.value === scopedType.value)?.label ?? '')
-const listTitle = computed(() => (isInbox.value ? '待我审批' : isHistory.value ? '审核记录' : scopedTypeLabel.value ? `${scopedTypeLabel.value}申请` : '我的申请'))
+/** 「我的申请」的页面标题；审批视图（待我审批 / 审核记录）只用顶部面包屑。 */
+const listTitle = computed(() => (scopedTypeLabel.value ? `${scopedTypeLabel.value}申请` : '我的申请'))
+/** 在「待我审批 / 审核记录」之间切换时保留当前类型，避免筛选条件被悄悄丢掉。 */
+function listLink(path: string) {
+  return scopedType.value ? { path, query: { type: scopedType.value } } : path
+}
 const emptyText = computed(() => (isHistory.value ? '暂无审核记录' : isInbox.value ? '暂无待审批申请' : `暂无${scopedTypeLabel.value ? `${scopedTypeLabel.value}申请` : '申请'}`))
 
 function requestId(row: AttendanceRequest) {
@@ -135,7 +145,7 @@ function getLeaveType(row: AttendanceRequest) {
 function getDetail(row: AttendanceRequest) {
   const details = [row.reason || row.workContent]
   if (row.type === 'leave' && getLeaveType(row)) details.unshift(getLeaveType(row))
-  if (row.type === 'overtime' && row.compensation) details.unshift(row.compensation === 'comp_time' ? '调休' : '加班费')
+  if (row.type === 'overtime' && row.compensation) details.unshift(compensationLabels[row.compensation] ?? row.compensation)
   if (row.type === 'fieldwork' && row.location) details.push(`地点：${row.location}`)
   if (row.type === 'overtime' && row.location) details.push(`地点：${row.location}`)
   return details.filter(Boolean).join(' · ') || '—'
@@ -264,7 +274,8 @@ async function loadPendingApprovalCount() {
     return
   }
   try {
-    const response = await getAttendanceRequests('inbox', 1, 1)
+    // 角标和列表是同一批单子，也要按当前类型统计
+    const response = await getAttendanceRequests('inbox', 1, 1, scopedType.value)
     pendingApprovalCount.value = response.pagination?.total ?? extractRows(response as Record<string, unknown>)?.length ?? 0
   }
   catch {
@@ -293,6 +304,7 @@ async function ensureCalendar(year: number) {
         defaultDays?: { date: string, type: string }[]
         days?: { date: string, type: string }[]
         workPeriods?: { start: string, end: string }[]
+        saturdayMorning?: { enabled: boolean, periods: { start: string, end: string }[] }
       } | undefined
       if (generation === (calendarGenerations.get(year) ?? 0)) {
         calendarCache.value[year] = {
@@ -300,6 +312,7 @@ async function ensureCalendar(year: number) {
           defaultDays: data?.defaultDays ?? [],
           days: data?.days ?? [],
           workPeriods: data?.workPeriods ?? [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }],
+          saturdayMorning: data?.saturdayMorning ?? { enabled: false, periods: [] },
         }
       }
     }
@@ -311,9 +324,11 @@ async function ensureCalendar(year: number) {
 
 function invalidateCalendar(event: Event) {
   const year = (event as CustomEvent<{ year?: number }>).detail?.year
-  if (typeof year === 'number') {
-    calendarGenerations.set(year, (calendarGenerations.get(year) ?? 0) + 1)
-    delete calendarCache.value[year]
+  // 不带年度的是租户级设置（如周六上午上班），影响所有年度，整表失效
+  const targets = typeof year === 'number' ? [year] : Object.keys(calendarCache.value).map(Number)
+  for (const target of targets) {
+    calendarGenerations.set(target, (calendarGenerations.get(target) ?? 0) + 1)
+    delete calendarCache.value[target]
   }
 }
 
@@ -343,8 +358,9 @@ function calculateLeavePreviewMinutes(startAt: string, endAt: string, start: num
     const year = selectedYear(dateText)
     const calendar = calendarCache.value[year]
     if (!calendar) return null
-    if (isCalendarWorkday(year, dateText)) {
-      for (const interval of calendar.workPeriods) {
+    const workPeriods = calendarWorkdayIntervals(year, dateText)
+    if (workPeriods) {
+      for (const interval of workPeriods) {
         const from = wallClockTimestamp(`${dateText}T${interval.start}`)
         const to = wallClockTimestamp(`${dateText}T${interval.end}`)
         if (from !== null && to !== null && to > from) {
@@ -386,14 +402,26 @@ function formatRequestDuration(minutes: number) {
   return parts.join('') || (fullDays ? `${fullDays} 天` : '0 小时')
 }
 
-function isCalendarWorkday(year: number, date: string) {
+/** 一天实际计入工作的时段：null 表示休息日；周六上午上班时只返回上午那几个时段，与后端口径一致。 */
+function calendarWorkdayIntervals(year: number, date: string) {
   const calendar = calendarCache.value[year]
+  const fallbackPeriods = [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }]
+  const periods = calendar?.workPeriods?.length ? calendar.workPeriods : fallbackPeriods
   const type = calendar?.days.find(item => item.date === date)?.type
     ?? calendar?.defaultDays.find(item => item.date === date)?.type
-  if (type === 'workday') return true
-  if (type === 'holiday') return false
+  if (type === 'workday') return periods
+  if (type === 'holiday') return null
   const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay()
-  return weekday !== 0 && weekday !== 6
+  if (weekday === 0) return null
+  if (weekday === 6) {
+    if (calendar?.saturdayMorning?.enabled !== true) return null
+    return calendar.saturdayMorning.periods?.length ? calendar.saturdayMorning.periods : periods.slice(0, 1)
+  }
+  return periods
+}
+
+function isCalendarWorkday(year: number, date: string) {
+  return calendarWorkdayIntervals(year, date) !== null
 }
 
 function isLeaveDateUnavailable(date: Date) {
@@ -428,7 +456,7 @@ async function validateLeaveDate(field: 'startAt' | 'endAt') {
 }
 
 function openCreate() {
-  form.value = { type: scopedType.value || 'leave', leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'comp_time' }
+  form.value = { type: scopedType.value || 'leave', leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'none' }
   attachmentFiles.value = []
   handleCalendarYearChange(new Date().getFullYear())
   dialogOpen.value = true
@@ -520,7 +548,7 @@ async function submit() {
     return
   }
   if (submittedForm.type === 'fieldwork' && (!submittedForm.location.trim() || !submittedForm.contact.trim() || !submittedForm.workContent.trim())) {
-    toast.error('请填写外勤地点、对接对象和工作内容')
+    toast.error('请填写出差地点、对接对象和工作内容')
     return
   }
   if ([submittedForm.startAt, submittedForm.endAt].some(value => !/^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(value))) {
@@ -609,7 +637,7 @@ watch(() => props.view, () => {
   load()
   if (!isInbox.value) void loadPendingApprovalCount()
 })
-// 侧栏在请假/加班/外勤之间切换时复用同一个组件实例，需要按新类型重新取数。
+// 侧栏在请假/加班/出差之间切换时复用同一个组件实例，需要按新类型重新取数。
 watch(scopedType, () => {
   page.value = 1
   load()
@@ -629,17 +657,15 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
 <template>
   <main class="space-y-4 p-4 md:p-0">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-lg font-semibold">{{ listTitle }}</h1>
-        <!-- 我的申请页不在页内放页签（入口都在左侧菜单）；待我审批页只保留审批相关的两个页签 -->
-        <nav v-if="canReview && (isInbox || isHistory)" class="mt-4 flex gap-4 text-sm">
-          <router-link to="/attendance/approvals" :class="isInbox ? 'relative inline-flex border-b-2 border-primary pb-1 font-medium' : 'relative inline-flex pb-1 text-muted-foreground hover:text-foreground'">
-            待我审批
-            <Badge v-if="pendingApprovalCount > 0" variant="destructive" class="absolute -right-3 -top-2 z-10 h-4 min-w-4 px-1 py-0 text-[10px] leading-none tabular-nums" :aria-label="`${pendingApprovalCount} 条待审批`">{{ pendingApprovalCount }}</Badge>
-          </router-link>
-          <router-link to="/attendance/approval-history" :class="isHistory ? 'border-b-2 border-primary pb-1 font-medium' : 'pb-1 text-muted-foreground hover:text-foreground'">审核记录</router-link>
-        </nav>
-      </div>
+      <!-- 标题在顶部面包屑里；「我的申请」页内再给一次大标题，审批视图只出下面这条切换 -->
+      <h1 v-if="!isInbox && !isHistory" class="text-lg font-semibold">{{ listTitle }}</h1>
+      <nav v-if="canReview && (isInbox || isHistory)" class="flex items-center gap-1 border-b pb-2 text-xs">
+        <router-link :to="listLink('/attendance/approvals')" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isInbox ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">
+          待我审批
+          <Badge v-if="pendingApprovalCount > 0" variant="destructive" class="h-4 rounded-full px-1.5 text-[10px]" :aria-label="`${pendingApprovalCount} 条待审批`">{{ pendingApprovalCount }}</Badge>
+        </router-link>
+        <router-link to="/attendance/approval-history" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isHistory ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">审核记录</router-link>
+      </nav>
       <div v-if="!isInbox && !isHistory" class="flex items-center gap-2">
         <Button variant="outline" size="sm" :disabled="loading" @click="load"><RotateCcw class="mr-1.5 size-4" :class="loading ? 'animate-spin' : ''" />刷新</Button>
         <Button size="sm" @click="openCreate"><Plus class="mr-1.5 size-4" />新建申请</Button>
@@ -770,10 +796,10 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
               预计时长：<span class="font-medium text-foreground">{{ durationPreview }}</span>
               <span v-if="leaveNeedsGeneralManager" class="ml-2 text-amber-700 dark:text-amber-400">超过 {{ generalManagerThresholdDays }} 个工作日，提交后需总经理终审</span>
             </div>
-            <div v-if="form.type === 'overtime'" class="space-y-1.5 text-sm"><span>加班方式</span>
+            <div v-if="form.type === 'overtime'" class="space-y-1.5 text-sm"><span>补偿方式</span>
               <Select v-model="form.compensation">
                 <SelectTrigger class="w-full" aria-label="加班补偿方式"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="comp_time">调休</SelectItem><SelectItem value="overtime_pay">加班费</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="comp_time">调休</SelectItem><SelectItem value="overtime_pay">加班费</SelectItem><SelectItem value="none">无补偿</SelectItem></SelectContent>
               </Select>
             </div>
             <template v-if="form.type === 'overtime'">
@@ -781,9 +807,9 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
               <label class="space-y-1.5 text-sm sm:col-span-2"><span>工作内容</span><Textarea v-model="form.workContent" rows="2" aria-label="加班工作内容" required /></label>
             </template>
             <template v-if="form.type === 'fieldwork'">
-              <label class="space-y-1.5 text-sm"><span>地点</span><Input v-model="form.location" aria-label="外勤地点" required /></label>
-              <label class="space-y-1.5 text-sm"><span>对接对象</span><Input v-model="form.contact" aria-label="外勤对接对象" required /></label>
-              <label class="space-y-1.5 text-sm sm:col-span-3"><span>工作内容</span><Textarea v-model="form.workContent" rows="2" aria-label="外勤工作内容" required /></label>
+              <label class="space-y-1.5 text-sm"><span>地点</span><Input v-model="form.location" aria-label="出差地点" required /></label>
+              <label class="space-y-1.5 text-sm"><span>对接对象</span><Input v-model="form.contact" aria-label="出差对接对象" required /></label>
+              <label class="space-y-1.5 text-sm sm:col-span-3"><span>工作内容</span><Textarea v-model="form.workContent" rows="2" aria-label="出差工作内容" required /></label>
             </template>
             <label class="space-y-1.5 text-sm sm:col-span-3"><span>事由</span><Textarea v-model="form.reason" rows="3" required /></label>
             <div class="space-y-2 text-sm sm:col-span-3">

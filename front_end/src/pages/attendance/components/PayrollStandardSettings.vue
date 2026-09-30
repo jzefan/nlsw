@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Check, Pencil, RefreshCw, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Check, Pencil, RefreshCw, Settings2, SlidersHorizontal, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getPayrollStandards, savePayrollStandard, type PayrollStandard, type PayrollStandardRow } from '@/services/api/payroll.api'
-import { centsToYuanInput, computeStandardContributions, formatCents, parsePercentInput, parseYuanToCents, rateToPercentInput } from '@/utils/payroll'
+import { getPayrollContributionScheme, getPayrollStandards, savePayrollContributionScheme, savePayrollStandard, type PayrollContributionScheme, type PayrollStandard, type PayrollStandardInput, type PayrollStandardRow } from '@/services/api/payroll.api'
+import { DEFAULT_CONTRIBUTION_SCHEME, centsToYuanInput, computeStandardContributions, contributionSchemeTotals, formatCents, parsePercentInput, parseYuanToCents, rateToPercentInput } from '@/utils/payroll'
 
 const props = defineProps<{ canEdit: boolean }>()
 
-type StandardKey = keyof Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>
+type StandardKey = keyof PayrollStandardInput
 /** 输入框可能被 <input type="number"> 转成数字，所以草稿允许 string | number。 */
 type Draft = Record<StandardKey, string | number>
 
@@ -24,20 +25,30 @@ const moneyFields: ReadonlyArray<readonly [StandardKey, string]> = [
   ['seniorityPayCents', '工龄工资'],
   ['attendanceBonusCents', '满勤奖'],
 ]
+/** 社保与公积金的费率都改由「五险一金方案」统一决定，员工这里只填各自的缴费基数。 */
 const socialFields: ReadonlyArray<readonly [StandardKey, string]> = [
   ['companySocialInsuranceBaseCents', '公司基数'],
-  ['companySocialInsuranceRatePercent', '公司比例'],
   ['personalSocialInsuranceBaseCents', '个人基数'],
-  ['personalSocialInsuranceRatePercent', '个人比例'],
 ]
 const fundFields: ReadonlyArray<readonly [StandardKey, string]> = [
   ['companyHousingFundBaseCents', '公司基数'],
-  ['companyHousingFundRatePercent', '公司比例'],
   ['personalHousingFundBaseCents', '个人基数'],
-  ['personalHousingFundRatePercent', '个人比例'],
 ]
 const allFields = [...moneyFields, ...socialFields, ...fundFields]
-const rateKeys = new Set<StandardKey>(['companySocialInsuranceRatePercent', 'personalSocialInsuranceRatePercent', 'companyHousingFundRatePercent', 'personalHousingFundRatePercent'])
+
+/** 五险的展示顺序；工伤、生育个人不缴。 */
+const socialInsuranceItems = [
+  { key: 'pension', label: '养老保险', employerKey: 'pensionEmployerPercent', employeeKey: 'pensionEmployeePercent' },
+  { key: 'medical', label: '医疗保险', employerKey: 'medicalEmployerPercent', employeeKey: 'medicalEmployeePercent' },
+  { key: 'unemployment', label: '失业保险', employerKey: 'unemploymentEmployerPercent', employeeKey: 'unemploymentEmployeePercent' },
+  { key: 'injury', label: '工伤保险', employerKey: 'injuryEmployerPercent', employeeKey: null },
+  { key: 'maternity', label: '生育保险', employerKey: 'maternityEmployerPercent', employeeKey: null },
+] as const
+type SchemeKey = keyof PayrollContributionScheme
+const schemePercentKeys: SchemeKey[] = [
+  ...socialInsuranceItems.flatMap(item => (item.employeeKey ? [item.employerKey, item.employeeKey] : [item.employerKey])),
+  'housingFundEmployerPercent', 'housingFundEmployeePercent',
+] as SchemeKey[]
 
 const rows = ref<PayrollStandardRow[]>([])
 const loading = ref(false)
@@ -45,6 +56,23 @@ const loadError = ref(false)
 const editingId = ref('')
 const savingId = ref('')
 const drafts = ref<Record<string, Draft>>({})
+
+/** 五险一金方案：全公司统一，改动会影响所有未录入月份的社保与公积金金额。 */
+const schemeOpen = ref(false)
+const scheme = ref<PayrollContributionScheme>({ ...DEFAULT_CONTRIBUTION_SCHEME })
+const schemeDraft = ref<Record<SchemeKey, string>>(schemeToDraft({ ...DEFAULT_CONTRIBUTION_SCHEME }))
+const schemeEditing = ref(false)
+const schemeSaving = ref(false)
+const schemeLoadError = ref(false)
+const schemeTotals = computed(() => contributionSchemeTotals(scheme.value))
+/** 编辑态按草稿实时算合计，让「改成多少」在保存前就看得见；未编辑时与已保存方案一致。 */
+const schemeDisplayTotals = computed(() => {
+  if (!schemeEditing.value) return schemeTotals.value
+  const draft = {} as PayrollContributionScheme
+  for (const key of schemePercentKeys) draft[key] = parsePercentInput(schemeDraft.value[key]) ?? 0
+  draft.medicalEmployeeFlatCents = parseYuanToCents(schemeDraft.value.medicalEmployeeFlatCents) ?? 0
+  return contributionSchemeTotals(draft)
+})
 
 const configuredCount = computed(() => rows.value.filter(row => row.standard).length)
 
@@ -60,29 +88,46 @@ const selectedRows = computed(() => rows.value.filter(row => selected.value.has(
 const allSelected = computed(() => rows.value.length > 0 && selected.value.size === rows.value.length)
 const unsetCount = computed(() => rows.value.filter(row => !row.standard).length)
 
-function zeroStandard(): Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'> {
-  return Object.fromEntries(allFields.map(([key]) => [key, 0])) as Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>
+function zeroStandard(): PayrollStandardInput {
+  return Object.fromEntries(allFields.map(([key]) => [key, 0])) as PayrollStandardInput
+}
+
+/** 五险一金方案的可编辑草稿：比例按百分比文本、固定额按元文本。 */
+function schemeToDraft(value: PayrollContributionScheme): Record<SchemeKey, string> {
+  return {
+    pensionEmployerPercent: rateToPercentInput(value.pensionEmployerPercent),
+    pensionEmployeePercent: rateToPercentInput(value.pensionEmployeePercent),
+    medicalEmployerPercent: rateToPercentInput(value.medicalEmployerPercent),
+    medicalEmployeePercent: rateToPercentInput(value.medicalEmployeePercent),
+    medicalEmployeeFlatCents: centsToYuanInput(value.medicalEmployeeFlatCents),
+    unemploymentEmployerPercent: rateToPercentInput(value.unemploymentEmployerPercent),
+    unemploymentEmployeePercent: rateToPercentInput(value.unemploymentEmployeePercent),
+    injuryEmployerPercent: rateToPercentInput(value.injuryEmployerPercent),
+    maternityEmployerPercent: rateToPercentInput(value.maternityEmployerPercent),
+    housingFundEmployerPercent: rateToPercentInput(value.housingFundEmployerPercent),
+    housingFundEmployeePercent: rateToPercentInput(value.housingFundEmployeePercent),
+  }
 }
 
 function makeDraft(standard: PayrollStandard | null): Draft {
   const values = standard ?? zeroStandard()
-  return Object.fromEntries(allFields.map(([key]) => [key, rateKeys.has(key) ? rateToPercentInput(values[key]) : centsToYuanInput(values[key])])) as Draft
+  return Object.fromEntries(allFields.map(([key]) => [key, centsToYuanInput(values[key])])) as Draft
 }
 
-/** 编辑态里实时预览基数 × 比例算出的金额，用的就是保存时的同一套口径。 */
+/** 编辑态里实时预览社保与公积金金额，用的就是保存时的同一套口径（都按当前方案）。 */
 function draftContributions(draft: Draft): PayrollStandard['contributions'] {
   const numbers = Object.fromEntries(allFields.map(([key]) => {
     const raw = draft[key] ?? ''
-    const value = rateKeys.has(key) ? parsePercentInput(raw) : parseYuanToCents(raw)
-    return [key, value ?? 0]
-  })) as Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>
-  return computeStandardContributions(numbers)
+    return [key, parseYuanToCents(raw) ?? 0]
+  })) as PayrollStandardInput
+  return computeStandardContributions(numbers, scheme.value)
 }
 
 function contributionsOf(row: PayrollStandardRow): PayrollStandard['contributions'] {
   const standard = row.standard
-  if (!standard) return computeStandardContributions(zeroStandard())
-  return standard.contributions ?? computeStandardContributions(standard)
+  // 只读态的金额由服务端按真实方案算好，这里只在字段缺失时兜底
+  if (!standard) return computeStandardContributions(zeroStandard(), scheme.value)
+  return standard.contributions ?? computeStandardContributions(standard, scheme.value)
 }
 
 function isDirty(row: PayrollStandardRow) {
@@ -92,15 +137,64 @@ function isDirty(row: PayrollStandardRow) {
   return allFields.some(([key]) => String(draft[key] ?? '') !== String(current[key] ?? ''))
 }
 
+function startSchemeEdit() {
+  if (!props.canEdit || schemeSaving.value) return
+  if (editingId.value) { toast.error('请先保存当前修改'); return }
+  schemeDraft.value = schemeToDraft(scheme.value)
+  schemeEditing.value = true
+}
+
+function cancelSchemeEdit() {
+  schemeDraft.value = schemeToDraft(scheme.value)
+  schemeEditing.value = false
+}
+
+async function confirmSchemeEdit() {
+  if (schemeSaving.value) return
+  const next = {} as PayrollContributionScheme
+  for (const key of schemePercentKeys) {
+    const parsed = parsePercentInput(schemeDraft.value[key])
+    if (parsed === null) { toast.error('五险一金比例请输入 0 至 100、最多两位小数的数值'); return }
+    next[key] = parsed
+  }
+  const flat = parseYuanToCents(schemeDraft.value.medicalEmployeeFlatCents)
+  if (flat === null) { toast.error('大额医疗固定额请输入有效金额，最多两位小数'); return }
+  next.medicalEmployeeFlatCents = flat
+
+  schemeSaving.value = true
+  try {
+    const response = await savePayrollContributionScheme(next)
+    if (response.ok === false) throw new Error(String(response.error || '保存五险一金方案失败'))
+    scheme.value = response.data?.scheme ?? next
+    schemeDraft.value = schemeToDraft(scheme.value)
+    schemeEditing.value = false
+    toast.success('五险一金方案已保存')
+    // 未录入月份的社保金额要按新方案重算，重新拉一遍标准
+    await load()
+  }
+  catch (error) {
+    const value = error as { response?: { data?: { message?: string, error?: string } }, message?: string }
+    toast.error(value?.response?.data?.message || value?.response?.data?.error || value?.message || '保存五险一金方案失败')
+  }
+  finally { schemeSaving.value = false }
+}
+
 async function load() {
   loading.value = true
   loadError.value = false
+  schemeLoadError.value = false
   try {
-    const response = await getPayrollStandards()
-    if (response.ok === false) throw new Error(String(response.error || '读取薪资标准失败'))
-    rows.value = response.data?.rows ?? []
+    const [standardsResponse, schemeResponse] = await Promise.all([getPayrollStandards(), getPayrollContributionScheme()])
+    if (standardsResponse.ok === false) throw new Error(String(standardsResponse.error || '读取薪资标准失败'))
+    rows.value = standardsResponse.data?.rows ?? []
     editingId.value = ''
     drafts.value = {}
+    // 方案读不到不影响员工标准的展示（只读金额由服务端按真实方案算好），只在方案抽屉里给重试
+    if (schemeResponse.ok === false) schemeLoadError.value = true
+    else if (schemeResponse.data?.scheme) {
+      scheme.value = schemeResponse.data.scheme
+      schemeDraft.value = schemeToDraft(schemeResponse.data.scheme)
+    }
   }
   catch (error) {
     loadError.value = true
@@ -132,12 +226,12 @@ async function confirmEdit(row: PayrollStandardRow) {
   if (!draft || savingId.value) return
   if (!isDirty(row)) { cancelEdit(row); return }
 
-  const standard = {} as Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>
+  const standard = {} as PayrollStandardInput
   for (const [key, label] of allFields) {
     const raw = draft[key] ?? ''
-    const value = rateKeys.has(key) ? parsePercentInput(raw) : parseYuanToCents(raw)
+    const value = parseYuanToCents(raw)
     if (value === null) {
-      toast.error(rateKeys.has(key) ? `${label}请输入 0 至 100、最多两位小数的比例` : `${label}请输入有效金额，最多两位小数`)
+      toast.error(`${label}请输入有效金额，最多两位小数`)
       return
     }
     standard[key] = value
@@ -191,7 +285,7 @@ function openBatch() {
 /** 留空的项不改：用每位员工原有标准补齐，未设置的员工按 0 建立。 */
 function mergedStandard(row: PayrollStandardRow, patch: Partial<Record<StandardKey, number>>) {
   const base = row.standard ?? zeroStandard()
-  return Object.fromEntries(allFields.map(([key]) => [key, patch[key] ?? base[key] ?? 0])) as Omit<PayrollStandard, 'contributions' | 'version' | 'updatedAt'>
+  return Object.fromEntries(allFields.map(([key]) => [key, patch[key] ?? base[key] ?? 0])) as PayrollStandardInput
 }
 
 async function applyBatch() {
@@ -201,9 +295,9 @@ async function applyBatch() {
   for (const [key, label] of allFields) {
     const raw = batchDraft.value[key]
     if (raw === '' || raw === null || raw === undefined) continue
-    const value = rateKeys.has(key) ? parsePercentInput(raw) : parseYuanToCents(raw)
+    const value = parseYuanToCents(raw)
     if (value === null) {
-      toast.error(rateKeys.has(key) ? `${label}请输入 0 至 100、最多两位小数的比例` : `${label}请输入有效金额，最多两位小数`)
+      toast.error(`${label}请输入有效金额，最多两位小数`)
       return
     }
     patch[key] = value
@@ -244,22 +338,174 @@ defineExpose({ load })
 </script>
 
 <template>
+  <Drawer v-model:open="schemeOpen" direction="left" :should-scale-background="false">
   <section class="space-y-3">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div>
-        <h2 class="text-sm font-semibold">薪资标准</h2>
-        <p class="mt-1 text-xs text-muted-foreground">固定工资项与社保/公积金基数、比例；录入工资条时会自动带出这些值。已设置 {{ configuredCount }} / {{ rows.length }} 人。</p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-lg font-semibold">薪资标准设置</h1>
+        <p class="mt-1 text-xs text-muted-foreground">固定工资项与缴费基数；社保与公积金的费率由「五险一金方案」统一维护，录入工资条时会自动带出这些值。已设置 {{ configuredCount }} / {{ rows.length }} 人。</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <template v-if="canEdit">
-          <span v-if="selectedRows.length" class="text-xs text-muted-foreground">已选 {{ selectedRows.length }} 人</span>
+          <!-- 禁用原因直接写在按钮旁（原先只在 title 悬浮提示里，屏幕上没有任何说明） -->
+          <span v-if="editingId" class="text-xs text-muted-foreground">请先保存当前修改</span>
+          <span v-else-if="selectedRows.length" class="text-xs text-muted-foreground">已选 {{ selectedRows.length }} 人</span>
+          <span v-else class="text-xs text-muted-foreground">请先勾选员工</span>
           <Button v-if="selectedRows.length" size="sm" variant="ghost" :disabled="batchSaving" @click="clearSelection">清除选择</Button>
           <Button v-else-if="unsetCount" size="sm" variant="ghost" :disabled="loading || batchSaving" @click="selectUnset">选择未设置的 {{ unsetCount }} 人</Button>
-          <Button size="sm" :disabled="!selectedRows.length || loading || batchSaving || !!editingId" :title="editingId ? '请先保存当前修改' : selectedRows.length ? '批量设置所选员工' : '请先勾选员工'" @click="openBatch"><SlidersHorizontal class="mr-1.5 size-4" />批量设置</Button>
+          <Button size="sm" :disabled="!selectedRows.length || loading || batchSaving || !!editingId" @click="openBatch"><SlidersHorizontal class="mr-1.5 size-4" />批量设置</Button>
         </template>
+        <DrawerTrigger as-child>
+          <Button size="sm" variant="outline" :disabled="loading"><Settings2 class="mr-1.5 size-4" />五险一金方案</Button>
+        </DrawerTrigger>
         <Button size="sm" variant="outline" :disabled="loading" @click="load"><RefreshCw class="mr-1.5 size-4" />刷新</Button>
       </div>
     </div>
+
+    <!-- 五险一金方案：全公司统一，员工只填各自的缴费基数 -->
+    <!-- 宽度要用与组件同名修饰符覆盖，否则会被 DrawerContent 自带的 sm:max-w-sm 压住 -->
+    <DrawerContent class="overflow-y-auto data-[vaul-drawer-direction=left]:sm:max-w-xl">
+      <DrawerHeader>
+        <DrawerTitle>五险一金方案</DrawerTitle>
+        <DrawerDescription>全公司统一：单位社保 = 公司基数 × 五险单位合计，个人社保 = 个人基数 × 五险个人合计 + 大额医疗固定额；公积金按下面的比例计算。</DrawerDescription>
+      </DrawerHeader>
+      <div class="flex flex-wrap items-center justify-between gap-2 px-4">
+        <span class="text-xs text-muted-foreground">改动会影响所有未录入月份的社保与公积金金额</span>
+        <div v-if="canEdit" class="flex items-center gap-1">
+          <template v-if="schemeEditing">
+            <Button size="sm" variant="ghost" class="h-8 w-7 px-0" :disabled="schemeSaving" aria-label="取消编辑五险一金方案" @click="cancelSchemeEdit"><X class="size-4" /></Button>
+            <Button size="sm" variant="ghost" class="h-8 w-7 px-0" :disabled="schemeSaving" aria-label="保存五险一金方案" @click="confirmSchemeEdit"><Check class="size-4" /></Button>
+          </template>
+          <Button
+            v-else
+            size="sm"
+            variant="ghost"
+            class="h-8 w-7 px-0"
+            :disabled="schemeSaving || loading || !!editingId"
+            :title="editingId ? '请先保存当前修改' : '编辑五险一金方案'"
+            aria-label="编辑五险一金方案"
+            @click="startSchemeEdit"
+          >
+            <Pencil class="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div v-if="schemeLoadError" class="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+        <span class="text-destructive">五险一金方案读取失败；员工只读金额仍按服务端口径显示，编辑态预览可能不准。</span>
+        <Button size="sm" variant="outline" :disabled="loading" @click="load">重试</Button>
+      </div>
+
+      <div v-else class="mx-4 mt-3 rounded-md border">
+        <Table class="text-xs [&_td:last-child]:pr-3 [&_th:last-child]:pr-3">
+          <TableHeader>
+            <TableRow>
+              <TableHead class="pl-3">项目</TableHead>
+              <TableHead class="text-right">单位</TableHead>
+              <TableHead class="text-right">个人</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <!-- 社保：五险与个人固定额为子级 -->
+            <TableRow class="hover:bg-transparent">
+              <TableCell colspan="3" class="bg-muted/50 pl-3 font-medium">社保</TableCell>
+            </TableRow>
+            <TableRow v-for="item in socialInsuranceItems" :key="item.key">
+              <TableCell class="pl-6">{{ item.label }}</TableCell>
+              <TableCell class="text-right tabular-nums">
+                <Input
+                  v-if="schemeEditing"
+                  v-model="schemeDraft[item.employerKey]"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  class="ml-auto h-7 w-24 text-right tabular-nums"
+                  :aria-label="`${item.label}单位比例（%）`"
+                />
+                <span v-else>{{ scheme[item.employerKey] }}%</span>
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                <template v-if="item.employeeKey">
+                  <Input
+                    v-if="schemeEditing"
+                    v-model="schemeDraft[item.employeeKey]"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    class="ml-auto h-7 w-24 text-right tabular-nums"
+                    :aria-label="`${item.label}个人比例（%）`"
+                  />
+                  <span v-else>{{ scheme[item.employeeKey] }}%</span>
+                </template>
+                <span v-else class="text-muted-foreground">不缴</span>
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell class="pl-6">大额医疗（个人固定额）</TableCell>
+              <TableCell class="text-right text-muted-foreground">—</TableCell>
+              <TableCell class="text-right tabular-nums">
+                <Input
+                  v-if="schemeEditing"
+                  v-model="schemeDraft.medicalEmployeeFlatCents"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  class="ml-auto h-7 w-24 text-right tabular-nums"
+                  aria-label="个人大额医疗固定额（元）"
+                />
+                <span v-else>{{ formatCents(scheme.medicalEmployeeFlatCents) }}</span>
+              </TableCell>
+            </TableRow>
+            <TableRow class="border-t font-medium">
+              <TableCell class="pl-6 text-muted-foreground">五险小计</TableCell>
+              <TableCell class="text-right tabular-nums">{{ schemeDisplayTotals.employerRatePercent }}%</TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ schemeDisplayTotals.employeeRatePercent }}%<span class="font-normal text-muted-foreground"> + {{ formatCents(schemeDisplayTotals.employeeFlatCents) }}</span>
+              </TableCell>
+            </TableRow>
+
+            <!-- 公积金 -->
+            <TableRow class="hover:bg-transparent">
+              <TableCell colspan="3" class="bg-muted/50 pl-3 font-medium">公积金</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell class="pl-6">住房公积金</TableCell>
+              <TableCell class="text-right tabular-nums">
+                <Input
+                  v-if="schemeEditing"
+                  v-model="schemeDraft.housingFundEmployerPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  class="ml-auto h-7 w-24 text-right tabular-nums"
+                  aria-label="住房公积金单位比例（%）"
+                />
+                <span v-else>{{ scheme.housingFundEmployerPercent }}%</span>
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                <Input
+                  v-if="schemeEditing"
+                  v-model="schemeDraft.housingFundEmployeePercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  class="ml-auto h-7 w-24 text-right tabular-nums"
+                  aria-label="住房公积金个人比例（%）"
+                />
+                <span v-else>{{ scheme.housingFundEmployeePercent }}%</span>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      <DrawerFooter>
+        <DrawerClose as-child><Button variant="outline">关闭</Button></DrawerClose>
+      </DrawerFooter>
+    </DrawerContent>
 
     <div v-if="batchFailures.length" class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
       <div class="font-medium text-destructive">以下员工未能保存，请刷新后重试（共 {{ batchFailures.length }} 人）：</div>
@@ -306,8 +552,8 @@ defineExpose({ load })
             <template v-if="editingId === row.employeeId">
               <TableCell class="align-top">
                 <div class="space-y-1.5">
-                  <label v-for="[key, label] in moneyFields" :key="key" class="flex items-center justify-between gap-2 text-xs">
-                    <span class="text-muted-foreground">{{ label }}</span>
+                  <label v-for="[key, label] in moneyFields" :key="key" class="flex items-center gap-3 text-xs">
+                    <span class="w-12 shrink-0 text-muted-foreground">{{ label }}</span>
                     <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-7 w-28 text-right tabular-nums" :aria-label="`${row.name} ${label}（元）`" />
                   </label>
                 </div>
@@ -315,20 +561,26 @@ defineExpose({ load })
               <TableCell class="align-top">
                 <div class="space-y-1.5">
                   <label v-for="[key, label] in socialFields" :key="key" class="flex items-center justify-between gap-2 text-xs">
-                    <span class="text-muted-foreground">{{ label }}{{ rateKeys.has(key) ? '（%）' : '' }}</span>
-                    <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" :max="rateKeys.has(key) ? 100 : undefined" class="h-7 w-28 text-right tabular-nums" :aria-label="`${row.name} 社保${label}`" />
+                    <span class="text-muted-foreground">{{ label }}</span>
+                    <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-7 w-28 text-right tabular-nums" :aria-label="`${row.name} 社保${label}`" />
                   </label>
-                  <div class="flex items-center justify-between gap-2 border-t pt-1 text-xs">
-                    <span class="text-muted-foreground">算出金额</span>
-                    <span class="tabular-nums">公司 {{ formatCents(draftContributions(drafts[row.employeeId]).employerSocialInsuranceCents) }} / 个人 {{ formatCents(draftContributions(drafts[row.employeeId]).employeeSocialInsuranceCents) }}</span>
+                  <div class="space-y-0.5 border-t pt-1 text-xs text-muted-foreground">
+                    <div class="flex items-center justify-between gap-2">
+                      <span>单位 {{ schemeDisplayTotals.employerRatePercent }}%</span>
+                      <span class="tabular-nums">{{ formatCents(draftContributions(drafts[row.employeeId]).employerSocialInsuranceCents) }}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                      <span>个人 {{ schemeDisplayTotals.employeeRatePercent }}%＋{{ formatCents(schemeDisplayTotals.employeeFlatCents) }}</span>
+                      <span class="tabular-nums">{{ formatCents(draftContributions(drafts[row.employeeId]).employeeSocialInsuranceCents) }}</span>
+                    </div>
                   </div>
                 </div>
               </TableCell>
               <TableCell class="align-top">
                 <div class="space-y-1.5">
                   <label v-for="[key, label] in fundFields" :key="key" class="flex items-center justify-between gap-2 text-xs">
-                    <span class="text-muted-foreground">{{ label }}{{ rateKeys.has(key) ? '（%）' : '' }}</span>
-                    <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" :max="rateKeys.has(key) ? 100 : undefined" class="h-7 w-28 text-right tabular-nums" :aria-label="`${row.name} 公积金${label}`" />
+                    <span class="text-muted-foreground">{{ label }}</span>
+                    <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-7 w-28 text-right tabular-nums" :aria-label="`${row.name} 公积金${label}`" />
                   </label>
                   <div class="flex items-center justify-between gap-2 border-t pt-1 text-xs">
                     <span class="text-muted-foreground">算出金额</span>
@@ -347,8 +599,8 @@ defineExpose({ load })
             <template v-else>
               <TableCell class="align-top">
                 <div v-if="row.standard" class="space-y-0.5 text-xs">
-                  <div v-for="[key, label] in moneyFields" :key="key" class="flex items-center justify-between gap-3">
-                    <span class="text-muted-foreground">{{ label }}</span><span class="tabular-nums">{{ formatCents(row.standard[key]) }}</span>
+                  <div v-for="[key, label] in moneyFields" :key="key" class="flex items-center gap-3">
+                    <span class="w-12 shrink-0 text-muted-foreground">{{ label }}</span><span class="tabular-nums">{{ formatCents(row.standard[key]) }}</span>
                   </div>
                 </div>
                 <div v-else class="text-xs text-muted-foreground">—</div>
@@ -357,12 +609,12 @@ defineExpose({ load })
                 <div v-if="row.standard" class="space-y-1 text-xs">
                   <div class="space-y-0.5">
                     <div class="text-muted-foreground">公司</div>
-                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × 比例</span><span class="tabular-nums">{{ formatCents(row.standard.companySocialInsuranceBaseCents) }} × {{ row.standard.companySocialInsuranceRatePercent }}%</span></div>
+                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × {{ schemeDisplayTotals.employerRatePercent }}%</span><span class="tabular-nums">{{ formatCents(row.standard.companySocialInsuranceBaseCents) }}</span></div>
                     <div class="flex items-center justify-between gap-3 font-medium"><span class="text-muted-foreground">金额</span><span class="tabular-nums">{{ formatCents(contributionsOf(row).employerSocialInsuranceCents) }}</span></div>
                   </div>
                   <div class="space-y-0.5 border-t pt-1">
                     <div class="text-muted-foreground">个人</div>
-                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × 比例</span><span class="tabular-nums">{{ formatCents(row.standard.personalSocialInsuranceBaseCents) }} × {{ row.standard.personalSocialInsuranceRatePercent }}%</span></div>
+                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × {{ schemeDisplayTotals.employeeRatePercent }}%＋{{ formatCents(schemeDisplayTotals.employeeFlatCents) }}</span><span class="tabular-nums">{{ formatCents(row.standard.personalSocialInsuranceBaseCents) }}</span></div>
                     <div class="flex items-center justify-between gap-3 font-medium"><span class="text-muted-foreground">金额</span><span class="tabular-nums">{{ formatCents(contributionsOf(row).employeeSocialInsuranceCents) }}</span></div>
                   </div>
                 </div>
@@ -372,12 +624,12 @@ defineExpose({ load })
                 <div v-if="row.standard" class="space-y-1 text-xs">
                   <div class="space-y-0.5">
                     <div class="text-muted-foreground">公司</div>
-                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × 比例</span><span class="tabular-nums">{{ formatCents(row.standard.companyHousingFundBaseCents) }} × {{ row.standard.companyHousingFundRatePercent }}%</span></div>
+                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × {{ schemeDisplayTotals.housingFundEmployerPercent }}%</span><span class="tabular-nums">{{ formatCents(row.standard.companyHousingFundBaseCents) }}</span></div>
                     <div class="flex items-center justify-between gap-3 font-medium"><span class="text-muted-foreground">金额</span><span class="tabular-nums">{{ formatCents(contributionsOf(row).employerHousingFundCents) }}</span></div>
                   </div>
                   <div class="space-y-0.5 border-t pt-1">
                     <div class="text-muted-foreground">个人</div>
-                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × 比例</span><span class="tabular-nums">{{ formatCents(row.standard.personalHousingFundBaseCents) }} × {{ row.standard.personalHousingFundRatePercent }}%</span></div>
+                    <div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">基数 × {{ schemeDisplayTotals.housingFundEmployeePercent }}%</span><span class="tabular-nums">{{ formatCents(row.standard.personalHousingFundBaseCents) }}</span></div>
                     <div class="flex items-center justify-between gap-3 font-medium"><span class="text-muted-foreground">金额</span><span class="tabular-nums">{{ formatCents(contributionsOf(row).employeeHousingFundCents) }}</span></div>
                   </div>
                 </div>
@@ -398,7 +650,7 @@ defineExpose({ load })
       <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>批量设置薪资标准 · 已选 {{ selectedRows.length }} 人</DialogTitle>
-          <p class="text-xs text-muted-foreground">只填需要统一的项，<span class="font-medium text-foreground">留空的项保持每位员工原有值不变</span>；没有标准的人按 0 建立。社保与公积金的金额按各自基数 × 比例计算。</p>
+          <p class="text-xs text-muted-foreground">只填需要统一的项，<span class="font-medium text-foreground">留空的项保持每位员工原有值不变</span>；没有标准的人按 0 建立。社保比例取自上方方案，这里只设基数；公积金按各自基数 × 比例计算。</p>
         </DialogHeader>
         <div class="space-y-4">
           <section class="space-y-2">
@@ -410,13 +662,13 @@ defineExpose({ load })
           <section class="space-y-2">
             <h2 class="text-xs font-semibold">社保</h2>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label v-for="[key, label] in socialFields" :key="key" class="space-y-1 text-xs text-muted-foreground">{{ label }}{{ rateKeys.has(key) ? '（%）' : '（元）' }}<Input v-model="batchDraft[key]" type="number" min="0" step="0.01" :max="rateKeys.has(key) ? 100 : undefined" placeholder="不改" class="h-8 text-right tabular-nums text-foreground" :aria-label="`批量 社保${label}`" /></label>
+              <label v-for="[key, label] in socialFields" :key="key" class="space-y-1 text-xs text-muted-foreground">{{ label }}（元）<Input v-model="batchDraft[key]" type="number" min="0" step="0.01" placeholder="不改" class="h-8 text-right tabular-nums text-foreground" :aria-label="`批量 社保${label}`" /></label>
             </div>
           </section>
           <section class="space-y-2">
             <h2 class="text-xs font-semibold">公积金</h2>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label v-for="[key, label] in fundFields" :key="key" class="space-y-1 text-xs text-muted-foreground">{{ label }}{{ rateKeys.has(key) ? '（%）' : '（元）' }}<Input v-model="batchDraft[key]" type="number" min="0" step="0.01" :max="rateKeys.has(key) ? 100 : undefined" placeholder="不改" class="h-8 text-right tabular-nums text-foreground" :aria-label="`批量 公积金${label}`" /></label>
+              <label v-for="[key, label] in fundFields" :key="key" class="space-y-1 text-xs text-muted-foreground">{{ label }}（元）<Input v-model="batchDraft[key]" type="number" min="0" step="0.01" placeholder="不改" class="h-8 text-right tabular-nums text-foreground" :aria-label="`批量 公积金${label}`" /></label>
             </div>
           </section>
         </div>
@@ -427,4 +679,5 @@ defineExpose({ load })
       </DialogContent>
     </Dialog>
   </section>
+  </Drawer>
 </template>
