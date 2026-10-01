@@ -11,9 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getPayrollContributionScheme, getPayrollStandards, savePayrollContributionScheme, savePayrollStandard, type PayrollContributionScheme, type PayrollStandard, type PayrollStandardInput, type PayrollStandardRow } from '@/services/api/payroll.api'
+import { useDevice } from '@/composables/use-device'
 import { DEFAULT_CONTRIBUTION_SCHEME, centsToYuanInput, computeStandardContributions, contributionSchemeTotals, formatCents, parsePercentInput, parseYuanToCents, rateToPercentInput } from '@/utils/payroll'
 
 const props = defineProps<{ canEdit: boolean }>()
+const { isMobile } = useDevice()
 
 type StandardKey = keyof PayrollStandardInput
 /** 输入框可能被 <input type="number"> 转成数字，所以草稿允许 string | number。 */
@@ -349,7 +351,7 @@ defineExpose({ load })
 </script>
 
 <template>
-  <Drawer v-model:open="schemeOpen" direction="left" :should-scale-background="false">
+  <Drawer v-model:open="schemeOpen" :direction="isMobile ? 'bottom' : 'left'" :should-scale-background="false">
   <section class="space-y-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
@@ -407,7 +409,7 @@ defineExpose({ load })
         <Button size="sm" variant="outline" :disabled="refreshDisabled" @click="load">重试</Button>
       </div>
 
-      <div v-else class="mx-4 mt-3 rounded-md border">
+      <div v-else class="mx-4 mt-3 overflow-x-auto rounded-md border">
         <Table class="text-xs [&_td:last-child]:pr-3 [&_th:last-child]:pr-3">
           <TableHeader>
             <TableRow>
@@ -524,6 +526,94 @@ defineExpose({ load })
     </div>
 
     <div v-if="loadError && !loading" class="rounded-md border py-10 text-center"><p class="text-sm text-destructive">薪资标准读取失败，请稍后重试。</p><Button class="mt-3" size="sm" variant="outline" @click="load">重试</Button></div>
+
+    <!-- 移动端：员工一人一张卡；编辑态单列堆叠，输入占满整行 -->
+    <div v-else-if="isMobile" class="space-y-2">
+      <p v-if="loading" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
+      <p v-else-if="!rows.length" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">暂无可设置薪资标准的员工</p>
+      <template v-else>
+        <div v-for="row in rows" :key="row.employeeId" class="overflow-hidden rounded-xl border bg-background">
+          <div class="flex items-start gap-2 px-3 py-2.5">
+            <Checkbox v-if="canEdit" class="mt-0.5" :model-value="selected.has(row.employeeId)" :disabled="batchSaving" :aria-label="`选择${row.name}`" @update:model-value="checked => toggleRow(row.employeeId, checked === true)" />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-medium">{{ row.name }}</span>
+                <Badge v-if="!row.standard" variant="outline">未设置</Badge>
+              </div>
+              <div class="mt-0.5 text-xs text-muted-foreground">{{ [row.employeeNo, row.phone, row.department].filter(Boolean).join(' · ') || '—' }}</div>
+            </div>
+            <Button v-if="canEdit && editingId !== row.employeeId" variant="ghost" size="sm" class="h-8 shrink-0" :aria-label="`编辑${row.name}的薪资标准`" @click="startEdit(row)"><Pencil class="size-4" /></Button>
+          </div>
+
+          <!-- 编辑态 -->
+          <div v-if="editingId === row.employeeId" class="space-y-4 border-t bg-muted/30 px-3 py-3">
+            <section class="space-y-2">
+              <h3 class="text-xs font-semibold">固定工资项</h3>
+              <label v-for="[key, label] in moneyFields" :key="key" class="block space-y-1 text-xs text-muted-foreground">
+                <span>{{ label }}（元）</span>
+                <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-9 w-full text-right tabular-nums" :aria-label="`${row.name} ${label}（元）`" />
+              </label>
+            </section>
+            <section class="space-y-2">
+              <h3 class="text-xs font-semibold">社保</h3>
+              <label v-for="[key, label] in socialFields" :key="key" class="block space-y-1 text-xs text-muted-foreground">
+                <span>{{ label }}（元）</span>
+                <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-9 w-full text-right tabular-nums" :aria-label="`${row.name} 社保${label}`" />
+              </label>
+              <div class="space-y-0.5 text-xs text-muted-foreground">
+                <div class="flex items-center justify-between gap-2"><span>公司 基数 × {{ schemeDisplayTotals.employerRatePercent }}%</span><span class="tabular-nums">{{ formatCents(draftContributions(drafts[row.employeeId]).employerSocialInsuranceCents) }}</span></div>
+                <div class="flex items-center justify-between gap-2"><span>个人 基数 × {{ schemeDisplayTotals.employeeRatePercent }}%＋{{ formatCents(schemeDisplayTotals.employeeFlatCents) }}</span><span class="tabular-nums">{{ formatCents(draftContributions(drafts[row.employeeId]).employeeSocialInsuranceCents) }}</span></div>
+              </div>
+            </section>
+            <section class="space-y-2">
+              <h3 class="text-xs font-semibold">公积金</h3>
+              <label v-for="[key, label] in fundFields" :key="key" class="block space-y-1 text-xs text-muted-foreground">
+                <span>{{ label }}（元）</span>
+                <Input v-model="drafts[row.employeeId][key]" type="number" min="0" step="0.01" class="h-9 w-full text-right tabular-nums" :aria-label="`${row.name} 公积金${label}`" />
+              </label>
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="text-muted-foreground">算出金额 公司 {{ schemeDisplayTotals.housingFundEmployerPercent }}% / 个人 {{ schemeDisplayTotals.housingFundEmployeePercent }}%</span>
+                <span class="shrink-0 tabular-nums">公司 {{ formatCents(draftContributions(drafts[row.employeeId]).employerHousingFundCents) }} / 个人 {{ formatCents(draftContributions(drafts[row.employeeId]).employeeHousingFundCents) }}</span>
+              </div>
+            </section>
+            <div class="flex items-center gap-2">
+              <Button variant="outline" class="h-9 flex-1" :disabled="savingId === row.employeeId" @click="cancelEdit(row)">取消</Button>
+              <Button class="h-9 flex-1" :disabled="savingId === row.employeeId" @click="confirmEdit(row)">{{ savingId === row.employeeId ? '保存中…' : '保存' }}</Button>
+            </div>
+          </div>
+
+          <!-- 只读态 -->
+          <div v-else class="border-t px-3 py-2.5 text-xs">
+            <template v-if="row.standard">
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                <div v-for="[key, label] in moneyFields" :key="key" class="flex items-baseline justify-between gap-2">
+                  <span class="text-muted-foreground">{{ label }}</span><span class="tabular-nums">{{ formatCents(row.standard[key]) }}</span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-muted-foreground">社保公司基数</span><span class="tabular-nums">{{ formatCents(row.standard.companySocialInsuranceBaseCents) }}</span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-muted-foreground">社保个人基数</span><span class="tabular-nums">{{ formatCents(row.standard.personalSocialInsuranceBaseCents) }}</span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-muted-foreground">公积金公司基数</span><span class="tabular-nums">{{ formatCents(row.standard.companyHousingFundBaseCents) }}</span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-muted-foreground">公积金个人基数</span><span class="tabular-nums">{{ formatCents(row.standard.personalHousingFundBaseCents) }}</span>
+                </div>
+              </div>
+              <div class="mt-1.5 space-y-1 border-t pt-1.5 text-xs text-muted-foreground">
+                <div class="flex items-baseline justify-between gap-2"><span>社保公司 × {{ schemeDisplayTotals.employerRatePercent }}%</span><span class="shrink-0 tabular-nums">{{ formatCents(contributionsOf(row).employerSocialInsuranceCents) }}</span></div>
+                <div class="flex items-baseline justify-between gap-2"><span>社保个人 × {{ schemeDisplayTotals.employeeRatePercent }}%＋{{ formatCents(schemeDisplayTotals.employeeFlatCents) }}</span><span class="shrink-0 tabular-nums">{{ formatCents(contributionsOf(row).employeeSocialInsuranceCents) }}</span></div>
+                <div class="flex items-baseline justify-between gap-2"><span>公积金公司 × {{ schemeDisplayTotals.housingFundEmployerPercent }}%</span><span class="shrink-0 tabular-nums">{{ formatCents(contributionsOf(row).employerHousingFundCents) }}</span></div>
+                <div class="flex items-baseline justify-between gap-2"><span>公积金个人 × {{ schemeDisplayTotals.housingFundEmployeePercent }}%</span><span class="shrink-0 tabular-nums">{{ formatCents(contributionsOf(row).employeeHousingFundCents) }}</span></div>
+              </div>
+            </template>
+            <div v-else class="text-muted-foreground">—</div>
+          </div>
+        </div>
+      </template>
+    </div>
 
     <div v-else class="overflow-x-auto rounded-md border bg-background">
       <Table class="min-w-[1100px]">

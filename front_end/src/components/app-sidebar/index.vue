@@ -7,6 +7,7 @@ import { storeToRefs } from 'pinia'
 import { SYSTEM_NAME } from '@/config/constants'
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
+import { isSealCustodian } from '@/utils/module-access'
 
 import { generateNavData, generatePlatformNavData } from './data/sidebar-data'
 import NavFooter from './nav-footer.vue'
@@ -33,11 +34,7 @@ const navMain = computed(() => {
   const attendanceRoles = Array.isArray(roles) ? roles : roles ? [roles] : []
   const payroll = user.value?.payrollRoles
   const payrollRoles = Array.isArray(payroll) ? payroll : payroll ? [payroll] : []
-  const isCustodian = Boolean(
-    user.value?.isSealCustodian ||
-    (Array.isArray(authStore.tenant?.sealCustodianIds) && user.value?.id && authStore.tenant.sealCustodianIds.includes(user.value.id)) ||
-    (authStore.tenant?.sealCustodianId && user.value?.id && authStore.tenant.sealCustodianId === user.value.id)
-  )
+  const isCustodian = isSealCustodian(user.value, authStore.tenant)
   return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian, user.value?.canReviewAttendance === true)
 })
 

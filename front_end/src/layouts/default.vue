@@ -49,6 +49,10 @@ type BreadcrumbMeta = { parent?: string; title: string }
 // 路由到面包屑的映射；同一路径按 ?type= 呈现不同标题时用函数形式
 const routeMap: Record<string, BreadcrumbMeta | ((route: RouteLocationNormalizedLoaded) => BreadcrumbMeta)> = {
   '/dashboard': { title: '首页' },
+  // 移动端模块首页：页内有自己的标题栏与返回按钮
+  '/mobile/attendance': { title: '考勤与工资' },
+  '/mobile/payroll': { title: '考勤与工资' },
+  '/mobile/seal': { title: '用章' },
   '/plans': { parent: '业务操作', title: '计划列表' },
   '/plans/create': { parent: '业务操作', title: '新建计划' },
   '/bills/list': { parent: '提单管理', title: '提单列表' },

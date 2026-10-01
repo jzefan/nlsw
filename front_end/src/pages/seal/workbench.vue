@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { useDevice } from '@/composables/use-device'
 import { useAuthStore } from '@/stores/auth'
 import {
   getSealRequests,
@@ -20,6 +21,7 @@ import {
 } from '@/services/api/seal.api'
 
 const authStore = useAuthStore()
+const { isMobile } = useDevice()
 
 const currentTab = ref<'approved' | 'checked_out' | 'overdue'>('approved')
 const loading = ref(false)
@@ -164,13 +166,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-4 p-4 md:p-0">
     <!-- 头部说明与 Tab 切换 -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card p-3 rounded-lg border">
-      <div class="flex items-center gap-1.5 p-1 bg-muted/60 rounded-md">
+      <div class="flex w-full items-center gap-1.5 overflow-x-auto p-1 bg-muted/60 rounded-md sm:w-auto sm:overflow-visible">
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded text-xs font-medium transition-all"
           :class="currentTab === 'approved' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="currentTab = 'approved'; loadList()"
         >
@@ -180,7 +182,7 @@ onMounted(() => {
 
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded text-xs font-medium transition-all"
           :class="currentTab === 'checked_out' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="currentTab = 'checked_out'; loadList()"
         >
@@ -190,7 +192,7 @@ onMounted(() => {
 
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded text-xs font-medium transition-all"
           :class="currentTab === 'overdue' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="currentTab = 'overdue'; loadList()"
         >
@@ -206,8 +208,98 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 列表数据 -->
-    <div class="rounded-lg border bg-card overflow-hidden">
+    <!-- 列表数据（移动端：卡片流） -->
+    <div v-if="isMobile" class="space-y-2">
+      <p v-if="loading" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">正在加载数据...</p>
+      <p v-else-if="list.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">当前暂无此状态待办事项</p>
+      <template v-else>
+        <div v-for="row in list" :key="row._id" class="overflow-hidden rounded-xl border bg-card">
+          <div class="space-y-1.5 px-3 py-2.5">
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-sm font-medium text-foreground">No.{{ row.serialNo }}</span>
+              <span class="flex-1" />
+              <Badge
+                v-if="row.status === 'approved'"
+                variant="outline"
+                class="shrink-0 text-[10px] text-blue-600 border-blue-500/30 bg-blue-500/5 font-normal"
+              >
+                待发章
+              </Badge>
+              <Badge v-else-if="row.status === 'checked_out'" variant="default" class="shrink-0 text-[10px] font-normal">
+                在借中
+              </Badge>
+              <Badge v-else-if="row.status === 'overdue'" variant="destructive" class="shrink-0 text-[10px] font-normal">
+                逾期 {{ getOverdueHours(row.expectedReturnAt) }}
+              </Badge>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-14 shrink-0 text-muted-foreground">借用人</span>
+              <span class="min-w-0 flex-1 text-foreground">
+                {{ row.applicant?.name }}
+                <span v-if="row.useDepartment || row.applicant?.department" class="text-muted-foreground">· {{ row.useDepartment || row.applicant?.department }}</span>
+              </span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-14 shrink-0 text-muted-foreground">用章类别</span>
+              <span class="flex min-w-0 flex-1 flex-wrap gap-1">
+                <template v-if="row.sealItems && row.sealItems.length > 0">
+                  <Badge v-for="si in row.sealItems" :key="si.sealItemId" variant="default" class="text-[10px] font-mono px-1.5 py-0">
+                    {{ si.code }}
+                  </Badge>
+                </template>
+                <template v-else>
+                  <Badge v-for="st in row.sealTypes" :key="st" variant="outline" class="text-[10px] px-1 py-0">
+                    {{ SEAL_TYPE_MAP[st] }}
+                  </Badge>
+                </template>
+              </span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-14 shrink-0 text-muted-foreground">用章文件</span>
+              <span class="min-w-0 flex-1 text-foreground">
+                <span class="block truncate">{{ row.documentName }} <span class="text-muted-foreground">· {{ row.copies }}份</span></span>
+                <span class="block text-muted-foreground">事由：{{ row.reason }}</span>
+              </span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-14 shrink-0 text-muted-foreground">预计归还</span>
+              <span class="min-w-0 flex-1">
+                <span :class="row.status === 'overdue' ? 'text-destructive font-medium' : 'text-muted-foreground'">{{ formatDateTime(row.expectedReturnAt) }}</span>
+                <span class="text-muted-foreground"> · 借出 {{ formatDateTime(row.checkedOutAt || row.useAt) }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+            <Button
+              v-if="row.status === 'approved'"
+              size="sm"
+              class="gap-1 text-xs"
+              @click="openCheckoutDialog(row)"
+            >
+              <Stamp class="h-3 w-3" />
+              <span>指定发章</span>
+            </Button>
+            <Button
+              v-if="['checked_out', 'overdue'].includes(row.status)"
+              variant="outline"
+              size="sm"
+              class="gap-1 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+              @click="openReturnDialog(row)"
+            >
+              <CheckCircle2 class="h-3 w-3" />
+              <span>确认收章</span>
+            </Button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div v-else class="rounded-lg border bg-card overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow class="bg-muted/50 text-xs">
@@ -387,7 +479,7 @@ onMounted(() => {
                   <span class="text-[11px] text-muted-foreground">必须选 1 枚</span>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 pt-1">
+                <div class="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <div
                     v-for="item in availableItems.filter(i => i.sealType === st)"
                     :key="item._id"
@@ -414,9 +506,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <DialogFooter class="gap-2 sm:gap-0 pt-2">
-          <Button variant="outline" size="sm" @click="checkoutDialogOpen = false">取消</Button>
-          <Button size="sm" :disabled="!checkoutReady || submittingCheckout" @click="submitCheckout">
+        <DialogFooter class="flex-row justify-end gap-2 pt-2 sm:gap-0">
+          <Button variant="outline" size="sm" class="h-9 sm:h-8" @click="checkoutDialogOpen = false">取消</Button>
+          <Button size="sm" class="h-9 sm:h-8" :disabled="!checkoutReady || submittingCheckout" @click="submitCheckout">
             <Loader2 v-if="submittingCheckout" class="h-3.5 w-3.5 mr-1 animate-spin" />
             <span>确认借出发章</span>
           </Button>
@@ -453,9 +545,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <DialogFooter class="gap-2 sm:gap-0 pt-2">
-          <Button variant="outline" size="sm" @click="returnDialogOpen = false">取消</Button>
-          <Button size="sm" :disabled="submittingReturn" @click="submitReturn">
+        <DialogFooter class="flex-row justify-end gap-2 pt-2 sm:gap-0">
+          <Button variant="outline" size="sm" class="h-9 sm:h-8" @click="returnDialogOpen = false">取消</Button>
+          <Button size="sm" class="h-9 sm:h-8" :disabled="submittingReturn" @click="submitReturn">
             <Loader2 v-if="submittingReturn" class="h-3.5 w-3.5 mr-1 animate-spin" />
             <span>确认收章入库</span>
           </Button>

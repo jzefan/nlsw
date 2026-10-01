@@ -10,10 +10,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { payrollComponentFields } from '@/services/api/attendance.api'
 import { importPayrollDrafts, type PayrollComponents, type PayrollImportSummary, type PayrollStatementRow } from '@/services/api/payroll.api'
+import { useDevice } from '@/composables/use-device'
 import { computePayrollTotals } from '@/constants/payroll-fields'
 import { formatCents } from '@/utils/payroll'
 
 const props = defineProps<{ month: string, rows: PayrollStatementRow[] }>()
+const { isMobile } = useDevice()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ imported: [] }>()
 
@@ -431,7 +433,29 @@ watch(open, value => { if (!value) reset() })
             <span v-if="statusCounts.blocked" class="text-destructive">有问题 {{ statusCounts.blocked }} 行，不会导入</span>
           </div>
 
-          <div class="max-h-80 overflow-auto rounded-md border bg-background">
+          <div v-if="isMobile" class="max-h-80 space-y-2 overflow-auto">
+            <div v-for="row in preview" :key="row.line" class="rounded-lg border bg-background p-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xs tabular-nums text-muted-foreground">#{{ row.line }}</span>
+                <span class="min-w-0 truncate text-sm">{{ row.rawName || '—' }}</span>
+                <span v-if="row.rawEmployeeNo" class="text-xs text-muted-foreground">{{ row.rawEmployeeNo }}</span>
+                <span class="flex-1" />
+                <Badge variant="outline" :class="row.status === 'overwrite-published' ? 'text-amber-700 dark:text-amber-400' : writableStatuses.includes(row.status) ? '' : 'text-destructive'">{{ statusLabels[row.status] }}</Badge>
+              </div>
+              <div class="mt-1 flex items-center justify-between gap-2 text-xs">
+                <span class="min-w-0 truncate text-muted-foreground">
+                  <template v-if="row.matched">{{ row.matched.name }}<span class="ml-1">{{ [row.matched.employeeNo, row.matched.department].filter(Boolean).join(' · ') }}</span></template>
+                  <template v-else>未匹配到员工</template>
+                </span>
+                <span class="shrink-0 tabular-nums">{{ row.matched ? formatCents(row.netPayCents) : '—' }}</span>
+              </div>
+              <p v-if="row.note || row.warnings.length" class="mt-1 text-xs text-muted-foreground">
+                <span v-if="row.note">{{ row.note }}</span>
+                <span v-for="warning in row.warnings" :key="warning" :title="row.warningDetail" class="ml-1 text-amber-700 dark:text-amber-400">{{ warning }}</span>
+              </p>
+            </div>
+          </div>
+          <div v-else class="max-h-80 overflow-auto rounded-md border bg-background">
             <Table class="min-w-[900px]">
               <TableHeader>
                 <TableRow>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, ChevronDown, ChevronUp, RotateCcw, Check, X, Loader2, Clock, Stamp } from 'lucide-vue-next'
+import { Plus, ChevronDown, ChevronUp, RotateCcw, Check, X, Loader2, Clock } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useDevice } from '@/composables/use-device'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -22,6 +23,7 @@ import {
   type SealType
 } from '@/services/api/seal.api'
 import SealRequestDialog from './SealRequestDialog.vue'
+import SealRequestDetailPanel from './SealRequestDetailPanel.vue'
 
 const props = withDefaults(defineProps<{
   view?: 'mine' | 'inbox' | 'history' | 'all'
@@ -36,6 +38,7 @@ const emit = defineEmits<{
 const route = useRoute()
 const authStore = useAuthStore()
 const approvalStore = useApprovalStore()
+const { isMobile } = useDevice()
 
 const loading = ref(false)
 const rows = ref<SealRequest[]>([])
@@ -186,6 +189,30 @@ function formatDateTime(val: string | undefined | null) {
   return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 移动端卡片与展开区的动作条件，与桌面端表格里的判断保持一致。 */
+function canReviewRow(row: SealRequest) {
+  return row.status === 'pending' && (isInbox.value || row.currentApproverId === authStore.user?.id || authStore.isOwner)
+}
+function canWithdrawRow(row: SealRequest) {
+  return ['pending', 'approved'].includes(row.status) && (isMine.value || String(row.applicantId) === String(authStore.user?.id))
+}
+
+/** 详情面板要用的展示文本，桌面展开行与移动端卡片共用同一份。 */
+function detailDisplay(detail: SealRequest) {
+  return {
+    reason: detail.reason,
+    remark: detail.remark || '无',
+    checkedOut: detail.checkedOutAt ? `${formatDateTime(detail.checkedOutAt)} (经办: ${detail.operatorName || '—'})` : '未发章',
+    actualReturn: detail.actualReturnAt ? formatDateTime(detail.actualReturnAt) : '未归还'
+  }
+}
+function detailSealItems(detail: SealRequest) {
+  return (detail.sealItems || []).map(item => ({ id: item.sealItemId, code: item.code, typeName: SEAL_TYPE_MAP[item.sealType] }))
+}
+function detailLogs(detail: SealRequest) {
+  return (detail.logs || []).map(log => ({ id: log._id, operator: log.operatorName || '系统', note: log.note || '', time: formatDateTime(log.at) }))
+}
+
 watch([statusFilter, sealTypeFilter], () => {
   page.value = 1
   loadData()
@@ -248,8 +275,143 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 移动端：卡片列表，展开详情与桌面端共用同一个面板 -->
+    <div v-if="isMobile" class="space-y-2">
+      <div v-if="loading && rows.length === 0" class="rounded-lg border bg-background py-10 text-center text-xs text-muted-foreground">
+        <Loader2 class="h-5 w-5 animate-spin mx-auto mb-2 text-primary" />
+        正在加载数据...
+      </div>
+      <div v-else-if="rows.length === 0" class="rounded-lg border bg-background py-10 text-center text-xs text-muted-foreground">
+        暂无用章申请记录
+      </div>
+      <template v-else>
+        <div v-for="row in rows" :key="row._id" class="rounded-lg border bg-background overflow-hidden">
+          <button
+            type="button"
+            class="w-full px-3 py-2.5 text-left"
+            :aria-expanded="expandedId === row._id"
+            @click="toggleExpand(row._id)"
+          >
+            <div class="flex items-start gap-2">
+              <span class="min-w-0 flex-1 truncate text-sm font-medium text-foreground" :title="row.documentName">{{ row.documentName }}</span>
+              <Badge :variant="SEAL_STATUS_MAP[row.status]?.variant || 'secondary'" class="shrink-0 text-[10px] font-normal">
+                {{ SEAL_STATUS_MAP[row.status]?.label || row.status }}
+              </Badge>
+            </div>
+            <div class="mt-1 text-xs text-muted-foreground tabular-nums">
+              {{ formatDateTime(row.useAt) }} 至 {{ formatDateTime(row.expectedReturnAt) }}
+            </div>
+            <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{{ row.reason }}</p>
+          </button>
+
+          <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+            <Button
+              v-if="canReviewRow(row)"
+              variant="outline"
+              size="sm"
+              class="h-9 px-3 text-xs"
+              :aria-expanded="expandedId === row._id"
+              @click="toggleExpand(row._id)"
+            >
+              {{ expandedId === row._id ? '收起' : '审核' }}
+            </Button>
+            <Button
+              v-else
+              variant="ghost"
+              size="sm"
+              class="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :aria-expanded="expandedId === row._id"
+              @click="toggleExpand(row._id)"
+            >
+              {{ expandedId === row._id ? '收起' : '查看' }}
+            </Button>
+            <Button
+              v-if="canWithdrawRow(row)"
+              variant="ghost"
+              size="sm"
+              class="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+              @click="handleWithdraw(row)"
+            >
+              撤回
+            </Button>
+          </div>
+
+          <div v-if="expandedId === row._id" class="border-t bg-muted/30 p-3">
+            <div v-if="loadingDetail" class="py-4 text-center text-xs text-muted-foreground">
+              <Loader2 class="h-4 w-4 animate-spin mx-auto mb-1 text-primary" />
+              加载详情...
+            </div>
+
+            <div v-else-if="expandedDetail" class="space-y-3">
+              <!-- 申请人 / 部门 / 用章类型 / 份数 -->
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div>
+                  <span class="text-muted-foreground">申请人：</span>
+                  <span class="text-foreground">{{ expandedDetail.applicant?.name || '—' }}</span>
+                </div>
+                <div>
+                  <span class="text-muted-foreground">部门：</span>
+                  <span class="text-foreground">{{ expandedDetail.useDepartment || expandedDetail.applicant?.department || '—' }}</span>
+                </div>
+                <div class="col-span-2 flex flex-wrap items-center gap-1">
+                  <span class="text-muted-foreground">用章类型：</span>
+                  <Badge
+                    v-for="st in expandedDetail.sealTypes"
+                    :key="st"
+                    variant="outline"
+                    class="text-[10px] font-normal px-1 py-0"
+                  >
+                    {{ SEAL_TYPE_MAP[st] }}
+                  </Badge>
+                </div>
+                <div>
+                  <span class="text-muted-foreground">份数：</span>
+                  <span class="text-foreground tabular-nums">{{ expandedDetail.copies }}</span>
+                </div>
+              </div>
+
+              <SealRequestDetailPanel
+                :display="detailDisplay(expandedDetail)"
+                :seal-items="detailSealItems(expandedDetail)"
+                :logs="detailLogs(expandedDetail)"
+              />
+
+              <!-- 审批操作：意见在确认弹窗里填写，通过 / 驳回与桌面端同一入口 -->
+              <div v-if="canReviewRow(row)" class="flex items-center justify-end gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-9 px-3 text-xs text-destructive hover:bg-destructive/10"
+                  @click="openReviewDialog(row, 'rejected')"
+                >
+                  驳回
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-9 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                  @click="openReviewDialog(row, 'approved')"
+                >
+                  通过
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="total > limit" class="flex items-center justify-between text-xs text-muted-foreground py-1">
+        <div>共 {{ total }} 条记录</div>
+        <div class="flex items-center gap-2">
+          <Button variant="outline" size="sm" class="h-9" :disabled="page <= 1" @click="page--; loadData()">上一页</Button>
+          <span class="tabular-nums">第 {{ page }} 页</span>
+          <Button variant="outline" size="sm" class="h-9" :disabled="page * limit >= total" @click="page++; loadData()">下一页</Button>
+        </div>
+      </div>
+    </div>
+
     <!-- 数据表格 -->
-    <div class="rounded-lg border bg-card overflow-hidden">
+    <div v-else class="rounded-lg border bg-card overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow class="bg-muted/50 text-xs">
@@ -387,66 +549,12 @@ onMounted(() => {
                   加载详情...
                 </div>
 
-                <div v-else-if="expandedDetail" class="space-y-4">
-                  <!-- 基本信息卡片 -->
-                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-background rounded-md border text-xs">
-                    <div>
-                      <span class="text-muted-foreground">用章事由：</span>
-                      <span class="font-medium text-foreground">{{ expandedDetail.reason }}</span>
-                    </div>
-                    <div>
-                      <span class="text-muted-foreground">备注说明：</span>
-                      <span class="text-foreground">{{ expandedDetail.remark || '无' }}</span>
-                    </div>
-                    <div>
-                      <span class="text-muted-foreground">实际发章：</span>
-                      <span class="text-foreground">
-                        {{ expandedDetail.checkedOutAt ? `${formatDateTime(expandedDetail.checkedOutAt)} (经办: ${expandedDetail.operatorName || '—'})` : '未发章' }}
-                      </span>
-                    </div>
-                    <div>
-                      <span class="text-muted-foreground">实际归还：</span>
-                      <span class="text-foreground">
-                        {{ expandedDetail.actualReturnAt ? formatDateTime(expandedDetail.actualReturnAt) : '未归还' }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <!-- 分配的实体章明细 -->
-                  <div v-if="expandedDetail.sealItems && expandedDetail.sealItems.length > 0" class="space-y-1.5">
-                    <div class="font-medium text-xs text-muted-foreground">分配实体印章明细：</div>
-                    <div class="flex flex-wrap gap-2">
-                      <div
-                        v-for="item in expandedDetail.sealItems"
-                        :key="item.sealItemId"
-                        class="flex items-center gap-1.5 px-2.5 py-1 bg-background border rounded text-xs font-mono"
-                      >
-                        <Stamp class="h-3.5 w-3.5 text-primary" />
-                        <span>{{ item.code }}</span>
-                        <Badge variant="outline" class="text-[10px] px-1 py-0">{{ SEAL_TYPE_MAP[item.sealType] }}</Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- 流水台账记录 Timeline -->
-                  <div class="space-y-2">
-                    <div class="font-medium text-xs text-muted-foreground">操作审计台账轨迹：</div>
-                    <div class="relative border-l-2 border-border ml-2 pl-3 space-y-3">
-                      <div
-                        v-for="log in expandedDetail.logs || []"
-                        :key="log._id"
-                        class="relative flex flex-col gap-0.5 text-xs"
-                      >
-                        <div class="absolute -left-[19px] top-1 h-2.5 w-2.5 rounded-full bg-border border-2 border-background" />
-                        <div class="flex items-center gap-2">
-                          <span class="font-medium text-foreground">{{ log.operatorName || '系统' }}</span>
-                          <span class="text-muted-foreground">{{ log.note }}</span>
-                          <span class="text-[11px] text-muted-foreground/80 ml-auto">{{ formatDateTime(log.at) }}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <SealRequestDetailPanel
+                  v-else-if="expandedDetail"
+                  :display="detailDisplay(expandedDetail)"
+                  :seal-items="detailSealItems(expandedDetail)"
+                  :logs="detailLogs(expandedDetail)"
+                />
               </TableCell>
             </TableRow>
           </template>

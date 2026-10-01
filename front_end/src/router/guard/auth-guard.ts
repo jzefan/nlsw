@@ -73,5 +73,9 @@ export function authGuard(router: Router) {
     if (to.meta.attendance && !authStore.features.attendance) {
       return { path: '/dashboard' }
     }
+
+    if (to.meta.seal && !authStore.features.seal) {
+      return { path: '/dashboard' }
+    }
   })
 }

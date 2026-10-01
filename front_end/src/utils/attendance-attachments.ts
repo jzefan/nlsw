@@ -15,3 +15,8 @@ export function attachmentPreviewKind(mimeType?: string): AttachmentPreviewKind 
 export function canPreviewAttachment(mimeType?: string) {
   return attachmentPreviewKind(mimeType) !== 'none'
 }
+
+/** 附件大小展示：不足 1MB 用 KB（至少 1KB），否则保留一位小数的 MB。 */
+export function formatFileSize(size: number) {
+  return size < 1024 * 1024 ? `${Math.max(1, Math.ceil(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`
+}

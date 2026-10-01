@@ -128,7 +128,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="max-w-3xl space-y-6">
+  <div class="max-w-3xl space-y-6 p-4 md:p-0">
     <!-- 页面标题 -->
     <div class="border-b pb-4">
       <h2 class="text-base font-semibold text-foreground">用章管理设置</h2>
@@ -144,7 +144,7 @@ onMounted(() => {
 
     <div v-else class="space-y-6 text-xs">
       <!-- 专职保管员配置卡片 -->
-      <div class="rounded-lg border bg-card p-5 space-y-4">
+      <div class="rounded-lg border bg-card p-4 space-y-4 sm:p-5">
         <div class="flex items-center gap-2">
           <UserCheck class="h-4 w-4 text-primary" />
           <h3 class="text-sm font-semibold text-foreground">专职印章保管员</h3>
@@ -193,7 +193,7 @@ onMounted(() => {
               </div>
             </PopoverTrigger>
 
-            <PopoverContent class="w-80 p-2 space-y-2 text-xs" align="start">
+            <PopoverContent class="w-[calc(100vw-2rem)] max-w-80 p-2 space-y-2 text-xs" align="start">
               <!-- 搜索框 -->
               <div class="relative">
                 <Search class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -251,7 +251,7 @@ onMounted(() => {
       </div>
 
       <!-- 逾期催办分级阈值卡片 -->
-      <div class="rounded-lg border bg-card p-5 space-y-4">
+      <div class="rounded-lg border bg-card p-4 space-y-4 sm:p-5">
         <div class="flex items-center gap-2">
           <Clock class="h-4 w-4 text-amber-500" />
           <h3 class="text-sm font-semibold text-foreground">逾期催办与预警升级阈值</h3>
@@ -292,7 +292,7 @@ onMounted(() => {
 
       <!-- 保存操作 -->
       <div class="pt-2">
-        <Button size="sm" class="px-5 text-xs" :disabled="saving" @click="handleSave">
+        <Button size="sm" class="h-9 w-full px-5 text-xs sm:h-8 sm:w-auto" :disabled="saving" @click="handleSave">
           <Loader2 v-if="saving" class="h-3.5 w-3.5 mr-1.5 animate-spin" />
           <span>保存设置</span>
         </Button>

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Check, LockKeyhole, Pencil, RefreshCw, UnlockKeyhole, Upload, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
+import { useDevice } from '@/composables/use-device'
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ interface LedgerDraft {
 }
 
 const authStore = useAuthStore()
+const { isMobile } = useDevice()
 const attendanceRoles = computed(() => {
   const roles = authStore.user?.attendanceRoles
   return Array.isArray(roles) ? roles : roles ? [roles] : []
@@ -358,7 +360,7 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
         </nav>
         <Badge v-if="ledger" variant="outline" :class="isClosed ? '' : 'text-amber-700 dark:text-amber-400'">{{ isClosed ? '已结账' : '开放中' }}</Badge>
       </div>
-      <div v-show="activeView === 'detail'" class="flex flex-wrap items-center gap-2">
+      <div v-if="!isMobile" v-show="activeView === 'detail'" class="flex flex-wrap items-center gap-2">
         <!-- 只有单一范围时才需要这行文字，可选范围时下拉框本身就写着当前范围 -->
         <span v-if="scopeOptions.length <= 1" class="text-xs text-muted-foreground">{{ scopeLabel }}范围</span>
         <label v-if="scopeOptions.length > 1" class="sr-only" for="ledger-scope">台账范围</label>
@@ -374,6 +376,25 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
         <Button v-else-if="canManage" size="sm" :disabled="!ledger || isClosed || !allResolved || hasUnsavedChanges || loading" @click="openLedgerAction('close')"><LockKeyhole class="mr-1.5 size-4" />结账</Button>
       </div>
     </div>
+
+    <!-- 移动端：粘顶一行（月份 / 范围 / 刷新），台账操作另起一行；桌面端工具栏标记不动 -->
+    <template v-if="isMobile && activeView === 'detail'">
+      <div class="sticky top-0 z-10 -mx-4 flex items-center gap-2 bg-background px-4 py-2">
+        <div class="min-w-0 flex-1"><MonthPicker v-model="month" placeholder="选择考勤月份" class="h-9" :disabled="loading || hasSavingEmployees || actionBusy" /></div>
+        <Select v-if="scopeOptions.length > 1" v-model="scope" :disabled="loading || hasSavingEmployees || actionBusy">
+          <SelectTrigger class="w-24 shrink-0" aria-label="台账范围"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem v-for="option in scopeOptions" :key="option" :value="option">{{ ({ mine: '本人', team: '团队', company: '全公司' } as Record<string, string>)[option] }}</SelectItem></SelectContent>
+        </Select>
+        <span v-else class="shrink-0 text-xs text-muted-foreground">{{ scopeLabel }}</span>
+        <Button variant="ghost" size="icon" class="size-8 shrink-0" aria-label="刷新台账" :disabled="loading || hasUnsavedChanges" title="刷新会放弃未保存修改" @click="loadLedger"><RefreshCw class="size-4" /></Button>
+      </div>
+      <div v-if="canManage" class="flex items-center gap-2">
+        <Button v-if="!isClosed" variant="outline" size="sm" :disabled="loading || hasUnsavedChanges" @click="importOpen = true"><Upload class="mr-1.5 size-4" />导入考勤</Button>
+        <Button v-if="isClosed" variant="outline" size="sm" @click="openLedgerAction('reopen')"><UnlockKeyhole class="mr-1.5 size-4" />重新开启</Button>
+        <Button v-else size="sm" :disabled="!ledger || !allResolved || hasUnsavedChanges || loading" @click="openLedgerAction('close')"><LockKeyhole class="mr-1.5 size-4" />结账</Button>
+        <span v-if="closeHint" class="min-w-0 truncate text-xs text-muted-foreground">{{ closeHint }}</span>
+      </div>
+    </template>
 
     <LedgerStatistics v-if="statsMounted" v-show="activeView === 'stats'" />
 
@@ -398,7 +419,7 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
         <div><div class="text-xs text-muted-foreground">待确认</div><div class="mt-1 text-sm font-medium tabular-nums">{{ pendingCount }} 人</div></div>
       </section>
 
-      <div class="overflow-x-auto rounded-md border bg-background">
+      <div v-if="!isMobile" class="overflow-x-auto rounded-md border bg-background">
         <Table class="min-w-[1080px]">
           <TableHeader>
             <TableRow>
@@ -481,9 +502,80 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
           </TableBody>
         </Table>
       </div>
+
+      <!-- 移动端：每人一张卡，编辑沿用同一份 draft -->
+      <div v-else class="space-y-2">
+        <p v-if="loading" class="rounded-md border py-10 text-center text-sm text-muted-foreground">加载中…</p>
+        <p v-else-if="!rows.length" class="rounded-md border py-10 text-center text-sm text-muted-foreground">本月暂无考勤记录</p>
+        <template v-else>
+          <div v-for="row in rows" :key="row.employeeId" class="rounded-md border bg-background">
+            <div class="flex items-start justify-between gap-2 px-3 pt-2.5">
+              <div class="min-w-0">
+                <div class="truncate text-sm font-medium">{{ row.displayName || row.name }}</div>
+                <div v-if="[row.employeeNo, row.department].filter(Boolean).length" class="mt-0.5 truncate text-xs text-muted-foreground">{{ [row.employeeNo, row.department].filter(Boolean).join(' · ') }}</div>
+              </div>
+              <Badge variant="outline" class="shrink-0" :class="row.confirmationState === 'pending' ? 'text-amber-700 dark:text-amber-400' : ''">{{ row.confirmationState === 'confirmed' ? '已确认' : row.confirmationState === 'no_basis' ? '无依据' : '待确认' }}</Badge>
+            </div>
+
+            <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 border-t px-3 py-2.5">
+              <div><div class="text-xs text-muted-foreground">应出勤</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.expectedMinutes) }}</div></div>
+              <div>
+                <div class="text-xs text-muted-foreground">实到</div>
+                <Input
+                  v-if="isRowEditing(row)"
+                  v-model="drafts[row.employeeId].actualMinutes"
+                  type="number"
+                  min="0"
+                  step="1"
+                  class="mt-0.5 h-8 text-right tabular-nums"
+                  :aria-label="`${row.name}实到分钟`"
+                  :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote"
+                  :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
+                />
+                <div v-else class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(effectiveActualMinutes(row)) }}</div>
+                <div v-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualNote" class="mt-0.5 text-[11px] text-muted-foreground" :title="row.suggestedActualNote">系统建议</div>
+              </div>
+              <div><div class="text-xs text-muted-foreground">请假</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(sumRecordMinutes(row.leaveMinutesByType)) }}</div></div>
+              <div><div class="text-xs text-muted-foreground">已批加班</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.overtimeApprovedMinutes) }}</div></div>
+              <div><div class="text-xs text-muted-foreground">已批出差</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.fieldworkApprovedMinutes) }}</div></div>
+            </div>
+
+            <div v-if="leaveBreakdown(row.leaveMinutesByType) !== '—' || overtimeMethodLabel(row) || pendingLeaveLabel(row) || row.pendingOvertimeMinutes || row.pendingFieldworkMinutes || row.requiresLeaveReconciliation || row.importedAt" class="space-y-0.5 border-t px-3 py-2 text-xs text-muted-foreground">
+              <div v-if="row.requiresLeaveReconciliation" class="text-amber-700 dark:text-amber-400">请假分配待核对</div>
+              <div v-if="leaveBreakdown(row.leaveMinutesByType) !== '—'">{{ leaveBreakdown(row.leaveMinutesByType) }}</div>
+              <div v-if="overtimeMethodLabel(row)">{{ overtimeMethodLabel(row) }}</div>
+              <div v-if="pendingLeaveLabel(row)" class="tabular-nums">{{ pendingLeaveLabel(row) }}</div>
+              <div v-if="row.pendingOvertimeMinutes" class="tabular-nums">加班待审批 {{ formatMinutes(row.pendingOvertimeMinutes) }}</div>
+              <div v-if="row.pendingFieldworkMinutes" class="tabular-nums">出差待审批 {{ formatMinutes(row.pendingFieldworkMinutes) }}</div>
+              <div v-if="row.importedAt" class="tabular-nums">导入 迟到 {{ countLabel(row.lateTotal) }}（≤10 {{ countLabel(row.lateWithin10) }} · >10 {{ countLabel(row.lateOver10) }}）· 早退 {{ countLabel(row.earlyLeave) }} · 无打卡 {{ countLabel(row.noClockRecord) }}</div>
+              <div v-if="row.importedAt && row.importNote">{{ row.importNote }}</div>
+            </div>
+
+            <div v-if="isRowEditing(row)" class="space-y-1.5 border-t px-3 py-2.5">
+              <div class="text-xs text-muted-foreground">确认状态</div>
+              <Select :model-value="drafts[row.employeeId].confirmationState || '__pending__'" @update:model-value="value => { drafts[row.employeeId].confirmationState = value == null || value === '__pending__' ? '' : String(value) as LedgerDraft['confirmationState']; onConfirmationChange(row.employeeId) }">
+                <SelectTrigger size="sm" class="w-full text-xs" :aria-label="`${row.name}确认状态`"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="__pending__">待确认</SelectItem><SelectItem value="confirmed">已确认</SelectItem><SelectItem value="no_basis">无依据</SelectItem></SelectContent>
+              </Select>
+              <Textarea v-model="drafts[row.employeeId].note" rows="2" class="min-h-8 resize-y text-xs" :aria-label="`${row.name}考勤说明`" :placeholder="drafts[row.employeeId].confirmationState === 'no_basis' ? '填写无依据原因' : '说明（选填）'" />
+            </div>
+            <div v-else-if="row.note" class="border-t px-3 py-2 text-xs text-muted-foreground">{{ row.note }}</div>
+
+            <div v-if="canManage" class="flex items-center justify-end gap-2 border-t px-3 py-2">
+              <template v-if="isRowEditing(row)">
+                <Button size="sm" variant="ghost" :disabled="hasSavingEmployees" @click="cancelEditRow(row)">取消</Button>
+                <Button size="sm" :disabled="hasSavingEmployees" @click="confirmRow(row)"><Check class="mr-1.5 size-4" />保存</Button>
+              </template>
+              <Button v-else-if="!isClosed" size="sm" variant="outline" @click="startEditRow(row)"><Pencil class="mr-1.5 size-4" />编辑</Button>
+              <span v-else class="text-xs text-muted-foreground">已结账</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <p v-if="isClosed" class="text-xs text-muted-foreground">本月已结账，台账只读。</p>
-      <p v-else-if="canManage" class="text-xs text-muted-foreground">点行末「编辑」确认实到分钟与状态，点对勾保存；关闭月份前需确认每位员工的实到或填写无依据原因。实到按规则预填（应出勤 − 请假 − 迟到 / 早退 / 无打卡扣减），可直接采用或改成实际值，改过的不再被覆盖；加班与出差按已批准时长统计，还没批完的单独标「待审批」。</p>
-      <p v-else class="text-xs text-muted-foreground">每人的实到确认与本月结账由<span class="font-medium text-foreground">公司主账号或考勤管理员</span>执行，其他角色只能查看；显示「待确认」是等他们确认，不需要你操作。</p>
+      <p v-else-if="canManage && !isMobile" class="text-xs text-muted-foreground">点行末「编辑」确认实到分钟与状态，点对勾保存；关闭月份前需确认每位员工的实到或填写无依据原因。实到按规则预填（应出勤 − 请假 − 迟到 / 早退 / 无打卡扣减），可直接采用或改成实际值，改过的不再被覆盖；加班与出差按已批准时长统计，还没批完的单独标「待审批」。</p>
+      <p v-else-if="!canManage" class="text-xs text-muted-foreground">每人的实到确认与本月结账由<span class="font-medium text-foreground">公司主账号或考勤管理员</span>执行，其他角色只能查看；显示「待确认」是等他们确认，不需要你操作。</p>
     </template>
     </div>
 

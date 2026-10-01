@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Check, ChevronDown, ChevronUp, FileEdit, RotateCcw, Send, Upload, Wallet } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronUp, FileEdit, RotateCcw, Send, SlidersHorizontal, Upload, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import {
@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DateTimePicker, MonthPicker } from '@/components/ui/date-picker'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -35,14 +36,17 @@ import {
   type PayrollStatements,
   type PayrollStatementRow,
   type PayrollTaxBasis,
+  type PayrollTotals,
 } from '@/services/api/payroll.api'
 import { payrollComponentFields } from '@/services/api/attendance.api'
 import { useAuthStore } from '@/stores/auth'
+import { useDevice } from '@/composables/use-device'
 import { leaveLabel } from '@/constants/attendance-labels'
 import {
   payrollAttendanceDeductionKeys,
   payrollIncomeKeys,
   payrollTotalsLabels,
+  payslipColumns,
   showPayrollPayments,
 } from '@/constants/payroll-fields'
 import { computeCumulativeIncomeTax, type CumulativeTaxBreakdown } from '@/utils/income-tax'
@@ -61,12 +65,15 @@ import {
 
 const authStore = useAuthStore()
 const router = useRouter()
+const { isMobile } = useDevice()
 type PayrollComponentKey = keyof PayrollComponents
 const canEdit = computed(() => canEditPayroll(authStore.user))
 /** 财务可编辑；总经理、董事长只读查看全员工资。 */
 const canViewCompany = computed(() => canViewCompanyPayroll(authStore.user))
 const importOpen = ref(false)
 const publishOpen = ref(false)
+/** 移动端把导入 / 批量发布收进底部抽屉，避免顶栏塞不下。 */
+const mobileActionsOpen = ref(false)
 const route = useRoute()
 /** 工资表、薪资统计、薪资设置已拆成左侧菜单的三个入口；旧地址写成 ?tab= 的在这里转过去，别让老书签落到空页。 */
 const legacyTabRoutes: Record<string, string> = {
@@ -189,6 +196,22 @@ function assertOk(response: { ok?: boolean; error?: unknown }, message: string) 
 }
 function employeeKey(row: PayrollStatementRow) {
   return row.employeeId
+}
+
+/** 员工工资条的现行版本口径：优先已发布版，其次正式草稿，最后是薪资标准预估底稿。 */
+function statementComponents(row: PayrollStatementRow) {
+  return row.publishedComponents ?? row.components ?? row.standardDraft?.components
+}
+function statementTotals(row: PayrollStatementRow) {
+  return row.publishedTotals ?? row.totals ?? row.standardDraft?.totals
+}
+/** 移动端卡片明细：字段口径与 PayslipTable 共用一份列定义。 */
+function statementValue(row: PayrollStatementRow, column: (typeof payslipColumns)[number]) {
+  if (column.kind === 'component') return statementComponents(row)?.[column.key as keyof PayrollComponents]
+  return statementTotals(row)?.[column.key as keyof PayrollTotals]
+}
+function statementColumnLabel(column: (typeof payslipColumns)[number]) {
+  return column.group ? `${column.group} · ${column.label}` : column.label
 }
 
 async function loadStatements() {
@@ -495,7 +518,29 @@ onMounted(() => {
 
 <template>
   <main class="space-y-4 p-4 md:p-0">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <!-- 移动端顶部 sticky：月份 + 操作入口（导入 / 批量发布收进底部抽屉） -->
+    <div v-if="isMobile" class="sticky top-0 z-20 -mx-4 -mt-4 flex items-center gap-2 border-b bg-background px-4 py-2">
+      <MonthPicker
+        v-model="month"
+        placeholder="选择工资月份"
+        class="h-9 flex-1 text-foreground"
+        :disabled="loading || !!editingRow || actionBusy || paymentBusy"
+      />
+      <Drawer v-if="canEdit" v-model:open="mobileActionsOpen" direction="bottom">
+        <DrawerTrigger as-child>
+          <Button size="sm" variant="outline" :disabled="loading || !!editingRow || actionBusy || paymentBusy"><SlidersHorizontal class="mr-1.5 size-4" />操作</Button>
+        </DrawerTrigger>
+        <DrawerContent>
+          <DrawerHeader><DrawerTitle>工资表操作</DrawerTitle></DrawerHeader>
+          <div class="grid gap-2 px-4 pb-6">
+            <Button class="h-10" variant="outline" :disabled="loading || !!editingRow || actionBusy || paymentBusy" @click="mobileActionsOpen = false; importOpen = true"><Upload class="mr-1.5 size-4" />导入工资表</Button>
+            <Button class="h-10" :disabled="loading || !!editingRow || actionBusy || paymentBusy || !publishableCount" @click="mobileActionsOpen = false; publishOpen = true"><Send class="mr-1.5 size-4" />批量发布<template v-if="publishableCount">（{{ publishableCount }}）</template></Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
+
+    <div v-if="!isMobile" class="flex flex-wrap items-center justify-between gap-3">
       <h1 class="text-lg font-semibold">工资表</h1>
       <div class="flex flex-wrap items-center gap-2">
         <template v-if="canEdit">
@@ -552,7 +597,103 @@ onMounted(() => {
         </div>
       </section>
 
-      <div class="overflow-x-auto rounded-md border bg-background">
+      <!-- 移动端：每人一张卡，展开为 2 列键值明细；读取失败不落成空状态 -->
+      <div v-if="isMobile" class="space-y-2">
+        <p v-if="loading" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
+        <div v-else-if="loadError" class="rounded-md border py-10 text-center">
+          <p class="text-sm text-destructive">工资表读取失败，请检查网络后重试。</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="loadStatements">重试</Button>
+        </div>
+        <p v-else-if="!rows.length" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">本月暂无工资记录</p>
+        <template v-else>
+          <div v-for="row in rows" :key="employeeKey(row)" class="overflow-hidden rounded-xl border bg-background">
+            <button type="button" class="w-full px-3 py-2.5 text-left" :aria-expanded="expandedId === row.employeeId" @click="toggleRow(row.employeeId)">
+              <div class="flex items-center gap-2">
+                <span class="min-w-0 truncate text-sm font-medium">{{ row.name }}</span>
+                <span class="flex-1" />
+                <Badge variant="outline">{{ row.statementStatus === 'draft' && row.publishedTotals ? '已发布' : (statementLabels[row.statementStatus] ?? row.statementStatus) }}</Badge>
+              </div>
+              <p class="mt-0.5 truncate text-xs text-muted-foreground">
+                {{ [row.employeeNo, row.phone, row.department].filter(Boolean).join(' · ') || '—'
+                }}<template v-if="row.revision > 0"> · 第{{ row.revision }}版</template>
+              </p>
+              <div class="mt-1.5 flex items-end justify-between gap-2">
+                <span class="text-xs text-muted-foreground">实发金额</span>
+                <span class="text-lg font-semibold tabular-nums" :class="row.standardDraft ? 'font-normal text-muted-foreground' : ''">{{ formatCents(statementTotals(row)?.netPayCents) }}</span>
+              </div>
+              <p v-if="row.standardDraft" class="mt-0.5 text-[10px] text-muted-foreground">按薪资标准预估</p>
+              <p v-if="row.statementStatus === 'draft' && row.publishedTotals" class="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                修订草稿待发布 · 草稿实发 {{ formatCents(row.totals?.netPayCents) }}
+              </p>
+            </button>
+            <div class="flex flex-wrap items-center justify-end gap-2 border-t px-3 py-2">
+              <Button variant="ghost" size="sm" class="h-9 text-muted-foreground" :aria-expanded="expandedId === row.employeeId" @click="toggleRow(row.employeeId)">{{ expandedId === row.employeeId ? '收起' : '明细' }}</Button>
+              <Button v-if="canEdit && row.statementStatus !== 'published'" variant="outline" size="sm" class="h-9" :aria-label="`编辑工资条：${row.name}`" @click="openEditor(row)"><FileEdit class="size-4" />{{ row.statementStatus === 'missing' ? '录入' : '编辑' }}</Button>
+              <Button v-if="canEdit && row.statementStatus === 'draft'" variant="outline" size="sm" class="h-9" :aria-label="`发布工资条：${row.name}`" @click="openAction('publish', row)"><Send class="size-4" />发布</Button>
+              <Button v-if="canEdit && row.publishedTotals" variant="ghost" size="sm" class="h-9 text-muted-foreground" :aria-label="`撤回工资条：${row.name}`" @click="openAction('withdraw', row)"><RotateCcw class="size-4" />撤回</Button>
+            </div>
+            <div v-if="expandedId === row.employeeId" class="space-y-3 border-t bg-muted/30 px-3 py-2">
+              <div>
+                <h2 class="mb-2 text-xs font-semibold">
+                  {{ row.publishedTotals ? '有效发布版工资条' : row.standardDraft ? '按薪资标准预估（尚未录入）' : '工资条' }}
+                </h2>
+                <p class="mb-2 text-xs text-muted-foreground">发布日期 {{ row.publishedAt ? formatBeijingDate(row.publishedAt) : '尚未发布' }}</p>
+                <div class="grid grid-cols-2 gap-x-4">
+                  <div v-for="column in payslipColumns" :key="column.key" class="flex items-baseline justify-between gap-2 border-b border-border/40 py-1.5">
+                    <span class="min-w-0 truncate text-xs text-muted-foreground">{{ statementColumnLabel(column) }}</span>
+                    <span class="shrink-0 text-xs font-medium tabular-nums">{{ formatCents(statementValue(row, column)) }}</span>
+                  </div>
+                </div>
+                <div v-if="row.statementStatus === 'draft' && row.publishedTotals" class="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-muted-foreground">未发布修订草稿实发</span><span class="tabular-nums">{{ formatCents(row.totals?.netPayCents) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h2 class="mb-2 text-xs font-semibold">当月考勤时长 · {{ month }}</h2>
+                <template v-if="row.attendance">
+                  <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    <div>
+                      <div class="text-muted-foreground">应出勤</div>
+                      <div class="mt-0.5 font-medium tabular-nums">{{ formatMinutes(row.attendance.expectedMinutes) }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted-foreground">已确认实到</div>
+                      <div class="mt-0.5 font-medium tabular-nums">{{ formatMinutes(row.attendance.actualMinutes) }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted-foreground">已批加班</div>
+                      <div class="mt-0.5 font-medium tabular-nums">{{ formatMinutes(row.attendance.overtimeApprovedMinutes) }}</div>
+                      <div class="text-muted-foreground">调休 {{ formatMinutes(row.attendance.overtimeCompTimeMinutes) }} · 加班费 {{ formatMinutes(row.attendance.overtimePayMinutes) }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted-foreground">已批出差</div>
+                      <div class="mt-0.5 font-medium tabular-nums">{{ formatMinutes(row.attendance.fieldworkApprovedMinutes) }}</div>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/50 pt-2 text-xs">
+                    <span class="text-muted-foreground">请假</span>
+                    <span v-if="!leaveEntries(row).length" class="text-muted-foreground">无</span>
+                    <span v-for="[type, minutes] in leaveEntries(row)" :key="type">{{ leaveLabel(type) }} {{ formatMinutes(minutes) }}</span>
+                    <span v-if="row.attendance.requiresLeaveReconciliation" class="text-amber-700 dark:text-amber-400">有请假单的分摊明细需要复核，未计入</span>
+                  </div>
+                </template>
+                <div v-else class="py-2 text-xs text-muted-foreground">当月考勤台账未建立，暂无出差/加班/请假时长</div>
+              </div>
+              <div v-if="showPayrollPayments">
+                <h2 class="mb-2 text-xs font-semibold">收退款记录</h2>
+                <div v-if="!row.paymentHistory?.length" class="py-2 text-xs text-muted-foreground">暂无记录</div>
+                <div v-for="(payment, index) in row.paymentHistory ?? []" :key="`${payment.createdAt}-${index}`" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/50 py-1.5 text-xs">
+                  <Badge variant="outline">{{ payment.direction === 'payment' ? '付款' : '退款' }}</Badge><span class="font-medium tabular-nums">{{ formatCents(payment.amountCents) }}</span><span class="text-muted-foreground">{{ payment.paidAt ? formatBeijingDate(payment.paidAt) : '—' }}</span><a v-if="payment.proofUrl" :href="payment.proofUrl" target="_blank" rel="noreferrer" class="underline">凭证</a><span>{{ payment.note }}</span><span class="text-muted-foreground">{{ payment.createdBy?.name }} · 第{{ payment.statementRevision }}版</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div v-else class="overflow-x-auto rounded-md border bg-background">
         <TooltipProvider :delay-duration="300">
           <Table :class="showPayrollPayments ? 'min-w-[1180px]' : 'min-w-[900px]'">
             <TableHeader

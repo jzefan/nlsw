@@ -340,6 +340,27 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/mobile/attendance': RouteRecordInfo<
+      '/mobile/attendance',
+      '/mobile/attendance',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/mobile/payroll': RouteRecordInfo<
+      '/mobile/payroll',
+      '/mobile/payroll',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/mobile/seal': RouteRecordInfo<
+      '/mobile/seal',
+      '/mobile/seal',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/plans/': RouteRecordInfo<
       '/plans/',
       '/plans',
@@ -821,6 +842,24 @@ declare module 'vue-router/auto-routes' {
     'src/pages/invoices/delete.vue': {
       routes:
         | '/invoices/delete'
+      views:
+        | never
+    }
+    'src/pages/mobile/attendance.vue': {
+      routes:
+        | '/mobile/attendance'
+      views:
+        | never
+    }
+    'src/pages/mobile/payroll.vue': {
+      routes:
+        | '/mobile/payroll'
+      views:
+        | never
+    }
+    'src/pages/mobile/seal.vue': {
+      routes:
+        | '/mobile/seal'
       views:
         | never
     }

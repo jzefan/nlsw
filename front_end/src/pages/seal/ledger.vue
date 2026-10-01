@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { FileText, BarChart3, RotateCcw, Loader2, Stamp, Calendar } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useDevice } from '@/composables/use-device'
 import {
   getSealLedger,
   getSealStatistics,
@@ -14,6 +15,8 @@ import {
   type SealStatisticsItem,
   type SealType
 } from '@/services/api/seal.api'
+
+const { isMobile } = useDevice()
 
 const activeTab = ref<'ledger' | 'statistics'>('ledger')
 
@@ -76,6 +79,14 @@ async function loadStatistics() {
   }
 }
 
+/** 移动端统计页顶部的小汇总：由已加载的统计行求和，不额外发请求。 */
+const statsSummary = computed(() => ({
+  itemCount: statsList.value.length,
+  borrowCount: statsList.value.reduce((sum, item) => sum + (item.borrowCount || 0), 0),
+  overdueCount: statsList.value.reduce((sum, item) => sum + (item.overdueCount || 0), 0),
+  totalDurationMinutes: statsList.value.reduce((sum, item) => sum + (item.totalDurationMinutes || 0), 0)
+}))
+
 function formatDuration(minutes: number) {
   if (!minutes || minutes <= 0) return '0分钟'
   const hours = Math.floor(minutes / 60)
@@ -108,13 +119,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-4 p-4 md:p-0">
     <!-- 顶部标签切换 -->
-    <div class="flex items-center justify-between bg-card p-3 rounded-lg border">
-      <div class="flex items-center gap-1.5 p-1 bg-muted/60 rounded-md">
+    <div class="flex items-center justify-between gap-2 bg-card p-3 rounded-lg border">
+      <div class="flex min-w-0 items-center gap-1.5 overflow-x-auto p-1 bg-muted/60 rounded-md">
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded text-xs font-medium transition-all"
           :class="activeTab === 'ledger' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="activeTab = 'ledger'"
         >
@@ -124,7 +135,7 @@ onMounted(() => {
 
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded text-xs font-medium transition-all"
           :class="activeTab === 'statistics' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="activeTab = 'statistics'; loadStatistics()"
         >
@@ -136,7 +147,7 @@ onMounted(() => {
       <Button
         variant="ghost"
         size="sm"
-        class="h-8 gap-1 text-xs"
+        class="h-8 shrink-0 gap-1 text-xs"
         @click="activeTab === 'ledger' ? loadLedger() : loadStatistics()"
       >
         <RotateCcw class="h-3.5 w-3.5" /> 刷新
@@ -146,9 +157,9 @@ onMounted(() => {
     <!-- 视图 1：审计流水明细 -->
     <div v-if="activeTab === 'ledger'" class="space-y-3">
       <!-- 筛选栏 -->
-      <div class="flex flex-wrap items-center gap-2 bg-card p-2.5 rounded-lg border text-xs">
+      <div class="flex w-full flex-nowrap items-center gap-2 overflow-x-auto bg-card p-2.5 rounded-lg border text-xs sm:w-auto sm:flex-wrap sm:overflow-visible">
         <Select v-model="sealTypeFilter">
-          <SelectTrigger class="h-8 w-32 text-xs">
+          <SelectTrigger class="h-8 w-32 shrink-0 text-xs">
             <SelectValue placeholder="印章类别" />
           </SelectTrigger>
           <SelectContent>
@@ -160,7 +171,7 @@ onMounted(() => {
         </Select>
 
         <Select v-model="actionFilter">
-          <SelectTrigger class="h-8 w-32 text-xs">
+          <SelectTrigger class="h-8 w-32 shrink-0 text-xs">
             <SelectValue placeholder="动作类型" />
           </SelectTrigger>
           <SelectContent>
@@ -172,8 +183,44 @@ onMounted(() => {
         </Select>
       </div>
 
+      <!-- 流水记录（移动端：卡片流） -->
+      <div v-if="isMobile" class="space-y-2">
+        <p v-if="loadingLedger && ledgerLogs.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">加载台账明细...</p>
+        <p v-else-if="ledgerLogs.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">暂无审计流水记录</p>
+        <template v-else>
+          <div v-for="log in ledgerLogs" :key="log._id" class="rounded-xl border bg-card px-3 py-2.5">
+            <div class="flex items-center gap-2">
+              <span class="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{{ SEAL_TYPE_MAP[log.sealType] || log.sealType }}</span>
+              <Badge :variant="ACTION_MAP[log.action]?.variant || 'outline'" class="shrink-0 text-[10px] font-normal px-1.5 py-0">
+                {{ ACTION_MAP[log.action]?.label || log.action }}
+              </Badge>
+            </div>
+
+            <div class="mt-1.5 flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">时间</span>
+              <span class="min-w-0 flex-1 font-mono text-muted-foreground">{{ formatDateTime(log.at) }}</span>
+            </div>
+
+            <div class="mt-1 flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">实体章编号</span>
+              <span class="min-w-0 flex-1 font-mono text-foreground">{{ log.sealItemCode || '—' }}</span>
+            </div>
+
+            <div class="mt-1 flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">操作人</span>
+              <span class="min-w-0 flex-1 text-foreground">{{ log.operatorName || '系统' }}</span>
+            </div>
+
+            <div class="mt-1 flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">说明</span>
+              <span class="min-w-0 flex-1 text-muted-foreground">{{ log.note || '—' }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- 流水表格 -->
-      <div class="rounded-lg border bg-card overflow-hidden">
+      <div v-else class="rounded-lg border bg-card overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow class="bg-muted/50 text-xs">
@@ -233,17 +280,77 @@ onMounted(() => {
       </div>
 
       <!-- 分页 -->
-      <div v-if="ledgerTotal > ledgerLimit" class="flex items-center justify-between text-xs text-muted-foreground py-2">
+      <div v-if="ledgerTotal > ledgerLimit" class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground py-2">
         <div>共 {{ ledgerTotal }} 条流水记录</div>
         <div class="flex items-center gap-2">
-          <Button variant="outline" size="sm" :disabled="ledgerPage <= 1" @click="ledgerPage--; loadLedger()">上一页</Button>
+          <Button variant="outline" size="sm" class="h-9 sm:h-8" :disabled="ledgerPage <= 1" @click="ledgerPage--; loadLedger()">上一页</Button>
           <span>第 {{ ledgerPage }} 页</span>
-          <Button variant="outline" size="sm" :disabled="ledgerPage * ledgerLimit >= ledgerTotal" @click="ledgerPage++; loadLedger()">下一页</Button>
+          <Button variant="outline" size="sm" class="h-9 sm:h-8" :disabled="ledgerPage * ledgerLimit >= ledgerTotal" @click="ledgerPage++; loadLedger()">下一页</Button>
         </div>
       </div>
     </div>
 
     <!-- 视图 2：印章使用统计 -->
+    <div v-else-if="isMobile" class="space-y-2">
+      <p v-if="loadingStats && statsList.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">计算印章统计数据...</p>
+      <p v-else-if="statsList.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">暂无统计数据</p>
+      <template v-else>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded-lg border bg-card px-3 py-2">
+            <div class="text-xs text-muted-foreground">实体章</div>
+            <div class="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{{ statsSummary.itemCount }} <span class="text-xs font-normal text-muted-foreground">枚</span></div>
+          </div>
+          <div class="rounded-lg border bg-card px-3 py-2">
+            <div class="text-xs text-muted-foreground">累计借出</div>
+            <div class="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{{ statsSummary.borrowCount }} <span class="text-xs font-normal text-muted-foreground">次</span></div>
+          </div>
+          <div class="rounded-lg border bg-card px-3 py-2">
+            <div class="text-xs text-muted-foreground">累计借出时长</div>
+            <div class="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{{ formatDuration(statsSummary.totalDurationMinutes) }}</div>
+          </div>
+          <div class="rounded-lg border bg-card px-3 py-2">
+            <div class="text-xs text-muted-foreground">逾期次数</div>
+            <div class="mt-0.5 text-lg font-semibold tabular-nums" :class="statsSummary.overdueCount > 0 ? 'text-destructive' : 'text-foreground'">{{ statsSummary.overdueCount }} <span class="text-xs font-normal text-muted-foreground">次</span></div>
+          </div>
+        </div>
+
+        <div v-for="stat in statsList" :key="stat.sealItemId" class="rounded-xl border bg-card px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="min-w-0 flex-1 truncate font-mono text-sm font-medium text-foreground">{{ stat.code }}</span>
+            <Badge v-if="stat.status === 'active'" variant="outline" class="shrink-0 text-[10px] text-emerald-600 bg-emerald-500/5">在用</Badge>
+            <Badge v-else-if="stat.status === 'disabled'" variant="secondary" class="shrink-0 text-[10px]">停用</Badge>
+            <Badge v-else variant="destructive" class="shrink-0 text-[10px]">报废</Badge>
+          </div>
+
+          <div class="mt-1.5 flex gap-2 text-xs">
+            <span class="w-16 shrink-0 text-muted-foreground">印章类别</span>
+            <span class="min-w-0 flex-1 text-foreground">{{ stat.sealTypeName }}</span>
+          </div>
+
+          <div class="mt-1 flex gap-2 text-xs">
+            <span class="w-16 shrink-0 text-muted-foreground">在库状态</span>
+            <span class="min-w-0 flex-1">
+              <Badge v-if="stat.physicalOut" variant="destructive" class="text-[10px]">借出中 ({{ stat.currentBorrowerName }})</Badge>
+              <span v-else class="font-medium text-emerald-600">空闲</span>
+            </span>
+          </div>
+
+          <div class="mt-1 flex gap-2 text-xs">
+            <span class="w-16 shrink-0 text-muted-foreground">累计借出</span>
+            <span class="min-w-0 flex-1 font-mono text-foreground">{{ stat.borrowCount }} 次 <span class="text-muted-foreground">· {{ formatDuration(stat.totalDurationMinutes) }}</span></span>
+          </div>
+
+          <div class="mt-1 flex gap-2 text-xs">
+            <span class="w-16 shrink-0 text-muted-foreground">逾期</span>
+            <span class="min-w-0 flex-1 font-mono" :class="stat.overdueCount > 0 ? 'font-medium text-destructive' : 'text-muted-foreground'">
+              {{ stat.overdueCount }} 次 <span v-if="stat.overdueDurationMinutes > 0">· {{ formatDuration(stat.overdueDurationMinutes) }}</span>
+            </span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- 印章使用统计表格 -->
     <div v-else class="space-y-4">
       <div class="rounded-lg border bg-card overflow-hidden">
         <Table>

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { SlidersHorizontal } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
+import { useDevice } from '@/composables/use-device'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MonthPicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getAttendanceLedgerStatistics, type AttendanceLedgerScope, type AttendanceLedgerStatistics } from '@/services/api/attendance.api'
 import { useAuthStore } from '@/stores/auth'
@@ -15,6 +18,7 @@ import { getBeijingMonth, getBeijingYear } from '@/utils/payroll'
 import { unconfirmedCalendarMessage } from '@/utils/attendance-error'
 
 const authStore = useAuthStore()
+const { isMobile } = useDevice()
 const scopeLabels: Record<AttendanceLedgerScope, string> = { mine: '本人', team: '团队', company: '全公司' }
 const roles = computed(() => {
   const value = authStore.user?.attendanceRoles
@@ -42,6 +46,7 @@ const canManageCalendar = computed(() => authStore.isOwner || roles.value.includ
 const loadedScope = ref<AttendanceLedgerScope | null>(null)
 const loadedPeriod = ref<'month' | 'year' | null>(null)
 const loading = ref(false)
+const filterOpen = ref(false)
 const requestValue = computed(() => period.value === 'month' ? month.value : String(year.value))
 let requestId = 0
 
@@ -111,7 +116,7 @@ onMounted(load)
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <div v-if="!isMobile" class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2 text-xs text-muted-foreground">
         <span>{{ loadedScope ? scopeLabels[loadedScope] : scopeLabel }}范围</span>
         <Badge variant="outline">月度与年度</Badge>
@@ -133,6 +138,38 @@ onMounted(load)
         <Button size="sm" variant="outline" :disabled="loading" @click="load">查询</Button>
       </div>
     </div>
+
+    <!-- 移动端：筛选条件收进底部 Sheet，避免窄屏横向滚动 -->
+    <div v-else class="flex items-center justify-between gap-2 border-b pb-2">
+      <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <span class="truncate">{{ loadedScope ? scopeLabels[loadedScope] : scopeLabel }}范围 · {{ period === 'month' ? month : `${year} 年` }}</span>
+        <Badge variant="outline" class="shrink-0">月度与年度</Badge>
+      </div>
+      <Button size="sm" variant="outline" class="shrink-0" @click="filterOpen = true"><SlidersHorizontal class="mr-1.5 size-4" />筛选</Button>
+    </div>
+
+    <Sheet v-if="isMobile" v-model:open="filterOpen">
+      <SheetContent side="bottom">
+        <SheetHeader><SheetTitle>统计条件</SheetTitle></SheetHeader>
+        <div class="space-y-3 px-4 text-sm">
+          <div v-if="scopeOptions.length > 1" class="space-y-1.5">
+            <div class="text-xs text-muted-foreground">范围</div>
+            <Select v-model="scope"><SelectTrigger class="w-full" aria-label="考勤统计范围"><SelectValue /></SelectTrigger><SelectContent><SelectItem v-for="option in scopeOptions" :key="option" :value="option">{{ scopeLabels[option] }}</SelectItem></SelectContent></Select>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-xs text-muted-foreground">周期</div>
+            <Select v-model="period"><SelectTrigger class="w-full" aria-label="考勤统计周期"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="month">月度</SelectItem><SelectItem value="year">年度</SelectItem></SelectContent></Select>
+          </div>
+          <div v-if="period === 'month'" class="space-y-1.5">
+            <div class="text-xs text-muted-foreground">月份</div>
+            <MonthPicker v-model="month" placeholder="选择月份" class="h-9 w-full" />
+          </div>
+          <label v-else class="space-y-1.5"><span class="text-xs text-muted-foreground">年度</span><Input v-model.number="year" type="number" min="2000" max="2100" aria-label="考勤统计年度" class="h-9 w-full" /></label>
+        </div>
+        <SheetFooter><Button class="w-full" :disabled="loading" @click="filterOpen = false">{{ loading ? '读取中…' : '完成' }}</Button></SheetFooter>
+      </SheetContent>
+    </Sheet>
+
     <div v-if="loading" class="rounded-md border py-16 text-center text-sm text-muted-foreground">读取统计中…</div>
     <div v-else-if="calendarError" class="rounded-md border px-4 py-12 text-center">
       <p class="text-sm font-medium">{{ calendarError }}</p>
@@ -158,7 +195,7 @@ onMounted(load)
         </div>
         <p v-else class="mt-2 border-t pt-2 text-xs text-muted-foreground">所选期间暂无请假记录</p>
       </details>
-      <div class="overflow-x-auto rounded-md border bg-background">
+      <div v-if="!isMobile" class="overflow-x-auto rounded-md border bg-background">
         <Table class="min-w-[760px]">
           <TableHeader><TableRow><TableHead>月份</TableHead><TableHead>台账</TableHead><TableHead class="text-right">应出勤</TableHead><TableHead class="text-right">请假</TableHead><TableHead class="text-right">已批加班</TableHead><TableHead class="text-right">已批出差</TableHead><TableHead class="text-right">实到</TableHead><TableHead class="text-right">待确认</TableHead></TableRow></TableHeader>
           <TableBody>
@@ -169,6 +206,25 @@ onMounted(load)
             <TableRow v-if="!stats.byMonth.length"><TableCell colspan="8" class="h-16 text-center text-muted-foreground">所选期间暂无考勤统计</TableCell></TableRow>
           </TableBody>
         </Table>
+      </div>
+
+      <!-- 移动端：按月卡片，2 列汇总块，不横向滚动 -->
+      <div v-else class="space-y-2">
+        <div v-for="row in stats.byMonth" :key="row.month" class="rounded-md border bg-background">
+          <div class="flex items-center justify-between gap-2 px-3 py-2">
+            <span class="text-sm font-medium tabular-nums">{{ row.month }}</span>
+            <Badge variant="outline">{{ statusLabel(row.status) }}</Badge>
+          </div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-2 border-t px-3 py-2.5">
+            <div><div class="text-xs text-muted-foreground">应出勤</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.totals.expectedMinutes) }}</div></div>
+            <div><div class="text-xs text-muted-foreground">实到</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.totals.actualMinutes) }}</div></div>
+            <div><div class="text-xs text-muted-foreground">请假</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(leaveTotal(row.totals.leaveMinutesByType)) }}</div></div>
+            <div><div class="text-xs text-muted-foreground">已批加班</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.totals.overtimeApprovedMinutes) }}</div></div>
+            <div><div class="text-xs text-muted-foreground">已批出差</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.totals.fieldworkApprovedMinutes) }}</div></div>
+            <div><div class="text-xs text-muted-foreground">待确认</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ row.totals.pendingCount ?? '—' }}</div></div>
+          </div>
+        </div>
+        <p v-if="!stats.byMonth.length" class="rounded-md border py-10 text-center text-sm text-muted-foreground">所选期间暂无考勤统计</p>
       </div>
       <p class="text-xs text-muted-foreground">已批加班与出差代表审批通过时长，不等同于实际完成；实到仅来自人工确认。</p>
     </template>

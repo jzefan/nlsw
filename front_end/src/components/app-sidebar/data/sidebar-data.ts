@@ -23,11 +23,13 @@ import {
 import type { NavGroup } from '../types'
 import type { Features } from '@/stores/auth'
 import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
-import { getTitleCode } from '@/services/api/user.api'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
+import { canApproveSeal as canApproveSealRequests, canManagePayroll as canManagePayrollModule, canManageSeal as canManageSealModule, canManageSealSettings as canManageSealSettingsModule, canReviewAttendanceRequests } from '@/utils/module-access'
 
 export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false): NavGroup[] {
   const groups: NavGroup[] = []
+  // 模块入口可见性与移动端模块首页共用同一份判据（utils/module-access.ts）
+  const access = { isOwner, privilege, attendanceRoles, payrollRoles, title, isCustodian, canReviewAttendance }
 
   // 总览 - 所有人可见
   groups.push({
@@ -37,10 +39,9 @@ export function generateNavData(privilege: string[], features?: Features, attend
 
   // 考勤入口仅在功能开启后显示；实际分配的审批人也可进入本人待办与审核历史。
   if (features?.attendance) {
-    const canApprove = canReviewAttendance || isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role))
+    const canApprove = canReviewAttendanceRequests(access)
     // 工资管理菜单：财务可录入发布，总经理与董事长只读查看（职务可能是 gm/ceo，也可能是老账号的中文写法）
-    const titleCode = getTitleCode(title)
-    const canManagePayroll = payrollRoles.some(role => ['finance', 'general_manager'].includes(role)) || titleCode === 'gm' || titleCode === 'ceo'
+    const canManagePayroll = canManagePayrollModule(access)
     // 「设置」下的三个视图与考勤设置页共用同一份可见性规则，避免菜单能点、进了页面却说无权
     const settingsViews = visibleAttendanceSettingsViews({
       isOwner,
@@ -62,7 +63,7 @@ export function generateNavData(privilege: string[], features?: Features, attend
     if (features?.seal) {
       myRequestItems.push({ title: '用章申请', url: '/seal/requests' })
       // 只有能审用章单的人（主账号 / 管理员 / 总经理职务或角色）才给审批入口，与后端 hasGlobalApprovalView 一致
-      const canApproveSeal = isOwner || isAdmin(privilege) || attendanceRoles.includes('general_manager') || titleCode === 'gm' || titleCode === 'ceo'
+      const canApproveSeal = canApproveSealRequests(access)
       if (canApproveSeal) approvalItems.push({ title: '用章审批', url: '/seal/requests?view=inbox' })
     }
 
@@ -105,14 +106,13 @@ export function generateNavData(privilege: string[], features?: Features, attend
 
   // 印章管理模块（若启用用章功能，具有管理权限或管理员可见）
   if (features?.seal) {
-    const titleCode = getTitleCode(title)
-    const canManageSeal = isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['general_manager'].includes(role)) || titleCode === 'gm' || titleCode === 'ceo' || isCustodian
+    const canManageSeal = canManageSealModule(access)
     if (canManageSeal) {
       const sealItems: NavGroup['items'] = [
         { title: '印章工作台', url: '/seal/workbench', icon: Stamp },
         { title: '印章台账', url: '/seal/items', icon: Database },
         { title: '使用台账', url: '/seal/ledger', icon: FileText },
-        ...(isOwner || isAdmin(privilege) ? [{ title: '用章设置', url: '/seal/settings', icon: Settings2 }] : [])
+        ...(canManageSealSettingsModule(access) ? [{ title: '用章设置', url: '/seal/settings', icon: Settings2 }] : [])
       ]
       groups.push({ title: '印章管理', items: sealItems })
     }

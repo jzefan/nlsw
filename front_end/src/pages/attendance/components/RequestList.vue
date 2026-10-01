@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronLeft, ChevronRight, Clock3, Download, Eye, Paperclip, Plus, RotateCcw, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Clock3, Paperclip, Plus, RotateCcw, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
+import { useDevice } from '@/composables/use-device'
 import { attendanceKindLabels } from '@/constants/attendance-labels'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea'
 import ApprovalPendingLinks from '@/components/approval/ApprovalPendingLinks.vue'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AttachmentPreviewDialog from '@/pages/attendance/components/AttachmentPreviewDialog.vue'
-import RequestTimeline from '@/pages/attendance/components/RequestTimeline.vue'
+import RequestDetailPanel from '@/pages/attendance/components/RequestDetailPanel.vue'
 import {
   createAttendanceRequest,
   downloadAttendanceRequestAttachment,
@@ -27,11 +28,12 @@ import {
   type AttendanceRequest,
   type AttendanceRequestKind,
 } from '@/services/api/attendance.api'
-import { canPreviewAttachment } from '@/utils/attendance-attachments'
+import { canPreviewAttachment, formatFileSize } from '@/utils/attendance-attachments'
 
 const props = withDefaults(defineProps<{ view?: 'mine' | 'inbox' | 'history', type?: AttendanceRequestKind | '' }>(), { view: 'mine', type: '' })
 const authStore = useAuthStore()
 const approvalStore = useApprovalStore()
+const { isMobile } = useDevice()
 
 const rows = ref<AttendanceRequest[]>([])
 const loading = ref(false)
@@ -50,7 +52,6 @@ const attachmentInput = ref<HTMLInputElement>()
 const attachmentFiles = ref<File[]>([])
 const busyId = ref('')
 const expandedId = ref('')
-const reviewComment = ref('')
 let listRequestId = 0
 let approvalCountRequestId = 0
 /** 加班补偿方式的展示名，表单与列表共用一份。 */
@@ -225,6 +226,22 @@ function getStatus(row: AttendanceRequest) {
 }
 function isPending(row: AttendanceRequest) {
   return ['pending', 'awaiting_review'].includes(String(row.status ?? 'pending'))
+}
+/** 详情面板要用的展示文本，桌面展开行与移动端卡片共用同一份。 */
+function rowDisplay(row: AttendanceRequest) {
+  return {
+    kind: getKind(row),
+    applicant: getApplicant(row),
+    period: getPeriod(row),
+    duration: getDurationLabel(row),
+    detail: getDetail(row),
+    department: applicantDepartment(row),
+  }
+}
+/** 展开 / 收起某条申请的详情（桌面与移动端共用同一个状态）。 */
+function toggleDetail(row: AttendanceRequest) {
+  const id = requestId(row)
+  expandedId.value = expandedId.value === id ? '' : id
 }
 function extractRows(result: Record<string, unknown>) {
   const candidates = [result.requests, result.items, result.data]
@@ -548,10 +565,6 @@ function removeAttachment(index: number) {
   attachmentFiles.value.splice(index, 1)
 }
 
-function formatFileSize(size: number) {
-  return size < 1024 * 1024 ? `${Math.max(1, Math.ceil(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`
-}
-
 function updateStartTime(value: string) {
   form.value.startAt = value
   void validateLeaveDate('startAt')
@@ -679,17 +692,16 @@ async function withdraw(row: AttendanceRequest) {
   finally { busyId.value = '' }
 }
 
-async function review(row: AttendanceRequest, decision: 'approve' | 'reject') {
+async function review(row: AttendanceRequest, decision: 'approve' | 'reject', comment = '') {
   const id = requestId(row)
   if (!id) return
   busyId.value = id
   try {
-    await reviewAttendanceRequest(id, decision, reviewComment.value.trim())
+    await reviewAttendanceRequest(id, decision, comment.trim())
     toast.success(decision === 'approve' ? '已通过' : '已驳回')
     // 刚审完一条：侧栏角标与页面待办链接立刻跟着减，不用等下一次轮询
     void approvalStore.refresh()
     expandedId.value = ''
-    reviewComment.value = ''
     await load()
   }
   catch (error) { showError(error) }
@@ -748,6 +760,92 @@ onBeforeUnmount(() => {
       <Button class="mt-3" size="sm" variant="outline" @click="load">重试</Button>
     </div>
 
+    <!-- 移动端：卡片列表，展开详情与桌面端共用同一个面板 -->
+    <div v-else-if="isMobile" class="space-y-2">
+      <p v-if="loading" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
+      <p v-else-if="!rows.length" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">{{ emptyText }}</p>
+      <template v-else>
+        <div
+          v-for="row in rows"
+          :key="requestId(row) || String(row.createdAt ?? row.created_at)"
+          class="overflow-hidden rounded-xl border bg-background"
+        >
+          <button
+            type="button"
+            class="w-full px-3 py-2.5 text-left"
+            :aria-expanded="expandedId === requestId(row)"
+            @click="toggleDetail(row)"
+          >
+            <div class="flex items-center gap-2">
+              <span class="shrink-0 text-sm font-medium">{{ getKind(row) }}</span>
+              <span v-if="isInbox || isHistory" class="min-w-0 truncate text-xs text-muted-foreground">{{ getApplicant(row) || '—' }}</span>
+              <span class="flex-1" />
+              <Badge variant="outline" class="shrink-0" :class="isPending(row) ? 'text-amber-700 dark:text-amber-400' : ''">{{ getStatus(row) }}</Badge>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ getPeriod(row) }}<span v-if="getDurationLabel(row)"> · {{ getDurationLabel(row) }}</span>
+            </p>
+            <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{{ getDetail(row) }}</p>
+            <p v-if="isHistory" class="mt-1 text-xs text-muted-foreground">
+              我的审核：<span :class="getMyReviewStatus(row) === '已驳回' ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'">{{ getMyReviewStatus(row) }}</span>
+            </p>
+          </button>
+          <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+            <Button
+              v-if="isInbox && isPending(row)"
+              variant="outline"
+              size="sm"
+              :aria-expanded="expandedId === requestId(row)"
+              @click="toggleDetail(row)"
+            >
+              审核
+            </Button>
+            <Button
+              v-else
+              variant="ghost"
+              size="sm"
+              class="text-muted-foreground"
+              :aria-expanded="expandedId === requestId(row)"
+              @click="toggleDetail(row)"
+            >
+              {{ expandedId === requestId(row) ? '收起' : '详情' }}
+            </Button>
+            <Button
+              v-if="!isInbox && isPending(row)"
+              variant="ghost"
+              size="sm"
+              class="text-muted-foreground"
+              :disabled="busyId === requestId(row)"
+              @click="withdraw(row)"
+            >
+              <RotateCcw class="mr-1 size-3.5" />撤回
+            </Button>
+          </div>
+          <div v-if="expandedId === requestId(row)" class="border-t bg-muted/30 px-3 py-2">
+            <RequestDetailPanel
+              :row="row"
+              :row-id="requestId(row)"
+              :display="rowDisplay(row)"
+              :can-review="isInbox && isPending(row)"
+              :busy="busyId === requestId(row)"
+              :downloading-attachment="downloadingAttachment"
+              :comment-id="`review-comment-${requestId(row)}`"
+              @open-attachment="openAttachment"
+              @review="(decision, comment) => review(row, decision, comment)"
+            />
+          </div>
+        </div>
+      </template>
+      <div v-if="total > limit" class="flex items-center justify-between px-1 py-1 text-xs text-muted-foreground">
+        <span>{{ (page - 1) * limit + 1 }}–{{ Math.min(page * limit, total) }} / {{ total }}</span>
+        <div class="flex items-center gap-1">
+          <Button variant="ghost" size="icon" class="size-7" aria-label="上一页" :disabled="page <= 1 || loading" @click="changePage(page - 1)"><ChevronLeft class="size-4" /></Button>
+          <span class="flex items-center px-1">{{ page }} / {{ Math.max(1, Math.ceil(total / limit)) }}</span>
+          <Button variant="ghost" size="icon" class="size-7" aria-label="下一页" :disabled="page >= Math.ceil(total / limit) || loading" @click="changePage(page + 1)"><ChevronRight class="size-4" /></Button>
+        </div>
+      </div>
+    </div>
+
     <div v-else class="rounded-md border bg-background">
       <Table>
         <TableHeader>
@@ -774,8 +872,8 @@ onBeforeUnmount(() => {
               <TableCell v-if="isHistory"><Badge variant="outline" :class="getMyReviewStatus(row) === '已驳回' ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'">{{ getMyReviewStatus(row) }}</Badge></TableCell>
               <TableCell class="text-right">
                 <div class="flex justify-end gap-1">
-                  <Button v-if="isInbox && isPending(row)" variant="outline" size="sm" class="cursor-pointer transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground" :aria-expanded="expandedId === requestId(row)" @click="expandedId = expandedId === requestId(row) ? '' : requestId(row); reviewComment = ''">审核</Button>
-                  <Button v-else variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :aria-expanded="expandedId === requestId(row)" @click="expandedId = expandedId === requestId(row) ? '' : requestId(row)">{{ expandedId === requestId(row) ? '收起' : '详情' }}</Button>
+                  <Button v-if="isInbox && isPending(row)" variant="outline" size="sm" class="cursor-pointer transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground" :aria-expanded="expandedId === requestId(row)" @click="toggleDetail(row)">审核</Button>
+                  <Button v-else variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :aria-expanded="expandedId === requestId(row)" @click="toggleDetail(row)">{{ expandedId === requestId(row) ? '收起' : '详情' }}</Button>
                   <Button v-if="!isInbox && isPending(row)" variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="busyId === requestId(row)" @click="withdraw(row)">
                     <RotateCcw class="mr-1 size-3.5" />撤回
                   </Button>
@@ -784,43 +882,17 @@ onBeforeUnmount(() => {
             </TableRow>
             <TableRow v-if="expandedId === requestId(row)">
               <TableCell :colspan="isHistory ? 7 : isInbox ? 6 : 5" class="bg-muted/30">
-                <div class="flex flex-col gap-3 py-1">
-                  <div class="min-w-0 space-y-1">
-                    <p class="text-sm font-medium">{{ getKind(row) }} · {{ getApplicant(row) }} <span class="font-normal text-muted-foreground">{{ getPeriod(row) }}<template v-if="getDurationLabel(row)"> · {{ getDurationLabel(row) }}</template></span></p>
-                    <p v-if="applicantDepartment(row)" class="text-xs text-muted-foreground">{{ applicantDepartment(row) }}</p>
-                    <p class="text-sm text-muted-foreground">
-                      {{ getDetail(row) }}
-                      <span v-if="row.contact"> · 对接：{{ row.contact }}</span>
-                      <span v-if="row.workContent && row.type !== 'leave'"> · 工作内容：{{ row.workContent }}</span>
-                    </p>
-                    <div v-if="row.attachments?.length" class="flex flex-wrap items-center gap-1 pt-1">
-                      <span class="mr-1 text-xs text-muted-foreground">附件</span>
-                      <Button
-                        v-for="attachment in row.attachments"
-                        :key="attachment.id"
-                        variant="link"
-                        size="sm"
-                        class="h-auto gap-1 px-1 py-0 text-xs"
-                        :title="canPreviewAttachment(attachment.mimeType) ? '点击查看' : '下载后查看'"
-                        :disabled="downloadingAttachment === `${requestId(row)}:${attachment.id}`"
-                        @click="openAttachment(row, attachment)"
-                      >
-                        <Eye v-if="canPreviewAttachment(attachment.mimeType)" class="size-3" />
-                        <Download v-else class="size-3" />
-                        {{ attachment.name }} · {{ formatFileSize(attachment.size) }}
-                      </Button>
-                    </div>
-                    <div class="pt-1"><RequestTimeline :request="row" /></div>
-                    <div v-if="isInbox && isPending(row)" class="flex flex-wrap items-center justify-between gap-2 pt-1">
-                      <label :for="`review-comment-${requestId(row)}`" class="text-xs text-muted-foreground">审批意见</label>
-                      <div class="flex shrink-0 gap-2">
-                        <Button variant="outline" size="sm" :disabled="busyId === requestId(row)" @click="review(row, 'reject')"><X class="mr-1 size-4" />驳回</Button>
-                        <Button size="sm" :disabled="busyId === requestId(row)" @click="review(row, 'approve')"><Check class="mr-1 size-4" />通过</Button>
-                      </div>
-                    </div>
-                    <Textarea v-if="isInbox && isPending(row)" :id="`review-comment-${requestId(row)}`" v-model="reviewComment" rows="2" class="min-h-16 resize-y bg-background" aria-label="审批意见" />
-                  </div>
-                </div>
+                <RequestDetailPanel
+                  :row="row"
+                  :row-id="requestId(row)"
+                  :display="rowDisplay(row)"
+                  :can-review="isInbox && isPending(row)"
+                  :busy="busyId === requestId(row)"
+                  :downloading-attachment="downloadingAttachment"
+                  :comment-id="`review-comment-${requestId(row)}`"
+                  @open-attachment="openAttachment"
+                  @review="(decision, comment) => review(row, decision, comment)"
+                />
               </TableCell>
             </TableRow>
           </template>

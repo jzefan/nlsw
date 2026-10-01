@@ -27,6 +27,8 @@ import {
   MapPin,
   Tag,
   Building,
+  CalendarDays,
+  Stamp,
 } from 'lucide-vue-next'
 import { VisAxis, VisStackedBar, VisXYContainer } from '@unovis/vue'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -146,6 +148,21 @@ const xDomain = computed(() => [-0.5, chartData.value.length - 0.5])
 
 // Feature items
 type FeatureItem = { title: string; icon: any; url: string; color: string; bgColor: string }
+
+/**
+ * 考勤与工资、用章是两块独立模块，各自有自己的移动端首页（入口卡片 + 返回工作台），
+ * 所以在「常用功能」之上单列一行，而不是混进功能格子里。
+ */
+const moduleEntries = computed<FeatureItem[]>(() => {
+  const items: FeatureItem[] = []
+  if (authStore.features.attendance) {
+    items.push({ title: '考勤与工资', icon: CalendarDays, url: '/mobile/attendance', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/30' })
+  }
+  if (authStore.features.seal) {
+    items.push({ title: '用章', icon: Stamp, url: '/mobile/seal', color: 'text-rose-600', bgColor: 'bg-rose-50 dark:bg-rose-900/30' })
+  }
+  return items
+})
 
 const quickFeatures = computed<FeatureItem[]>(() => {
   const isAdminUser = isAdmin(privilege.value)
@@ -574,6 +591,22 @@ function selectYear(year: string) {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 模块入口：进入各自模块首页，页面内有返回按钮回到本页 -->
+    <div v-if="moduleEntries.length" class="px-3 mt-4 grid gap-3" :class="moduleEntries.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+      <button
+        v-for="item in moduleEntries"
+        :key="item.url"
+        class="flex items-center gap-3 p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-700 active:scale-[0.98] transition-transform"
+        @click="navigateTo(item.url)"
+      >
+        <div class="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" :class="item.bgColor">
+          <component :is="item.icon" class="h-5 w-5" :class="item.color" />
+        </div>
+        <span class="min-w-0 flex-1 text-sm font-medium text-gray-700 dark:text-gray-200 text-left truncate">{{ item.title }}</span>
+        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      </button>
     </div>
 
     <!-- Feature Grid -->

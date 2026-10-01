@@ -9,9 +9,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { publishPayrollStatements, type PayrollPublishSummary, type PayrollStatementRow } from '@/services/api/payroll.api'
+import { useDevice } from '@/composables/use-device'
 import { formatCents } from '@/utils/payroll'
 
 const props = defineProps<{ month: string, rows: PayrollStatementRow[] }>()
+const { isMobile } = useDevice()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ published: [] }>()
 
@@ -89,11 +91,27 @@ watch(open, (value) => {
 
       <template v-else>
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>待发布 {{ candidates.length }} 人<span v-if="selectedRows.length">，已选 {{ selectedRows.length }} 人</span></span>
+          <span class="flex items-center gap-2">
+            <Checkbox v-if="isMobile" :model-value="allSelected" :disabled="publishing" :aria-label="allSelected ? '取消全选' : '全选待发布人员'" @update:model-value="checked => toggleAll(checked === true)" />
+            <span>待发布 {{ candidates.length }} 人<span v-if="selectedRows.length">，已选 {{ selectedRows.length }} 人</span></span>
+          </span>
           <span v-if="selectedRows.length" class="tabular-nums">合计实发 {{ formatCents(selectedNetPayCents) }}</span>
         </div>
 
-        <div class="max-h-80 overflow-auto rounded-md border bg-background">
+        <div v-if="isMobile" class="max-h-80 space-y-2 overflow-auto">
+          <div v-for="row in candidates" :key="row.employeeId" class="flex items-center gap-3 rounded-lg border bg-background p-3">
+            <Checkbox :model-value="selected.has(row.employeeId)" :disabled="publishing" :aria-label="`选择${row.name}`" @update:model-value="checked => toggleRow(row.employeeId, checked === true)" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="min-w-0 truncate text-sm font-medium">{{ row.name }}</span>
+                <Badge variant="outline" class="shrink-0">{{ isRevision(row) ? '修订' : '首次发布' }}</Badge>
+              </div>
+              <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ [row.employeeNo, row.department].filter(Boolean).join(' · ') || '—' }}</div>
+            </div>
+            <span class="shrink-0 text-sm font-medium tabular-nums">{{ formatCents(netPayOf(row)) }}</span>
+          </div>
+        </div>
+        <div v-else class="max-h-80 overflow-auto rounded-md border bg-background">
           <Table class="min-w-[560px]">
             <TableHeader>
               <TableRow>

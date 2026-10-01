@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useDevice } from '@/composables/use-device'
 import {
   getSealItems,
   createSealItem,
@@ -17,6 +18,8 @@ import {
   type SealType,
   type SealItemStatus
 } from '@/services/api/seal.api'
+
+const { isMobile } = useDevice()
 
 const loading = ref(false)
 const items = ref<SealItem[]>([])
@@ -146,13 +149,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-4 p-4 md:p-0">
     <!-- 顶部筛选与操作 -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card p-3 rounded-lg border">
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex w-full flex-nowrap items-center gap-2 overflow-x-auto sm:w-auto sm:flex-wrap sm:overflow-visible">
         <!-- 类别筛选 -->
         <Select v-model="sealTypeFilter">
-          <SelectTrigger class="h-8 w-32 text-xs">
+          <SelectTrigger class="h-8 w-32 shrink-0 text-xs">
             <SelectValue placeholder="印章类别" />
           </SelectTrigger>
           <SelectContent>
@@ -165,7 +168,7 @@ onMounted(() => {
 
         <!-- 状态筛选 -->
         <Select v-model="statusFilter">
-          <SelectTrigger class="h-8 w-28 text-xs">
+          <SelectTrigger class="h-8 w-28 shrink-0 text-xs">
             <SelectValue placeholder="状态" />
           </SelectTrigger>
           <SelectContent>
@@ -176,21 +179,112 @@ onMounted(() => {
           </SelectContent>
         </Select>
 
-        <Button variant="ghost" size="sm" class="h-8 px-2 text-xs" @click="loadData">
+        <Button variant="ghost" size="sm" class="h-8 shrink-0 px-2 text-xs" @click="loadData">
           <RotateCcw class="h-3.5 w-3.5 mr-1" /> 刷新
         </Button>
       </div>
 
-      <div class="flex items-center gap-2">
-        <Button size="sm" class="h-8 gap-1 text-xs" @click="openCreateDialog">
+      <div class="flex w-full items-center gap-2 sm:w-auto">
+        <Button size="sm" class="h-9 w-full gap-1 text-xs sm:h-8 sm:w-auto" @click="openCreateDialog">
           <Plus class="h-3.5 w-3.5" />
           <span>登记新印章</span>
         </Button>
       </div>
     </div>
 
+    <!-- 实体章列表（移动端：卡片流） -->
+    <div v-if="isMobile" class="space-y-2">
+      <p v-if="loading && items.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">正在加载数据...</p>
+      <p v-else-if="items.length === 0" class="rounded-xl border bg-card py-10 text-center text-xs text-muted-foreground">暂无实体章记录</p>
+      <template v-else>
+        <div v-for="item in items" :key="item._id" class="overflow-hidden rounded-xl border bg-card">
+          <div class="space-y-1.5 px-3 py-2.5">
+            <div class="flex items-center gap-2">
+              <span class="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{{ SEAL_TYPE_MAP[item.sealType] }}</span>
+              <Badge
+                v-if="item.status === 'active'"
+                variant="outline"
+                class="shrink-0 text-[10px] text-emerald-600 border-emerald-500/30 bg-emerald-500/5 font-normal"
+              >
+                在用
+              </Badge>
+              <Badge v-else-if="item.status === 'disabled'" variant="secondary" class="shrink-0 text-[10px] font-normal">
+                已停用
+              </Badge>
+              <Badge v-else-if="item.status === 'scrapped'" variant="destructive" class="shrink-0 text-[10px] font-normal">
+                已报废
+              </Badge>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">实体章编号</span>
+              <span class="flex min-w-0 flex-1 items-center gap-1.5 font-mono font-medium text-foreground">
+                <Stamp class="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span class="truncate">{{ item.code }}</span>
+              </span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">物理库存</span>
+              <span class="min-w-0 flex-1">
+                <Badge v-if="item.physicalOut" variant="destructive" class="text-[10px] font-normal">
+                  在借中 ({{ item.currentBorrowerName || '占用' }})
+                </Badge>
+                <span v-else class="font-medium text-emerald-600">在库空闲</span>
+              </span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">借出次数</span>
+              <span class="min-w-0 flex-1 font-mono text-foreground">{{ item.borrowCount || 0 }} 次</span>
+            </div>
+
+            <div class="flex gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground">备注</span>
+              <span class="min-w-0 flex-1 text-muted-foreground">{{ item.note || '—' }}</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-1 border-t px-3 py-2">
+            <template v-if="item.status !== 'scrapped'">
+              <Button variant="ghost" size="sm" class="text-xs" @click="openEditDialog(item)">编辑</Button>
+              <Button
+                v-if="item.status === 'active'"
+                variant="ghost"
+                size="sm"
+                class="text-xs text-amber-600 hover:text-amber-700"
+                :disabled="item.physicalOut"
+                @click="handleStatusChange(item, 'disabled')"
+              >
+                停用
+              </Button>
+              <Button
+                v-if="item.status === 'disabled'"
+                variant="ghost"
+                size="sm"
+                class="text-xs text-emerald-600 hover:text-emerald-700"
+                @click="handleStatusChange(item, 'active')"
+              >
+                启用
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-xs text-destructive hover:bg-destructive/10"
+                :disabled="item.physicalOut"
+                @click="handleStatusChange(item, 'scrapped')"
+              >
+                报废
+              </Button>
+            </template>
+            <span v-else class="text-[11px] text-muted-foreground">已归档</span>
+          </div>
+        </div>
+      </template>
+    </div>
+
     <!-- 实体章表格 -->
-    <div class="rounded-lg border bg-card overflow-hidden">
+    <div v-else class="rounded-lg border bg-card overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow class="bg-muted/50 text-xs">
@@ -382,9 +476,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <DialogFooter class="gap-2 sm:gap-0 pt-2">
-          <Button variant="outline" size="sm" @click="dialogOpen = false">取消</Button>
-          <Button size="sm" :disabled="submitting" @click="handleSave">
+        <DialogFooter class="flex-row justify-end gap-2 pt-2 sm:gap-0">
+          <Button variant="outline" size="sm" class="h-9 sm:h-8" @click="dialogOpen = false">取消</Button>
+          <Button size="sm" class="h-9 sm:h-8" :disabled="submitting" @click="handleSave">
             <Loader2 v-if="submitting" class="h-3.5 w-3.5 mr-1 animate-spin" />
             <span>保存</span>
           </Button>

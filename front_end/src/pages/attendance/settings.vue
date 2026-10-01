@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Check, Pencil, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
+import { useDevice } from '@/composables/use-device'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -42,6 +43,7 @@ interface PersonDraft {
 }
 
 const authStore = useAuthStore()
+const { isMobile } = useDevice()
 const route = useRoute()
 const router = useRouter()
 const roles = computed(() => {
@@ -362,6 +364,12 @@ async function applyRouteView() {
   await loadViewData(next)
 }
 
+/** 移动端没有左侧菜单，页顶胶囊切换视图：只改 ?tab=，地址与桌面端保持一致。 */
+function switchView(view: AttendanceSettingsView) {
+  if (view === activeView.value) return
+  void router.push({ path: '/attendance/settings', query: { tab: view } })
+}
+
 async function saveDelegate() {
   delegateSaving.value = true
   try {
@@ -605,17 +613,117 @@ onMounted(() => { void applyRouteView() })
 
 <template>
   <main class="space-y-5 p-4 md:p-0">
+    <nav
+      v-if="isMobile && canSeeSettings && visibleViews.length > 1"
+      class="flex gap-1 rounded-full border bg-muted/40 p-0.5"
+      aria-label="考勤设置视图"
+    >
+      <button
+        v-for="view in visibleViews"
+        :key="view.value"
+        type="button"
+        class="flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+        :class="view.value === activeView ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground'"
+        :aria-current="view.value === activeView ? 'page' : undefined"
+        @click="switchView(view.value)"
+      >{{ view.label }}</button>
+    </nav>
+
     <div v-if="!canSeeSettings" class="rounded-md border p-8 text-center text-sm text-muted-foreground">无权查看设置</div>
 
     <div v-else-if="activeView === 'people'" class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-lg font-semibold">员工资料</h1>
+        <h1 :class="isMobile && visibleViews.length > 1 ? 'sr-only' : 'text-lg font-semibold'">员工资料</h1>
         <div class="flex items-center gap-2">
           <Badge variant="outline">{{ people.length }} 人</Badge>
           <Button variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="peopleLoading" @click="reloadPeople">刷新</Button>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-md border bg-background">
+      <!-- 移动端：一人一张卡，避免表格横向滚动；数据、草稿与桌面端共用 -->
+      <div v-if="isMobile" class="space-y-2">
+        <p v-if="peopleLoading" class="rounded-md border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
+        <p v-else-if="!people.length" class="rounded-md border bg-background py-10 text-center text-sm text-muted-foreground">暂无员工</p>
+        <template v-else>
+          <div v-for="person in people" :key="person.userId" class="rounded-md border bg-background">
+            <div class="flex items-start gap-2 border-b px-3 py-2.5">
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-medium">{{ person.name || '未命名' }}</div>
+                <div class="mt-0.5 truncate text-xs text-muted-foreground">
+                  <template v-if="person.department || person.employeeNo">{{ person.department || '' }}<template v-if="person.department && person.employeeNo"> · </template><span v-if="person.employeeNo" class="tabular-nums">工号 {{ person.employeeNo }}</span></template>
+                  <template v-else>—</template>
+                </div>
+              </div>
+              <Badge variant="outline" class="shrink-0" :class="person.status !== 'active' ? 'text-muted-foreground' : ''">{{ person.status === 'active' ? '在职' : '已停用' }}</Badge>
+            </div>
+            <dl class="divide-y text-sm">
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">手机号</dt>
+                <dd class="min-w-0 flex-1">
+                  <Input v-if="isPersonEditing(person)" v-model="personDrafts[person.userId].phone" class="h-9 w-full tabular-nums" placeholder="" aria-label="手机号" />
+                  <span v-else class="tabular-nums">{{ person.phone || '—' }}</span>
+                </dd>
+              </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">工号</dt>
+                <dd class="min-w-0 flex-1">
+                  <Input v-if="isPersonEditing(person)" v-model="personDrafts[person.userId].employeeNo" class="h-9 w-full tabular-nums" placeholder="" aria-label="工号（选填）" />
+                  <span v-else class="tabular-nums">{{ person.employeeNo || '—' }}</span>
+                </dd>
+              </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">部门</dt>
+                <dd class="min-w-0 flex-1">
+                  <Input v-if="isPersonEditing(person)" v-model="personDrafts[person.userId].department" class="h-9 w-full" placeholder="" aria-label="部门" />
+                  <span v-else>{{ person.department || '—' }}</span>
+                </dd>
+              </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">直属经理</dt>
+                <dd class="min-w-0 flex-1">
+                  <Select v-if="isPersonEditing(person)" :model-value="personDrafts[person.userId].managerId || '__none__'" @update:model-value="value => personDrafts[person.userId].managerId = value == null || value === '__none__' ? '' : String(value)">
+                    <SelectTrigger class="w-full" :aria-label="`${person.name || person.userid}直属经理`"><SelectValue placeholder="">{{ draftManagerLabel(person) }}</SelectValue></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">无</SelectItem>
+                      <SelectItem v-for="candidate in people.filter(item => item.status === 'active')" :key="candidate.userId" :value="candidate.userId" :disabled="candidate.userId === person.userId">{{ candidate.displayName || candidate.name || candidate.userid }}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span v-else>{{ managerLabel(person.managerId) }}</span>
+                </dd>
+              </div>
+              <div class="flex items-start gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 pt-0.5 text-muted-foreground">考勤角色</dt>
+                <dd class="min-w-0 flex-1">
+                  <div v-if="!isPersonEditing(person)" class="text-muted-foreground">{{ roleSummary(person) }}</div>
+                  <div v-else class="space-y-2">
+                    <label v-for="role in roleOptions" :key="role.value" class="flex items-center gap-2">
+                      <Checkbox :model-value="hasDraftRole(person, role.value)" :disabled="person.status !== 'active' && !hasDraftRole(person, role.value)" @update:model-value="checked => toggleDraftRole(person, role.value, checked === true)" />
+                      <span>{{ role.label }}</span>
+                    </label>
+                  </div>
+                </dd>
+              </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">考勤统计</dt>
+                <dd class="min-w-0 flex-1">
+                  <label v-if="isPersonEditing(person)" class="flex items-center gap-2">
+                    <Checkbox :model-value="personDrafts[person.userId].attendanceTracked" @update:model-value="checked => personDrafts[person.userId].attendanceTracked = checked === true" />
+                    <span>纳入</span>
+                  </label>
+                  <span v-else :class="person.attendanceTracked === false ? 'text-muted-foreground' : ''">{{ person.attendanceTracked === false ? '不纳入' : '纳入' }}</span>
+                </dd>
+              </div>
+            </dl>
+            <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+              <template v-if="isPersonEditing(person)">
+                <Button variant="outline" size="sm" class="h-9 flex-1" :disabled="savingUser === person.userId" @click="cancelEditPerson(person)">取消</Button>
+                <Button size="sm" class="h-9 flex-1" :disabled="savingUser === person.userId" @click="confirmPerson(person)">{{ savingUser === person.userId ? '保存中…' : '保存' }}</Button>
+              </template>
+              <Button v-else variant="outline" size="sm" class="h-9" @click="startEditPerson(person)"><Pencil class="size-4" />编辑</Button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div v-else class="overflow-x-auto rounded-md border bg-background">
         <Table class="min-w-[1080px]">
           <TableHeader><TableRow><TableHead class="w-36">员工姓名</TableHead><TableHead class="w-36">手机号</TableHead><TableHead class="w-24">工号</TableHead><TableHead class="w-36">部门</TableHead><TableHead class="w-40">直属经理</TableHead><TableHead class="w-52">考勤角色</TableHead><TableHead class="w-28">考勤统计</TableHead><TableHead class="w-24 text-right">操作</TableHead></TableRow></TableHeader>
           <TableBody>
@@ -672,30 +780,85 @@ onMounted(() => { void applyRouteView() })
           </TableBody>
         </Table>
       </div>
-      <div v-if="isOwner" class="flex flex-wrap items-end gap-3 rounded-md border bg-background p-3">
+      <div v-if="isOwner" class="rounded-md border bg-background p-3" :class="isMobile ? 'space-y-3' : 'flex flex-wrap items-end gap-3'">
         <div class="min-w-44 flex-1">
           <label for="gm-delegate" class="text-sm font-medium">总经理申请审批人</label>
           <p class="mt-0.5 text-xs text-muted-foreground">总经理本人提交的申请由该员工审批</p>
         </div>
         <Select :model-value="delegateId || '__none__'" @update:model-value="value => delegateId = value == null || value === '__none__' ? '' : String(value)">
-          <SelectTrigger id="gm-delegate" class="min-w-48"><SelectValue /></SelectTrigger>
+          <SelectTrigger id="gm-delegate" :class="isMobile ? 'w-full' : 'min-w-48'"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__none__">不指定</SelectItem>
             <SelectItem v-for="person in people.filter(item => item.status === 'active' && !item.attendanceRoles?.includes('general_manager'))" :key="person.userId" :value="person.userId">{{ person.displayName || person.name || person.userid }}</SelectItem>
           </SelectContent>
         </Select>
-        <Button size="sm" variant="outline" :disabled="delegateSaving || peopleLoading" @click="saveDelegate">{{ delegateSaving ? '保存中…' : '保存' }}</Button>
+        <Button size="sm" variant="outline" :class="isMobile ? 'h-9 w-full' : ''" :disabled="delegateSaving || peopleLoading" @click="saveDelegate">{{ delegateSaving ? '保存中…' : '保存' }}</Button>
       </div>
     </div>
 
     <div v-else-if="activeView === 'payroll'" class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-lg font-semibold">薪资权限</h1>
+        <h1 :class="isMobile && visibleViews.length > 1 ? 'sr-only' : 'text-lg font-semibold'">薪资权限</h1>
         <div class="flex items-center gap-1">
           <Button variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="payrollCandidatesLoading" @click="reloadPayrollCandidates">刷新</Button>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-md border bg-background">
+      <!-- 移动端：一人一张卡，避免表格横向滚动；权限判断与桌面端共用 -->
+      <div v-if="isMobile" class="space-y-2">
+        <p v-if="payrollCandidatesLoading" class="rounded-md border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
+        <p v-else-if="!payrollCandidates.length" class="rounded-md border bg-background py-10 text-center text-sm text-muted-foreground">暂无可配置员工</p>
+        <template v-else>
+          <div v-for="candidate in payrollCandidates" :key="candidate.userId" class="rounded-md border bg-background">
+            <div class="flex items-start gap-2 border-b px-3 py-2.5">
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-medium">{{ candidate.name || candidate.userId }}</div>
+                <div class="mt-0.5 truncate text-xs text-muted-foreground">
+                  <template v-if="candidate.department || candidate.employeeNo">{{ candidate.department || '' }}<template v-if="candidate.department && candidate.employeeNo"> · </template><span v-if="candidate.employeeNo" class="tabular-nums">工号 {{ candidate.employeeNo }}</span></template>
+                  <template v-else>—</template>
+                </div>
+              </div>
+              <Badge variant="outline" class="shrink-0" :class="candidate.status !== 'active' ? 'text-muted-foreground' : ''">{{ candidate.status === 'active' ? '在职' : '已停用' }}</Badge>
+            </div>
+            <dl class="divide-y text-sm">
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">工号</dt>
+                <dd class="min-w-0 flex-1 tabular-nums">{{ candidate.employeeNo || '—' }}</dd>
+              </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">部门</dt>
+                <dd class="min-w-0 flex-1">{{ candidate.department || '—' }}</dd>
+              </div>
+              <div class="flex items-start gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 pt-0.5 text-muted-foreground">薪资身份</dt>
+                <dd class="min-w-0 flex-1">
+                  <div v-if="!isPayrollEditing(candidate)" class="flex flex-wrap gap-1">
+                    <Badge v-if="candidate.payrollRoles.includes('general_manager')" variant="outline">总经理</Badge>
+                    <Badge v-if="candidate.payrollRoles.includes('finance')" variant="outline">财务</Badge>
+                    <span v-if="!candidate.payrollRoles.length" class="text-muted-foreground">无</span>
+                  </div>
+                  <div v-else class="space-y-2">
+                    <div v-if="candidate.payrollRoles.includes('general_manager')" class="flex flex-wrap items-center gap-1"><Badge variant="outline">总经理</Badge><span class="text-xs text-muted-foreground">由职位决定</span></div>
+                    <label class="flex items-center gap-2">
+                      <Checkbox :model-value="financeRoleDrafts[candidate.userId]" :disabled="savingPayrollUser === candidate.userId" @update:model-value="checked => financeRoleDrafts[candidate.userId] = checked === true" />
+                      <span>财务</span>
+                    </label>
+                  </div>
+                </dd>
+              </div>
+            </dl>
+            <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
+              <template v-if="isPayrollEditing(candidate)">
+                <Button variant="outline" size="sm" class="h-9 flex-1" :disabled="savingPayrollUser === candidate.userId" @click="cancelEditPayroll(candidate)">取消</Button>
+                <Button size="sm" class="h-9 flex-1" :disabled="savingPayrollUser === candidate.userId" @click="confirmPayrollRow(candidate)">{{ savingPayrollUser === candidate.userId ? '保存中…' : '保存' }}</Button>
+              </template>
+              <Button v-else-if="canEditPayrollRow(candidate)" variant="outline" size="sm" class="h-9" @click="startEditPayroll(candidate)"><Pencil class="size-4" />编辑</Button>
+              <span v-else-if="isSelfCandidate(candidate)" class="text-xs text-muted-foreground">不能修改本人</span>
+              <span v-else class="text-xs text-muted-foreground">—</span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div v-else class="overflow-x-auto rounded-md border bg-background">
         <Table class="min-w-[720px]">
           <TableHeader><TableRow><TableHead class="w-48">员工</TableHead><TableHead class="w-28">工号</TableHead><TableHead>部门</TableHead><TableHead class="w-36">薪资身份</TableHead><TableHead class="w-36 text-right">操作</TableHead></TableRow></TableHeader>
           <TableBody>
@@ -732,7 +895,7 @@ onMounted(() => { void applyRouteView() })
 
     <div v-else-if="activeView === 'calendar'" class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-4">
-        <h1 class="text-lg font-semibold">工作日历设置</h1>
+        <h1 :class="isMobile && visibleViews.length > 1 ? 'sr-only' : 'text-lg font-semibold'">工作日历设置</h1>
         <div class="flex items-center gap-2">
           <label class="text-sm text-muted-foreground" for="attendance-year">年度</label>
           <Select v-model="selectedYear" :disabled="calendarLoading || calendarSaving">
@@ -767,18 +930,18 @@ onMounted(() => { void applyRouteView() })
         <span v-if="savingSaturdayMorning" class="text-primary">正在保存…</span>
       </div>
       <section class="rounded-lg border px-3 py-2.5">
-        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div :class="isMobile ? 'space-y-2' : 'flex flex-wrap items-start justify-between gap-x-3 gap-y-2'">
           <div class="min-w-0">
             <h2 class="text-sm font-medium">实到分钟计算规则</h2>
             <p class="mt-0.5 text-xs text-muted-foreground">台账的实到 = 应出勤 − 请假 − 以下扣减，自动填入供确认，可改成实际值；改过的行不再被覆盖。1 个工作日 = {{ actualRuleDayHours }} 小时。</p>
           </div>
-          <Button size="sm" variant="outline" :disabled="actualRuleSaving || !actualRuleDirty" @click="saveActualRule">{{ actualRuleSaving ? '保存中…' : '保存' }}</Button>
+          <Button size="sm" variant="outline" :class="isMobile ? 'h-9 w-full' : ''" :disabled="actualRuleSaving || !actualRuleDirty" @click="saveActualRule">{{ actualRuleSaving ? '保存中…' : '保存' }}</Button>
         </div>
-        <div v-if="actualRuleFields.length" class="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div v-if="actualRuleFields.length" :class="isMobile ? 'mt-2.5 space-y-2' : 'mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2'">
           <label v-for="field in actualRuleFields" :key="field.key" class="flex items-center gap-2 text-xs">
             <span class="text-muted-foreground">{{ field.label }}</span>
-            <Input v-model="actualRuleDraft[field.key]" class="h-7 w-16 text-right tabular-nums" inputmode="decimal" :aria-label="`${field.label}每次扣减`" />
-            <span class="text-muted-foreground">{{ field.unit === 'hour' ? '小时/次' : '工作日/次' }}</span>
+            <Input v-model="actualRuleDraft[field.key]" :class="isMobile ? 'h-9 flex-1 text-right tabular-nums' : 'h-7 w-16 text-right tabular-nums'" inputmode="decimal" :aria-label="`${field.label}每次扣减`" />
+            <span :class="isMobile ? 'shrink-0 text-muted-foreground' : 'text-muted-foreground'">{{ field.unit === 'hour' ? '小时/次' : '工作日/次' }}</span>
           </label>
         </div>
         <p v-else class="mt-2 text-xs text-muted-foreground">{{ actualRuleLoaded ? '规则不可用' : '加载中…' }}</p>
@@ -791,9 +954,9 @@ onMounted(() => { void applyRouteView() })
         <Button size="sm" variant="outline" :disabled="calendarSaving" @click="loadCalendar(year)">重试</Button>
       </div>
       <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        <section v-for="month in calendarMonths" :key="month.month" class="min-w-0 rounded-lg border bg-card p-3">
+        <section v-for="month in calendarMonths" :key="month.month" class="min-w-0 rounded-lg border bg-card" :class="isMobile ? 'p-2' : 'p-3'">
           <h3 class="mb-2 text-sm font-semibold">{{ month.month }}月</h3>
-          <div class="grid grid-cols-7 gap-1 text-center text-[11px] text-muted-foreground">
+          <div class="grid grid-cols-7 text-center text-[11px] text-muted-foreground" :class="isMobile ? 'gap-0.5' : 'gap-1'">
             <span v-for="(weekday, index) in weekHeaders" :key="weekday" class="py-1" :class="index === 0 || index === 6 ? 'text-rose-700/70 dark:text-rose-300/70' : ''">{{ weekday }}</span>
             <template v-for="(date, cellIndex) in month.cells" :key="date || `blank-${cellIndex}`">
               <span v-if="!date" aria-hidden="true" class="aspect-square" />
