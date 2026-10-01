@@ -112,6 +112,7 @@ module.exports = function (app) {
 
   // Attendance (tenant-scoped; the feature flag is enforced on every endpoint)
   app.get('/attendance/requests', requireTenant, requireAttendanceEnabled, requireEmployee, attendanceApiController.listRequests);
+  app.get('/attendance/approvals/pending-counts', requireTenant, requireAttendanceEnabled, attendanceApiController.getApprovalCounts);
   app.post('/attendance/requests', requireTenant, requireAttendanceEnabled, requireEmployee, requireSameOrigin, parseAttendanceAttachments, attendanceApiController.createRequest);
   app.get('/attendance/requests/:id/attachments/:attachmentId', requireTenant, requireAttendanceEnabled, attendanceApiController.getRequestAttachment);
   app.post('/attendance/requests/:id/withdraw', requireTenant, requireAttendanceEnabled, requireEmployee, requireSameOrigin, attendanceApiController.withdrawRequest);
@@ -163,6 +164,7 @@ module.exports = function (app) {
   app.patch('/seal/items/:id', requireTenant, requireSealEnabled, requireSealManager, requireSameOrigin, sealApiController.updateItem);
 
   app.get('/seal/requests', requireTenant, requireSealEnabled, sealApiController.getRequests);
+  app.get('/seal/requests/pending-count', requireTenant, requireSealEnabled, sealApiController.getPendingCount);
   app.post('/seal/requests', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.createRequest);
   app.get('/seal/requests/:id', requireTenant, requireSealEnabled, sealApiController.getRequestDetail);
   app.post('/seal/requests/:id/withdraw', requireTenant, requireSealEnabled, requireSameOrigin, sealApiController.withdrawRequest);

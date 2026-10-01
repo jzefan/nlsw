@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const os = require('os');
 const User = require('../models/User');
+const Tenant = require('../models/Tenant');
 const AttendanceRequest = require('../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../models/AttendanceLedgerAudit');
@@ -15,6 +16,87 @@ const query = value => ({ select() { return this; }, lean() { return Promise.res
 const response = () => ({ statusCode: 200, body: null, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } });
 const calendarTenant = { settings: { attendanceCalendarYears: [2026], attendanceCalendarOverrides: {}, attendanceWorkPeriods: [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }] } };
 const user = (tenantId, fields = {}) => ({ _id: id(), tenantId, employeeNo: 'E-1', userid: 'worker', profile: { name: '员工' }, department: '运营', status: 'active', ...fields });
+
+test('imported records update confirmed auto time consistently through read, statistics, payroll and close', async t => {
+  const tenantId = id(), employee = user(tenantId);
+  const ledger = ledgerDoc({ tenantId, version: 5, closeAudit: [], rows: [{ employeeId: employee._id, expectedMinutes: 10560, actualMinutes: 10560, actualMinutesSource: 'auto', confirmationState: 'confirmed', note: '', version: 1 }] });
+  mockLedgerStorage(t, ledger);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(ledger));
+  t.mock.method(User, 'find', () => query([employee]));
+  t.mock.method(User, 'findOne', () => query(employee));
+  t.mock.method(Tenant, 'findById', () => query(calendarTenant));
+  t.mock.method(AttendanceRequest, 'find', () => query([]));
+  t.mock.method(AttendanceLedgerAudit, 'create', async data => ({ _id: id(), at: data.at }));
+  const req = importRequest(tenantId, { role: 'owner' }, {});
+  const imported = response();
+  await ledgerApi.importLedgerRecords({ ...req, body: { month: '2026-09', rows: [{ employeeId: String(employee._id), noClockRecord: 1 }] } }, imported);
+  assert.equal(imported.statusCode, 200);
+  assert.equal(ledger.version, 6, '导入必须使旧页面版本失效');
+  const read = response();
+  await ledgerApi.getLedger({ ...req, query: { month: '2026-09', scope: 'company' } }, read);
+  assert.equal(read.body.data.rows[0].actualMinutes, 10080);
+  assert.equal(read.body.data.totals.actualMinutes, 10080);
+  assert.equal(ledger.rows[0].actualMinutes, 10560, '读取不可隐式写库');
+  const statistics = response();
+  await ledgerApi.getStatistics({ ...req, query: { period: 'month', value: '2026-09', scope: 'company' } }, statistics);
+  assert.equal(statistics.body.data.totals.actualMinutes, 10080);
+  const month = { ...ledgerApi._test.parseMonth('2026-09'), value: '2026-09' };
+  assert.equal((await ledgerApi.getMonthlyAttendanceSummary(tenantId, month))[String(employee._id)].actualMinutes, 10080);
+  const staleClose = response();
+  await ledgerApi.closeMonth({ ...req, body: { month: '2026-09', version: 5 } }, staleClose);
+  assert.equal(staleClose.statusCode, 409);
+  const close = response();
+  await ledgerApi.closeMonth({ ...req, body: { month: '2026-09', version: 6 } }, close);
+  assert.equal(close.statusCode, 200);
+  assert.equal(ledger.closedSnapshot.rows[0].actualMinutes, 10080);
+  assert.equal(ledger.closedSnapshot.totals.actualMinutes, 10080);
+  ledger.rows[0].noClockRecord = 2;
+  assert.equal((await ledgerApi.getMonthlyAttendanceSummary(tenantId, month))[String(employee._id)].actualMinutes, 10080, '已结月工资摘要使用冻结快照');
+});
+
+test('adopting a suggestion after calendar changes stays auto and pending/no-basis time stays unknown', async t => {
+  const tenantId = id(), employee = user(tenantId);
+  const tenant = { settings: { ...calendarTenant.settings, attendanceSaturdayMorningWorkday: true } };
+  const ledger = ledgerDoc({ tenantId, rows: [{ employeeId: employee._id, expectedMinutes: 10560, actualMinutes: 10560, actualMinutesSource: 'auto', confirmationState: 'confirmed', note: '', version: 1 }] });
+  mockLedgerStorage(t, ledger);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(ledger));
+  t.mock.method(User, 'findOne', () => query(employee));
+  t.mock.method(AttendanceRequest, 'find', () => query([]));
+  const req = { ...importRequest(tenantId, { role: 'owner' }, {}), tenant, params: { employeeId: employee._id } };
+  const saved = response();
+  await ledgerApi.saveRow({ ...req, body: { month: '2026-09', version: 0, actualMinutes: 11100, actualMinutesSource: 'auto', confirmationState: 'confirmed' } }, saved);
+  assert.equal(saved.statusCode, 200);
+  assert.equal(ledger.rows[0].expectedMinutes, 11100);
+  assert.equal(ledger.rows[0].actualMinutesSource, 'auto');
+  const rows = [
+    { expectedMinutes: 480, actualMinutes: null, confirmationState: 'pending' },
+    { expectedMinutes: 480, actualMinutes: null, confirmationState: 'no_basis' },
+    { expectedMinutes: 480, actualMinutes: 400, confirmationState: 'confirmed' },
+    { expectedMinutes: 480, actualMinutes: 400, actualMinutesSource: 'manual', confirmationState: 'confirmed' },
+  ];
+  ledgerApi._test.attachActualSuggestions(rows, calendarTenant);
+  assert.deepEqual(rows.map(row => row.actualMinutes), [null, null, 400, 400]);
+});
+
+test('payroll attendance keeps unconfigured auto time unknown and preserves historical manual time', async t => {
+  const tenantId = id(), automaticId = id(), historicalId = id(), pendingId = id(), noBasisId = id();
+  const rows = [
+    { employeeId: automaticId, expectedMinutes: 10560, actualMinutes: 10560, actualMinutesSource: 'auto', confirmationState: 'confirmed' },
+    { employeeId: historicalId, expectedMinutes: 10560, actualMinutes: 400, confirmationState: 'confirmed' },
+    { employeeId: pendingId, expectedMinutes: 10560, actualMinutes: null, confirmationState: 'pending' },
+    { employeeId: noBasisId, expectedMinutes: 10560, actualMinutes: null, confirmationState: 'no_basis' },
+  ];
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query({ status: 'open', rows }));
+  t.mock.method(Tenant, 'findById', () => query({ settings: {} }));
+  t.mock.method(AttendanceRequest, 'find', () => query([]));
+  const month = { ...ledgerApi._test.parseMonth('2027-01'), value: '2027-01' };
+  const summary = await ledgerApi.getMonthlyAttendanceSummary(tenantId, month);
+  assert.equal(summary[String(automaticId)].actualMinutes, null);
+  assert.equal(summary[String(historicalId)].actualMinutes, 400);
+  assert.equal(summary[String(pendingId)].actualMinutes, null);
+  assert.equal(summary[String(noBasisId)].actualMinutes, null);
+  assert.equal(rows[0].actualMinutes, 10560, '摘要读取不写回台账');
+});
 
 test('ledger scope query excludes platform accounts and employees opted out of attendance', async t => {
   const tenantId = id(), viewerId = id();
@@ -495,13 +577,13 @@ test('suggested actual minutes never replace a value a human already set', () =>
 test('saving a row records whether the actual value came from the suggestion', async t => {
   const tenantId = id(), employee = user(tenantId);
   const owner = { _id: id(), tenantId, status: 'active', role: 'owner' };
-  const ledger = ledgerDoc({ tenantId, month: '2026-10', rows: [{ employeeId: employee._id, name: '员工', expectedMinutes: 10560, actualMinutes: null, confirmationState: 'pending', note: '', version: 0 }] });
+  const ledger = ledgerDoc({ tenantId, month: '2026-09', rows: [{ employeeId: employee._id, name: '员工', expectedMinutes: 10560, actualMinutes: null, confirmationState: 'pending', note: '', version: 0 }] });
   mockLedgerStorage(t, ledger);
   t.mock.method(AttendanceMonthLedger, 'findOne', async () => ledger);
   t.mock.method(User, 'findOne', () => query(employee));
   // 保存时后端会重算一次建议值来核对 auto 是否成立，必须打桩，否则白等 mongoose 缓冲超时
   t.mock.method(AttendanceRequest, 'find', () => query([]));
-  const request = body => ({ tenantId, user: owner, params: { employeeId: employee._id }, body: { month: '2026-10', ...body }, tenant: calendarTenant });
+  const request = body => ({ tenantId, user: owner, params: { employeeId: employee._id }, body: { month: '2026-09', ...body }, tenant: calendarTenant });
 
   const kept = response();
   await ledgerApi.saveRow(request({ version: 0, actualMinutes: 10560, confirmationState: 'confirmed', actualMinutesSource: 'auto' }), kept);

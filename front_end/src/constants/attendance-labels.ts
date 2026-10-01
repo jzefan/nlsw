@@ -13,6 +13,13 @@ export const leaveTypeLabels: Record<string, string> = {
   paternity: '陪产假', bereavement: '丧假', parental: '育儿假', compensatory: '调休', other: '其他',
 }
 
+/** 审批环节的展示名；申请详情时间线与审批列表共用同一份。 */
+export const approvalRoleLabels: Record<string, string> = {
+  manager: '直属经理',
+  general_manager: '总经理',
+  general_manager_delegate: '代理审批人',
+}
+
 /** 需要单独列出来的请假类型顺序（其余类型合并展示）。 */
 export const keyLeaveTypes = ['personal', 'sick', 'annual'] as const
 

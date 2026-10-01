@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ApprovalPendingLinks from '@/components/approval/ApprovalPendingLinks.vue'
 import { useAuthStore } from '@/stores/auth'
 import { Badge } from '@/components/ui/badge'
 import { getTitleCode } from '@/services/api/user.api'
@@ -56,26 +57,30 @@ function handleMeta(meta: { pendingCount?: number; hasGlobalApprovalView?: boole
 <template>
   <div class="space-y-4">
     <!-- 我的申请 / 待我审批的入口都在左侧菜单，页内只在「待我审批 / 审核记录」之间切换 -->
-    <div v-if="showApprovalTabs" class="flex items-center gap-1 border-b pb-2 text-xs">
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors"
-        :class="view === 'inbox' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'"
-        @click="switchView('inbox')"
-      >
-        待我审批
-        <Badge v-if="pendingCount > 0" variant="destructive" class="h-4 px-1.5 text-[10px] rounded-full">
-          {{ pendingCount }}
-        </Badge>
-      </button>
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors"
-        :class="view === 'history' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'"
-        @click="switchView('history')"
-      >
-        审核记录
-      </button>
+    <!-- 页签行最右是待办直达链接：按类型列出当前有待审批的入口，点一下跳到那个页面 -->
+    <div v-if="showApprovalTabs" class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-2">
+      <div class="flex items-center gap-1 text-xs">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors"
+          :class="view === 'inbox' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'"
+          @click="switchView('inbox')"
+        >
+          待我审批
+          <Badge v-if="pendingCount > 0" variant="destructive" class="h-4 px-1.5 text-[10px] rounded-full">
+            {{ pendingCount }}
+          </Badge>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors"
+          :class="view === 'history' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'"
+          @click="switchView('history')"
+        >
+          审核记录
+        </button>
+      </div>
+      <ApprovalPendingLinks />
     </div>
 
     <SealRequestList :view="view" @meta="handleMeta" />

@@ -11,6 +11,7 @@ export interface User {
   employeeNo?: string
   department?: string
   attendanceRoles?: string[] | string
+  canReviewAttendance?: boolean
   payrollRoles?: string[] | string
   mustChangePassword?: boolean
   isSealCustodian?: boolean

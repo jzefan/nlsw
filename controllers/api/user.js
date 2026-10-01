@@ -7,12 +7,13 @@ const { isStandalone, getDeployMode, getStandaloneCompany } = require('../../uti
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const { getBillImportCarrierRule, sanitizeBillImportCarrierRule } = require('../../utils/tenant-settings');
 const secrets = require('../../config/secrets');
-const { hasProtectedIdentity, bumpSessionVersion, identityVersionFilter, changePasswordWithCas } = require('../../utils/user-security');
+const { hasProtectedIdentity, hasProtectedPrivileges, bumpSessionVersion, identityVersionFilter, changePasswordWithCas } = require('../../utils/user-security');
 const mongoose = require('mongoose');
 const { isAllowedOrigin } = require('../../middleware/requireSameOrigin');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { isGeneralManagerTitle } = require('../../utils/user-title');
 const PayrollRoleMutationLock = require('../../models/PayrollRoleMutationLock');
+const { getApprovalAccess: getAttendanceApprovalAccess } = require('./attendance');
 const os = require('os');
 const { randomUUID } = require('crypto');
 const activePayrollRoleTokens = new Set();
@@ -29,61 +30,103 @@ function canManageFinanceRoles(user) {
 }
 
 /**
- * 同步总经理身份：职位是唯一来源，同一租户始终只有一名总经理。
- * 换人时先收回原持有人的角色与唯一标记（含已停用账号占用的标记），再写入新任。
+ * 调用方须持有薪资角色锁。职位、双角色和唯一标记在目标的同一次写入中生效。
+ * standalone 不支持事务：先收回旧身份，目标失败时按版本逆序补偿，避免覆盖并发员工修改。
  */
-async function syncGeneralManagerIdentity(user, tenantId, actorId) {
-  if (!tenantId) return;
-  const makingGeneralManager = isGeneralManagerTitle(user.title);
+async function syncGeneralManagerIdentity(user, tenantId, actorId, { title = user.title, values = {}, create = false, reason } = {}) {
+  if (!tenantId) throw Object.assign(new Error('总经理必须关联公司'), { status: 400 });
+  const makingGeneralManager = isGeneralManagerTitle(title);
   const currentPayrollRoles = Array.isArray(user.payrollRoles) ? user.payrollRoles : [];
   const currentAttendanceRoles = Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [];
-  const wasGeneralManager = currentPayrollRoles.includes('general_manager') || currentAttendanceRoles.includes('general_manager');
-  if (!makingGeneralManager && !wasGeneralManager) return;
-
-  if (makingGeneralManager) {
-    const otherHolders = await User.find({
-      tenantId,
-      _id: { $ne: user._id },
-      $or: [
-        { payrollRoles: 'general_manager' },
-        { attendanceRoles: 'general_manager' },
-        { payrollGeneralManagerTenantId: tenantId },
-        { attendanceGeneralManagerTenantId: tenantId }
-      ]
-    }).select('_id payrollRoles attendanceRoles securityIdentityVersion').limit(5).lean();
-    for (const holder of otherHolders) {
-      const previousRoles = Array.isArray(holder.payrollRoles) ? holder.payrollRoles : [];
-      const nextRoles = previousRoles.filter(role => role !== 'general_manager');
-      await User.updateOne(identityVersionFilter(holder, { tenantId, _id: holder._id }), {
-        $set: { payrollRoles: nextRoles, attendanceRoles: (holder.attendanceRoles || []).filter(role => role !== 'general_manager') },
-        $unset: { payrollGeneralManagerTenantId: 1, attendanceGeneralManagerTenantId: 1 },
-        $push: { payrollRoleAudit: { actorId, tenantId, previousRoles: [...previousRoles], nextRoles, reason: '总经理改由他人担任（职位变更）', changedAt: new Date() } },
-        $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
-      });
+  const released = [];
+  const auditReason = reason || (makingGeneralManager ? '职位设为总经理' : '职位不再是总经理');
+  try {
+    if (makingGeneralManager) {
+      const otherHolders = await User.find({
+        tenantId,
+        _id: { $ne: user._id },
+        $or: [
+          { payrollRoles: 'general_manager' },
+          { attendanceRoles: 'general_manager' },
+          { payrollGeneralManagerTenantId: tenantId },
+          { attendanceGeneralManagerTenantId: tenantId },
+          { title: /^\s*(?:gm|总经理)\s*$/ }
+        ]
+      }).select('_id title payrollRoles attendanceRoles securityIdentityVersion +payrollGeneralManagerTenantId +attendanceGeneralManagerTenantId').lean();
+      for (const holder of otherHolders) {
+        const previousRoles = Array.isArray(holder.payrollRoles) ? holder.payrollRoles : [];
+        const nextRoles = previousRoles.filter(role => role !== 'general_manager');
+        const write = await User.updateOne(identityVersionFilter(holder, { tenantId }), {
+          $set: { title: isGeneralManagerTitle(holder.title) ? '' : holder.title, payrollRoles: nextRoles, attendanceRoles: (holder.attendanceRoles || []).filter(role => role !== 'general_manager') },
+          $unset: { payrollGeneralManagerTenantId: 1, attendanceGeneralManagerTenantId: 1 },
+          $push: { payrollRoleAudit: { actorId, tenantId, previousRoles: [...previousRoles], nextRoles, reason: reason || '总经理改由他人担任（职位变更）', changedAt: new Date() } },
+          $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
+        });
+        if ((write.modifiedCount ?? write.nModified) !== 1) throw Object.assign(new Error('原总经理资料已变化，请刷新后重试'), { status: 409 });
+        released.push(holder);
+      }
     }
-  }
 
-  const nextPayrollRoles = makingGeneralManager
-    ? [...new Set([...currentPayrollRoles, 'general_manager'])]
-    : currentPayrollRoles.filter(role => role !== 'general_manager');
-  const nextAttendanceRoles = makingGeneralManager
-    ? [...new Set([...currentAttendanceRoles, 'general_manager'])]
-    : currentAttendanceRoles.filter(role => role !== 'general_manager');
-  const update = {
-    $set: { payrollRoles: nextPayrollRoles, attendanceRoles: nextAttendanceRoles },
-    $push: { payrollRoleAudit: { actorId, tenantId, previousRoles: [...currentPayrollRoles], nextRoles: nextPayrollRoles, reason: makingGeneralManager ? '职位设为总经理' : '职位不再是总经理', changedAt: new Date() } },
-    $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
-  };
-  if (makingGeneralManager) {
-    update.$set.payrollGeneralManagerTenantId = tenantId;
-    update.$set.attendanceGeneralManagerTenantId = tenantId;
-  } else {
-    update.$unset = { payrollGeneralManagerTenantId: 1, attendanceGeneralManagerTenantId: 1 };
+    const nextPayrollRoles = makingGeneralManager
+      ? [...new Set([...currentPayrollRoles, 'general_manager'])]
+      : currentPayrollRoles.filter(role => role !== 'general_manager');
+    const nextAttendanceRoles = makingGeneralManager
+      ? [...new Set([...currentAttendanceRoles, 'general_manager'])]
+      : currentAttendanceRoles.filter(role => role !== 'general_manager');
+    const update = {
+      $set: { ...values, title, payrollRoles: nextPayrollRoles, attendanceRoles: nextAttendanceRoles },
+      $push: { payrollRoleAudit: { actorId, tenantId, previousRoles: [...currentPayrollRoles], nextRoles: nextPayrollRoles, reason: auditReason, changedAt: new Date() } },
+      $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
+    };
+    if (makingGeneralManager) {
+      update.$set.payrollGeneralManagerTenantId = tenantId;
+      update.$set.attendanceGeneralManagerTenantId = tenantId;
+    } else {
+      update.$unset = { payrollGeneralManagerTenantId: 1, attendanceGeneralManagerTenantId: 1 };
+    }
+    if (create) {
+      Object.assign(user, update.$set);
+      user.payrollRoleAudit.push(update.$push.payrollRoleAudit);
+      user.sessionVersion = (user.sessionVersion || 0) + 1;
+      user.securityIdentityVersion = (user.securityIdentityVersion || 0) + 1;
+      await user.save();
+    } else {
+      const write = await User.updateOne(identityVersionFilter(user, { tenantId }), update);
+      if ((write.modifiedCount ?? write.nModified) !== 1) throw Object.assign(new Error('总经理身份正在变更，请刷新后重试'), { status: 409 });
+      user.title = title;
+      user.payrollRoles = nextPayrollRoles;
+      user.attendanceRoles = nextAttendanceRoles;
+      for (const key of ['payrollGeneralManagerTenantId', 'attendanceGeneralManagerTenantId']) user[key] = makingGeneralManager ? tenantId : undefined;
+      user.sessionVersion = (user.sessionVersion || 0) + 1;
+      user.securityIdentityVersion = (user.securityIdentityVersion || 0) + 1;
+    }
+  } catch (error) {
+    let rollbackFailed = false;
+    for (const holder of released.reverse()) {
+      const restored = { title: holder.title || '', payrollRoles: holder.payrollRoles || [], attendanceRoles: holder.attendanceRoles || [] };
+      const unset = {};
+      for (const key of ['payrollGeneralManagerTenantId', 'attendanceGeneralManagerTenantId']) {
+        if (holder[key]) restored[key] = holder[key];
+        else unset[key] = 1;
+      }
+      try {
+        const write = await User.updateOne({ _id: holder._id, tenantId, securityIdentityVersion: (holder.securityIdentityVersion || 0) + 1 }, {
+          $set: restored, $unset: unset,
+          $push: { payrollRoleAudit: { actorId, tenantId, previousRoles: (holder.payrollRoles || []).filter(role => role !== 'general_manager'), nextRoles: holder.payrollRoles || [], reason: `总经理变更回滚：${auditReason}`, changedAt: new Date() } },
+          $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
+        });
+        if ((write.modifiedCount ?? write.nModified) !== 1) rollbackFailed = true;
+      } catch (restoreError) {
+        rollbackFailed = true;
+        console.error('恢复原总经理身份失败:', restoreError);
+      }
+    }
+    if (rollbackFailed) {
+      console.error('总经理变更补偿未完成，需要人工恢复', { tenantId: String(tenantId), targetId: String(user._id) });
+      throw Object.assign(new Error('总经理变更未完成且自动恢复失败，请联系管理员处理'), { status: 500 });
+    }
+    throw error;
   }
-  const write = await User.updateOne(identityVersionFilter(user, { tenantId, _id: user._id }), update);
-  if ((write.modifiedCount ?? write.nModified) !== 1) throw Object.assign(new Error('总经理身份正在变更，请刷新后重试'), { status: 409 });
-  user.payrollRoles = nextPayrollRoles;
-  user.attendanceRoles = nextAttendanceRoles;
 }
 
 async function acquirePayrollRoleLock(tenantId) {
@@ -180,6 +223,8 @@ exports.getMe = async (req, res) => {
       employeeNo: req.user.employeeNo || '',
       department: req.user.department || '',
       attendanceRoles: Array.isArray(req.user.attendanceRoles) ? req.user.attendanceRoles : [],
+      canReviewAttendance: (isStandalone() ? secrets.enableAttendance : req.tenant?.settings?.attendanceEnabled === true)
+        ? await getAttendanceApprovalAccess(req) : false,
       isSealCustodian: Boolean(
         (Array.isArray(req.tenant?.settings?.sealCustodianIds) && req.tenant.settings.sealCustodianIds.some(id => String(id) === String(req.user._id))) ||
         (req.tenant?.settings?.sealCustodianId && String(req.tenant.settings.sealCustodianId) === String(req.user._id))
@@ -279,6 +324,7 @@ exports.getUserMgr = async (req, res) => {
 
 // 用户管理操作 (添加/修改/删除)
 exports.postUserMgr = async (req, res) => {
+  let lockToken;
   try {
     if (!canManageUsers(req)) {
       return res.status(403).json({ ok: false, message: '无权限操作' });
@@ -320,8 +366,11 @@ exports.postUserMgr = async (req, res) => {
       user.profile.phone = data.phone;
       user.phone = data.phone ? data.phone.trim() : undefined;
 
-      await user.save();
-      if (isGeneralManagerTitle(user.title)) await syncGeneralManagerIdentity(user, userData.tenantId, req.user?._id);
+      if (isGeneralManagerTitle(user.title)) {
+        if (!userData.tenantId) return res.status(400).json({ ok: false, message: '总经理必须关联公司' });
+        lockToken = await acquirePayrollRoleLock(userData.tenantId);
+        await syncGeneralManagerIdentity(user, userData.tenantId, req.user?._id, { create: true });
+      } else await user.save();
       res.json({ ok: true });
 
     } else if (action === 'delete') {
@@ -339,10 +388,17 @@ exports.postUserMgr = async (req, res) => {
     } else if (action === 'modify') {
       const modData = req.body.data;
       if (modData?.payrollRoles !== undefined) return res.status(400).json({ ok: false, message: '薪资角色只能由公司主账号单独配置' });
-      const user = await User.findOne({ ...tenantQuery, userid: modData.userid }).exec();
+      let user = await User.findOne({ ...tenantQuery, userid: modData.userid }).select('+payrollGeneralManagerTenantId +attendanceGeneralManagerTenantId').exec();
 
       if (!user) {
         return res.json({ ok: false, message: '用户未找到' });
+      }
+      const changesGeneralManager = isGeneralManagerTitle(modData.title) || isGeneralManagerTitle(user.title) || (user.payrollRoles || []).includes('general_manager') || (user.attendanceRoles || []).includes('general_manager') || user.payrollGeneralManagerTenantId || user.attendanceGeneralManagerTenantId;
+      if (changesGeneralManager) {
+        if (!req.tenantId || String(user.tenantId) !== String(req.tenantId)) throw Object.assign(new Error('总经理职位变更必须在公司内执行'), { status: 400 });
+        lockToken = await acquirePayrollRoleLock(req.tenantId);
+        user = await User.findOne({ ...tenantQuery, userid: modData.userid }).select('+payrollGeneralManagerTenantId +attendanceGeneralManagerTenantId').exec();
+        if (!user) return res.status(409).json({ ok: false, message: '用户资料已变化，请刷新后重试' });
       }
       const phone = modData.phone ? modData.phone.trim() : undefined;
       const loginIdentityChanged = user.phone !== phone || (user.profile?.phone || '') !== (modData.phone || '');
@@ -350,12 +406,11 @@ exports.postUserMgr = async (req, res) => {
         return res.status(403).json({ ok: false, message: '员工、管理员或薪资账号暂不支持直接修改登录手机号' });
       }
 
-      const previousTitle = user.title || '';
       const previousPrivilege = Array.isArray(user.privilege) ? user.privilege : migrateBinaryToArray(user.privilege);
       const nextPrivilege = Array.isArray(modData.privilege) ? modData.privilege : migrateBinaryToArray(modData.privilege);
       const privilegeChanged = JSON.stringify(previousPrivilege) !== JSON.stringify(nextPrivilege);
       const actorIsTenantOwner = req.user?.role === 'owner' || isPlatformUser(req);
-      if (privilegeChanged && hasProtectedIdentity(user) && !actorIsTenantOwner && String(user._id) !== String(req.user._id)) {
+      if (privilegeChanged && hasProtectedPrivileges(user) && !actorIsTenantOwner && String(user._id) !== String(req.user._id)) {
         return res.status(403).json({ ok: false, message: '不能通过通用用户管理变更受保护账号的系统权限' });
       }
       const update = { $set: {
@@ -366,13 +421,18 @@ exports.postUserMgr = async (req, res) => {
         phone
       }, $inc: { securityIdentityVersion: 1 } };
       if (loginIdentityChanged || privilegeChanged) update.$inc.sessionVersion = 1;
-      const write = await User.updateOne(identityVersionFilter(user, tenantQuery), update);
-      if ((write.modifiedCount ?? write.nModified) !== 1) return res.status(409).json({ ok: false, message: '用户资料已被并发修改，请刷新后重试' });
+      if (changesGeneralManager) {
+        if (!lockToken) throw Object.assign(new Error('总经理职位变更必须在公司内执行'), { status: 400 });
+        await syncGeneralManagerIdentity(user, req.tenantId, req.user?._id, { title: modData.title || '', values: update.$set });
+      } else {
+        const write = await User.updateOne(identityVersionFilter(user, tenantQuery), update);
+        if ((write.modifiedCount ?? write.nModified) !== 1) return res.status(409).json({ ok: false, message: '用户资料已被并发修改，请刷新后重试' });
+        user.securityIdentityVersion = (user.securityIdentityVersion || 0) + 1;
+        if (loginIdentityChanged || privilegeChanged) bumpSessionVersion(user);
+      }
       Object.assign(user, { title: modData.title, privilege: modData.privilege, phone });
       user.profile.name = modData.name;
       user.profile.phone = modData.phone;
-      if (loginIdentityChanged || privilegeChanged) bumpSessionVersion(user);
-      if (previousTitle !== (modData.title || '')) await syncGeneralManagerIdentity(user, req.tenantId, req.user?._id);
       if (String(user._id) === String(req.user._id)) await refreshSession(req, user);
       res.json({ ok: true });
 
@@ -381,7 +441,11 @@ exports.postUserMgr = async (req, res) => {
     }
   } catch (error) {
     console.error('用户管理操作失败:', error);
+    if (error?.status) return res.status(error.status).json({ ok: false, message: error.message });
+    if (error?.code === 11000) return res.status(409).json({ ok: false, message: '用户或总经理身份已被其他人建立，请刷新重试' });
     res.json({ ok: false, message: error.message });
+  } finally {
+    if (lockToken) await releasePayrollRoleLock(req.tenantId, lockToken).catch(error => console.error('释放总经理角色锁失败:', error));
   }
 };
 
@@ -446,7 +510,6 @@ exports.handoverPayrollGeneralManager = async (req, res) => {
   if (String(req.body.targetUserId) === String(req.user._id)) return res.status(400).json({ ok: false, message: '接任人必须是另一名员工' });
 
   let lockToken;
-  let source;
   try {
     lockToken = await acquirePayrollRoleLock(req.tenantId);
     const currentManagers = await User.find({ tenantId: req.tenantId, status: { $ne: 'disabled' }, payrollRoles: 'general_manager' })
@@ -454,45 +517,10 @@ exports.handoverPayrollGeneralManager = async (req, res) => {
     if (currentManagers.length !== 1 || String(currentManagers[0]._id) !== String(req.user._id) || String(currentManagers[0].payrollGeneralManagerTenantId || '') !== String(req.tenantId)) {
       throw Object.assign(new Error('当前账号不是本公司的有效总经理，或总经理唯一标记需修复'), { status: 409 });
     }
-    source = currentManagers[0];
-    const target = await User.findOne({ _id: req.body.targetUserId, tenantId: req.tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' } });
+    const source = currentManagers[0];
+    const target = await User.findOne({ _id: req.body.targetUserId, tenantId: req.tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' } }).select('+payrollGeneralManagerTenantId +attendanceGeneralManagerTenantId');
     if (!target) throw Object.assign(new Error('接任人必须是本租户已关联的在职员工'), { status: 400 });
-    const previousSourceRoles = [...(source.payrollRoles || [])];
-    const nextSourceRoles = previousSourceRoles.filter(role => role !== 'general_manager');
-    const previousTargetRoles = [...(target.payrollRoles || [])];
-    const nextTargetRoles = [...new Set([...previousTargetRoles, 'general_manager'])];
-    const changedAt = new Date();
-    const sourceWrite = await User.updateOne(identityVersionFilter(source, { tenantId: req.tenantId, status: { $ne: 'disabled' }, payrollRoles: 'general_manager', payrollGeneralManagerTenantId: req.tenantId }), {
-      $set: { payrollRoles: nextSourceRoles },
-      $unset: { payrollGeneralManagerTenantId: 1 },
-      $push: { payrollRoleAudit: { actorId: req.user._id, tenantId: req.tenantId, previousRoles: previousSourceRoles, nextRoles: nextSourceRoles, reason, changedAt } },
-      $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
-    });
-    if ((sourceWrite.modifiedCount ?? sourceWrite.nModified) !== 1) throw Object.assign(new Error('现任总经理资料已变化，请刷新后重试'), { status: 409 });
-    try {
-      const targetWrite = await User.updateOne(identityVersionFilter(target, { tenantId: req.tenantId, status: { $ne: 'disabled' }, payrollGeneralManagerTenantId: { $exists: false } }), {
-        $set: { payrollRoles: nextTargetRoles, payrollGeneralManagerTenantId: req.tenantId },
-        $push: { payrollRoleAudit: { actorId: req.user._id, tenantId: req.tenantId, previousRoles: previousTargetRoles, nextRoles: nextTargetRoles, reason, changedAt } },
-        $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
-      });
-      if ((targetWrite.modifiedCount ?? targetWrite.nModified) !== 1) throw Object.assign(new Error('接任人资料已变化或唯一总经理约束冲突'), { status: 409 });
-    } catch (targetError) {
-      // Restore the old holder if the second CAS or unique reservation fails.
-      const restoreVersion = (Number.isInteger(source.securityIdentityVersion) ? source.securityIdentityVersion : 0) + 1;
-      const rollback = await User.updateOne({ _id: source._id, tenantId: req.tenantId, status: { $ne: 'disabled' }, payrollGeneralManagerTenantId: { $exists: false }, securityIdentityVersion: restoreVersion }, {
-        $set: { payrollRoles: previousSourceRoles, payrollGeneralManagerTenantId: req.tenantId },
-        $push: { payrollRoleAudit: { actorId: req.user._id, tenantId: req.tenantId, previousRoles: nextSourceRoles, nextRoles: previousSourceRoles, reason: `交接回滚：${reason}`, changedAt: new Date() } },
-        $inc: { sessionVersion: 1, securityIdentityVersion: 1 }
-      });
-      if ((rollback.modifiedCount ?? rollback.nModified) !== 1) {
-        console.error('总经理交接回滚失败，需要人工恢复唯一总经理身份', { tenantId: String(req.tenantId), sourceId: String(source._id), targetId: String(target._id) });
-        throw Object.assign(new Error('交接未完成且自动恢复失败，请联系管理员处理'), { status: 500 });
-      }
-      throw targetError;
-    }
-    // 职位是总经理身份的唯一来源，交接后同步两人的职位，避免与角色口径脱节。
-    await User.updateOne({ _id: target._id, tenantId: req.tenantId }, { $set: { title: GENERAL_MANAGER_TITLE } });
-    await User.updateOne({ _id: source._id, tenantId: req.tenantId, title: GENERAL_MANAGER_TITLE }, { $set: { title: '' } });
+    await syncGeneralManagerIdentity(target, req.tenantId, req.user._id, { title: GENERAL_MANAGER_TITLE, reason });
     return res.json({ ok: true, data: { previousGeneralManagerId: source._id, generalManagerId: target._id, reason } });
   } catch (error) {
     console.error('总经理交接失败:', error);

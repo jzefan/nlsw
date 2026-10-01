@@ -192,7 +192,12 @@ function getLockRecoveryState(lock, now = Date.now()) {
   return { ageMs, oldEnough, ownerProcessAlive, liveInThisProcess, recoverable };
 }
 
-function serializeRequest(request) {
+/**
+ * @param request 申请单
+ * @param approverNames 审批人 id → 姓名；审批链只存 approverId，姓名在序列化时注入
+ *   （approvals 是 mongoose 子文档，schema 里没有 name 字段，直接赋值会被 strict 模式静默丢掉）
+ */
+function serializeRequest(request, approverNames) {
   const data = request.toObject ? request.toObject() : request;
   return {
     id: data._id,
@@ -211,7 +216,11 @@ function serializeRequest(request) {
     attachments: data.attachments || [],
     attachmentUrls: data.attachmentUrls,
     status: data.status,
-    approvals: data.approvals,
+    withdrawnAt: data.withdrawnAt,
+    approvals: (data.approvals || []).map(approval => ({
+      ...approval,
+      approverName: approverNames?.get(String(approval.approverId)) || ''
+    })),
     currentApproverId: data.currentApproverId,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt
@@ -621,6 +630,40 @@ exports.releaseStaleSubmissionLock = async (req, res) => {
   }
 };
 
+/** 本人审批入口按真实分配开放，与团队/公司查看权限分开。 */
+exports.getApprovalAccess = async (req) => {
+  const user = req.user;
+  const userTenantId = user?.tenantId?._id || user?.tenantId;
+  const tenantId = req.tenantId || req.tenant?._id || userTenantId;
+  if (!user?._id || user.status === 'disabled' || user.role === 'platform' || !tenantId || String(userTenantId) !== String(tenantId)) return false;
+  const privilege = Array.isArray(user.privilege) ? user.privilege : migrateBinaryToArray(user.privilege);
+  if (user.role === 'owner' || isAdmin(privilege) || canViewTeam(user)) return true;
+  if (String(req.tenant?.settings?.attendanceGeneralManagerDelegateId || '') === String(user._id)) return true;
+  const [hasReports, hasAssignedRequest] = await Promise.all([
+    User.exists({ tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' }, managerId: user._id }),
+    AttendanceRequest.exists({ tenantId, 'approvals.approverId': user._id }),
+  ]);
+  return Boolean(hasReports || hasAssignedRequest);
+};
+
+/**
+ * 审批链上只有 approverId，而详情时间线要显示「谁在审 / 谁审过了」，这里补上审批人姓名。
+ * 一次把涉及的人全查出来，避免逐条查库。姓名取不到（账号已删）时留空，前端按角色显示。
+ */
+async function approverNameMap(records) {
+  const list = (Array.isArray(records) ? records : [records]).filter(Boolean);
+  const ids = new Set();
+  for (const record of list) for (const approval of record.approvals || []) if (approval.approverId) ids.add(String(approval.approverId));
+  if (!ids.size) return new Map();
+  const users = await User.find({ _id: { $in: [...ids] } }).select('profile.name userid').lean();
+  return new Map(users.map(user => [String(user._id), user.profile?.name || user.userid || '']));
+}
+
+/** 单条记录也带上审批人姓名再序列化，这样刚提交/刚审批完时就能显示下一级是谁。 */
+async function serializeRequestWithApprovers(record) {
+  return serializeRequest(record, await approverNameMap(record));
+}
+
 exports.listRequests = async (req, res) => {
   try {
     const view = req.query.view || 'mine';
@@ -631,10 +674,6 @@ exports.listRequests = async (req, res) => {
     if (view === 'mine') query.applicantId = req.user._id;
     if (view === 'inbox') query.currentApproverId = req.user._id, query.status = 'pending';
     if (view === 'history') {
-      const canReviewAttendance = req.user?.role === 'owner'
-        || (Array.isArray(req.user?.privilege) && req.user.privilege.includes('admin'))
-        || canViewTeam(req.user);
-      if (!canReviewAttendance) return fail(res, 403, '没有考勤审批权限');
       query.approvals = { $elemMatch: { approverId: req.user._id, status: { $in: ['approved', 'rejected'] } } };
     }
     if (view === 'team') {
@@ -653,10 +692,29 @@ exports.listRequests = async (req, res) => {
       AttendanceRequest.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
       AttendanceRequest.countDocuments(query)
     ]);
-    return res.json({ ok: true, data: records.map(serializeRequest), pagination: { page, limit, total } });
+    const approverNames = await approverNameMap(records);
+    return res.json({ ok: true, data: records.map(record => serializeRequest(record, approverNames)), pagination: { page, limit, total } });
   } catch (error) {
     console.error('attendance listRequests failed:', error);
     return fail(res, 500, '读取考勤申请失败');
+  }
+};
+
+/**
+ * 侧栏「待我审批」角标与页面待办链接用的计数：按类型统计**当前轮到我审**的申请。
+ * 口径必须与 listRequests(view=inbox) 一致（`currentApproverId` + `status: pending`），
+ * 否则角标数字会和点进去看到的条数对不上。
+ * 刻意不挂 requireEmployee——没有工号的人同样要能看到自己的待办。
+ */
+exports.getApprovalCounts = async (req, res) => {
+  try {
+    const base = { tenantId: req.tenantId, currentApproverId: req.user._id, status: 'pending' };
+    const counts = await Promise.all(ALLOWED_TYPES.map(type => AttendanceRequest.countDocuments({ ...base, type })));
+    const byType = Object.fromEntries(ALLOWED_TYPES.map((type, index) => [type, counts[index]]));
+    return res.json({ ok: true, data: { ...byType, total: counts.reduce((sum, value) => sum + value, 0) } });
+  } catch (error) {
+    console.error('attendance getApprovalCounts failed:', error);
+    return fail(res, 500, '读取待审批数量失败');
   }
 };
 
@@ -815,7 +873,7 @@ exports.createRequest = async (req, res) => {
         requestSummary(record, tenantOffsetMinutes(req.tenant)),
         `/attendance/approvals?type=${record.type}`);
     }
-    return res.status(201).json({ ok: true, data: serializeRequest(record) });
+    return res.status(201).json({ ok: true, data: await serializeRequestWithApprovers(record) });
   } catch (error) {
     await Promise.allSettled(uploadedFilePaths.map(filePath => fs.promises.unlink(filePath)));
     console.error('attendance createRequest failed:', error);
@@ -876,7 +934,7 @@ exports.withdrawRequest = async (req, res) => {
       $set: { status: 'withdrawn', currentApproverId: null, withdrawnAt: new Date(), updatedAt: new Date() }
     }, { new: true });
     if (!record) return fail(res, 404, '申请不存在、无权撤回或已处理');
-    return res.json({ ok: true, data: serializeRequest(record) });
+    return res.json({ ok: true, data: await serializeRequestWithApprovers(record) });
   } catch (error) {
     console.error('attendance withdrawRequest failed:', error);
     return fail(res, 500, '撤回申请失败');
@@ -953,7 +1011,7 @@ exports.reviewRequest = async (req, res) => {
     }, update, { new: true });
     if (!updated) return fail(res, 409, '申请状态已变化，请刷新后再试');
     await notifyReviewOutcome(updated, { tenantId: req.tenantId, tenant: req.tenant, decision, comment, nextApproverId });
-    return res.json({ ok: true, data: serializeRequest(updated), nextApproverId });
+    return res.json({ ok: true, data: await serializeRequestWithApprovers(updated), nextApproverId });
   } catch (error) {
     console.error('attendance reviewRequest failed:', error);
     if (error?.status === 409) return fail(res, 409, error.message);

@@ -1,5 +1,7 @@
 # Lessons
 
+- 审核考勤与工资模块时，以当前代码体现的业务规则和功能范围为准；设计文档可能已过时，只作背景参考。不要把旧文档中的功能缺口直接判为实现缺陷，先核对当前界面、接口和状态流是否自洽。
+
 - 用户纠正权限设计时，先区分“当前代码如何限制”与“产品应允许谁操作”；放开员工资料给管理员要同时核对菜单、页面数据加载、员工资料读写接口，并将同页仍属主账号专有的配置隐藏且跳过请求，不能只改一处可见性判断。
 
 - 用户给出考勤页面 500 截图时，应先核对请求 URL、HTTP 状态与后端两个接口的共用调用链，再用未确认工作日历等真实业务状态复现；不能把失败后的空页面误判为“没有数据”，也不能只凭前端构建成功认定页面可用。
@@ -102,4 +104,3 @@
 - 租户功能配置与模块开关层级解耦：全局/租户模块功能开关（如 `sealEnabled`、`attendanceEnabled`）属于平台准入控制层（独立部署由 `.env` 控制，SaaS 模式由平台管理端 `platform/tenants.vue` 授予），绝不可在租户内部的业务设置页放置控制该功能开启/关闭的冗余 Switch，否则会出现 `.env` 开启但租户库未初始化该字段而显示为禁用的认知冲突；租户模块设置页（如 `/seal/settings`）应纯粹承载该模块的具体业务配置（如保管员、逾期阈值），并正常受 `requireSealEnabled` 守卫保护。
 - 站内通知跳转路由：通知外链必须严格对应前端真实存在的路由页面，不可臆造 RESTful 风格虚拟路径（如把文件路由 `/seal/requests.vue` 误写为 `/seal/requests/:id`）；应采用查询参数传参（`/seal/requests?id=:id`），并在目标列表组件中监听 `route.query.id` 实现动态高亮与自动展开。
 - 嵌套路由与动态布局包装（setupLayouts）：当父级存在路由组件（如 `pages/auth.vue`、`pages/errors.vue`）时，`unplugin-vue-router` 会为父路由生成带有 `name`（如 `/auth`）的记录，并将子目录中的 `index.vue` 解析为 `path: ''` 的默认子路由。若布局包装函数未将父级的 `layout: false` 向下传递给子路由，会导致无 meta 的子路由被错误套上 `default` 布局，剥离其 `name` 生成一个 `path: ''` 且无 `name` 的中间路由，从而触发 Vue Router 的 `[Vue Router warn]: The route named "..." has a child without a name and an empty path` 警告。处理时必须让 `setupLayouts` 支持 `parentLayout` 继承，且此类中转子路由明确标注 `layout: false`。
-

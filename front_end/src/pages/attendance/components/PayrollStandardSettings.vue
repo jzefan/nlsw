@@ -83,6 +83,10 @@ const batchDraft = ref<Record<StandardKey, string>>(blankBatchDraft())
 const batchSaving = ref(false)
 const batchProgress = ref({ done: 0, total: 0 })
 const batchFailures = ref<string[]>([])
+const hasUnsavedChanges = computed(() => rows.value.some(isDirty)
+  || (schemeEditing.value && Object.entries(schemeToDraft(scheme.value)).some(([key, value]) => String(schemeDraft.value[key as SchemeKey]) !== value))
+  || (batchOpen.value && allFields.some(([key]) => batchDraft.value[key] !== '')))
+const refreshDisabled = computed(() => loading.value || !!savingId.value || schemeSaving.value || batchSaving.value || hasUnsavedChanges.value)
 
 const selectedRows = computed(() => rows.value.filter(row => selected.value.has(row.employeeId)))
 const allSelected = computed(() => rows.value.length > 0 && selected.value.size === rows.value.length)
@@ -138,7 +142,7 @@ function isDirty(row: PayrollStandardRow) {
 }
 
 function startSchemeEdit() {
-  if (!props.canEdit || schemeSaving.value) return
+  if (!props.canEdit || loading.value || savingId.value || schemeSaving.value || batchSaving.value || batchOpen.value) return
   if (editingId.value) { toast.error('请先保存当前修改'); return }
   schemeDraft.value = schemeToDraft(scheme.value)
   schemeEditing.value = true
@@ -180,12 +184,16 @@ async function confirmSchemeEdit() {
 }
 
 async function load() {
+  if (loading.value) return
+  if (hasUnsavedChanges.value) { toast.error('请先保存或取消当前修改'); return }
   loading.value = true
   loadError.value = false
   schemeLoadError.value = false
   try {
     const [standardsResponse, schemeResponse] = await Promise.all([getPayrollStandards(), getPayrollContributionScheme()])
     if (standardsResponse.ok === false) throw new Error(String(standardsResponse.error || '读取薪资标准失败'))
+    // 请求期间仍可能在已打开的编辑框中输入，响应也不能覆盖这些修改。
+    if (hasUnsavedChanges.value) { toast.error('请先保存或取消当前修改'); return }
     rows.value = standardsResponse.data?.rows ?? []
     editingId.value = ''
     drafts.value = {}
@@ -205,7 +213,8 @@ async function load() {
 }
 
 function startEdit(row: PayrollStandardRow) {
-  if (!props.canEdit || savingId.value) return
+  if (!props.canEdit || loading.value || savingId.value || schemeSaving.value || batchSaving.value || batchOpen.value) return
+  if (schemeEditing.value) { toast.error('请先保存或取消五险一金方案修改'); return }
   if (editingId.value && editingId.value !== row.employeeId && isDirty(rows.value.find(item => item.employeeId === editingId.value) ?? row)) {
     toast.error('请先保存当前修改')
     return
@@ -242,6 +251,7 @@ async function confirmEdit(row: PayrollStandardRow) {
     const response = await savePayrollStandard(row.employeeId, standard, row.standard?.version ?? 0)
     if (response.ok === false) throw new Error(String(response.error || '保存薪资标准失败'))
     toast.success(`${row.displayName || row.name} 的薪资标准已保存`)
+    cancelEdit(row)
     await load()
   }
   catch (error) {
@@ -274,7 +284,8 @@ function selectUnset() {
 }
 
 function openBatch() {
-  if (!props.canEdit || batchSaving.value) return
+  if (!props.canEdit || loading.value || savingId.value || schemeSaving.value || batchSaving.value) return
+  if (schemeEditing.value) { toast.error('请先保存或取消五险一金方案修改'); return }
   if (editingId.value) { toast.error('请先保存当前修改'); return }
   if (!selectedRows.value.length) { toast.error('请先勾选要批量设置的员工'); return }
   batchDraft.value = blankBatchDraft()
@@ -358,7 +369,7 @@ defineExpose({ load })
         <DrawerTrigger as-child>
           <Button size="sm" variant="outline" :disabled="loading"><Settings2 class="mr-1.5 size-4" />五险一金方案</Button>
         </DrawerTrigger>
-        <Button size="sm" variant="outline" :disabled="loading" @click="load"><RefreshCw class="mr-1.5 size-4" />刷新</Button>
+        <Button size="sm" variant="outline" :disabled="refreshDisabled" :title="hasUnsavedChanges ? '请先保存或取消当前修改' : undefined" @click="load"><RefreshCw class="mr-1.5 size-4" />刷新</Button>
       </div>
     </div>
 
@@ -393,7 +404,7 @@ defineExpose({ load })
 
       <div v-if="schemeLoadError" class="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
         <span class="text-destructive">五险一金方案读取失败；员工只读金额仍按服务端口径显示，编辑态预览可能不准。</span>
-        <Button size="sm" variant="outline" :disabled="loading" @click="load">重试</Button>
+        <Button size="sm" variant="outline" :disabled="refreshDisabled" @click="load">重试</Button>
       </div>
 
       <div v-else class="mx-4 mt-3 rounded-md border">

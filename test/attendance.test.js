@@ -24,6 +24,21 @@ Notice.create = async document => {
 
 function id() { return new mongoose.Types.ObjectId(); }
 
+/** 链式查询的通用桩：既能 await，也能接 .select().lean() / .distinct()。 */
+function queryResult(value) {
+  const result = Array.isArray(value) ? value : [];
+  return {
+    select() { return { lean: async () => result }; },
+    lean: async () => result,
+    distinct: async () => result,
+    then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); }
+  };
+}
+
+// 序列化申请时会查一次 User.find 补「审批人姓名」给详情时间线用；测试进程不连库，
+// 统一返回空（要断言姓名的用例自行 mock.method 覆盖），否则每条提交/审批用例都要白等 mongoose 缓冲超时。
+User.find = () => queryResult([]);
+
 function response() {
   return {
     statusCode: 200,
@@ -192,6 +207,73 @@ test('request list filters by type for the per-type sidebar entries', async t =>
   assert.equal(filters[2].type, undefined);
 });
 
+test('roleless delegate can approve assigned requests and view only their own review history', async t => {
+  const tenantId = id(), delegate = employee({ tenantId }), another = employee({ tenantId });
+  const record = { _id: id(), tenantId, applicantId: id(), applicant: { name: '申请人' }, type: 'overtime', startAt: new Date('2026-09-30T18:00:00+08:00'), endAt: new Date('2026-09-30T19:00:00+08:00'), durationMinutes: 60, status: 'pending', currentApproverId: delegate._id, approvals: [{ approverId: delegate._id, role: 'general_manager_delegate', status: 'pending' }] };
+  t.mock.method(AttendanceRequest, 'findOne', async () => record);
+  t.mock.method(AttendanceRequest, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(String(filter.currentApproverId), String(delegate._id));
+    record.approvals[0].status = update.$set['approvals.0.status'];
+    record.status = update.$set.status;
+    record.currentApproverId = update.$set.currentApproverId;
+    return record;
+  });
+  const filters = [];
+  const matches = filter => record.approvals.some(step => String(step.approverId) === String(filter.approvals?.$elemMatch?.approverId) && filter.approvals.$elemMatch.status.$in.includes(step.status));
+  t.mock.method(AttendanceRequest, 'find', filter => {
+    filters.push(filter);
+    return { sort() { return this }, skip() { return this }, limit: async () => matches(filter) ? [record] : [] };
+  });
+  t.mock.method(AttendanceRequest, 'countDocuments', async filter => matches(filter) ? 1 : 0);
+  t.mock.method(AttendanceRequest, 'exists', async filter => String(filter['approvals.approverId']) === String(delegate._id));
+  t.mock.method(User, 'exists', async () => false);
+  t.mock.method(AttendanceMonthLedger, 'findOneAndUpdate', async () => ({}));
+  t.mock.method(AttendanceMonthLedger, 'updateOne', async () => ({ modifiedCount: 1 }));
+  t.mock.method(AttendanceMonthLedger, 'exists', async () => false);
+  const req = { tenantId, tenant: { settings: {} }, user: delegate, params: { id: String(record._id) }, body: { decision: 'approve' } };
+  const reviewed = response();
+  await attendance.reviewRequest(req, reviewed);
+  assert.equal(reviewed.statusCode, 200);
+  const history = response();
+  await attendance.listRequests({ ...req, query: { view: 'history' } }, history);
+  assert.equal(history.statusCode, 200);
+  assert.equal(history.body.data.length, 1);
+  assert.equal(String(filters[0].tenantId), String(tenantId));
+  assert.equal(String(filters[0].approvals.$elemMatch.approverId), String(delegate._id));
+  const otherHistory = response();
+  await attendance.listRequests({ ...req, user: another, query: { view: 'history' } }, otherHistory);
+  assert.equal(otherHistory.statusCode, 200);
+  assert.equal(otherHistory.body.data.length, 0);
+  assert.equal(await attendance.getApprovalAccess(req), true);
+  assert.equal(await attendance.getApprovalAccess({ ...req, user: another }), false);
+  assert.equal(await attendance.getApprovalAccess({ ...req, user: { ...delegate, status: 'disabled' } }), false);
+  const secrets = require('../config/secrets');
+  const originalAttendanceEnabled = secrets.enableAttendance;
+  secrets.enableAttendance = true;
+  t.after(() => { secrets.enableAttendance = originalAttendanceEnabled; });
+  const me = response();
+  await require('../controllers/api/user').getMe({ ...req, tenant: { _id: tenantId, settings: { attendanceEnabled: true } } }, me);
+  assert.equal(me.statusCode, 200);
+  assert.equal(me.body.user.canReviewAttendance, true, '常规登录信息携带本人审批入口能力');
+  const team = response();
+  await attendance.listRequests({ ...req, query: { view: 'team' } }, team);
+  assert.equal(team.statusCode, 403, '本人审批能力不附带团队查看权');
+});
+
+test('configured roleless manager and general-manager delegate have approval entry access', async t => {
+  const tenantId = id(), approver = employee({ tenantId });
+  t.mock.method(User, 'exists', async filter => {
+    assert.equal(String(filter.tenantId), String(tenantId));
+    assert.equal(String(filter.managerId), String(approver._id));
+    return true;
+  });
+  t.mock.method(AttendanceRequest, 'exists', async () => false);
+  assert.equal(await attendance.getApprovalAccess({ tenantId, user: approver, tenant: { settings: {} } }), true);
+  t.mock.method(User, 'exists', async () => false);
+  assert.equal(await attendance.getApprovalAccess({ tenantId, user: approver, tenant: { settings: { attendanceGeneralManagerDelegateId: approver._id } } }), true);
+  assert.equal(await attendance.getApprovalAccess({ tenantId: id(), user: approver }), false, '跨租户上下文不能获得审批能力');
+});
+
 test('employee guard accepts populated tenant and all attendance guards reject disabled accounts', async () => {
   const tenantId = id();
   const populatedTenant = new Tenant({ _id: tenantId, code: 'TEST', name: 'Test tenant' });
@@ -358,6 +440,18 @@ test('overtime compensation accepts leave-in-lieu, overtime pay and no compensat
   assert.match(invalidResponse.body.error, /补偿方式/);
 });
 
+test('serialized requests carry approver names so the timeline can show who is reviewing', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id();
+  const user = employee({ tenantId, userId: applicantId, managerId });
+  t.mock.method(User, 'findOne', async () => ({ _id: managerId, employeeNo: 'M-1', status: 'active' }));
+  t.mock.method(User, 'find', () => queryResult([{ _id: managerId, profile: { name: '韩经理' }, userid: 'han' }]));
+  t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } }));
+  const res = response();
+  await attendance.createRequest(requestFor(user, tenantId, '2026-09-21T18:00:00+08:00', '2026-09-21T20:00:00+08:00', 'overtime'), res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.data.approvals[0].approverName, '韩经理', '详情时间线要能显示「等待 谁 审批」');
+});
+
 test('three working days needs only manager approval; more than three adds general manager', async t => {
   const tenantId = id(), applicantId = id(), managerId = id(), gmId = id();
   const user = employee({ tenantId, userId: applicantId, managerId });
@@ -368,7 +462,8 @@ test('three working days needs only manager approval; more than three adds gener
   t.mock.method(User, 'findOne', async () => manager);
   t.mock.method(User, 'find', () => ({
     select() { return this; },
-    limit() { return Promise.resolve([generalManager]); }
+    limit() { return Promise.resolve([generalManager]); },
+    lean() { return Promise.resolve([generalManager]); }
   }));
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => {
@@ -402,7 +497,8 @@ test('a missing or duplicated general manager blocks a long leave with an action
   t.mock.method(User, 'findOne', async () => manager);
   t.mock.method(User, 'find', () => ({
     select() { return this },
-    limit() { return Promise.resolve(generalManagers) }
+    limit() { return Promise.resolve(generalManagers) },
+    lean() { return Promise.resolve(generalManagers) }
   }));
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document } } }));
@@ -440,7 +536,8 @@ test('general manager leave routes directly to the configured delegate', async t
   t.mock.method(User, 'findOne', async query => String(query._id) === String(managerId) ? manager : delegate);
   t.mock.method(User, 'find', () => ({
     select() { return this; },
-    limit() { return Promise.resolve([gm]); }
+    limit() { return Promise.resolve([gm]); },
+    lean() { return Promise.resolve([gm]); }
   }));
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => {
@@ -836,3 +933,24 @@ test('stale recovery cannot release a persisted lock while its acquisition respo
   await submission;
   assert.equal(submitResponse.statusCode, 201);
 });
+
+test('approval counts group by type and only count steps waiting on me', async t => {
+  const tenantId = id(), approverId = id();
+  const user = employee({ tenantId, userId: approverId });
+  const filters = [];
+  t.mock.method(AttendanceRequest, 'countDocuments', async filter => {
+    filters.push(filter);
+    return { leave: 1, overtime: 2, fieldwork: 3 }[filter.type] ?? 0;
+  });
+
+  const res = response();
+  await attendance.getApprovalCounts({ tenantId, user }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.data, { leave: 1, overtime: 2, fieldwork: 3, total: 6 });
+  assert.equal(filters.length, 3, '三种类型各查一次');
+  assert.deepEqual(filters.map(filter => filter.type).sort(), ['fieldwork', 'leave', 'overtime']);
+  // 口径必须与列表收件箱一致，否则角标数字会和点进去看到的条数对不上
+  assert.ok(filters.every(filter => String(filter.currentApproverId) === String(user._id) && filter.status === 'pending' && String(filter.tenantId) === String(tenantId)));
+});
+

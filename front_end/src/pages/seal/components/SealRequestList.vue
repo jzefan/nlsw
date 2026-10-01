@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
 import {
   getSealRequests,
@@ -34,6 +35,7 @@ const emit = defineEmits<{
 
 const route = useRoute()
 const authStore = useAuthStore()
+const approvalStore = useApprovalStore()
 
 const loading = ref(false)
 const rows = ref<SealRequest[]>([])
@@ -161,6 +163,8 @@ async function submitReview() {
     })
     if (res.ok) {
       toast.success(reviewDecision.value === 'approved' ? '审批通过' : '已驳回申请')
+      // 刚审完一条：侧栏角标与页面待办链接立刻跟着减
+      void approvalStore.refresh()
       reviewDialogOpen.value = false
       loadData()
       if (expandedId.value === reviewingItem.value._id) {

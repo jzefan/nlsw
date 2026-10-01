@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { randomUUID } = require('crypto');
 const os = require('os');
 const User = require('../../models/User');
+const Tenant = require('../../models/Tenant');
 const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
@@ -212,21 +213,38 @@ function aggregateApprovedRequests(requests, month) {
 /**
  * 工资条明细用：当月每名员工的考勤时长（请假按类型、加班含调休/加班费、出差）。
  * 只看已审批的申请单，不要求工作日历已确认，所以不会因为日历未确认而阻塞工资表；
- * 台账里已登记的应出勤/实到有就一并带上，没有则为 null。
+ * 已结月使用冻结快照；开放月已确认的自动实到按当前规则计算。
+ * 没登记或无法计算时为 null，不阻塞工资录入。
  */
 async function getMonthlyAttendanceSummary(tenantId, month) {
   const requests = await AttendanceRequest.find({ tenantId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
   const stats = aggregateApprovedRequests(requests, month);
-  const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: month.value }).select('rows').lean();
-  const stored = new Map((ledger?.rows || []).map(row => [String(row.employeeId), row]));
+  const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: month.value }).select('rows status closedSnapshot').lean();
+  const closedRows = ledger?.status === 'closed' ? ledger.closedSnapshot?.rows : null;
+  const rows = (closedRows || ledger?.rows || []).map(row => ({ ...row }));
+  if (!closedRows && rows.some(row => row.confirmationState === 'confirmed' && row.actualMinutesSource === 'auto')) {
+    const tenant = await Tenant.findById(tenantId).select('settings').lean();
+    const policy = getAttendancePolicy(tenant);
+    const expected = policy.configuredYears.has(month.year)
+      ? await expectedMinutesFor(month.start, month.end, tenant)
+      : null;
+    for (const row of rows) {
+      row.expectedMinutes = expected;
+      Object.assign(row, stats.get(String(row.employeeId)) || emptyAttendanceAggregate());
+    }
+    attachActualSuggestions(rows, tenant);
+  }
+  const stored = new Map(rows.map(row => [String(row.employeeId), row]));
   const summary = {};
+  const actualFor = row => ['pending', 'no_basis'].includes(row?.confirmationState) ? null : row?.actualMinutes ?? null;
+  const frozenAggregate = row => Object.fromEntries(Object.entries(emptyAttendanceAggregate()).map(([key, fallback]) => [key, row[key] ?? fallback]));
   for (const [employeeId, aggregate] of stats) {
     const row = stored.get(employeeId);
-    summary[employeeId] = { ...aggregate, expectedMinutes: row?.expectedMinutes ?? null, actualMinutes: row?.actualMinutes ?? null };
+    summary[employeeId] = { ...(closedRows && row ? frozenAggregate(row) : aggregate), expectedMinutes: row?.expectedMinutes ?? null, actualMinutes: actualFor(row) };
   }
   for (const [employeeId, row] of stored) {
     if (summary[employeeId]) continue;
-    summary[employeeId] = { ...emptyAttendanceAggregate(), expectedMinutes: row.expectedMinutes ?? null, actualMinutes: row.actualMinutes ?? null };
+    summary[employeeId] = { ...(closedRows ? frozenAggregate(row) : emptyAttendanceAggregate()), expectedMinutes: row.expectedMinutes ?? null, actualMinutes: actualFor(row) };
   }
   return summary;
 }
@@ -273,7 +291,7 @@ async function buildRows(req, month, scope, ledger) {
       pendingLeaveUnreconciled: pending.requiresLeaveReconciliation === true
     });
   }
-  return rows;
+  return attachActualSuggestions(rows, req.tenant);
 }
 
 /** 台账的姓名列不再拼接工号/手机号（下一行已经展示这些信息），同时清掉历史快照里存过的 displayName。 */
@@ -299,8 +317,8 @@ function sumRows(rows) {
 }
 
 /**
- * 给每一行附上「实到分钟」的系统建议值。只算不写：采用还是修改由管理员保存那一行时决定，
- * 所以读取接口不会因为日历或导入变化就偷偷改掉台账数据。
+ * 给每一行附建议值，并解析已确认自动行的当前生效实到。
+ * 只修改返回行，不写库；人工值与未知状态保持原有语义。
  */
 function attachActualSuggestions(rows, tenant) {
   const rule = readActualRule(tenant);
@@ -310,6 +328,9 @@ function attachActualSuggestions(rows, tenant) {
     row.suggestedActualMinutes = suggestion.minutes;
     row.suggestedActualNote = suggestion.note;
     row.actualMinutesIsManual = isActualManual(row);
+    // 建议只对已确认的自动行生效；待确认与无依据仍然表示未知。
+    if (row.confirmationState === 'pending' || row.confirmationState === 'no_basis') row.actualMinutes = null;
+    else if (row.confirmationState === 'confirmed' && row.actualMinutesSource === 'auto') row.actualMinutes = suggestion.minutes;
   }
   return rows;
 }
@@ -329,8 +350,6 @@ exports.getLedger = async (req, res) => {
       const allowedIds = new Set(allowed.map(user => String(user._id)));
       rows = ledger.closedSnapshot.rows.filter(row => allowedIds.has(String(row.employeeId)));
     } else rows = await buildRows(req, month, scope, ledger);
-    // 已结账月份只读快照、不再算建议值；开放中的月份给每行带上系统建议值
-    if (ledger.status !== 'closed') attachActualSuggestions(rows, req.tenant);
     return res.json({ ok: true, data: { month: req.query.month, status: ledger.status, version: ledger.version, rows: stripPersonLabels(rows), totals: sumRows(rows) } });
   } catch (e) {
     if (e.status) return err(res, e.status, e.message, e.code);
@@ -375,6 +394,9 @@ exports.saveRow = async (req, res) => {
     if (ledger.version !== version) return err(res, 409, '台账已被其他管理员修改，请刷新重试');
     let row = ledger.rows.find(item => String(item.employeeId) === String(user._id));
     if (!row) { ledger.rows.push(defaultLedgerRow(user, await expectedMinutesFor(month.start, month.end, req.tenant))); row = ledger.rows[ledger.rows.length - 1]; }
+    if (confirmationState === 'confirmed' && actualMinutesSource === 'auto') {
+      row.expectedMinutes = await expectedMinutesFor(month.start, month.end, req.tenant);
+    }
     row.actualMinutes = actualMinutes;
     /**
      * 「采用系统建议值」必须与规则此刻的输出对得上，才记成 auto（以后跟着重算）。
@@ -493,6 +515,7 @@ exports.importLedgerRecords = async (req, res) => {
     }
 
     if (results.some(item => item.status !== 'failed')) {
+      ledger.version++;
       ledger.updatedAt = new Date();
       await ledger.save();
     }

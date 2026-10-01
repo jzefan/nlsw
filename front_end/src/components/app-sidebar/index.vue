@@ -1,8 +1,11 @@
 <script lang="ts" setup>
+import { onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { GalleryVerticalEnd } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 
 import { SYSTEM_NAME } from '@/config/constants'
+import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
 
 import { generateNavData, generatePlatformNavData } from './data/sidebar-data'
@@ -10,7 +13,15 @@ import NavFooter from './nav-footer.vue'
 import NavTeam from './nav-team.vue'
 
 const authStore = useAuthStore()
+const approvalStore = useApprovalStore()
+const route = useRoute()
 const { user, isPlatformUser, features } = storeToRefs(authStore)
+
+// 审批待办计数（审批页那一行的待办链接用）在侧栏启动：侧栏随布局常驻，进任何页面都会保持最新（60s 轮询）
+onMounted(() => approvalStore.start())
+onUnmounted(() => approvalStore.stop())
+// 切页面时补拉一次（例如刚审完一条），不必等下一次轮询
+watch(() => route.fullPath, () => { void approvalStore.refresh() })
 
 // 根据用户角色和权限动态生成菜单
 const navMain = computed(() => {
@@ -27,7 +38,7 @@ const navMain = computed(() => {
     (Array.isArray(authStore.tenant?.sealCustodianIds) && user.value?.id && authStore.tenant.sealCustodianIds.includes(user.value.id)) ||
     (authStore.tenant?.sealCustodianId && user.value?.id && authStore.tenant.sealCustodianId === user.value.id)
   )
-  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian)
+  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian, user.value?.canReviewAttendance === true)
 })
 
 // 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名

@@ -17,6 +17,10 @@ declare global {
   const THEMES: typeof import('../constants/themes').THEMES
   const THEMES_COLOR: typeof import('../constants/themes')['THEMES_COLOR']
   const THEME_PRIMARY_COLORS: typeof import('../constants/themes').THEME_PRIMARY_COLORS
+  const approvalKindLabels: typeof import('../stores/approvals').approvalKindLabels
+  const approvalKindLinks: typeof import('../stores/approvals').approvalKindLinks
+  const approvalKindOrder: typeof import('../stores/approvals').approvalKindOrder
+  const approvalRoleLabels: typeof import('../constants/attendance-labels').approvalRoleLabels
   const attendanceKindLabels: typeof import('../constants/attendance-labels').attendanceKindLabels
   const computePayrollTotals: typeof import('../constants/payroll-fields').computePayrollTotals
   const computed: typeof import('vue').computed
@@ -81,6 +85,7 @@ declare global {
   const toValue: typeof import('vue').toValue
   const triggerRef: typeof import('vue').triggerRef
   const unref: typeof import('vue').unref
+  const useApprovalStore: typeof import('../stores/approvals').useApprovalStore
   const useAttrs: typeof import('vue').useAttrs
   const useAuth: typeof import('../composables/use-auth').useAuth
   const useAuthStore: typeof import('../stores/auth').useAuthStore
@@ -134,6 +139,9 @@ declare global {
   // @ts-ignore
   export type { Theme, Radius, ContentLayout } from '../constants/themes'
   import('../constants/themes')
+  // @ts-ignore
+  export type { ApprovalKind } from '../stores/approvals'
+  import('../stores/approvals')
   // @ts-ignore
   export type { User, Tenant, DeployMode, Features } from '../stores/auth'
   import('../stores/auth')

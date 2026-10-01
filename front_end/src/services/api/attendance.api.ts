@@ -30,9 +30,11 @@ export interface AttendanceRequest {
   workContent?: string
   attachments?: { id: string, name: string, mimeType: string, size: number }[]
   compensation?: 'comp_time' | 'overtime_pay' | 'none' | string
-  approvals?: { approverId?: string, role?: string, status?: string, comment?: string, reviewedAt?: string }[]
+  /** 审批链：approverName 由后端补上（审批链本身只存 approverId），详情时间线要显示「谁在审 / 谁审过了」。 */
+  approvals?: { approverId?: string, approverName?: string, role?: string, status?: string, comment?: string, reviewedAt?: string }[]
   currentApproverId?: string | null
   createdAt?: string
+  withdrawnAt?: string
   created_at?: string
   [key: string]: unknown
 }
@@ -383,5 +385,22 @@ export async function closeAttendanceLedger(month: string, version: number) {
 
 export async function reopenAttendanceLedger(month: string, version: number, reason: string) {
   const response = await axiosInstance.post<AttendanceResponse<AttendanceLedger>>('/attendance/ledger/reopen', { month, version, reason })
+  return response.data
+}
+
+/**
+ * 侧栏「待我审批」角标与页面待办链接用的计数。
+ * 口径与 listRequests(view=inbox) 一致：只统计**轮到我审**的（currentApproverId + pending），
+ * 否则角标数字会和点进去看到的条数对不上。
+ */
+export interface AttendanceApprovalCounts {
+  leave: number
+  overtime: number
+  fieldwork: number
+  total: number
+}
+
+export async function getAttendanceApprovalCounts() {
+  const response = await axiosInstance.get<AttendanceResponse<AttendanceApprovalCounts>>('/attendance/approvals/pending-counts')
   return response.data
 }

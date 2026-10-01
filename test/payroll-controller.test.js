@@ -7,7 +7,7 @@ const AttendanceMonthLedger = require('../models/AttendanceMonthLedger');
 const AttendanceRequest = require('../models/AttendanceRequest');
 const PayrollStandard = require('../models/PayrollStandard');
 const payroll = require('../controllers/api/payroll');
-const { COMPONENT_KEYS } = require('../utils/payroll-calculations');
+const { COMPONENT_KEYS, DEFAULT_CONTRIBUTION_SCHEME, validatePayrollComponents } = require('../utils/payroll-calculations');
 const monthCoordination = require('../controllers/api/attendance-ledger')._coordination;
 
 function id() { return new mongoose.Types.ObjectId(); }
@@ -34,6 +34,101 @@ function stubAttendanceDependencies(t) {
   t.mock.method(AttendanceRequest, 'find', () => query([]));
   t.mock.method(AttendanceMonthLedger, 'findOne', () => ({ select: () => ({ lean: async () => null }) }));
 }
+
+test('withdrawing a published wage keeps all amounts available for a one-item correction and revision publish', async t => {
+  const tenantId = id(), employeeId = id(), financeId = id();
+  const employee = { _id: employeeId, tenantId, status: 'active', profile: { name: '员工' }, department: '物流' };
+  const components = { ...emptyComponents(), basicPayCents: 600000, performancePayCents: 80000, lunchAllowanceCents: 5000, overtimeAllowanceCents: 12000, personalLeaveDeductionCents: 15000, employeeSocialInsuranceCents: 55000, employeeHousingFundCents: 30000, incomeTaxCents: 5000 };
+  const published = { revision: 1, employee: { name: '员工', department: '物流' }, components: { ...components }, totals: validatePayrollComponents(components).totals, publishedAt: new Date('2026-09-25T00:00:00Z'), publishedBy: financeId };
+  const statement = { _id: id(), tenantId, employeeId, month: '2026-09', employee: published.employee, currentPublishedRevision: 1, version: 2, revisions: [published], events: [], payments: [] };
+  t.mock.method(PayrollStatement, 'findOne', () => query(statement));
+  t.mock.method(PayrollStatement, 'find', () => query([statement]));
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (filter, update) => {
+    if (filter.version !== statement.version || (filter.currentPublishedRevision !== undefined && filter.currentPublishedRevision !== statement.currentPublishedRevision)) return null;
+    Object.assign(statement, update.$set);
+    for (const key of Object.keys(update.$unset || {})) delete statement[key];
+    for (const [key, item] of Object.entries(update.$push || {})) statement[key].push(item);
+    statement.version += update.$inc.version;
+    return statement;
+  });
+  t.mock.method(User, 'find', () => query([employee]));
+  t.mock.method(User, 'findOne', () => query(employee));
+  stubAttendanceDependencies(t);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query({ status: 'closed' }));
+  t.mock.method(monthCoordination, 'acquireMonthMutationLock', async () => 'month-lock');
+  t.mock.method(monthCoordination, 'releaseMonthMutationLock', async () => {});
+  const finance = { _id: financeId, tenantId, status: 'active', payrollRoles: ['finance'] };
+  const req = { user: finance, tenantId, params: { employeeId: String(employeeId), month: statement.month }, body: { version: 2, reason: '绩效更正' }, query: { month: statement.month } };
+  const withdrawn = response();
+  await payroll.withdraw(req, withdrawn);
+  assert.equal(withdrawn.body.ok, true);
+  assert.deepEqual(withdrawn.body.data.components, components);
+  assert.equal(statement.currentPublishedRevision, null);
+  assert.deepEqual(published.components, components, 'old published revision remains immutable');
+  const employeeView = response();
+  await payroll.getMyStatements({ user: employee, tenantId, query: { year: '2026' } }, employeeView);
+  assert.equal(employeeView.body.data.rows.length, 0, 'withdrawn draft is invisible to the employee');
+  const table = response();
+  await payroll.listStatements(req, table);
+  assert.deepEqual(table.body.data.rows[0].components, components, 'editor receives the old amounts through the existing table response');
+  const corrected = { ...table.body.data.rows[0].components, performancePayCents: 90000 };
+  const saved = response();
+  await payroll.saveDraft({ ...req, body: { version: statement.version, components: corrected } }, saved);
+  assert.equal(saved.body.ok, true);
+  const republished = response();
+  await payroll.publish({ ...req, body: { version: statement.version } }, republished);
+  assert.equal(republished.body.ok, true);
+  assert.equal(republished.body.data.revision, 2);
+  assert.deepEqual(republished.body.data.components, corrected);
+  assert.deepEqual(statement.revisions[0].components, components);
+  assert.deepEqual(statement.events.map(event => event.reason), ['绩效更正']);
+});
+
+test('withdraw preserves an existing revision draft, recomputes totals and retains payment facts', async t => {
+  const tenantId = id(), financeId = id(), employeeId = id();
+  const publishedComponents = { ...emptyComponents(), basicPayCents: 600000, performancePayCents: 10000 };
+  const draftComponents = { ...publishedComponents, performancePayCents: 80000 };
+  const draftAt = new Date('2026-09-27T00:00:00Z');
+  const payment = { direction: 'payment', amountCents: 500000, paidAt: draftAt, createdBy: financeId, statementRevision: 1 };
+  const statement = { _id: id(), employeeId, employee: { name: '员工' }, version: 4, currentPublishedRevision: 1, revisions: [{ revision: 1, components: publishedComponents, totals: validatePayrollComponents(publishedComponents).totals }], payments: [payment], events: [], draft: { components: draftComponents, totals: { netPayCents: 1 }, updatedBy: financeId, updatedAt: draftAt } };
+  t.mock.method(PayrollStatement, 'findOne', () => query(statement));
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (_filter, update) => {
+    Object.assign(statement, update.$set);
+    statement.events.push(update.$push.events);
+    statement.version++;
+    return statement;
+  });
+  const res = response();
+  await payroll.withdraw({ user: { _id: financeId, tenantId, status: 'active', payrollRoles: ['finance'] }, tenantId, params: { employeeId: String(employeeId), month: '2026-09' }, body: { version: 4, reason: '重新核对绩效' } }, res);
+  assert.equal(res.body.ok, true);
+  assert.deepEqual(res.body.data.components, draftComponents);
+  assert.deepEqual(res.body.data.totals, validatePayrollComponents(draftComponents).totals);
+  assert.deepEqual(statement.revisions[0].components, publishedComponents);
+  assert.deepEqual(statement.payments, [payment]);
+  assert.equal(statement.draft.updatedAt, draftAt);
+  assert.equal(statement.version, 5);
+});
+
+test('withdraw refuses stale versions, inactive revisions and a concurrent CAS without creating drafts', async t => {
+  const tenantId = id(), financeId = id(), employeeId = id();
+  for (const scenario of ['stale-version', 'already-withdrawn', 'concurrent-update']) {
+    const statement = { _id: id(), employeeId, employee: { name: '员工' }, version: 4, currentPublishedRevision: scenario === 'already-withdrawn' ? null : 1, revisions: [{ revision: 1, components: { ...emptyComponents(), basicPayCents: 600000 }, totals: {} }], payments: [], events: [] };
+    t.mock.method(PayrollStatement, 'findOne', () => query(statement));
+    t.mock.method(PayrollStatement, 'findOneAndUpdate', async filter => {
+      assert.equal(scenario, 'concurrent-update');
+      assert.equal(filter.version, 4);
+      assert.equal(filter.currentPublishedRevision, 1);
+      assert.equal(String(filter.tenantId), String(tenantId));
+      return null;
+    });
+    const res = response();
+    await payroll.withdraw({ user: { _id: financeId, tenantId, status: 'active', payrollRoles: ['finance'] }, tenantId, params: { employeeId: String(employeeId), month: '2026-09' }, body: { version: scenario === 'stale-version' ? 3 : 4, reason: '更正' } }, res);
+    assert.equal(res.statusCode, 409, scenario);
+    assert.equal(statement.draft, undefined);
+    assert.equal(statement.version, 4);
+    assert.deepEqual(statement.events, []);
+  }
+});
 
 
 test('system admin cannot read the company payroll list without an explicit payroll role', async t => {
@@ -327,6 +422,53 @@ test('tenant social insurance scheme drives the amounts instead of per-employee 
   assert.equal(standard.contributions.employeeHousingFundCents, 32_000);
   assert.equal(standard.companyHousingFundRatePercent, 8);
   assert.equal(standard.personalHousingFundRatePercent, 8);
+});
+
+test('custom tenant scheme is consistent from salary settings through the monthly draft save', async t => {
+  const tenantId = id(), employeeId = id();
+  const employee = { _id: employeeId, tenantId, profile: { name: '员工' }, status: 'active' };
+  const standard = {
+    employeeId, version: 1, ...standardInput(),
+    companyHousingFundBaseCents: 500_000, personalHousingFundBaseCents: 500_000,
+  };
+  const req = {
+    user: { _id: id(), tenantId, status: 'active', payrollRoles: ['finance'] }, tenantId,
+    tenant: { settings: { payrollContributionScheme: {
+      ...DEFAULT_CONTRIBUTION_SCHEME,
+      pensionEmployerPercent: 16,
+      housingFundEmployerPercent: 5, housingFundEmployeePercent: 5,
+    } } },
+    query: { month: '2026-09' },
+  };
+  t.mock.method(User, 'find', () => query([employee]));
+  t.mock.method(PayrollStandard, 'find', () => query([standard]));
+  t.mock.method(PayrollStatement, 'find', () => query([]));
+  t.mock.method(AttendanceRequest, 'find', () => query([]));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(null));
+  const settings = response(), monthly = response();
+  await payroll.listStandards(req, settings);
+  await payroll.listStatements(req, monthly);
+  assert.equal(settings.statusCode, 200);
+  assert.equal(monthly.statusCode, 200);
+  const settingsStandard = settings.body.data.rows[0].standard;
+  const row = monthly.body.data.rows[0];
+  assert.deepEqual(row.standard.contributions, settingsStandard.contributions);
+  assert.equal(row.standard.companySocialInsuranceRatePercent, 28.5);
+  assert.equal(row.standard.personalHousingFundRatePercent, 5);
+  assert.equal(row.standardDraft.components.employerSocialInsuranceCents, 142_500);
+  assert.equal(row.standardDraft.components.employeeHousingFundCents, 25_000);
+  assert.equal(row.standardDraft.totals.netPayCents, 479_700);
+
+  let saved;
+  t.mock.method(User, 'findOne', () => query(employee));
+  t.mock.method(PayrollStatement, 'findOne', () => query(null));
+  t.mock.method(PayrollStatement, 'create', async data => { saved = data; return data; });
+  const result = response();
+  await payroll.saveDraft({ ...req, params: { employeeId: String(employeeId), month: '2026-09' }, body: { version: 0, components: row.standardDraft.components } }, result);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.ok, true);
+  assert.equal(saved.draft.components.employeeHousingFundCents, 25_000);
+  assert.equal(saved.draft.totals.netPayCents, 479_700);
 });
 
 test('recorded months ignore the salary standard and rows without a standard have no draft', async t => {

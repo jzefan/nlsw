@@ -467,6 +467,35 @@ exports.createRequest = async (req, res) => {
  * 用章申请列表
  * GET /seal/requests?view=mine|inbox|history|custody|all&status=&sealType=&page=1&limit=20
  */
+/**
+ * 用章审批的「全公司视角」：主账号 / 管理员 / 总经理职务或角色。
+ * 列表与待办计数共用同一判据，避免角标数字与列表条数对不上。
+ */
+function hasGlobalApprovalView(user) {
+  return user.role === 'owner' || isAdmin(user.privilege) || isGeneralManagerTitle(user.title) || (Array.isArray(user.attendanceRoles) && user.attendanceRoles.includes('general_manager'));
+}
+
+/** 「待我审批」的查询条件：全公司视角看所有 pending，其余只看轮到自己那一步。 */
+function sealInboxQuery(req) {
+  const query = { tenantId: req.tenantId, status: 'pending' };
+  if (!hasGlobalApprovalView(req.user)) query.currentApproverId = req.user._id;
+  return query;
+}
+
+/**
+ * 侧栏角标 / 页面待办链接用的待审批数量（只需一个数，不必拉列表）。
+ * 路由必须注册在 `/seal/requests/:id` **之前**，否则会被当成 id。
+ */
+exports.getPendingCount = async (req, res) => {
+  try {
+    const pendingCount = await SealRequest.countDocuments(sealInboxQuery(req));
+    return res.json({ ok: true, data: { pendingCount } });
+  } catch (error) {
+    console.error('seal getPendingCount error:', error);
+    return res.status(500).json({ ok: false, error: '读取待审批数量失败' });
+  }
+};
+
 exports.getRequests = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -476,19 +505,19 @@ exports.getRequests = async (req, res) => {
     const query = { tenantId: req.tenantId };
     const view = req.query.view || 'mine';
 
-    const hasGlobalApprovalView = req.user.role === 'owner' || isAdmin(req.user.privilege) || isGeneralManagerTitle(req.user.title) || (Array.isArray(req.user.attendanceRoles) && req.user.attendanceRoles.includes('general_manager'));
+    const globalApprovalView = hasGlobalApprovalView(req.user);
 
     if (view === 'mine') {
       query.applicantId = req.user._id;
     } else if (view === 'inbox') {
-      if (hasGlobalApprovalView) {
+      if (globalApprovalView) {
         query.status = 'pending';
       } else {
         query.currentApproverId = req.user._id;
         query.status = 'pending';
       }
     } else if (view === 'history') {
-      if (hasGlobalApprovalView) {
+      if (globalApprovalView) {
         query.status = { $ne: 'pending' };
       } else {
         query['approvals.approverId'] = req.user._id;
@@ -509,10 +538,7 @@ exports.getRequests = async (req, res) => {
     }
 
     // 计算待我审批角标数量
-    const inboxQuery = { tenantId: req.tenantId, status: 'pending' };
-    if (!hasGlobalApprovalView) {
-      inboxQuery.currentApproverId = req.user._id;
-    }
+    const inboxQuery = sealInboxQuery(req);
 
     const [items, total, pendingCount] = await Promise.all([
       SealRequest.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -539,7 +565,7 @@ exports.getRequests = async (req, res) => {
       },
       meta: {
         pendingCount,
-        hasGlobalApprovalView
+        hasGlobalApprovalView: globalApprovalView
       }
     });
   } catch (error) {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronLeft, ChevronRight, Clock3, Paperclip, Plus, RotateCcw, X } from 'lucide-vue-next'
+import { Check, ChevronLeft, ChevronRight, Clock3, Download, Eye, Paperclip, Plus, RotateCcw, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
+import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
 import { attendanceKindLabels } from '@/constants/attendance-labels'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +13,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import ApprovalPendingLinks from '@/components/approval/ApprovalPendingLinks.vue'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import AttachmentPreviewDialog from '@/pages/attendance/components/AttachmentPreviewDialog.vue'
+import RequestTimeline from '@/pages/attendance/components/RequestTimeline.vue'
 import {
   createAttendanceRequest,
   downloadAttendanceRequestAttachment,
@@ -23,9 +27,11 @@ import {
   type AttendanceRequest,
   type AttendanceRequestKind,
 } from '@/services/api/attendance.api'
+import { canPreviewAttachment } from '@/utils/attendance-attachments'
 
 const props = withDefaults(defineProps<{ view?: 'mine' | 'inbox' | 'history', type?: AttendanceRequestKind | '' }>(), { view: 'mine', type: '' })
 const authStore = useAuthStore()
+const approvalStore = useApprovalStore()
 
 const rows = ref<AttendanceRequest[]>([])
 const loading = ref(false)
@@ -37,11 +43,16 @@ const pendingApprovalCount = ref(0)
 const dialogOpen = ref(false)
 const saving = ref(false)
 const downloadingAttachment = ref('')
+/** 附件预览：PDF / 图片在弹窗里直接看，Word / Excel 仍走下载。 */
+const previewOpen = ref(false)
+const previewTarget = ref<{ requestId: string, attachment: NonNullable<AttendanceRequest['attachments']>[number] } | null>(null)
 const attachmentInput = ref<HTMLInputElement>()
 const attachmentFiles = ref<File[]>([])
 const busyId = ref('')
 const expandedId = ref('')
 const reviewComment = ref('')
+let listRequestId = 0
+let approvalCountRequestId = 0
 /** 加班补偿方式的展示名，表单与列表共用一份。 */
 const compensationLabels: Record<string, string> = { comp_time: '调休', overtime_pay: '加班费', none: '无补偿' }
 
@@ -65,7 +76,7 @@ const attendanceRoles = computed(() => {
   const roles = authStore.user?.attendanceRoles
   return Array.isArray(roles) ? roles : roles ? [roles] : []
 })
-const canReview = computed(() => authStore.isOwner || authStore.isAppAdmin || attendanceRoles.value.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role)))
+const canReview = computed(() => authStore.isOwner || authStore.isAppAdmin || authStore.user?.canReviewAttendance === true || attendanceRoles.value.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role)))
 const durationPreview = computed(() => {
   const { startAt, endAt, type } = form.value
   if (!startAt || !endAt) return ''
@@ -115,6 +126,12 @@ function requestId(row: AttendanceRequest) {
   const id = row.id ?? row._id ?? row.requestId
   return id == null ? '' : String(id)
 }
+/** 详情里只显示申请人所在部门；工号与职务不再展示。 */
+function applicantDepartment(row: AttendanceRequest) {
+  if (!row.applicant || typeof row.applicant !== 'object') return ''
+  return String((row.applicant as Record<string, unknown>).department ?? '')
+}
+
 function getKind(row: AttendanceRequest) {
   const key = String(row.type ?? row.kind ?? '')
   return kindOptions.find(item => item.value === key)?.label ?? key ?? '申请'
@@ -134,10 +151,46 @@ function getPeriod(row: AttendanceRequest) {
   if (!start) return '—'
   return `${formatDate(start)}${end ? ` 至 ${formatDate(end)}` : ''}`
 }
-function getDuration(row: AttendanceRequest) {
-  if (typeof row.durationHours === 'number') return `${row.durationHours} 小时`
-  if (typeof row.durationMinutes === 'number') return `${Math.round(row.durationMinutes / 60 * 100) / 100} 小时`
-  return ''
+function requestMinutes(row: AttendanceRequest) {
+  if (typeof row.durationMinutes === 'number') return row.durationMinutes
+  if (typeof row.durationHours === 'number') return Math.round(row.durationHours * 60)
+  return 0
+}
+
+/** 去掉多余小数位：1 / 0.5 / 1.25 这样，避免出现 1.00 天。 */
+function trimNumber(value: number) {
+  return String(Math.round(value * 100) / 100)
+}
+
+/** 北京时间下的日期（YYYY-MM-DD），用来数出差跨了几天。 */
+function beijingDateKey(value: unknown) {
+  if (typeof value !== 'string' || !value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) return ''
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+}
+
+/**
+ * 列表与详情显示的时长口径：
+ * - **请假** 看折算天数（时长 ÷ 每日工作分钟，8 小时 = 1 天，取得到工作日历时按租户工作时段算）
+ * - **出差** 看日历天数（起止日期含首尾，跨几天就是几天）
+ * - **加班** 看时长（小时）
+ */
+function getDurationLabel(row: AttendanceRequest) {
+  const minutes = requestMinutes(row)
+  if (!minutes) return ''
+  const type = String(row.type ?? row.kind ?? '')
+  if (type === 'overtime') return `${trimNumber(minutes / 60)} 小时`
+  if (type === 'fieldwork') {
+    const from = beijingDateKey(row.startAt ?? row.start_at)
+    const to = beijingDateKey(row.endAt ?? row.end_at)
+    if (!from || !to) return ''
+    const span = Math.round((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86400000)
+    return span >= 0 ? `${span + 1} 天` : ''
+  }
+  const year = Number(beijingDateKey(row.startAt ?? row.start_at).slice(0, 4))
+  const perDay = (Number.isFinite(year) ? calendarMinutesPerWorkday(year) : 0) || 8 * 60
+  return `${trimNumber(minutes / perDay)} 天`
 }
 function getLeaveType(row: AttendanceRequest) {
   return leaveTypes.find(item => item.value === row.leaveType)?.label ?? row.leaveType ?? ''
@@ -149,18 +202,6 @@ function getDetail(row: AttendanceRequest) {
   if (row.type === 'fieldwork' && row.location) details.push(`地点：${row.location}`)
   if (row.type === 'overtime' && row.location) details.push(`地点：${row.location}`)
   return details.filter(Boolean).join(' · ') || '—'
-}
-function getApprovalLabel(role?: string) {
-  return ({ manager: '直属经理', general_manager: '总经理', general_manager_delegate: '代理审批人' } as Record<string, string>)[role ?? ''] ?? role ?? '审批人'
-}
-function getPendingApprover(row: AttendanceRequest) {
-  if (!isPending(row)) return undefined
-  return row.approvals?.find(item => item.status === 'pending')
-}
-function getApprovalStatusLabel(row: AttendanceRequest, status?: string) {
-  const value = status ?? 'pending'
-  if (value === 'pending' && ['withdrawn', 'rejected', 'approved'].includes(String(row.status))) return '已结束'
-  return value === 'approved' ? '已通过' : value === 'rejected' ? '已驳回' : '待审批'
 }
 function getMyReviewStatus(row: AttendanceRequest) {
   const userId = authStore.user?.id
@@ -251,24 +292,35 @@ function showError(error: unknown) {
 }
 
 async function load() {
+  const currentRequest = ++listRequestId
+  const requestedView = props.view
+  // 收件箱的总数就是角标；进入此视图时让旧的单独计数请求失效。
+  const countRequest = requestedView === 'inbox' ? ++approvalCountRequestId : null
   loading.value = true
+  loadFailed.value = false
+  rows.value = []
+  total.value = 0
+  if (countRequest !== null) pendingApprovalCount.value = 0
   try {
-    const response = await getAttendanceRequests(props.view, page.value, limit, scopedType.value)
+    const response = await getAttendanceRequests(requestedView, page.value, limit, scopedType.value)
+    if (currentRequest !== listRequestId) return
     rows.value = extractRows(response as Record<string, unknown>) ?? []
     total.value = response.pagination?.total ?? rows.value.length
-    if (isInbox.value) pendingApprovalCount.value = total.value
+    if (countRequest !== null && countRequest === approvalCountRequestId) pendingApprovalCount.value = total.value
     loadFailed.value = false
   }
   catch (error) {
+    if (currentRequest !== listRequestId) return
     rows.value = []
     total.value = 0
     loadFailed.value = true
     showError(error)
   }
-  finally { loading.value = false }
+  finally { if (currentRequest === listRequestId) loading.value = false }
 }
 
 async function loadPendingApprovalCount() {
+  const currentRequest = ++approvalCountRequestId
   if (!canReview.value) {
     pendingApprovalCount.value = 0
     return
@@ -276,10 +328,11 @@ async function loadPendingApprovalCount() {
   try {
     // 角标和列表是同一批单子，也要按当前类型统计
     const response = await getAttendanceRequests('inbox', 1, 1, scopedType.value)
+    if (currentRequest !== approvalCountRequestId) return
     pendingApprovalCount.value = response.pagination?.total ?? extractRows(response as Record<string, unknown>)?.length ?? 0
   }
   catch {
-    pendingApprovalCount.value = 0
+    if (currentRequest === approvalCountRequestId) pendingApprovalCount.value = 0
   }
 }
 
@@ -517,6 +570,15 @@ watch(() => form.value.type, (type) => {
   }
 })
 
+/** 可预览的（PDF / 图片）打开预览弹窗，其余（Word / Excel）直接下载。 */
+function openAttachment(row: AttendanceRequest, attachment: NonNullable<AttendanceRequest['attachments']>[number]) {
+  const rowId = requestId(row)
+  if (!rowId) return
+  if (!canPreviewAttachment(attachment.mimeType)) { void downloadAttachment(row, attachment); return }
+  previewTarget.value = { requestId: rowId, attachment }
+  previewOpen.value = true
+}
+
 async function downloadAttachment(row: AttendanceRequest, attachment: NonNullable<AttendanceRequest['attachments']>[number]) {
   const rowId = requestId(row)
   if (!rowId) return
@@ -624,6 +686,8 @@ async function review(row: AttendanceRequest, decision: 'approve' | 'reject') {
   try {
     await reviewAttendanceRequest(id, decision, reviewComment.value.trim())
     toast.success(decision === 'approve' ? '已通过' : '已驳回')
+    // 刚审完一条：侧栏角标与页面待办链接立刻跟着减，不用等下一次轮询
+    void approvalStore.refresh()
     expandedId.value = ''
     reviewComment.value = ''
     await load()
@@ -632,26 +696,29 @@ async function review(row: AttendanceRequest, decision: 'approve' | 'reject') {
   finally { busyId.value = '' }
 }
 
-watch(() => props.view, () => {
+// 侧栏切换视图或申请类型时复用组件；两项同时变化只发一轮请求。
+watch([() => props.view, scopedType], () => {
   page.value = 1
-  load()
+  void load()
   if (!isInbox.value) void loadPendingApprovalCount()
-})
-// 侧栏在请假/加班/出差之间切换时复用同一个组件实例，需要按新类型重新取数。
-watch(scopedType, () => {
-  page.value = 1
-  load()
 })
 watch(canReview, (allowed) => {
   if (allowed && !isInbox.value) void loadPendingApprovalCount()
-  else if (!allowed) pendingApprovalCount.value = 0
+  else if (!allowed) {
+    approvalCountRequestId++
+    pendingApprovalCount.value = 0
+  }
 })
 onMounted(() => {
   load()
   if (!isInbox.value) void loadPendingApprovalCount()
   window.addEventListener('attendance-calendar-updated', invalidateCalendar)
 })
-onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', invalidateCalendar))
+onBeforeUnmount(() => {
+  listRequestId++
+  approvalCountRequestId++
+  window.removeEventListener('attendance-calendar-updated', invalidateCalendar)
+})
 </script>
 
 <template>
@@ -659,13 +726,17 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
     <div class="flex flex-wrap items-center justify-between gap-3">
       <!-- 标题在顶部面包屑里；「我的申请」页内再给一次大标题，审批视图只出下面这条切换 -->
       <h1 v-if="!isInbox && !isHistory" class="text-lg font-semibold">{{ listTitle }}</h1>
-      <nav v-if="canReview && (isInbox || isHistory)" class="flex items-center gap-1 border-b pb-2 text-xs">
-        <router-link :to="listLink('/attendance/approvals')" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isInbox ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">
-          待我审批
-          <Badge v-if="pendingApprovalCount > 0" variant="destructive" class="h-4 rounded-full px-1.5 text-[10px]" :aria-label="`${pendingApprovalCount} 条待审批`">{{ pendingApprovalCount }}</Badge>
-        </router-link>
-        <router-link to="/attendance/approval-history" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isHistory ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">审核记录</router-link>
-      </nav>
+      <!-- 页签行最右是待办直达链接：按类型列出当前有待审批的入口，点一下跳到那个页面 -->
+      <div v-if="canReview && (isInbox || isHistory)" class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-2">
+        <nav class="flex items-center gap-1 text-xs">
+          <router-link :to="listLink('/attendance/approvals')" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isInbox ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">
+            待我审批
+            <Badge v-if="pendingApprovalCount > 0" variant="destructive" class="h-4 rounded-full px-1.5 text-[10px]" :aria-label="`${pendingApprovalCount} 条待审批`">{{ pendingApprovalCount }}</Badge>
+          </router-link>
+          <router-link to="/attendance/approval-history" class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors" :class="isHistory ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted'">审核记录</router-link>
+        </nav>
+        <ApprovalPendingLinks />
+      </div>
       <div v-if="!isInbox && !isHistory" class="flex items-center gap-2">
         <Button variant="outline" size="sm" :disabled="loading" @click="load"><RotateCcw class="mr-1.5 size-4" :class="loading ? 'animate-spin' : ''" />刷新</Button>
         <Button size="sm" @click="openCreate"><Plus class="mr-1.5 size-4" />新建申请</Button>
@@ -697,7 +768,7 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
             <TableRow>
               <TableCell v-if="isInbox || isHistory" class="font-medium">{{ getApplicant(row) || '—' }}</TableCell>
               <TableCell>{{ getKind(row) }}</TableCell>
-              <TableCell class="whitespace-nowrap text-muted-foreground">{{ getPeriod(row) }}<span v-if="getDuration(row)" class="ml-2">{{ getDuration(row) }}</span></TableCell>
+              <TableCell class="whitespace-nowrap text-muted-foreground">{{ getPeriod(row) }}<span v-if="getDurationLabel(row)" class="ml-2">{{ getDurationLabel(row) }}</span></TableCell>
               <TableCell class="max-w-[28rem] truncate">{{ getDetail(row) }}</TableCell>
               <TableCell><Badge variant="outline" :class="isPending(row) ? 'text-amber-700 dark:text-amber-400' : ''">{{ getStatus(row) }}</Badge></TableCell>
               <TableCell v-if="isHistory"><Badge variant="outline" :class="getMyReviewStatus(row) === '已驳回' ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'">{{ getMyReviewStatus(row) }}</Badge></TableCell>
@@ -715,10 +786,8 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
               <TableCell :colspan="isHistory ? 7 : isInbox ? 6 : 5" class="bg-muted/30">
                 <div class="flex flex-col gap-3 py-1">
                   <div class="min-w-0 space-y-1">
-                    <p class="text-sm font-medium">{{ getKind(row) }} · {{ getApplicant(row) }} <span class="font-normal text-muted-foreground">{{ getPeriod(row) }}</span></p>
-                    <p v-if="row.applicant && typeof row.applicant === 'object'" class="text-xs text-muted-foreground">
-                      {{ [row.applicant.department, row.applicant.employeeNo, row.applicant.title].filter(Boolean).join(' · ') }}
-                    </p>
+                    <p class="text-sm font-medium">{{ getKind(row) }} · {{ getApplicant(row) }} <span class="font-normal text-muted-foreground">{{ getPeriod(row) }}<template v-if="getDurationLabel(row)"> · {{ getDurationLabel(row) }}</template></span></p>
+                    <p v-if="applicantDepartment(row)" class="text-xs text-muted-foreground">{{ applicantDepartment(row) }}</p>
                     <p class="text-sm text-muted-foreground">
                       {{ getDetail(row) }}
                       <span v-if="row.contact"> · 对接：{{ row.contact }}</span>
@@ -732,21 +801,16 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
                         variant="link"
                         size="sm"
                         class="h-auto gap-1 px-1 py-0 text-xs"
+                        :title="canPreviewAttachment(attachment.mimeType) ? '点击查看' : '下载后查看'"
                         :disabled="downloadingAttachment === `${requestId(row)}:${attachment.id}`"
-                        @click="downloadAttachment(row, attachment)"
+                        @click="openAttachment(row, attachment)"
                       >
-                        <Paperclip class="size-3" />{{ attachment.name }} · {{ formatFileSize(attachment.size) }}
+                        <Eye v-if="canPreviewAttachment(attachment.mimeType)" class="size-3" />
+                        <Download v-else class="size-3" />
+                        {{ attachment.name }} · {{ formatFileSize(attachment.size) }}
                       </Button>
                     </div>
-                    <div v-if="getPendingApprover(row)" class="text-xs text-muted-foreground">当前审批：{{ getApprovalLabel(getPendingApprover(row)?.role) }}</div>
-                    <div v-if="row.approvals?.length" class="space-y-1 pt-1">
-                      <div v-for="(approval, index) in row.approvals" :key="`${approval.role}-${index}`" class="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-                        <span>{{ getApprovalLabel(approval.role) }}</span>
-                        <span>{{ getApprovalStatusLabel(row, approval.status) }}</span>
-                        <span v-if="approval.reviewedAt">{{ formatDate(approval.reviewedAt) }}</span>
-                        <span v-if="approval.comment">{{ approval.comment }}</span>
-                      </div>
-                    </div>
+                    <div class="pt-1"><RequestTimeline :request="row" /></div>
                     <div v-if="isInbox && isPending(row)" class="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <label :for="`review-comment-${requestId(row)}`" class="text-xs text-muted-foreground">审批意见</label>
                       <div class="flex shrink-0 gap-2">
@@ -844,5 +908,11 @@ onBeforeUnmount(() => window.removeEventListener('attendance-calendar-updated', 
         </form>
       </DialogContent>
     </Dialog>
+
+    <AttachmentPreviewDialog
+      v-model:open="previewOpen"
+      :request-id="previewTarget?.requestId ?? ''"
+      :attachment="previewTarget?.attachment ?? null"
+    />
   </main>
 </template>

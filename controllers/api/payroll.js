@@ -332,10 +332,10 @@ async function attachStandardAndAttendance(rows, tenantId, month, scheme) {
   ]);
   const standardByEmployee = new Map(standards.map(item => [String(item.employeeId), item]));
   for (const row of rows) {
-    row.standard = serializeStandard(standardByEmployee.get(String(row.employeeId)));
+    row.standard = serializeStandard(standardByEmployee.get(String(row.employeeId)), scheme);
     row.attendance = attendance[String(row.employeeId)] || null;
     // 工资标准基本不变，所以没录入的月份直接按标准给出底稿金额；有工资条的行以工资条为准
-    row.standardDraft = row.statementStatus === 'missing' ? standardDraft(row.standard) : null;
+    row.standardDraft = row.statementStatus === 'missing' ? standardDraft(row.standard, scheme) : null;
   }
 }
 
@@ -613,10 +613,17 @@ exports.withdraw = async (req, res) => {
     if (!statement || statement.version !== version) return fail(res, 409, '工资条不存在或已被修改');
     const published = latestPublished(statement);
     if (!published) return fail(res, 409, '没有可撤回的已发布工资条');
+    // 撤回后仍能基于原金额更正；已有未发布修订稿时保留财务的新输入。
+    const validated = validatePayrollComponents(asObject(statement.draft?.components || published.components));
+    if (!validated.ok) return fail(res, 409, `工资金额无效，无法生成修订草稿：${validated.error}`);
     const now = new Date();
     const updated = await PayrollStatement.findOneAndUpdate({ _id: statement._id, tenantId: req.tenantId, version, currentPublishedRevision: published.revision }, {
       $push: { events: { action: 'withdrawn', revision: published.revision, actorId: req.user._id, reason: reason.trim(), at: now } },
-      $set: { currentPublishedRevision: null, updatedAt: now },
+      $set: {
+        currentPublishedRevision: null,
+        draft: { components: validated.components, totals: validated.totals, updatedBy: statement.draft?.updatedBy || req.user._id, updatedAt: statement.draft?.updatedAt || now },
+        updatedAt: now,
+      },
       $inc: { version: 1, __v: 1 },
     }, { new: true, runValidators: true });
     if (!updated) return fail(res, 409, '工资条已被其他财务修改，请刷新后重试');

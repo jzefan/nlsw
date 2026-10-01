@@ -302,3 +302,12 @@ export async function updateSealSettings(body: {
   const { data } = await axiosInstance.post<SealResponse>('/seal/settings', body)
   return data
 }
+
+/**
+ * 侧栏角标 / 页面待办链接用的待审批数量（不必拉列表）。
+ * 口径与 `view=inbox` 一致：全公司视角看所有 pending，其余只看轮到自己那一步。
+ */
+export async function getSealPendingCount() {
+  const { data } = await axiosInstance.get<SealResponse<{ pendingCount: number }>>('/seal/requests/pending-count')
+  return data
+}

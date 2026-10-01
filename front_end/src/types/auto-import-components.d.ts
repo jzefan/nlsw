@@ -12,6 +12,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ApprovalPendingLinks: typeof import('./../components/approval/ApprovalPendingLinks.vue')['default']
     AppSidebar: typeof import('./../components/app-sidebar/index.vue')['default']
     AppSidebarNavFooter: typeof import('./../components/app-sidebar/nav-footer.vue')['default']
     AppSidebarNavTeam: typeof import('./../components/app-sidebar/nav-team.vue')['default']
@@ -415,6 +416,7 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
+  const ApprovalPendingLinks: typeof import('./../components/approval/ApprovalPendingLinks.vue')['default']
   const AppSidebar: typeof import('./../components/app-sidebar/index.vue')['default']
   const AppSidebarNavFooter: typeof import('./../components/app-sidebar/nav-footer.vue')['default']
   const AppSidebarNavTeam: typeof import('./../components/app-sidebar/nav-team.vue')['default']

@@ -109,14 +109,13 @@ function getBeijingMonth() {
   return `${year}-${month}`
 }
 
-/** 这一行当前生效的实到分钟：人工确定过就显示填的值，否则显示系统建议值（只算不写库）。 */
+/** 后端统一提供当前生效实到；建议值只用于待确认行的编辑预填。 */
 function effectiveActualMinutes(row: AttendanceLedger['rows'][number]) {
-  if (row.actualMinutesIsManual) return row.actualMinutes ?? null
-  return row.suggestedActualMinutes ?? row.actualMinutes ?? null
+  return row.actualMinutes ?? null
 }
 
 function makeDraft(row: AttendanceLedger['rows'][number]): LedgerDraft {
-  const actual = effectiveActualMinutes(row)
+  const actual = row.confirmationState === 'pending' ? row.suggestedActualMinutes ?? null : effectiveActualMinutes(row)
   return {
     actualMinutes: actual === null ? '' : String(actual),
     confirmationState: row.confirmationState === 'pending' ? '' : row.confirmationState,
@@ -129,7 +128,7 @@ function isRowDirty(row: AttendanceLedger['rows'][number]) {
   if (!draft) return false
   const expectedState = row.confirmationState === 'pending' ? '' : row.confirmationState
   // 与「生效值」比较：预填的系统建议值不算修改，否则一进页面就显示成有未保存修改
-  const expectedMinutes = effectiveActualMinutes(row) ?? ''
+  const expectedMinutes = row.confirmationState === 'pending' ? row.suggestedActualMinutes ?? '' : effectiveActualMinutes(row) ?? ''
   return draft.confirmationState !== expectedState || Number(draft.actualMinutes || 0) !== Number(expectedMinutes || 0) || draft.note.trim() !== (row.note ?? '').trim()
 }
 

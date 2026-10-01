@@ -26,7 +26,7 @@ import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 import { getTitleCode } from '@/services/api/user.api'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
 
-export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false): NavGroup[] {
   const groups: NavGroup[] = []
 
   // 总览 - 所有人可见
@@ -35,9 +35,9 @@ export function generateNavData(privilege: string[], features?: Features, attend
     items: [{ title: '首页', url: '/dashboard', icon: LayoutDashboard }],
   })
 
-  // 考勤入口仅在租户功能开关开启后显示；系统管理员、公司主账号和考勤审批角色可进入审批。
+  // 考勤入口仅在功能开启后显示；实际分配的审批人也可进入本人待办与审核历史。
   if (features?.attendance) {
-    const canApprove = isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role))
+    const canApprove = canReviewAttendance || isOwner || isAdmin(privilege) || attendanceRoles.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role))
     // 工资管理菜单：财务可录入发布，总经理与董事长只读查看（职务可能是 gm/ceo，也可能是老账号的中文写法）
     const titleCode = getTitleCode(title)
     const canManagePayroll = payrollRoles.some(role => ['finance', 'general_manager'].includes(role)) || titleCode === 'gm' || titleCode === 'ceo'

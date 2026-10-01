@@ -8,8 +8,9 @@ var secrets = require("../config/secrets");
 var { isAdmin } = require("../utils/permissions");
 var { isStandalone, getDeployMode, getStandaloneCompany } = require("../utils/deploy-mode");
 var { getBillImportCarrierRule } = require("../utils/tenant-settings");
-var { hasProtectedIdentity, bumpSessionVersion, changePasswordWithCas, identityVersionFilter } = require("../utils/user-security");
+var { hasProtectedIdentity, hasProtectedPrivileges, bumpSessionVersion, changePasswordWithCas, identityVersionFilter } = require("../utils/user-security");
 var { migrateBinaryToArray } = require("../utils/privilege-migration");
+var { isGeneralManagerTitle } = require("../utils/user-title");
 
 function canUseLegacyUserManagement(req) {
   return Boolean(req.user && (req.user.role === 'owner' || req.user.role === 'platform' || isAdmin(req.user.privilege)));
@@ -17,6 +18,16 @@ function canUseLegacyUserManagement(req) {
 
 function legacyUserQuery(req, criteria) {
   return req.user?.role === 'platform' ? criteria : { ...criteria, tenantId: req.tenantId || req.user?.tenantId?._id || req.user?.tenantId };
+}
+
+function manageGeneralManagerThroughApi(req, res) {
+  req.tenantId = req.tenantId || req.user?.tenantId?._id || req.user?.tenantId;
+  // Keep the old page's response field while sharing the locked identity transition.
+  const legacyResponse = {
+    status(code) { res.status(code); return this; },
+    json(body) { return res.json({ ...body, response: body.message || body.response }); }
+  };
+  return require('./api/user').postUserMgr(req, legacyResponse);
 }
 
 function refreshLoginSession(req, user) {
@@ -667,6 +678,7 @@ exports.postUserMgr = async function (req, res) {
   var action = req.body.act;
   if (action === "add") {
     var data = req.body.data;
+    if (isGeneralManagerTitle(data?.title)) return manageGeneralManagerThroughApi(req, res);
     try {
       const users = await User.find(legacyUserQuery(req, {})).sort({ no: "desc" }).exec();
 
@@ -720,6 +732,10 @@ exports.postUserMgr = async function (req, res) {
         res.end(JSON.stringify({ ok: false, response: "用户未找到" }));
         return;
       }
+      if (isGeneralManagerTitle(mod_data.title) || isGeneralManagerTitle(user.title) ||
+        (user.payrollRoles || []).includes('general_manager') || (user.attendanceRoles || []).includes('general_manager')) {
+        return manageGeneralManagerThroughApi(req, res);
+      }
       const profilePhone = mod_data.phone || "";
       if ((user.profile?.phone || "") !== profilePhone && hasProtectedIdentity(user)) {
         return res.status(403).json({ ok: false, response: "员工、管理员或薪资账号暂不支持直接修改登录手机号" });
@@ -727,7 +743,7 @@ exports.postUserMgr = async function (req, res) {
       const previousPrivilege = Array.isArray(user.privilege) ? user.privilege : migrateBinaryToArray(user.privilege);
       const nextPrivilege = Array.isArray(mod_data.privilege) ? mod_data.privilege : migrateBinaryToArray(mod_data.privilege);
       const privilegeChanged = JSON.stringify(previousPrivilege) !== JSON.stringify(nextPrivilege);
-      if (privilegeChanged && hasProtectedIdentity(user) && String(user._id) !== String(req.user._id)) {
+      if (privilegeChanged && hasProtectedPrivileges(user) && String(user._id) !== String(req.user._id)) {
         return res.status(403).json({ ok: false, response: "不能通过通用用户管理变更受保护账号的系统权限" });
       }
       const identityChanged = (user.profile?.phone || "") !== profilePhone || privilegeChanged;

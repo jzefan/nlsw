@@ -392,4 +392,25 @@ test('reviewRequest approval capacity recheck ignores other unapproved pending r
   assert.deepEqual(findFilterUsed.status.$in, ['approved', 'checked_out', 'overdue']);
 });
 
+test('seal pending count filters by approver unless the viewer has the global view', async t => {
+  const tenantId = id();
+  const member = mockUser(tenantId);
+  const owner = mockUser(tenantId, { role: 'owner' });
+  const filters = [];
+  t.mock.method(SealRequest, 'countDocuments', async filter => { filters.push(filter); return 2; });
+
+  const memberRes = response();
+  await sealApi.getPendingCount({ tenantId, user: member }, memberRes);
+  assert.equal(memberRes.statusCode, 200);
+  assert.equal(memberRes.body.data.pendingCount, 2);
+  assert.equal(String(filters[0].currentApproverId), String(member._id), '普通审批人只看轮到自己那一步');
+  assert.equal(filters[0].status, 'pending');
+
+  const ownerRes = response();
+  await sealApi.getPendingCount({ tenantId, user: owner }, ownerRes);
+  assert.equal(ownerRes.statusCode, 200);
+  assert.equal(ownerRes.body.data.pendingCount, 2);
+  assert.equal(filters[1].currentApproverId, undefined, '主账号看全公司待审批，不再按审批人过滤');
+  assert.equal(filters[1].status, 'pending');
+});
 

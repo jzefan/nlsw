@@ -39,6 +39,227 @@ function payrollUser(tenantId, fields = {}) {
   };
 }
 
+// Keep loaded documents separate from storage and enforce CAS, as MongoDB does.
+function identityStore(t, users, { beforeWrite } = {}) {
+  const clone = user => user ? ({ ...user, profile: { ...user.profile }, payrollRoles: [...(user.payrollRoles || [])], attendanceRoles: [...(user.attendanceRoles || [])], payrollRoleAudit: [...(user.payrollRoleAudit || [])] }) : null;
+  const rows = new Map(users.map(user => [String(user._id), clone(user)]));
+  const matches = (row, filter) => Object.entries(filter).every(([key, value]) => {
+    if (key === '$or') return value.some(part => matches(row, part));
+    const actual = row[key];
+    if (value instanceof RegExp) return value.test(actual || '');
+    if (value && typeof value === 'object' && !value._bsontype) {
+      if ('$ne' in value) return String(actual) !== String(value.$ne);
+      if ('$exists' in value) return (actual !== undefined) === value.$exists;
+      if ('$in' in value) return value.$in.some(item => String(actual) === String(item));
+    }
+    return Array.isArray(actual) ? actual.includes(value) : String(actual) === String(value);
+  });
+  const result = value => ({ select() { return this; }, sort() { return this; }, limit() { return this; }, exec: async () => value, lean: async () => value, then(resolve, reject) { return Promise.resolve(value).then(resolve, reject); } });
+  let locked = false;
+  t.mock.method(PayrollRoleMutationLock, 'findOneAndUpdate', async () => {
+    if (locked) throw Object.assign(new Error('duplicate lock'), { code: 11000 });
+    locked = true; return {};
+  });
+  t.mock.method(PayrollRoleMutationLock, 'deleteOne', async () => { locked = false; return { deletedCount: 1 }; });
+  t.mock.method(User, 'findOne', filter => result(clone([...rows.values()].find(row => matches(row, filter)))));
+  t.mock.method(User, 'find', filter => result([...rows.values()].filter(row => matches(row, filter)).map(clone)));
+  t.mock.method(User, 'updateOne', async (filter, update) => {
+    const injected = beforeWrite?.(filter, update, rows);
+    if (injected) return injected;
+    const row = [...rows.values()].find(row => matches(row, filter));
+    if (!row) return { modifiedCount: 0 };
+    Object.assign(row, update.$set);
+    for (const key of Object.keys(update.$unset || {})) delete row[key];
+    for (const [key, amount] of Object.entries(update.$inc || {})) row[key] = (row[key] || 0) + amount;
+    for (const [key, item] of Object.entries(update.$push || {})) row[key] = [...(row[key] || []), item];
+    return { modifiedCount: 1 };
+  });
+  return { rows, isLocked: () => locked };
+}
+
+test('GM position changes atomically move both roles and reservations using real CAS conditions', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: '总经理', payrollRoles: ['finance', 'general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 5, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], attendanceRoles: ['manager'], securityIdentityVersion: 3 });
+  const store = identityStore(t, [former, successor]);
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'modify', data: { userid: successor.userid, name: '接任人', phone: successor.phone, privilege: [], title: 'gm' } } }, res);
+  assert.equal(res.body.ok, true);
+  const old = store.rows.get(String(former._id)), next = store.rows.get(String(successor._id));
+  assert.equal(old.title, '');
+  assert.deepEqual(old.payrollRoles, ['finance']);
+  assert.deepEqual(old.attendanceRoles, []);
+  assert.equal(old.payrollGeneralManagerTenantId, undefined);
+  assert.equal(old.attendanceGeneralManagerTenantId, undefined);
+  assert.equal(next.title, 'gm');
+  assert.deepEqual(next.payrollRoles, ['general_manager']);
+  assert.deepEqual(next.attendanceRoles, ['manager', 'general_manager']);
+  assert.equal(String(next.payrollGeneralManagerTenantId), String(tenantId));
+  assert.equal(String(next.attendanceGeneralManagerTenantId), String(tenantId));
+  assert.equal(store.isLocked(), false);
+});
+
+test('demoting a GM clears the position, both roles and reservations in one CAS', async t => {
+  const tenantId = id();
+  const manager = payrollUser(tenantId, { title: 'gm', payrollRoles: ['finance', 'general_manager'], attendanceRoles: ['attendance_admin', 'general_manager'], securityIdentityVersion: 7, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const store = identityStore(t, [manager]);
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'member', privilege: ['admin'] }, tenantId, body: { act: 'modify', data: { userid: manager.userid, title: 'operator', name: manager.profile.name, phone: manager.phone, privilege: [] } } }, res);
+  assert.equal(res.body.ok, true);
+  const persisted = store.rows.get(String(manager._id));
+  assert.equal(persisted.title, 'operator');
+  assert.deepEqual(persisted.payrollRoles, ['finance']);
+  assert.deepEqual(persisted.attendanceRoles, ['attendance_admin']);
+  assert.equal(persisted.payrollGeneralManagerTenantId, undefined);
+  assert.equal(persisted.attendanceGeneralManagerTenantId, undefined);
+  assert.equal(persisted.securityIdentityVersion, 8);
+});
+
+test('a failed successor CAS restores the former GM without committing the successor position', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: '总经理', attendanceRoles: ['general_manager'], payrollRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], securityIdentityVersion: 4 });
+  const store = identityStore(t, [former, successor], { beforeWrite: filter => String(filter._id) === String(successor._id) ? { modifiedCount: 0 } : null });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'modify', data: { userid: successor.userid, title: 'gm', phone: successor.phone, name: '新总经理', privilege: [] } } }, res);
+  assert.equal(res.statusCode, 409);
+  const old = store.rows.get(String(former._id)), next = store.rows.get(String(successor._id));
+  assert.equal(old.title, '总经理');
+  assert.deepEqual(old.attendanceRoles, ['general_manager']);
+  assert.deepEqual(old.payrollRoles, ['general_manager']);
+  assert.equal(String(old.payrollGeneralManagerTenantId), String(tenantId));
+  assert.equal(String(old.attendanceGeneralManagerTenantId), String(tenantId));
+  assert.equal(next.title, 'operator');
+  assert.equal(next.securityIdentityVersion, 4);
+  assert.equal(store.isLocked(), false);
+});
+
+test('a conflicting former GM write stops promotion before assigning the successor', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: 'gm', payrollRoles: ['general_manager'], securityIdentityVersion: 2 });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], securityIdentityVersion: 4 });
+  const store = identityStore(t, [former, successor], { beforeWrite: filter => String(filter._id) === String(former._id) ? { modifiedCount: 0 } : null });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'modify', data: { userid: successor.userid, title: 'gm', phone: successor.phone, privilege: [] } } }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(store.rows.get(String(former._id)).title, 'gm');
+  assert.equal(store.rows.get(String(successor._id)).title, 'operator');
+});
+
+test('adding a GM persists complete identity while holding the shared role lock', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: 'gm', payrollRoles: ['general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const store = identityStore(t, [former]);
+  let created;
+  t.mock.method(User.prototype, 'save', async function () {
+    assert.equal(store.isLocked(), true);
+    created = this.toObject();
+    store.rows.set(String(this._id), created);
+    return this;
+  });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'add', data: { userid: 'new-gm', title: 'gm', privilege: [], name: '新总经理', phone: '999' } } }, res);
+  assert.equal(res.body.ok, true);
+  assert.equal(created.title, 'gm');
+  assert.deepEqual(created.payrollRoles, ['general_manager']);
+  assert.deepEqual(created.attendanceRoles, ['general_manager']);
+  assert.equal(String(created.payrollGeneralManagerTenantId), String(tenantId));
+  assert.equal(String(created.attendanceGeneralManagerTenantId), String(tenantId));
+  assert.equal(store.rows.get(String(former._id)).title, '');
+  assert.equal(store.isLocked(), false);
+});
+
+test('a failed new GM save compensates the old identity on standalone storage', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: 'gm', payrollRoles: ['general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const store = identityStore(t, [former]);
+  t.mock.method(User.prototype, 'save', async () => { throw Object.assign(new Error('duplicate login'), { code: 11000 }); });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'add', data: { userid: 'existing', title: 'gm', privilege: [], name: '新总经理', phone: '999' } } }, res);
+  assert.equal(res.statusCode, 409);
+  const restored = store.rows.get(String(former._id));
+  assert.equal(restored.title, 'gm');
+  assert.deepEqual(restored.attendanceRoles, ['general_manager']);
+  assert.equal(String(restored.attendanceGeneralManagerTenantId), String(tenantId));
+  assert.equal(store.rows.size, 1);
+});
+
+test('GM handover moves attendance identity too and clears legacy Chinese GM titles', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: '总经理', payrollRoles: ['general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], attendanceRoles: ['manager'], securityIdentityVersion: 4 });
+  const store = identityStore(t, [former, successor]);
+  const res = response();
+  await userApi.handoverPayrollGeneralManager({ user: { _id: former._id, role: 'member' }, tenantId, headers: { origin: 'https://company.test', host: 'company.test' }, get(name) { return this.headers[name]; }, body: { targetUserId: successor._id, reason: '岗位调整' } }, res);
+  assert.equal(res.body.ok, true);
+  const old = store.rows.get(String(former._id)), next = store.rows.get(String(successor._id));
+  assert.equal(old.title, '');
+  assert.deepEqual(old.attendanceRoles, []);
+  assert.equal(old.attendanceGeneralManagerTenantId, undefined);
+  assert.equal(next.title, 'gm');
+  assert.deepEqual(next.attendanceRoles, ['manager', 'general_manager']);
+  assert.equal(String(next.attendanceGeneralManagerTenantId), String(tenantId));
+});
+
+test('the legacy user page shares the GM identity transition and preserves its failure response', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: 'gm', payrollRoles: ['general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], securityIdentityVersion: 4 });
+  let failTarget = false;
+  const store = identityStore(t, [former, successor], { beforeWrite: filter => failTarget && String(filter._id) === String(successor._id) ? { modifiedCount: 0 } : null });
+  const request = { user: { _id: id(), role: 'owner', tenantId }, body: { act: 'modify', data: { userid: successor.userid, title: 'gm', phone: successor.phone, privilege: [], name: '新总经理' } } };
+  const success = response();
+  await userController.postUserMgr(request, success);
+  assert.equal(success.body.ok, true);
+  const old = store.rows.get(String(former._id)), next = store.rows.get(String(successor._id));
+  assert.equal(old.title, '');
+  assert.deepEqual(old.attendanceRoles, []);
+  assert.equal(old.attendanceGeneralManagerTenantId, undefined);
+  assert.equal(next.title, 'gm');
+  assert.deepEqual(next.attendanceRoles, ['general_manager']);
+  assert.deepEqual(next.payrollRoles, ['general_manager']);
+  assert.equal(String(next.attendanceGeneralManagerTenantId), String(tenantId));
+  assert.equal(String(next.payrollGeneralManagerTenantId), String(tenantId));
+  failTarget = true;
+  request.body.data.title = 'operator';
+  const failed = response();
+  await userController.postUserMgr(request, failed);
+  assert.equal(failed.statusCode, 409);
+  assert.equal(failed.body.ok, false);
+  assert.match(failed.body.response, /刷新后重试/);
+  assert.equal(next.title, 'gm');
+});
+
+test('an occupied role lock blocks a GM position write before changing identities', async t => {
+  const tenantId = id();
+  const target = payrollUser(tenantId, { title: 'operator', payrollRoles: [], securityIdentityVersion: 4 });
+  const store = identityStore(t, [target]);
+  t.mock.method(PayrollRoleMutationLock, 'findOneAndUpdate', async () => { throw Object.assign(new Error('duplicate lock'), { code: 11000 }); });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'modify', data: { userid: target.userid, title: 'gm', phone: target.phone, privilege: [] } } }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(store.rows.get(String(target._id)).title, 'operator');
+  assert.equal(store.rows.get(String(target._id)).securityIdentityVersion, 4);
+});
+
+test('failed GM compensation surfaces an explicit recovery error without overwriting a concurrent version', async t => {
+  const tenantId = id();
+  const former = payrollUser(tenantId, { userid: 'former', title: 'gm', payrollRoles: ['general_manager'], securityIdentityVersion: 2 });
+  const successor = payrollUser(tenantId, { userid: 'successor', title: 'operator', payrollRoles: [], securityIdentityVersion: 4 });
+  const store = identityStore(t, [former, successor], { beforeWrite: (filter, update, rows) => {
+    if (String(filter._id) === String(successor._id)) {
+      rows.get(String(former._id)).securityIdentityVersion++;
+      return { modifiedCount: 0 };
+    }
+  } });
+  const res = response();
+  await userApi.postUserMgr({ user: { _id: id(), role: 'owner' }, tenantId, body: { act: 'modify', data: { userid: successor.userid, title: 'gm', phone: successor.phone, privilege: [] } } }, res);
+  assert.equal(res.statusCode, 500);
+  assert.match(res.body.message, /自动恢复失败.*联系管理员/);
+  assert.equal(store.rows.get(String(former._id)).securityIdentityVersion, 4);
+  assert.equal(store.rows.get(String(successor._id)).title, 'operator');
+});
+
 test('admin cannot reset, re-identify, or delete a different payroll user', async t => {
   const tenantId = id();
   const actorId = id();
@@ -90,11 +311,11 @@ test('generic user CRUD rejects direct payroll role injection', async t => {
 });
 
 test('identity CAS conflict blocks a stale credential reset', async t => {
-  const tenantId = id(), target = payrollUser(tenantId, { payrollRoles: [], securityIdentityVersion: 4 });
+  const tenantId = id(), target = payrollUser(undefined, { payrollRoles: [], securityIdentityVersion: 4 });
   t.mock.method(User, 'findOne', () => queryResult(target));
   t.mock.method(User, 'updateOne', async () => ({ modifiedCount: 0 }));
   const reset = response();
-  await userApi.resetPassword({ user: { _id: id(), role: 'owner' }, tenantId, body: { user: { userid: target.userid } } }, reset);
+  await userApi.resetPassword({ user: { _id: id(), role: 'platform' }, tenantId, body: { user: { userid: target.userid } } }, reset);
   assert.equal(reset.statusCode, 409);
   assert.equal(target.password, 'hashed');
 });
@@ -204,20 +425,7 @@ test('failed target CAS compensates by restoring the previous GM reservation', a
   const tenantId = id();
   const manager = payrollUser(tenantId, { payrollRoles: ['general_manager'], employeeNo: 'G-1', mustChangePassword: false, securityIdentityVersion: 5, payrollGeneralManagerTenantId: tenantId, status: 'active' });
   const target = payrollUser(tenantId, { payrollRoles: [], employeeNo: 'E-3', mustChangePassword: false, securityIdentityVersion: 2, status: 'active' });
-  t.mock.method(PayrollRoleMutationLock, 'findOneAndUpdate', async () => ({}));
-  t.mock.method(PayrollRoleMutationLock, 'deleteOne', async () => ({ deletedCount: 1 }));
-  t.mock.method(User, 'find', () => ({ select() { return this; }, limit() { return this; }, lean: async () => [manager] }));
-  t.mock.method(User, 'findOne', () => queryResult(target));
-  let updates = 0;
-  t.mock.method(User, 'updateOne', async (_filter, update) => {
-    updates++;
-    if (updates === 2) return { modifiedCount: 0 };
-    if (update.$set) Object.assign(manager, update.$set);
-    for (const key of Object.keys(update.$unset || {})) delete manager[key];
-    if (update.$push?.payrollRoleAudit) manager.payrollRoleAudit = [...(manager.payrollRoleAudit || []), update.$push.payrollRoleAudit];
-    for (const [key, amount] of Object.entries(update.$inc || {})) manager[key] = (manager[key] || 0) + amount;
-    return { modifiedCount: 1 };
-  });
+  const store = identityStore(t, [manager, target], { beforeWrite: filter => String(filter._id) === String(target._id) ? { modifiedCount: 0 } : null });
   const res = response();
   await userApi.handoverPayrollGeneralManager({
     user: { _id: manager._id, role: 'member' }, tenantId,
@@ -225,9 +433,10 @@ test('failed target CAS compensates by restoring the previous GM reservation', a
     body: { targetUserId: target._id, reason: '测试目标并发冲突' }
   }, res);
   assert.equal(res.statusCode, 409);
-  assert.deepEqual(manager.payrollRoles, ['general_manager']);
-  assert.equal(String(manager.payrollGeneralManagerTenantId), String(tenantId));
-  assert.equal(manager.payrollRoleAudit.at(-1).reason, '交接回滚：测试目标并发冲突');
+  const restored = store.rows.get(String(manager._id));
+  assert.deepEqual(restored.payrollRoles, ['general_manager']);
+  assert.equal(String(restored.payrollGeneralManagerTenantId), String(tenantId));
+  assert.equal(restored.payrollRoleAudit.at(-1).reason, '总经理变更回滚：测试目标并发冲突');
 });
 
 test('setting the general manager title moves the unique reservation away from a disabled former GM', async t => {
@@ -235,6 +444,8 @@ test('setting the general manager title moves the unique reservation away from a
   const retired = payrollUser(tenantId, { _id: id(), status: 'disabled', title: 'gm', payrollRoles: ['finance', 'general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 2, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
   const target = payrollUser(tenantId, { _id: id(), status: 'active', title: '', employeeNo: 'E-4', securityIdentityVersion: 1, payrollRoles: [], attendanceRoles: [] });
   const updates = [];
+  t.mock.method(PayrollRoleMutationLock, 'findOneAndUpdate', async () => ({}));
+  t.mock.method(PayrollRoleMutationLock, 'deleteOne', async () => ({ deletedCount: 1 }));
   t.mock.method(User, 'findOne', () => queryResult(target));
   t.mock.method(User, 'find', () => ({ select() { return this; }, limit() { return this; }, lean: async () => [retired] }));
   t.mock.method(User, 'updateOne', async (filter, update) => {
@@ -264,6 +475,8 @@ test('removing the general manager title releases both roles and reservations', 
   const tenantId = id();
   const formerGm = payrollUser(tenantId, { _id: id(), status: 'active', title: 'gm', payrollRoles: ['finance', 'general_manager'], attendanceRoles: ['general_manager'], securityIdentityVersion: 3, payrollGeneralManagerTenantId: tenantId, attendanceGeneralManagerTenantId: tenantId });
   const updates = [];
+  t.mock.method(PayrollRoleMutationLock, 'findOneAndUpdate', async () => ({}));
+  t.mock.method(PayrollRoleMutationLock, 'deleteOne', async () => ({ deletedCount: 1 }));
   t.mock.method(User, 'findOne', () => queryResult(formerGm));
   t.mock.method(User, 'find', () => ({ select() { return this; }, limit() { return this; }, lean: async () => [] }));
   t.mock.method(User, 'updateOne', async (filter, update) => { updates.push(update); return { modifiedCount: 1 }; });
@@ -359,7 +572,7 @@ test('sessionVersion bump is persisted as an atomic increment', () => {
 
 test('password reset increments sessionVersion and Passport denies legacy or stale sessions', async t => {
   const tenantId = id();
-  const target = payrollUser(tenantId, { payrollRoles: [], sessionVersion: 8 });
+  const target = payrollUser(undefined, { payrollRoles: [], sessionVersion: 8 });
   t.mock.method(User, 'findOne', () => queryResult(target));
   t.mock.method(User, 'updateOne', async (_filter, update) => {
     Object.assign(target, update.$set);
@@ -367,7 +580,7 @@ test('password reset increments sessionVersion and Passport denies legacy or sta
   });
   const resetResponse = response();
   await userApi.resetPassword({
-    user: { _id: id(), role: 'member', privilege: ['admin'] }, tenantId,
+    user: { _id: id(), role: 'platform' }, tenantId,
     body: { user: { userid: target.userid } }
   }, resetResponse);
   assert.equal(resetResponse.statusCode, 200);

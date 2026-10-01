@@ -1,17 +1,31 @@
 const { migrateBinaryToArray } = require('./privilege-migration');
+const { hasLinkedEmployee } = require('./attendance-permissions');
+const { isGeneralManagerTitle, isChairmanTitle } = require('./user-title');
 
 function hasPayrollAccess(user) {
   return Array.isArray(user?.payrollRoles) && user.payrollRoles.length > 0;
 }
 
-function hasProtectedIdentity(user) {
+function hasProtectedPrivileges(user) {
   const privilege = Array.isArray(user?.privilege) ? user.privilege : migrateBinaryToArray(user?.privilege);
   return Boolean(
     hasPayrollAccess(user) ||
     String(user?.employeeNo || '').trim() ||
     (Array.isArray(user?.attendanceRoles) && user.attendanceRoles.length > 0) ||
+    isGeneralManagerTitle(user?.title) ||
+    isChairmanTitle(user?.title) ||
     user?.role === 'owner' ||
     privilege.includes('admin')
+  );
+}
+
+function hasProtectedIdentity(user) {
+  // Employee identity survives disabled status and exclusion from attendance tracking.
+  // The optional employee number and module roles do not decide whose credentials are protected.
+  return Boolean(
+    (user?.role !== 'platform' && hasLinkedEmployee(user)) ||
+    hasProtectedPrivileges(user) ||
+    user?.role === 'platform'
   );
 }
 
@@ -53,4 +67,4 @@ async function changePasswordWithCas(User, user, password, scope = {}, { mustCha
   return true;
 }
 
-module.exports = { hasPayrollAccess, hasProtectedIdentity, bumpSessionVersion, bumpSecurityIdentityVersion, identityVersionFilter, changePasswordWithCas };
+module.exports = { hasPayrollAccess, hasProtectedPrivileges, hasProtectedIdentity, bumpSessionVersion, bumpSecurityIdentityVersion, identityVersionFilter, changePasswordWithCas };
