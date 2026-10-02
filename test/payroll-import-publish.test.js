@@ -252,3 +252,101 @@ test('发布草稿的核心动作对没有草稿的工资条拒绝写入', async
   assert.equal(result.ok, false);
   assert.match(result.error, /草稿/);
 });
+
+test('单条发布：台账未结账默认拦住，只有强制发布才放行并在工资条上留痕', async t => {
+  const tenantId = id();
+  const employeeId = id();
+  const events = [];
+  const statement = {
+    _id: id(), tenantId, employeeId, month: '2026-09', version: 1, currentPublishedRevision: null,
+    employee: { employeeNo: 'E-1', name: '张三', department: '物流' }, revisions: [], events: [], payments: [],
+    draft: { components: components({ basicPayCents: 700_000 }), totals: totals({ incomeSubtotalCents: 700_000, netPayCents: 700_000 }) },
+  };
+  stubLock(t, events);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => { events.push('check-closed'); return ledgerQuery('open'); });
+  t.mock.method(PayrollStatement, 'findOne', () => query(statement));
+  const writes = [];
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (_filter, update) => {
+    writes.push(update);
+    statement.revisions.push(update.$push.revisions);
+    if (update.$push.events) statement.events.push(update.$push.events);
+    statement.currentPublishedRevision = update.$set.currentPublishedRevision;
+    delete statement.draft;
+    return statement;
+  });
+
+  const blocked = response();
+  await payroll.publish({ user: finance(tenantId), tenantId, params: { employeeId: String(employeeId), month: '2026-09' }, body: { version: 1 } }, blocked);
+  assert.equal(blocked.statusCode, 409);
+  assert.match(blocked.body.error, /考勤结账/);
+  assert.equal(writes.length, 0, '未结账且没开强制发布时不应写库');
+
+  const forced = response();
+  await payroll.publish({ user: finance(tenantId), tenantId, params: { employeeId: String(employeeId), month: '2026-09' }, body: { version: 1, force: true } }, forced);
+  assert.equal(forced.statusCode, 200);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].$push.events.action, 'forced_publish', '强制发布必须留痕');
+  assert.equal(writes[0].$push.events.ledgerStatus, 'open');
+  assert.equal(forced.body.data.forcedPublish.revision, 1);
+  assert.equal(forced.body.data.forcedPublish.ledgerStatus, 'open');
+  // 两次调用：被拦一次 + 强发一次，每次都是一抢锁、一校验、一释放
+  assert.deepEqual(events, ['lock:2026-09', 'check-closed', 'release:2026-09', 'lock:2026-09', 'check-closed', 'release:2026-09']);
+});
+
+test('批量发布：未结账开了强制发布就照常发布，每人各写一条 forced_publish 事件', async t => {
+  const tenantId = id();
+  const employeeId = id();
+  const events = [];
+  stubLock(t, events);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => { events.push('check-closed'); return ledgerQuery('open'); });
+  t.mock.method(User, 'find', () => query([employee(employeeId, '张三', 'E-1')]));
+  t.mock.method(PayrollStatement, 'findOne', () => query({
+    _id: id(), tenantId, month: '2026-09', version: 2, revisions: [], employee: { name: '张三' },
+    draft: { components: components({ basicPayCents: 700_000 }), totals: totals({ incomeSubtotalCents: 700_000 }) },
+  }));
+  const writes = [];
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (filter, update) => { writes.push(update); return { _id: filter._id }; });
+
+  const res = response();
+  await payroll.publishBatch({
+    user: finance(tenantId),
+    tenantId,
+    params: { month: '2026-09' },
+    body: { employeeIds: [String(employeeId)], force: true },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.published, 1);
+  assert.equal(res.body.data.ledgerStatus, 'open');
+  assert.equal(res.body.data.forced, true);
+  assert.equal(writes[0].$push.events.action, 'forced_publish');
+  assert.equal(writes[0].$push.events.ledgerStatus, 'open');
+  assert.deepEqual(events, ['lock:2026-09', 'check-closed', 'release:2026-09'], '台账只校验一次，不逐人查');
+});
+
+test('台账已结账时不写 forced_publish 事件（强制开关是兜底，不是常态留痕）', async t => {
+  const tenantId = id();
+  const employeeId = id();
+  const events = [];
+  stubLock(t, events);
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => { events.push('check-closed'); return ledgerQuery('closed'); });
+  t.mock.method(User, 'find', () => query([employee(employeeId, '张三', 'E-1')]));
+  t.mock.method(PayrollStatement, 'findOne', () => query({
+    _id: id(), tenantId, month: '2026-09', version: 1, revisions: [], employee: { name: '张三' },
+    draft: { components: components({ basicPayCents: 700_000 }), totals: totals({ incomeSubtotalCents: 700_000 }) },
+  }));
+  const writes = [];
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (filter, update) => { writes.push(update); return { _id: filter._id }; });
+
+  const res = response();
+  await payroll.publishBatch({
+    user: finance(tenantId),
+    tenantId,
+    params: { month: '2026-09' },
+    body: { employeeIds: [String(employeeId)], force: true },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.forced, false);
+  assert.equal(writes[0].$push.events, undefined);
+});

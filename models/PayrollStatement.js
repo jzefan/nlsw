@@ -57,10 +57,14 @@ const paymentSchema = new mongoose.Schema({
 }, { _id: true });
 
 const eventSchema = new mongoose.Schema({
-  action: { type: String, enum: ['withdrawn'], required: true },
+  // withdrawn 撤回；forced_publish 在当月考勤未结账时强制发布（财务显式跳过结账前置条件）。
+  action: { type: String, enum: ['withdrawn', 'forced_publish'], required: true },
   revision: { type: Number, required: true, min: 1 },
   actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  reason: { type: String, trim: true, required: true, maxlength: 2000 },
+  // 只有撤回需要填原因；强制发布不要求财务填写，按当时台账状态留痕即可。
+  reason: { type: String, trim: true, maxlength: 2000, required: function () { return this.action === 'withdrawn'; } },
+  // 强制发布那一刻的考勤台账状态快照（open 未结账 / missing 未建台账），不随后续结账变化。
+  ledgerStatus: { type: String, enum: ['open', 'missing'] },
   at: { type: Date, default: Date.now },
 }, { _id: false });
 

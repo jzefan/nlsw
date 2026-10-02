@@ -175,6 +175,10 @@ async function serializeStatement(statement, actorNames) {
     statementStatus = 'withdrawn';
   }
   const publishedNetPayCents = published?.totals?.netPayCents ?? 0;
+  // 只有「当前有效发布版」是强制发出来的才打标记；撤回后重新正常发布，标记自然消失。
+  const forced = published
+    ? (data.events || []).find(event => event.action === 'forced_publish' && event.revision === published.revision) || null
+    : null;
   return {
     employeeId: data.employeeId,
     ...data.employee,
@@ -189,6 +193,7 @@ async function serializeStatement(statement, actorNames) {
     remainingCents: Math.max(0, publishedNetPayCents - sums.netPaidCents),
     version: data.version || 0,
     publishedAt: published?.publishedAt || null,
+    forcedPublish: forced ? { revision: forced.revision, at: forced.at, ledgerStatus: forced.ledgerStatus || 'open' } : null,
     paymentHistory: (data.payments || []).map(item => serializePayment(item, actorNames)),
     revisionHistory: (data.revisions || []).map(item => ({ revision: item.revision, publishedAt: item.publishedAt, publishedBy: item.publishedBy })),
   };
@@ -344,10 +349,11 @@ exports.listStatements = async (req, res) => {
     if (!(await requirePayrollReader(req, res))) return;
     const month = parseMonth(req.query.month);
     if (!month) return fail(res, 400, '月份格式应为 YYYY-MM');
-    const [employees, statements] = await Promise.all([
+    const [employees, statements, ledgerStatus] = await Promise.all([
       User.find({ tenantId: req.tenantId, status: { $ne: 'disabled' } })
         .select('employeeNo phone profile.name profile.phone userid department status').sort({ department: 1, employeeNo: 1 }).lean(),
       PayrollStatement.find({ tenantId: req.tenantId, month: month.value }).lean(),
+      monthLedgerStatus(req.tenantId, month.value),
     ]);
     const byEmployee = new Map(statements.map(statement => [String(statement.employeeId), statement]));
     const employeeById = new Map(employees.map(user => [String(user._id), user]));
@@ -386,7 +392,7 @@ exports.listStatements = async (req, res) => {
       sum.publishedCount++;
       return sum;
     }, { incomeSubtotalCents: 0, employerContributionCents: 0, totalCompensationCents: 0, attendanceDeductionCents: 0, payableBeforePersonalDeductionsCents: 0, netPayCents: 0, paidCents: 0, remainingCents: 0, publishedCount: 0, draftCount: 0 });
-    return res.json({ ok: true, data: { month: month.value, rows, totals } });
+    return res.json({ ok: true, data: { month: month.value, ledgerStatus, rows, totals } });
   } catch (error) {
     console.error('payroll listStatements failed:', error);
     return fail(res, 500, '读取工资表失败');
@@ -512,33 +518,48 @@ exports.saveContributionScheme = async (req, res) => {
   }
 };
 
+/**
+ * 当月考勤台账状态：closed 已结账 / open 已建台账但未结账 / missing 还没建台账。
+ * 工资表上的「考勤」列与发布前置条件都读这一个口径。
+ */
+async function monthLedgerStatus(tenantId, month) {
+  const ledger = await AttendanceMonthLedger.findOne({ tenantId, month }).select('status').lean();
+  if (!ledger) return 'missing';
+  return ledger.status === 'closed' ? 'closed' : 'open';
+}
+
 /** 当月考勤必须已结账才能发布工资条；单条发布与批量发布共用这同一条前置条件。 */
 async function isMonthLedgerClosed(tenantId, month) {
-  const ledger = await AttendanceMonthLedger.findOne({ tenantId, month }).select('status').lean();
-  return ledger?.status === 'closed';
+  return (await monthLedgerStatus(tenantId, month)) === 'closed';
 }
 
 /**
  * 发布一份草稿的核心动作：单条 publish 与批量发布共用，避免两处逻辑各写一份后漂移。
  * - 没有草稿、版本不一致、台账未结账都返回 { ok: false, error }，由调用方决定 HTTP 状态码。
- * - 台账检查可关掉：批量发布时已经在抢锁后统一校验过一次，不必逐人再查。
+ * - 台账检查可关掉：批量发布时已经在抢锁后统一校验过一次，不必逐人再查（此时由传入的 ledgerStatus 兜底）。
+ * - force 为 true 时允许在当月考勤未结账时强行发布，并在工资条事件里写一条 forced_publish 留痕。
  * - 用 version 条件做乐观锁，并发写入时后到的一方拿不到文档。
  */
-async function publishDraftStatement({ tenantId, employeeId, month, userId, expectedVersion, requireClosedLedger = true }) {
+async function publishDraftStatement({ tenantId, employeeId, month, userId, expectedVersion, requireClosedLedger = true, force = false, ledgerStatus }) {
   const statement = await PayrollStatement.findOne({ tenantId, employeeId, month });
   if (!statement || !statement.draft?.components || !statement.draft?.totals) return { ok: false, error: '请先保存完整工资草稿' };
   if (Number.isInteger(expectedVersion) && statement.version !== expectedVersion) return { ok: false, error: '工资条已被其他财务修改，请刷新后重试' };
-  if (requireClosedLedger && !(await isMonthLedgerClosed(tenantId, month))) return { ok: false, error: '请先完成当月考勤结账，再发布工资条' };
+  const status = ledgerStatus || (requireClosedLedger || force ? await monthLedgerStatus(tenantId, month) : 'closed');
+  if (status !== 'closed' && !force) return { ok: false, error: '请先完成当月考勤结账，再发布工资条' };
+  const forced = force === true && status !== 'closed';
   const revision = (statement.revisions || []).reduce((max, item) => Math.max(max, item.revision), 0) + 1;
   const publishedAt = new Date();
-  const updated = await PayrollStatement.findOneAndUpdate({ _id: statement._id, tenantId, version: statement.version, 'draft.components': { $exists: true } }, {
+  const update = {
     $push: { revisions: { revision, employee: statement.employee, components: statement.draft.components, totals: statement.draft.totals, publishedBy: userId, publishedAt } },
     $set: { currentPublishedRevision: revision, updatedAt: publishedAt },
     $unset: { draft: 1 },
     $inc: { version: 1, __v: 1 },
-  }, { new: true, runValidators: true });
+  };
+  // 未结账强制发布不要求填原因，但必须留下「当时台账是什么状态」的凭据。
+  if (forced) update.$push.events = { action: 'forced_publish', revision, actorId: userId, ledgerStatus: status, at: publishedAt };
+  const updated = await PayrollStatement.findOneAndUpdate({ _id: statement._id, tenantId, version: statement.version, 'draft.components': { $exists: true } }, update, { new: true, runValidators: true });
   if (!updated) return { ok: false, error: '工资条已被其他财务修改，请刷新后重试' };
-  return { ok: true, revision, statement: updated };
+  return { ok: true, revision, forced, ledgerStatus: status, statement: updated };
 }
 
 exports.saveDraft = async (req, res) => {
@@ -588,10 +609,10 @@ exports.publish = async (req, res) => {
   try {
     if (!(await requireFinance(req, res))) return;
     const month = parseMonth(req.params.month);
-    const { version } = req.body || {};
+    const { version, force } = req.body || {};
     if (!month || !mongoose.Types.ObjectId.isValid(req.params.employeeId) || !Number.isInteger(version)) return fail(res, 400, '月份、员工或版本无效');
     monthLock = await monthCoordination.acquireMonthMutationLock(req.tenantId, month.value);
-    const result = await publishDraftStatement({ tenantId: req.tenantId, employeeId: req.params.employeeId, month: month.value, userId: req.user._id, expectedVersion: version });
+    const result = await publishDraftStatement({ tenantId: req.tenantId, employeeId: req.params.employeeId, month: month.value, userId: req.user._id, expectedVersion: version, force: force === true });
     if (!result.ok) return fail(res, 409, result.error);
     return res.json({ ok: true, data: await serializeStatement(result.statement, new Map()) });
   } catch (error) {
@@ -833,6 +854,7 @@ exports.importDrafts = async (req, res) => {
 /**
  * 批量发布当月工资草稿。
  * - 月度锁只抢一次、台账结账只校验一次，逐人独立发布（部分成功可接受），每行单独回报原因。
+ * - force=true 时允许台账未结账强发，每人各写一条 forced_publish 事件留痕。
  * - 没有草稿的人会以「请先保存完整工资草稿」失败，前端只勾选有草稿的人即可避免。
  */
 exports.publishBatch = async (req, res) => {
@@ -841,22 +863,24 @@ exports.publishBatch = async (req, res) => {
     if (!(await requireFinance(req, res))) return;
     const month = parseMonth(req.params.month);
     const employeeIds = Array.isArray(req.body?.employeeIds) ? req.body.employeeIds.map(String) : null;
+    const force = req.body?.force === true;
     if (!month || !employeeIds?.length || employeeIds.length > MAX_BATCH_ROWS) return fail(res, 400, `请选择 1 至 ${MAX_BATCH_ROWS} 位员工`);
     if (new Set(employeeIds).size !== employeeIds.length) return fail(res, 400, '发布名单里存在重复员工');
     if (!employeeIds.every(id => mongoose.Types.ObjectId.isValid(id))) return fail(res, 400, '员工无效');
     monthLock = await monthCoordination.acquireMonthMutationLock(req.tenantId, month.value);
-    if (!(await isMonthLedgerClosed(req.tenantId, month.value))) return fail(res, 409, '请先完成当月考勤结账，再发布工资条');
+    const ledgerStatus = await monthLedgerStatus(req.tenantId, month.value);
+    if (ledgerStatus !== 'closed' && !force) return fail(res, 409, '请先完成当月考勤结账，再发布工资条');
     const employeeMap = await loadEmployees(employeeIds, req.tenantId);
     const results = [];
     for (const employeeId of employeeIds) {
       const employee = employeeMap.get(employeeId);
       const label = { employeeId, name: employee?.profile?.name || employee?.userid || '', employeeNo: employee?.employeeNo || '' };
-      const result = await publishDraftStatement({ tenantId: req.tenantId, employeeId, month: month.value, userId: req.user._id, requireClosedLedger: false });
+      const result = await publishDraftStatement({ tenantId: req.tenantId, employeeId, month: month.value, userId: req.user._id, requireClosedLedger: false, force, ledgerStatus });
       if (result.ok) results.push({ ...label, status: 'published', revision: result.revision });
       else results.push({ ...label, status: 'failed', error: result.error });
     }
     const published = results.filter(item => item.status === 'published').length;
-    return res.json({ ok: true, data: { month: month.value, results, published, failed: results.length - published } });
+    return res.json({ ok: true, data: { month: month.value, ledgerStatus, forced: force && ledgerStatus !== 'closed', results, published, failed: results.length - published } });
   } catch (error) {
     console.error('payroll publishBatch failed:', error);
     if (error?.status === 409 || error?.name === 'VersionError') return fail(res, 409, error.message || '考勤台账正在处理或工资条已变化，请刷新后重试');
@@ -866,4 +890,4 @@ exports.publishBatch = async (req, res) => {
   }
 };
 
-exports._test = { parseMonth, parsePeriod, paymentSums, paymentStatus, latestPublished, effectiveComponents, collectTaxBasis, serializeStatement, isSafeProofUrl, isMonthLedgerClosed, publishDraftStatement, loadEmployees };
+exports._test = { parseMonth, parsePeriod, paymentSums, paymentStatus, latestPublished, effectiveComponents, collectTaxBasis, serializeStatement, isSafeProofUrl, monthLedgerStatus, isMonthLedgerClosed, publishDraftStatement, loadEmployees };

@@ -536,3 +536,43 @@ test('salary standards are readable by payroll readers and writable by finance o
   await payroll.saveStandard({ user: finance, tenantId, params: { employeeId }, body: { standard: { ...standardInput(), companyHousingFundRatePercent: 12.345 }, version: 0 } }, invalid);
   assert.equal(invalid.statusCode, 400);
 });
+
+test('工资表下发当月考勤结账状态，并保留未结账强制发布的留痕', async t => {
+  const tenantId = id(), employeeId = id();
+  const published = {
+    revision: 1,
+    employee: { employeeNo: 'E-1', name: '员工', department: '物流' },
+    components: emptyComponents(),
+    totals: { incomeSubtotalCents: 0, employerContributionCents: 0, totalCompensationCents: 0, attendanceDeductionCents: 0, payableBeforePersonalDeductionsCents: 0, netPayCents: 0 },
+    publishedAt: new Date('2026-10-01T02:00:00Z'),
+    publishedBy: id(),
+  };
+  const financeUser = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  t.mock.method(User, 'find', () => query([{ _id: employeeId, employeeNo: 'E-1', profile: { name: '员工' }, department: '物流', status: 'active' }]));
+  t.mock.method(PayrollStatement, 'find', () => query([{
+    employeeId, month: '2026-09', employee: published.employee, currentPublishedRevision: 1, revisions: [published], payments: [], version: 2,
+    events: [{ action: 'forced_publish', revision: 1, actorId: id(), ledgerStatus: 'missing', at: new Date('2026-10-01T02:00:00Z') }],
+  }]));
+  t.mock.method(PayrollStandard, 'find', () => query([]));
+  t.mock.method(AttendanceRequest, 'find', () => query([]));
+  let ledger = null;
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => ({ select() { return this; }, lean: async () => ledger }));
+
+  const missing = response();
+  await payroll.listStatements({ user: financeUser, tenantId, query: { month: '2026-09' } }, missing);
+  assert.equal(missing.statusCode, 200);
+  assert.equal(missing.body.data.ledgerStatus, 'missing', '还没建台账也算未结账');
+  assert.equal(missing.body.data.rows[0].forcedPublish.ledgerStatus, 'missing');
+  assert.equal(missing.body.data.rows[0].forcedPublish.revision, 1);
+
+  ledger = { status: 'open', rows: [] };
+  const open = response();
+  await payroll.listStatements({ user: financeUser, tenantId, query: { month: '2026-09' } }, open);
+  assert.equal(open.body.data.ledgerStatus, 'open');
+
+  ledger = { status: 'closed', rows: [] };
+  const closed = response();
+  await payroll.listStatements({ user: financeUser, tenantId, query: { month: '2026-09' } }, closed);
+  assert.equal(closed.body.data.ledgerStatus, 'closed');
+  assert.equal(closed.body.data.rows[0].forcedPublish.revision, 1, '事后结账不会抹掉当时的强制发布留痕');
+});

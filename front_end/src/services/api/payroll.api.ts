@@ -117,6 +117,9 @@ export interface PayrollStandardRow {
   standard: PayrollStandard | null
 }
 
+/** 当月考勤台账状态：closed 已结账 / open 已建台账但未结账 / missing 还没建台账。 */
+export type PayrollLedgerStatus = 'closed' | 'open' | 'missing'
+
 export interface PayrollStatementRow {
   employeeId: string
   employeeNo: string
@@ -141,6 +144,8 @@ export interface PayrollStatementRow {
   remainingCents: number
   version: number
   publishedAt: string | null
+  /** 当前有效发布版是在当月考勤未结账时强制发布的：有值时工资表行上打「未结账发布」标记。 */
+  forcedPublish: { revision: number, at: string, ledgerStatus: string } | null
   paymentHistory: PayrollPayment[]
   revisionHistory: Array<{ revision: number, publishedAt: string, publishedBy: string }>
 }
@@ -178,6 +183,8 @@ export interface PayrollMonthlySummary extends PayrollTotals {
 
 export interface PayrollStatements {
   month: string
+  /** 当月考勤是否结账：工资表「考勤」列与发布前置条件都读它。 */
+  ledgerStatus: PayrollLedgerStatus
   rows: PayrollStatementRow[]
   totals: Omit<PayrollMonthlySummary, 'month'> & { publishedCount: number, draftCount: number }
 }
@@ -271,6 +278,9 @@ export interface PayrollPublishRowResult {
 
 export interface PayrollPublishSummary {
   month: string
+  /** 发布完成时的考勤台账状态；forced 为真说明这批是在未结账时强发的。 */
+  ledgerStatus?: PayrollLedgerStatus
+  forced?: boolean
   results: PayrollPublishRowResult[]
   published: number
   failed: number
@@ -293,8 +303,9 @@ export async function savePayrollDraft(employeeId: string, month: string, compon
   return response.data
 }
 
-export async function publishPayrollStatement(employeeId: string, month: string, version: number) {
-  const response = await axiosInstance.post<ApiResponse<PayrollStatementRow>>(`/attendance/payroll/statements/${encodeURIComponent(employeeId)}/${encodeURIComponent(month)}/publish`, { version })
+/** force=true 表示当月考勤未结账时强制发布（财务显式跳过结账前置条件，会在工资条上留痕）。 */
+export async function publishPayrollStatement(employeeId: string, month: string, version: number, force = false) {
+  const response = await axiosInstance.post<ApiResponse<PayrollStatementRow>>(`/attendance/payroll/statements/${encodeURIComponent(employeeId)}/${encodeURIComponent(month)}/publish`, { version, force })
   return response.data
 }
 
@@ -333,8 +344,8 @@ export async function importPayrollDrafts(month: string, rows: PayrollImportInpu
 }
 
 /** 批量发布当月待发布草稿：一次抢月度锁、一次校验考勤结账，逐人独立发布。 */
-export async function publishPayrollStatements(month: string, employeeIds: string[]) {
-  const response = await axiosInstance.post<ApiResponse<PayrollPublishSummary>>(`/attendance/payroll/publish-batch/${encodeURIComponent(month)}`, { employeeIds })
+export async function publishPayrollStatements(month: string, employeeIds: string[], force = false) {
+  const response = await axiosInstance.post<ApiResponse<PayrollPublishSummary>>(`/attendance/payroll/publish-batch/${encodeURIComponent(month)}`, { employeeIds, force })
   return response.data
 }
 

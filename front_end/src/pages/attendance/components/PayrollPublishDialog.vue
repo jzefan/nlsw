@@ -8,14 +8,18 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { publishPayrollStatements, type PayrollPublishSummary, type PayrollStatementRow } from '@/services/api/payroll.api'
+import { publishPayrollStatements, type PayrollLedgerStatus, type PayrollPublishSummary, type PayrollStatementRow } from '@/services/api/payroll.api'
 import { useDevice } from '@/composables/use-device'
 import { formatCents } from '@/utils/payroll'
 
-const props = defineProps<{ month: string, rows: PayrollStatementRow[] }>()
+const props = defineProps<{ month: string, rows: PayrollStatementRow[], ledgerStatus: PayrollLedgerStatus }>()
 const { isMobile } = useDevice()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ published: [] }>()
+
+/** 当月考勤未结账时发布属于「强制发布」：不拦人，但要在工资表上留痕。 */
+const forcePublish = computed(() => props.ledgerStatus !== 'closed')
+const ledgerMissing = computed(() => props.ledgerStatus === 'missing')
 
 /** 能发布的是「存了完整草稿」的人：没录入的人没有草稿，已发布且无修改的人也不需要再发。 */
 const candidates = computed(() => props.rows.filter(row => row.statementStatus === 'draft'))
@@ -58,11 +62,12 @@ async function submit() {
   if (!targets.length) return
   publishing.value = true
   try {
-    const response = await publishPayrollStatements(props.month, targets.map(row => row.employeeId))
+    const response = await publishPayrollStatements(props.month, targets.map(row => row.employeeId), forcePublish.value)
     if (response.ok === false || !response.data) throw new Error(String(response.error || '批量发布失败'))
     result.value = response.data
-    if (response.data.failed) toast.error(`批量发布完成：成功 ${response.data.published} 人，失败 ${response.data.failed} 人`)
-    else toast.success(`已发布 ${response.data.published} 人的工资条`)
+    const forcedTip = forcePublish.value ? '（当月考勤未结账，已留痕）' : ''
+    if (response.data.failed) toast.error(`批量发布完成：成功 ${response.data.published} 人，失败 ${response.data.failed} 人${forcedTip}`)
+    else toast.success(`已${forcePublish.value ? '强制' : ''}发布 ${response.data.published} 人的工资条${forcedTip}`)
     emit('published')
   }
   catch (error) { showError(error) }
@@ -81,9 +86,14 @@ watch(open, (value) => {
   <Dialog v-model:open="open">
     <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>批量发布 · {{ month }}</DialogTitle>
+        <DialogTitle>{{ forcePublish ? '强制发布' : '批量发布' }} · {{ month }}</DialogTitle>
         <DialogDescription>只列出已存草稿的人，默认全选；发布后员工即可看到本月工资条。</DialogDescription>
       </DialogHeader>
+
+      <div v-if="forcePublish" class="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+        <p class="font-medium">当月考勤{{ ledgerMissing ? '还没有建立台账' : '尚未结账' }}，正常流程是先由考勤管理员完成结账。</p>
+        <p class="mt-1">继续发布会按「强制发布」处理：不用填原因，但每人的工资条上会留下「未结账发布」标记，便于事后核对。</p>
+      </div>
 
       <div v-if="!candidates.length" class="rounded-md border px-3 py-8 text-center text-sm text-muted-foreground">
         本月没有待发布的工资草稿。
@@ -147,7 +157,7 @@ watch(open, (value) => {
 
       <DialogFooter>
         <Button variant="outline" :disabled="publishing" @click="open = false">关闭</Button>
-        <Button :disabled="!selectedRows.length || publishing" @click="submit"><Send class="mr-1.5 size-4" />{{ publishing ? '发布中…' : `发布 ${selectedRows.length} 人` }}</Button>
+        <Button :disabled="!selectedRows.length || publishing" @click="submit"><Send class="mr-1.5 size-4" />{{ publishing ? '发布中…' : `${forcePublish ? '强制发布' : '发布'} ${selectedRows.length} 人` }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

@@ -34,6 +34,7 @@ import {
   savePayrollDraft,
   withdrawPayrollStatement,
   type PayrollComponents,
+  type PayrollLedgerStatus,
   type PayrollStatements,
   type PayrollStatementRow,
   type PayrollTaxBasis,
@@ -84,6 +85,13 @@ const legacyTabRoutes: Record<string, string> = {
 const month = ref(getBeijingMonth())
 const rows = ref<PayrollStatementRow[]>([])
 const totals = ref<PayrollStatements['totals'] | null>(null)
+/** 当月考勤台账状态：整月一个口径，用于「考勤」列与发布前置条件。 */
+const ledgerStatus = ref<PayrollLedgerStatus>('missing')
+const ledgerSettled = computed(() => ledgerStatus.value === 'closed')
+/** 未结账时发布工资条属于「强制发布」，按钮与提示文案都跟着这个开关变。 */
+const forcePublish = computed(() => !ledgerSettled.value)
+/** 当月还没有建台账与「建了但没结账」是两个不同的原因，提示里要分开说。 */
+const ledgerMissing = computed(() => ledgerStatus.value === 'missing')
 const loading = ref(false)
 const loadError = ref(false)
 /** 待发布人数：存了草稿还没发布的人，用于「批量发布」按钮上的提示。 */
@@ -141,7 +149,29 @@ const statementLabels: Record<string, string> = {
 /** 未录入工资条的月份：金额按薪资标准预估，只提示不落库 */
 const estimatedCount = computed(() => rows.value.filter((row) => row.standardDraft).length)
 /** 隐藏发放相关列时，加载/空态/展开行的合并列数 */
-const visibleColumnCount = showPayrollPayments ? 8 : 5
+const visibleColumnCount = showPayrollPayments ? 9 : 6
+
+/** 工资表「考勤」列：整月一个口径，逐行显示同一个值（是否结账）。 */
+const ledgerBadgeLabel = computed(() => (ledgerSettled.value ? '已结账' : '未结账'))
+function ledgerHint() {
+  if (ledgerStatus.value === 'closed') return '当月考勤台账已结账，工资表用的考勤口径已锁定。'
+  if (ledgerStatus.value === 'open')
+    return '当月考勤台账已建立但还没有结账。正常流程是先由考勤管理员结账，再发布工资条；有特殊情况可以在发布时选「强制发布」。'
+  return '当月还没有建立考勤台账。正常流程是先完成考勤结账再发布工资条；确有需要在发布时可以选「强制发布」。'
+}
+
+/** 「未结账发布」标记说明：说清是哪一版、什么时候、当时台账是什么状态。 */
+function forcedPublishHint(row: PayrollStatementRow) {
+  const forced = row.forcedPublish
+  if (!forced) return ''
+  const reason = forced.ledgerStatus === 'missing' ? '当月还没有建立考勤台账' : '当月考勤尚未结账'
+  return `第 ${forced.revision} 版发布于 ${formatBeijingDate(forced.at)}，当时${reason}，属于强制发布。`
+}
+
+/** 「考勤」列的悬停说明：常态讲当月结账口径，这一版是强发出来的再补一句留痕说明。 */
+function ledgerCellHint(row: PayrollStatementRow) {
+  return [ledgerHint(), forcedPublishHint(row)].filter(Boolean).join(' ')
+}
 
 /** 工资条状态说明：含义 + 员工可见性 + 下一步该做什么。 */
 function statementStatusHint(row: PayrollStatementRow) {
@@ -214,12 +244,15 @@ async function loadStatements() {
   loadError.value = false
   rows.value = []
   totals.value = null
+  // 换月份时先回到「未结账」，避免上一月的结论停留在发布对话框里。
+  ledgerStatus.value = 'missing'
   try {
     const response = await getPayrollStatements(month.value)
     assertOk(response, '读取工资表失败')
     if (currentRequest !== requestId) return
     rows.value = response.data?.rows ?? []
     totals.value = response.data?.totals ?? null
+    ledgerStatus.value = response.data?.ledgerStatus ?? 'missing'
   } catch (error) {
     if (currentRequest === requestId) {
       loadError.value = true
@@ -427,10 +460,16 @@ async function submitAction() {
   try {
     const response =
       actionType.value === 'publish'
-        ? await publishPayrollStatement(row.employeeId, month.value, row.version)
+        ? await publishPayrollStatement(row.employeeId, month.value, row.version, forcePublish.value)
         : await withdrawPayrollStatement(row.employeeId, month.value, row.version, actionReason.value.trim())
     assertOk(response, actionType.value === 'publish' ? '发布工资条失败' : '撤回工资条失败')
-    toast.success(actionType.value === 'publish' ? '工资条已发布' : '工资条已撤回')
+    toast.success(
+      actionType.value === 'publish'
+        ? forcePublish.value
+          ? '已强制发布：当月考勤未结账，发布记录已留痕'
+          : '工资条已发布'
+        : '工资条已撤回',
+    )
     actionType.value = ''
     actionRow.value = null
     await loadStatements()
@@ -604,7 +643,8 @@ onMounted(() => {
               <div class="flex items-center gap-2">
                 <span class="min-w-0 truncate text-sm font-medium">{{ row.name }}</span>
                 <span class="flex-1" />
-                <Badge variant="outline">{{ row.statementStatus === 'draft' && row.publishedTotals ? '已发布' : (statementLabels[row.statementStatus] ?? row.statementStatus) }}</Badge>
+                <Badge variant="outline" class="shrink-0" :class="ledgerSettled ? '' : 'text-amber-700 dark:text-amber-400'">{{ ledgerBadgeLabel }}</Badge>
+                <Badge variant="outline" class="shrink-0">{{ row.statementStatus === 'draft' && row.publishedTotals ? '已发布' : (statementLabels[row.statementStatus] ?? row.statementStatus) }}</Badge>
               </div>
               <p class="mt-0.5 truncate text-xs text-muted-foreground">
                 {{ [row.employeeNo, row.phone, row.department].filter(Boolean).join(' · ') || '—'
@@ -615,6 +655,9 @@ onMounted(() => {
                 <span class="text-lg font-semibold tabular-nums" :class="row.standardDraft ? 'font-normal text-muted-foreground' : ''">{{ formatCents(statementTotals(row)?.netPayCents) }}</span>
               </div>
               <p v-if="row.standardDraft" class="mt-0.5 text-[10px] text-muted-foreground">按薪资标准预估</p>
+              <p v-if="row.forcedPublish" class="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                未结账发布 · 第{{ row.forcedPublish.revision }}版 · {{ formatBeijingDate(row.forcedPublish.at) }}
+              </p>
               <p v-if="row.statementStatus === 'draft' && row.publishedTotals" class="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
                 修订草稿待发布 · 草稿实发 {{ formatCents(row.totals?.netPayCents) }}
               </p>
@@ -687,11 +730,12 @@ onMounted(() => {
 
       <div v-else class="overflow-x-auto rounded-md border bg-background">
         <TooltipProvider :delay-duration="300">
-          <Table :class="showPayrollPayments ? 'min-w-[1180px]' : 'min-w-[900px]'">
+          <Table :class="showPayrollPayments ? 'min-w-[1280px]' : 'min-w-[1000px]'">
             <TableHeader
               ><TableRow
                 ><TableHead class="sticky left-0 z-10 w-48 bg-muted">员工</TableHead
                 ><TableHead class="w-24">工资条</TableHead
+                ><TableHead class="w-24">考勤</TableHead
                 ><TableHead v-if="showPayrollPayments" class="w-24">发放</TableHead
                 ><TableHead class="w-24 text-right">收入</TableHead><TableHead class="w-24 text-right">实发</TableHead
                 ><TableHead v-if="showPayrollPayments" class="w-24 text-right">已付</TableHead
@@ -742,6 +786,25 @@ onMounted(() => {
                         </span>
                       </TooltipTrigger>
                       <TooltipContent class="max-w-72">{{ statementStatusHint(row) }}</TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <span class="inline-flex cursor-help flex-col items-start">
+                          <Badge
+                            variant="outline"
+                            :class="ledgerSettled ? '' : 'text-amber-700 dark:text-amber-400'"
+                            >{{ ledgerBadgeLabel }}</Badge
+                          >
+                          <span
+                            v-if="row.forcedPublish"
+                            class="mt-1 text-[10px] text-amber-700 dark:text-amber-400"
+                            >未结账发布</span
+                          >
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent class="max-w-72">{{ ledgerCellHint(row) }}</TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell v-if="showPayrollPayments">
@@ -1024,7 +1087,7 @@ onMounted(() => {
 
     <PayrollImportDialog v-model:open="importOpen" :month="month" :rows="rows" @imported="loadStatements" />
 
-    <PayrollPublishDialog v-model:open="publishOpen" :month="month" :rows="rows" @published="loadStatements" />
+    <PayrollPublishDialog v-model:open="publishOpen" :month="month" :rows="rows" :ledger-status="ledgerStatus" @published="loadStatements" />
 
     <Dialog
       :open="!!editingRow"
@@ -1103,11 +1166,22 @@ onMounted(() => {
     >
       <AlertDialogContent>
         <AlertDialogHeader
-          ><AlertDialogTitle>{{ actionType === 'publish' ? '发布工资条' : '撤回已发布工资条' }}</AlertDialogTitle
+          ><AlertDialogTitle>{{
+            actionType === 'withdraw' ? '撤回已发布工资条' : forcePublish ? '强制发布工资条' : '发布工资条'
+          }}</AlertDialogTitle
           ><AlertDialogDescription
-            >{{ actionRow?.name }} · {{ month }} · 第{{ actionRow?.revision }}版</AlertDialogDescription
+            >{{ actionRow?.name }} · {{ month }} · {{ actionRow?.revision ? `第 ${actionRow.revision} 版` : '首次发布' }}</AlertDialogDescription
           ></AlertDialogHeader
         >
+        <div
+          v-if="actionType === 'publish' && forcePublish"
+          class="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
+        >
+          <p class="font-medium">当月考勤{{ ledgerMissing ? '还没有建立台账' : '尚未结账' }}，正常流程是先由考勤管理员完成结账。</p>
+          <p class="mt-1">
+            继续发布属于「强制发布」：工资条照常发给员工，不用填原因，但会在工资表这一行留下「未结账发布」标记，便于事后核对。
+          </p>
+        </div>
         <label v-if="actionType === 'withdraw'" for="payroll-withdraw-reason" class="space-y-1.5 text-sm"
           ><span>撤回原因</span
           ><Textarea id="payroll-withdraw-reason" v-model="actionReason" rows="3" aria-label="工资条撤回原因" required
@@ -1117,7 +1191,9 @@ onMounted(() => {
           ><Button
             :disabled="actionBusy || (actionType === 'withdraw' && !actionReason.trim())"
             @click="submitAction"
-            >{{ actionBusy ? '处理中…' : actionType === 'publish' ? '确认发布' : '确认撤回' }}</Button
+            >{{
+              actionBusy ? '处理中…' : actionType === 'withdraw' ? '确认撤回' : forcePublish ? '强制发布' : '确认发布'
+            }}</Button
           ></AlertDialogFooter
         >
       </AlertDialogContent>
