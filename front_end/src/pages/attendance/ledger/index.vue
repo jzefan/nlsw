@@ -490,6 +490,9 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
               <TableCell>
                 <Textarea v-if="isRowEditing(row)" v-model="drafts[row.employeeId].note" rows="1" class="min-h-8 resize-y text-xs" :aria-label="`${row.name}考勤说明`" :placeholder="drafts[row.employeeId].confirmationState === 'no_basis' ? '填写无依据原因' : '说明（选填）'" />
                 <span v-else class="whitespace-normal break-words text-xs text-muted-foreground">{{ row.note || '—' }}</span>
+                <!-- 申述的核减与待审说明放在备注里：只读派生说明，不写进备注字段 -->
+                <span v-if="row.appealOffsetLabel" class="mt-1 block whitespace-normal break-words text-[11px] text-muted-foreground">{{ row.appealOffsetLabel }}</span>
+                <span v-if="row.appealPendingCount" class="mt-1 block text-[11px] text-muted-foreground">有 {{ row.appealPendingCount }} 条考勤申述待审批</span>
               </TableCell>
               <TableCell v-if="canManage && !isClosed" class="text-right">
                 <template v-if="isRowEditing(row)">
@@ -559,7 +562,11 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
               </Select>
               <Textarea v-model="drafts[row.employeeId].note" rows="2" class="min-h-8 resize-y text-xs" :aria-label="`${row.name}考勤说明`" :placeholder="drafts[row.employeeId].confirmationState === 'no_basis' ? '填写无依据原因' : '说明（选填）'" />
             </div>
-            <div v-else-if="row.note" class="border-t px-3 py-2 text-xs text-muted-foreground">{{ row.note }}</div>
+            <div v-else-if="row.note || row.appealOffsetLabel || row.appealPendingCount" class="space-y-0.5 border-t px-3 py-2 text-xs text-muted-foreground">
+              <div v-if="row.note" class="whitespace-normal break-words">{{ row.note }}</div>
+              <div v-if="row.appealOffsetLabel" class="whitespace-normal break-words">{{ row.appealOffsetLabel }}</div>
+              <div v-if="row.appealPendingCount" class="tabular-nums">有 {{ row.appealPendingCount }} 条考勤申述待审批</div>
+            </div>
 
             <div v-if="canManage" class="flex items-center justify-end gap-2 border-t px-3 py-2">
               <template v-if="isRowEditing(row)">
@@ -574,7 +581,7 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
       </div>
 
       <p v-if="isClosed" class="text-xs text-muted-foreground">本月已结账，台账只读。</p>
-      <p v-else-if="canManage && !isMobile" class="text-xs text-muted-foreground">点行末「编辑」确认实到分钟与状态，点对勾保存；关闭月份前需确认每位员工的实到或填写无依据原因。实到按规则预填（应出勤 − 请假 − 迟到 / 早退 / 无打卡扣减），可直接采用或改成实际值，改过的不再被覆盖；加班与出差按已批准时长统计，还没批完的单独标「待审批」。</p>
+      <p v-else-if="canManage && !isMobile" class="text-xs text-muted-foreground">点行末「编辑」确认实到分钟与状态，点对勾保存；关闭月份前需确认每位员工的实到或填写无依据原因。实到按规则预填（应出勤 − 请假 − 迟到 / 早退 / 无打卡扣减），可直接采用或改成实际值，改过的不再被覆盖；已批准的考勤申述会先核减当天对应次数，核减说明写在备注里；加班与出差按已批准时长统计，还没批完的单独标「待审批」。</p>
       <p v-else-if="!canManage" class="text-xs text-muted-foreground">每人的实到确认与本月结账由<span class="font-medium text-foreground">公司主账号或考勤管理员</span>执行，其他角色只能查看；显示「待确认」是等他们确认，不需要你操作。</p>
     </template>
     </div>

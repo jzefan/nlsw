@@ -17,6 +17,8 @@ declare global {
   const THEMES: typeof import('../constants/themes').THEMES
   const THEMES_COLOR: typeof import('../constants/themes')['THEMES_COLOR']
   const THEME_PRIMARY_COLORS: typeof import('../constants/themes').THEME_PRIMARY_COLORS
+  const appealLabel: typeof import('../constants/attendance-labels').appealLabel
+  const appealTypeLabels: typeof import('../constants/attendance-labels').appealTypeLabels
   const approvalKindLabels: typeof import('../stores/approvals').approvalKindLabels
   const approvalKindLinks: typeof import('../stores/approvals').approvalKindLinks
   const approvalKindOrder: typeof import('../stores/approvals').approvalKindOrder

@@ -17,6 +17,8 @@
 - playwright 用 `require('playwright-core')` + `NODE_PATH=<workbuddy workspace node_modules>:<项目>/node_modules`；
   拦截接口用**端口 + pathname 谓词**，**别用 `**/xxx**`**（会连 vite 的 `/src/pages/xxx/index.vue` 一起拦 → 白屏）。
   **移动端下 `Sidebar` 在关闭的 Sheet 里、不进 DOM**（`data-slot="sidebar"` 查不到）→ 等待条件用 `[data-slot="sidebar-wrapper"]`。
+  **断言侧栏入口别只看 DOM**：「我的申请」「待我审批」是**折叠分组**，子链接默认不在 DOM 里 → 会误判「入口没加」。
+  从组件 `setupState.navMain` 读菜单树（全 DOM 扫 `__vueParentComponent` 找持有 `navMain` 的实例），或先点开分组再查 DOM。
   完整脚本见技能 `live-session-api-replay`。
 
 ## 角色与权限
@@ -99,6 +101,17 @@ shadcn `Table` 自带 `[data-slot="table-container"]`（`overflow-auto`），单
   （侧栏挂载 `start()`：立即 + 60s 轮询）。**侧栏菜单不加角标**（用户否过）。
   计数接口 `GET /attendance/approvals/pending-counts`（**别挂 `requireEmployee`**）、`GET /seal/requests/pending-count`
   （**必须排在 `/seal/requests/:id` 之前**）；口径 = 列表 inbox。坑：待办链接与页签链接 href 相同，测试认 `data-slot="approval-pending-links"`。
+- **考勤申述 = 第四种 `type: 'appeal'`**（界面名「考勤申述」，用户定的），复用同一条链路与审批链。
+  表单只有 **发生日期 + 申述类型 + 事由 + 附件**；`startAt/endAt/durationMinutes` 改成**条件 required**
+  （`this.type !== 'appeal'`）——**不给申述造假的整点时段**；`occurredOn` 按发生日期归属台账月份，
+  **审批加月锁也按 `occurredOn.slice(0,7)`**。
+  类型与可核减字段的唯一来源 `utils/attendance-ledger-actual.js` 的 `APPEAL_TYPES / APPEAL_TYPE_LABELS / APPEAL_OFFSET_FIELDS`，
+  **`APPEAL_OFFSET_FIELDS` 不含 `absence`**（旷工在台账没有计数列，只留痕不核减）。**任何按申请单聚合时长的地方都要
+  `if (type === 'appeal') continue`**（`aggregateApprovedRequests` 少这一句会直接崩在 `endAt.getTime()`）。
+  核减只在**读时**生效：`withAppealOffset` 改 `suggestedActualMinutes`，说明写成派生的 `appealOffsetLabel`
+  （台账备注列 + 建议值 note 两处都显示），**不写库**；`buildRows` 与 `actualSuggestionFor` 必须同口径，否则
+  「采用系统建议值」会被记成人工值。重复提交（同人/同日期/同类型，pending|approved）一律 409。
+  前端入口：侧栏与移动端首页各一对（我的申请→考勤申述、待我审批→申述审批）；页内标题**不拼「申请」后缀**。
 
 ## 薪资：五险一金方案
 - **费率不由员工标准决定**：租户级 `Tenant.settings.payrollContributionScheme` 给费率，员工只填基数（公司/个人各一个）。

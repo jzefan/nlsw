@@ -4,17 +4,18 @@ import { getAttendanceApprovalCounts } from '@/services/api/attendance.api'
 import { getSealPendingCount } from '@/services/api/seal.api'
 import { useAuthStore } from '@/stores/auth'
 
-/** 有待审批入口的四类，也是审批页待办链接的取值集合。 */
-export type ApprovalKind = 'leave' | 'overtime' | 'fieldwork' | 'seal'
+/** 有待审批入口的五类，也是审批页待办链接的取值集合。 */
+export type ApprovalKind = 'leave' | 'overtime' | 'fieldwork' | 'appeal' | 'seal'
 
-/** 展示顺序：请假 → 加班 → 出差 → 用章（与侧栏「待我审批」子项顺序一致）。 */
-export const approvalKindOrder: ApprovalKind[] = ['leave', 'overtime', 'fieldwork', 'seal']
+/** 展示顺序：请假 → 加班 → 出差 → 申述 → 用章（与侧栏「待我审批」子项顺序一致）。 */
+export const approvalKindOrder: ApprovalKind[] = ['leave', 'overtime', 'fieldwork', 'appeal', 'seal']
 
 /** 短名：页面待办链接里用，短到不抢视觉。 */
 export const approvalKindLabels: Record<ApprovalKind, string> = {
   leave: '请假',
   overtime: '加班',
   fieldwork: '出差',
+  appeal: '申述',
   seal: '用章',
 }
 
@@ -23,6 +24,7 @@ export const approvalKindLinks: Record<ApprovalKind, string> = {
   leave: '/attendance/approvals?type=leave',
   overtime: '/attendance/approvals?type=overtime',
   fieldwork: '/attendance/approvals?type=fieldwork',
+  appeal: '/attendance/approvals?type=appeal',
   seal: '/seal/requests?view=inbox',
 }
 
@@ -34,7 +36,7 @@ const POLL_INTERVAL = 60000
  */
 export const useApprovalStore = defineStore('approvals', () => {
   const authStore = useAuthStore()
-  const counts = ref<Record<ApprovalKind, number>>({ leave: 0, overtime: 0, fieldwork: 0, seal: 0 })
+  const counts = ref<Record<ApprovalKind, number>>({ leave: 0, overtime: 0, fieldwork: 0, appeal: 0, seal: 0 })
   let timer: ReturnType<typeof setInterval> | null = null
   let inFlight = false
 
@@ -78,6 +80,7 @@ export const useApprovalStore = defineStore('approvals', () => {
           counts.value.leave = Number(data.leave) || 0
           counts.value.overtime = Number(data.overtime) || 0
           counts.value.fieldwork = Number(data.fieldwork) || 0
+          counts.value.appeal = Number(data.appeal) || 0
         }).catch(() => {}),
       ]
       if (authStore.features.seal) {

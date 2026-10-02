@@ -6,10 +6,10 @@ import { toast } from 'vue-sonner'
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
 import { useDevice } from '@/composables/use-device'
-import { attendanceKindLabels } from '@/constants/attendance-labels'
+import { appealLabel, appealTypeLabels, attendanceKindLabels } from '@/constants/attendance-labels'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DateTimePicker } from '@/components/ui/date-picker'
+import { DatePicker, DateTimePicker } from '@/components/ui/date-picker'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -57,7 +57,7 @@ let approvalCountRequestId = 0
 /** 加班补偿方式的展示名，表单与列表共用一份。 */
 const compensationLabels: Record<string, string> = { comp_time: '调休', overtime_pay: '加班费', none: '无补偿' }
 
-const form = ref({ type: 'leave' as AttendanceRequestKind, leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'none' })
+const form = ref({ type: 'leave' as AttendanceRequestKind, leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'none', occurredOn: '', appealType: 'lateWithin10' })
 const calendarCache = ref<Record<number, { confirmed: boolean, defaultDays: { date: string, type: string }[], days: { date: string, type: string }[], workPeriods: { start: string, end: string }[], saturdayMorning: { enabled: boolean, periods: { start: string, end: string }[] } }>>({})
 const calendarRequests = new Map<number, Promise<void>>()
 const calendarGenerations = new Map<number, number>()
@@ -106,6 +106,8 @@ const leaveNeedsGeneralManager = computed(() => {
 /** 类型名与面包屑共用 constants/attendance-labels 里那份，避免「请假/审批」两处对不上。 */
 const kindOptions: { value: AttendanceRequestKind, label: string }[] = (Object.keys(attendanceKindLabels) as AttendanceRequestKind[])
   .map(value => ({ value, label: attendanceKindLabels[value] }))
+/** 今天（北京时间），申述的发生日期不能晚于它。 */
+const todayDateKey = computed(() => beijingDateKey(new Date().toISOString()))
 const leaveTypes = [
   { value: 'personal', label: '事假' }, { value: 'sick', label: '病假' }, { value: 'annual', label: '年假' },
   { value: 'marriage', label: '婚假' }, { value: 'maternity', label: '产假' }, { value: 'paternity', label: '陪产假' },
@@ -115,13 +117,22 @@ const statusLabels: Record<string, string> = {
   pending: '审批中', awaiting_review: '审批中', approved: '已通过', rejected: '已驳回', withdrawn: '已撤回', draft: '草稿',
 }
 const scopedTypeLabel = computed(() => kindOptions.find(item => item.value === scopedType.value)?.label ?? '')
-/** 「我的申请」的页面标题；审批视图（待我审批 / 审核记录）只用顶部面包屑。 */
-const listTitle = computed(() => (scopedTypeLabel.value ? `${scopedTypeLabel.value}申请` : '我的申请'))
+/** 「考勤申述」本身就是完整的单子名，不再拼「申请」二字（否则会出现「考勤申述申请」）。 */
+function requestTitle(label: string) {
+  return scopedType.value === 'appeal' ? label : `${label}申请`
+}
+/** 「我的申请」的页面标题（审批视图只用顶部面包屑）。 */
+const listTitle = computed(() => (scopedTypeLabel.value ? requestTitle(scopedTypeLabel.value) : '我的申请'))
 /** 在「待我审批 / 审核记录」之间切换时保留当前类型，避免筛选条件被悄悄丢掉。 */
 function listLink(path: string) {
   return scopedType.value ? { path, query: { type: scopedType.value } } : path
 }
-const emptyText = computed(() => (isHistory.value ? '暂无审核记录' : isInbox.value ? '暂无待审批申请' : `暂无${scopedTypeLabel.value ? `${scopedTypeLabel.value}申请` : '申请'}`))
+const emptyText = computed(() => {
+  if (isHistory.value) return '暂无审核记录'
+  if (isInbox.value) return '暂无待审批申请'
+  if (!scopedTypeLabel.value) return '暂无申请'
+  return `暂无${requestTitle(scopedTypeLabel.value)}`
+})
 
 function requestId(row: AttendanceRequest) {
   const id = row.id ?? row._id ?? row.requestId
@@ -147,6 +158,10 @@ function getApplicant(row: AttendanceRequest) {
   return ''
 }
 function getPeriod(row: AttendanceRequest) {
+  // 申述针对「某一天」，没有起止时段
+  if (String(row.type ?? row.kind ?? '') === 'appeal') {
+    return typeof row.occurredOn === 'string' && row.occurredOn ? formatDate(`${row.occurredOn}T00:00:00.000Z`) : '—'
+  }
   const start = row.startAt ?? row.start_at
   const end = row.endAt ?? row.end_at
   if (!start) return '—'
@@ -176,11 +191,14 @@ function beijingDateKey(value: unknown) {
  * - **请假** 看折算天数（时长 ÷ 每日工作分钟，8 小时 = 1 天，取得到工作日历时按租户工作时段算）
  * - **出差** 看日历天数（起止日期含首尾，跨几天就是几天）
  * - **加班** 看时长（小时）
+ * - **考勤申述** 没有时长，显示申述类型
  */
 function getDurationLabel(row: AttendanceRequest) {
+  const type = String(row.type ?? row.kind ?? '')
+  // 申述没有时长：这一格显示申述类型（迟到 / 早退 / 未打卡 / 旷工）
+  if (type === 'appeal') return appealLabel(row.appealType)
   const minutes = requestMinutes(row)
   if (!minutes) return ''
-  const type = String(row.type ?? row.kind ?? '')
   if (type === 'overtime') return `${trimNumber(minutes / 60)} 小时`
   if (type === 'fieldwork') {
     const from = beijingDateKey(row.startAt ?? row.start_at)
@@ -199,6 +217,7 @@ function getLeaveType(row: AttendanceRequest) {
 function getDetail(row: AttendanceRequest) {
   const details = [row.reason || row.workContent]
   if (row.type === 'leave' && getLeaveType(row)) details.unshift(getLeaveType(row))
+  if (row.type === 'appeal' && appealLabel(row.appealType)) details.unshift(appealLabel(row.appealType))
   if (row.type === 'overtime' && row.compensation) details.unshift(compensationLabels[row.compensation] ?? row.compensation)
   if (row.type === 'fieldwork' && row.location) details.push(`地点：${row.location}`)
   if (row.type === 'overtime' && row.location) details.push(`地点：${row.location}`)
@@ -526,7 +545,20 @@ async function validateLeaveDate(field: 'startAt' | 'endAt') {
 }
 
 function openCreate() {
-  form.value = { type: scopedType.value || 'leave', leaveType: 'personal', startAt: '', endAt: '', reason: '', location: '', contact: '', workContent: '', compensation: 'none' }
+  form.value = {
+    type: scopedType.value || 'leave',
+    leaveType: 'personal',
+    startAt: '',
+    endAt: '',
+    reason: '',
+    location: '',
+    contact: '',
+    workContent: '',
+    compensation: 'none',
+    // 申述默认发生在今天（多数情况是当天的迟到/未打卡），申述类型默认最轻的一档
+    occurredOn: beijingDateKey(new Date().toISOString()),
+    appealType: 'lateWithin10',
+  }
   attachmentFiles.value = []
   handleCalendarYearChange(new Date().getFullYear())
   dialogOpen.value = true
@@ -614,7 +646,17 @@ async function downloadAttachment(row: AttendanceRequest, attachment: NonNullabl
 
 async function submit() {
   const submittedForm = { ...form.value }
-  if (!submittedForm.startAt || !submittedForm.endAt || !submittedForm.reason.trim()) {
+  const isAppeal = submittedForm.type === 'appeal'
+  if (!submittedForm.reason.trim()) {
+    toast.error('请填写事由')
+    return
+  }
+  if (isAppeal) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(submittedForm.occurredOn)) {
+      toast.error('请选择发生日期')
+      return
+    }
+  } else if (!submittedForm.startAt || !submittedForm.endAt) {
     toast.error('请填写时间和事由')
     return
   }
@@ -626,13 +668,16 @@ async function submit() {
     toast.error('请填写出差地点、对接对象和工作内容')
     return
   }
-  if ([submittedForm.startAt, submittedForm.endAt].some(value => !/^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(value))) {
-    toast.error('申请时间按整点填写')
-    return
-  }
-  if (submittedForm.endAt <= submittedForm.startAt) {
-    toast.error('结束时间须晚于开始时间')
-    return
+  // 申述没有时段，整点与先后顺序这两条只对有时段的类型生效
+  if (!isAppeal) {
+    if ([submittedForm.startAt, submittedForm.endAt].some(value => !/^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(value))) {
+      toast.error('申请时间按整点填写')
+      return
+    }
+    if (submittedForm.endAt <= submittedForm.startAt) {
+      toast.error('结束时间须晚于开始时间')
+      return
+    }
   }
   if (submittedForm.type === 'leave') {
     const years = [...new Set([selectedYear(submittedForm.startAt), selectedYear(submittedForm.endAt)])]
@@ -661,9 +706,11 @@ async function submit() {
   try {
     await createAttendanceRequest({
       type: submittedForm.type,
-      startAt: getWallClockIso(submittedForm.startAt),
-      endAt: getWallClockIso(submittedForm.endAt),
       reason: submittedForm.reason.trim(),
+      // 申述报「发生日期 + 申述类型」，其余类型报起止时间
+      ...(isAppeal
+        ? { occurredOn: submittedForm.occurredOn, appealType: submittedForm.appealType }
+        : { startAt: getWallClockIso(submittedForm.startAt), endAt: getWallClockIso(submittedForm.endAt) }),
       ...(submittedForm.type === 'leave' ? { leaveType: submittedForm.leaveType } : {}),
       ...(submittedForm.type === 'fieldwork' ? { location: submittedForm.location.trim(), contact: submittedForm.contact.trim(), workContent: submittedForm.workContent.trim() } : {}),
       ...(submittedForm.type === 'overtime' ? { location: submittedForm.location.trim(), workContent: submittedForm.workContent.trim(), compensation: submittedForm.compensation } : {}),
@@ -910,7 +957,7 @@ onBeforeUnmount(() => {
 
     <Dialog v-model:open="dialogOpen">
       <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader><DialogTitle>{{ scopedTypeLabel ? `新建${scopedTypeLabel}申请` : '新建申请' }}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{{ scopedTypeLabel ? `新建${requestTitle(scopedTypeLabel)}` : '新建申请' }}</DialogTitle></DialogHeader>
         <form class="space-y-4" @submit.prevent="submit">
           <div class="grid gap-3 sm:grid-cols-3">
             <!-- 侧栏按类型分开入口后，弹窗类型固定为该入口的类型，避免新建出列表里看不到的申请 -->
@@ -926,8 +973,17 @@ onBeforeUnmount(() => {
                 <SelectContent><SelectItem v-for="option in leaveTypes" :key="option.value" :value="option.value">{{ option.label }}</SelectItem></SelectContent>
               </Select>
             </div>
-            <div class="space-y-1.5 text-sm sm:col-span-3"><span>开始时间</span><DateTimePicker :model-value="form.startAt" :minute-step="60" :max-value="form.endAt" :default-hour="form.type === 'leave' ? '08' : undefined" :disabled-date="form.type === 'leave' ? isLeaveDateUnavailable : undefined" :disabled-hint="form.type === 'leave' ? '请假起止日只能选工作日且未申请过请假的日期' : undefined" :date-indicator="form.type === 'leave' ? leaveDateIndicator : undefined" label="开始时间" @update:model-value="updateStartTime" @visible-year-change="handleCalendarYearChange" /></div>
-            <div class="space-y-1.5 text-sm sm:col-span-3"><span>结束时间</span><DateTimePicker :model-value="form.endAt" :minute-step="60" :min-value="form.startAt" :default-hour="form.type === 'leave' ? '18' : undefined" :disabled-date="form.type === 'leave' ? isLeaveDateUnavailable : undefined" :disabled-hint="form.type === 'leave' ? '请假起止日只能选工作日且未申请过请假的日期' : undefined" :date-indicator="form.type === 'leave' ? leaveDateIndicator : undefined" label="结束时间" @update:model-value="updateEndTime" @visible-year-change="handleCalendarYearChange" /></div>
+            <template v-if="form.type === 'appeal'">
+              <div class="space-y-1.5 text-sm"><span>发生日期</span><DatePicker v-model="form.occurredOn" :max-date="todayDateKey" placeholder="选择发生日期" /></div>
+              <div class="space-y-1.5 text-sm"><span>申述类型</span>
+                <Select v-model="form.appealType">
+                  <SelectTrigger class="w-full" aria-label="申述类型"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem v-for="(label, value) in appealTypeLabels" :key="value" :value="String(value)">{{ label }}</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </template>
+            <div v-if="form.type !== 'appeal'" class="space-y-1.5 text-sm sm:col-span-3"><span>开始时间</span><DateTimePicker :model-value="form.startAt" :minute-step="60" :max-value="form.endAt" :default-hour="form.type === 'leave' ? '08' : undefined" :disabled-date="form.type === 'leave' ? isLeaveDateUnavailable : undefined" :disabled-hint="form.type === 'leave' ? '请假起止日只能选工作日且未申请过请假的日期' : undefined" :date-indicator="form.type === 'leave' ? leaveDateIndicator : undefined" label="开始时间" @update:model-value="updateStartTime" @visible-year-change="handleCalendarYearChange" /></div>
+            <div v-if="form.type !== 'appeal'" class="space-y-1.5 text-sm sm:col-span-3"><span>结束时间</span><DateTimePicker :model-value="form.endAt" :minute-step="60" :min-value="form.startAt" :default-hour="form.type === 'leave' ? '18' : undefined" :disabled-date="form.type === 'leave' ? isLeaveDateUnavailable : undefined" :disabled-hint="form.type === 'leave' ? '请假起止日只能选工作日且未申请过请假的日期' : undefined" :date-indicator="form.type === 'leave' ? leaveDateIndicator : undefined" label="结束时间" @update:model-value="updateEndTime" @visible-year-change="handleCalendarYearChange" /></div>
             <div v-if="durationPreview" class="text-sm text-muted-foreground sm:col-span-3">
               预计时长：<span class="font-medium text-foreground">{{ durationPreview }}</span>
               <span v-if="leaveNeedsGeneralManager" class="ml-2 text-amber-700 dark:text-amber-400">超过 {{ generalManagerThresholdDays }} 个工作日，提交后需总经理终审</span>
@@ -972,7 +1028,8 @@ onBeforeUnmount(() => {
               </ul>
             </div>
           </div>
-      <p class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"><Clock3 class="size-3.5" />请假按小时填写；起止日须为工作日，跨休息日不计时。<span class="size-1.5 rounded-full bg-amber-600" aria-hidden="true" />日历中的标记表示已有待审批或已通过的请假日期，该日期不可再选。</p>
+      <p v-if="form.type === 'leave'" class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"><Clock3 class="size-3.5" />请假按小时填写；起止日须为工作日，跨休息日不计时。<span class="size-1.5 rounded-full bg-amber-600" aria-hidden="true" />日历中的标记表示已有待审批或已通过的请假日期，该日期不可再选。</p>
+      <p v-else-if="form.type === 'appeal'" class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"><Clock3 class="size-3.5" />选发生异常的那一天与类型，说明当时情况并附上依据；批准后会在当月考勤台账核减对应次数。</p>
           <DialogFooter>
             <Button type="button" variant="outline" :disabled="saving" @click="dialogOpen = false">取消</Button>
             <Button type="submit" :disabled="saving">{{ saving ? '提交中…' : '提交申请' }}</Button>

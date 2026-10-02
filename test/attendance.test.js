@@ -110,6 +110,28 @@ function mockSubmissionLock(t) {
   return { advanceClock: milliseconds => { clock += milliseconds; } };
 }
 
+/**
+ * 考勤申述的「发生日期」不能晚于今天。用例里用相对日期而不是写死某一天，
+ * 否则换个月份跑就会变成「提交未来日期」而失败。
+ */
+function dateKeyMonthsFromNow(monthsAgo) {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthsAgo, 5)).toISOString().slice(0, 10);
+}
+
+/** 申述表单：只有发生日期 + 类型 + 事由，没有起止时段。 */
+function appealRequestFor(user, tenantId, overrides = {}) {
+  const request = requestFor(user, tenantId, null, null, 'appeal');
+  request.body = {
+    type: 'appeal',
+    occurredOn: dateKeyMonthsFromNow(-1),
+    appealType: 'lateWithin10',
+    reason: '当天打卡机故障，实际按时到岗',
+    ...overrides
+  };
+  return request;
+}
+
 test('leave policy uses confirmed weekday schedule, holiday/workday overrides, and rejects unconfirmed years', () => {
   const base = { settings: { attendanceCalendarYears: [2026] } };
   const at = date => new Date(date);
@@ -438,6 +460,120 @@ test('overtime compensation accepts leave-in-lieu, overtime pay and no compensat
   await attendance.createRequest(invalid, invalidResponse);
   assert.equal(invalidResponse.statusCode, 400);
   assert.match(invalidResponse.body.error, /补偿方式/);
+});
+
+test('appeal requests carry no time range and follow the ordinary approval chain', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id();
+  const user = employee({ tenantId, userId: applicantId, managerId });
+  const created = [];
+  noticeWrites.length = 0;
+  t.mock.method(User, 'findOne', async () => ({ _id: managerId, employeeNo: 'M-1', name: '张经理', status: 'active' }));
+  t.mock.method(AttendanceRequest, 'exists', async () => false);
+  t.mock.method(AttendanceRequest, 'create', async document => {
+    created.push(document);
+    return { _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } };
+  });
+
+  const occurredOn = dateKeyMonthsFromNow(-1);
+  const res = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId, { occurredOn }), res);
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(created[0].occurredOn, occurredOn);
+  assert.equal(created[0].appealType, 'lateWithin10');
+  assert.equal(created[0].startAt, undefined, '申述没有起止时段，不该造出一对整点时间');
+  assert.equal(created[0].endAt, undefined);
+  assert.equal(created[0].durationMinutes, undefined, '申述没有时长，台账里也不按时长统计');
+  assert.deepEqual(created[0].approvals.map(step => step.role), ['manager'], '申述沿用请假/加班/出差那一条审批链');
+  assert.equal(res.body.data.occurredOn, occurredOn);
+  assert.equal(res.body.data.appealType, 'lateWithin10');
+  assert.equal(res.body.data.durationHours, null, '时长缺席要给 null，不能是 NaN');
+  assert.equal(noticeWrites.length, 1);
+  assert.equal(noticeWrites[0].kind, 'attendance_pending');
+  assert.equal(String(noticeWrites[0].userId), String(managerId));
+  assert.match(noticeWrites[0].title, /提交了考勤申述申请/);
+  assert.equal(noticeWrites[0].link, '/attendance/approvals?type=appeal');
+  assert.match(noticeWrites[0].body, new RegExp(occurredOn));
+  assert.match(noticeWrites[0].body, /迟到（10分钟以内）/);
+});
+
+test('appeal requests reject a malformed or future date, an unknown type and a duplicate', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id();
+  const user = employee({ tenantId, userId: applicantId, managerId });
+  let duplicated = false;
+  t.mock.method(User, 'findOne', async () => ({ _id: managerId, employeeNo: 'M-1', status: 'active' }));
+  t.mock.method(AttendanceRequest, 'exists', async () => duplicated);
+  t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } }));
+
+  const malformed = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId, { occurredOn: '2026/09/30' }), malformed);
+  assert.equal(malformed.statusCode, 400);
+  assert.match(malformed.body.error, /发生日期/);
+
+  const future = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId, { occurredOn: dateKeyMonthsFromNow(1) }), future);
+  assert.equal(future.statusCode, 400);
+  assert.match(future.body.error, /不能晚于今天/);
+
+  const unknownType = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId, { appealType: 'sleeping' }), unknownType);
+  assert.equal(unknownType.statusCode, 400);
+  assert.match(unknownType.body.error, /申述类型/);
+
+  const noReason = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId, { reason: '   ' }), noReason);
+  assert.equal(noReason.statusCode, 400);
+  assert.match(noReason.body.error, /事由/);
+
+  // 同一天同一类型的重复提交会重复核减台账次数，必须拦住
+  duplicated = true;
+  const duplicate = response();
+  await attendance.createRequest(appealRequestFor(user, tenantId), duplicate);
+  assert.equal(duplicate.statusCode, 409);
+  assert.match(duplicate.body.error, /重复提交/);
+});
+
+test('approving an appeal locks the occurrence month and refuses a closed month', async t => {
+  const tenantId = id(), applicantId = id(), managerId = id(), requestId = id();
+  const { _coordination } = require('../controllers/api/attendance-ledger');
+  const lockedMonths = [];
+  noticeWrites.length = 0;
+  t.mock.method(_coordination, 'acquireMonthMutationLock', async (tenant, month) => { lockedMonths.push(month); return { month }; });
+  t.mock.method(_coordination, 'releaseMonthMutationLock', async () => {});
+
+  const occurredOn = dateKeyMonthsFromNow(-1);
+  const pending = {
+    _id: requestId, tenantId, applicantId, type: 'appeal', occurredOn, appealType: 'lateWithin10',
+    reason: '打卡机故障', applicant: { name: '员工甲' },
+    approvals: [{ approverId: managerId, role: 'manager', status: 'pending' }],
+    currentApproverId: managerId
+  };
+  let closedLedger = { _id: id() };
+  t.mock.method(AttendanceRequest, 'findOne', async () => pending);
+  t.mock.method(AttendanceRequest, 'findOneAndUpdate', async () => ({ ...pending, status: 'approved', currentApproverId: null }));
+  t.mock.method(AttendanceMonthLedger, 'exists', async () => closedLedger);
+  const approveRequest = () => ({
+    params: { id: String(requestId) }, tenantId, user: employee({ tenantId, userId: managerId }),
+    tenant: { settings: { attendanceCalendarYears: [2026] } }, body: { decision: 'approve' }
+  });
+
+  const closed = response();
+  await attendance.reviewRequest(approveRequest(), closed);
+  assert.equal(closed.statusCode, 409);
+  assert.match(closed.body.error, /已结账月份/);
+  assert.deepEqual(lockedMonths, [occurredOn.slice(0, 7)], '按发生日期所在月份加锁，而不是按提交时间');
+
+  closedLedger = null;
+  lockedMonths.length = 0;
+  const approved = response();
+  await attendance.reviewRequest(approveRequest(), approved);
+  assert.equal(approved.statusCode, 200);
+  assert.deepEqual(lockedMonths, [occurredOn.slice(0, 7)]);
+  assert.equal(noticeWrites.length, 1);
+  assert.equal(noticeWrites[0].kind, 'attendance_approved');
+  assert.equal(String(noticeWrites[0].userId), String(applicantId));
+  assert.equal(noticeWrites[0].link, '/attendance/requests?type=appeal');
+  assert.match(noticeWrites[0].body, /迟到（10分钟以内）/);
 });
 
 test('serialized requests carry approver names so the timeline can show who is reviewing', async t => {
@@ -940,16 +1076,16 @@ test('approval counts group by type and only count steps waiting on me', async t
   const filters = [];
   t.mock.method(AttendanceRequest, 'countDocuments', async filter => {
     filters.push(filter);
-    return { leave: 1, overtime: 2, fieldwork: 3 }[filter.type] ?? 0;
+    return { leave: 1, overtime: 2, fieldwork: 3, appeal: 4 }[filter.type] ?? 0;
   });
 
   const res = response();
   await attendance.getApprovalCounts({ tenantId, user }, res);
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body.data, { leave: 1, overtime: 2, fieldwork: 3, total: 6 });
-  assert.equal(filters.length, 3, '三种类型各查一次');
-  assert.deepEqual(filters.map(filter => filter.type).sort(), ['fieldwork', 'leave', 'overtime']);
+  assert.deepEqual(res.body.data, { leave: 1, overtime: 2, fieldwork: 3, appeal: 4, total: 10 });
+  assert.equal(filters.length, 4, '四种类型各查一次');
+  assert.deepEqual(filters.map(filter => filter.type).sort(), ['appeal', 'fieldwork', 'leave', 'overtime']);
   // 口径必须与列表收件箱一致，否则角标数字会和点进去看到的条数对不上
   assert.ok(filters.every(filter => String(filter.currentApproverId) === String(user._id) && filter.status === 'pending' && String(filter.tenantId) === String(tenantId)));
 });

@@ -5,6 +5,24 @@ export const attendanceKindLabels: Record<AttendanceRequestKind, string> = {
   leave: '请假',
   overtime: '加班',
   fieldwork: '出差',
+  appeal: '考勤申述',
+}
+
+/**
+ * 考勤申述的类型（＝申述的是哪一类考勤异常）。
+ * 取值与后端 utils/attendance-ledger-actual.js 的 APPEAL_TYPES、以及台账「导入考勤记录」的次数口径一致：
+ * 前四类批准后会核减台账对应次数，旷工在台账里没有计数列，只作留痕。
+ */
+export const appealTypeLabels: Record<string, string> = {
+  lateWithin10: '迟到（10 分钟以内）',
+  lateOver10: '迟到（10 分钟以上）',
+  earlyLeave: '早退',
+  noClockRecord: '无打卡记录',
+  absence: '旷工',
+}
+
+export function appealLabel(type?: string | null) {
+  return type ? appealTypeLabels[type] ?? type : ''
 }
 
 /** 请假类型的展示名；台账、工资条明细等考勤相关界面共用同一份口径。 */

@@ -27,6 +27,23 @@ const ACTUAL_RULE_FIELDS = [
 
 const DEFAULT_DAY_MINUTES = 480;
 
+/**
+ * 「考勤申述」的类型 = 台账违纪扣减口径的反面。
+ * 迟到分档 / 早退 / 无打卡可以按类型核减台账里对应的次数；**旷工在台账里没有对应的计数列**，
+ * 只作留痕（台账只登记迟到/早退/无打卡的次数）。
+ * 后端白名单、核减逻辑、界面说明共用这一份；前端的展示名另有一份（front_end/src/constants/attendance-labels.ts）。
+ */
+const APPEAL_TYPES = ['lateWithin10', 'lateOver10', 'earlyLeave', 'noClockRecord', 'absence'];
+const APPEAL_TYPE_LABELS = {
+  lateWithin10: '迟到（10分钟以内）',
+  lateOver10: '迟到（10分钟以上）',
+  earlyLeave: '早退',
+  noClockRecord: '无打卡记录',
+  absence: '旷工'
+};
+/** 能按次数核减的申述类型（旷工不在其中）。 */
+const APPEAL_OFFSET_FIELDS = ['lateWithin10', 'lateOver10', 'earlyLeave', 'noClockRecord'];
+
 /** 空值 / 非法值一律返回 null，由调用方回落到默认值（0 是有效值，不能被当成空）。 */
 function ruleNumber(value, max) {
   if (value === undefined || value === null || value === '') return null;
@@ -127,6 +144,10 @@ function computeSuggestedActualMinutes(row, rule, dayMinutes) {
 module.exports = {
   DEFAULT_ACTUAL_RULE,
   ACTUAL_RULE_FIELDS,
+  DEFAULT_DAY_MINUTES,
+  APPEAL_TYPES,
+  APPEAL_TYPE_LABELS,
+  APPEAL_OFFSET_FIELDS,
   readActualRule,
   validateActualRule,
   dailyWorkMinutes,

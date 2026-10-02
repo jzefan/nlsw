@@ -12,6 +12,7 @@ import {
   Clock3,
   Database,
   FileText,
+  FileWarning,
   MapPin,
   Receipt,
   Send,
@@ -72,6 +73,7 @@ export function useModuleHub() {
         entry('请假申请', '/attendance/requests?type=leave', CalendarDays, 'blue'),
         entry('加班申请', '/attendance/requests?type=overtime', Clock3, 'amber'),
         entry('出差申请', '/attendance/requests?type=fieldwork', MapPin, 'emerald'),
+        entry('考勤申述', '/attendance/requests?type=appeal', FileWarning, 'rose'),
       ],
     }]
 
@@ -82,6 +84,7 @@ export function useModuleHub() {
           entry('请假审批', '/attendance/approvals?type=leave', CalendarCheck, 'blue', counts.value.leave),
           entry('加班审批', '/attendance/approvals?type=overtime', Clock3, 'amber', counts.value.overtime),
           entry('出差审批', '/attendance/approvals?type=fieldwork', MapPin, 'emerald', counts.value.fieldwork),
+          entry('申述审批', '/attendance/approvals?type=appeal', FileWarning, 'rose', counts.value.appeal),
           entry('审核记录', '/attendance/approval-history', ClipboardList, 'slate'),
         ],
       })

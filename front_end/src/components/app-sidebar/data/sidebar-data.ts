@@ -53,12 +53,14 @@ export function generateNavData(privilege: string[], features?: Features, attend
       { title: '请假申请', url: '/attendance/requests?type=leave' },
       { title: '加班申请', url: '/attendance/requests?type=overtime' },
       { title: '出差申请', url: '/attendance/requests?type=fieldwork' },
+      { title: '考勤申述', url: '/attendance/requests?type=appeal' },
     ]
     // 「待我审批」与「我的申请」一一对应；用章审批落在印章模块的收件箱里
     const approvalItems: { title: string; url: string }[] = [
       { title: '请假审批', url: '/attendance/approvals?type=leave' },
       { title: '加班审批', url: '/attendance/approvals?type=overtime' },
       { title: '出差审批', url: '/attendance/approvals?type=fieldwork' },
+      { title: '申述审批', url: '/attendance/approvals?type=appeal' },
     ]
     if (features?.seal) {
       myRequestItems.push({ title: '用章申请', url: '/seal/requests' })

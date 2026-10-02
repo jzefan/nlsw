@@ -677,3 +677,49 @@ test('pending leave without per-day allocation is only flagged, not given hours'
   assert.equal(rows[0].pendingLeaveMinutes, 0);
   assert.equal(rows[0].pendingLeaveUnreconciled, true, '算不出时长也要让界面能提示「有待审批请假」');
 });
+
+test('appeals belong to the month of their occurrence date and only approved ones offset counts', async t => {
+  const tenantId = id(), employee = user(tenantId);
+  const filters = [];
+  const appeals = [
+    { applicantId: employee._id, status: 'approved', type: 'appeal', occurredOn: '2026-10-06', appealType: 'lateWithin10' },
+    { applicantId: employee._id, status: 'approved', type: 'appeal', occurredOn: '2026-10-07', appealType: 'lateWithin10' },
+    { applicantId: employee._id, status: 'approved', type: 'appeal', occurredOn: '2026-10-08', appealType: 'noClockRecord' },
+    { applicantId: employee._id, status: 'approved', type: 'appeal', occurredOn: '2026-10-09', appealType: 'absence' },
+    { applicantId: employee._id, status: 'pending', type: 'appeal', occurredOn: '2026-10-10', appealType: 'earlyLeave' },
+    { applicantId: employee._id, status: 'approved', type: 'appeal', occurredOn: '2026-09-30', appealType: 'lateWithin10' }
+  ];
+  t.mock.method(User, 'find', () => query([employee]));
+  t.mock.method(AttendanceRequest, 'find', filter => {
+    filters.push(filter);
+    // 申述没有起止时间，只能靠这条分支按发生日期捞；这里顺带验证边界
+    const range = filter.$or.find(item => item.type === 'appeal').occurredOn;
+    return query(appeals.filter(item => item.occurredOn >= range.$gte && item.occurredOn < range.$lt));
+  });
+
+  const rows = await ledgerApi._test.buildRows({ tenantId, user: { _id: employee._id, role: 'owner' }, tenant: calendarTenant }, ledgerApi._test.parseMonth('2026-10'), 'company', { rows: [] });
+  const row = rows[0];
+
+  assert.deepEqual(filters[0].$or[1].occurredOn, { $gte: '2026-10-01', $lt: '2026-11-01' }, '申述按发生日期归属月份');
+  assert.equal(row.appealApprovedCounts.lateWithin10, 2, '上个月的申述不能算进本月');
+  assert.equal(row.appealApprovedCounts.absence, 1);
+  assert.equal(row.appealOffsetLabel, '已批申述核减：迟到（10分钟以内） ×2、无打卡记录 ×1');
+  assert.equal(row.appealPendingCount, 1, '待审批的申述只作提示，不参与核减');
+  assert.equal(row.overtimeApprovedMinutes, 0, '申述没有时长，不进任何时长口径');
+  assert.equal(row.actualMinutes, null);
+});
+
+test('approved appeals offset the violation counts before the suggestion is computed', () => {
+  const rows = [{
+    employeeId: id(), expectedMinutes: 10560, leaveMinutesByType: {}, actualMinutes: null,
+    lateWithin10: 3, noClockRecord: 1,
+    appealApprovedCounts: { lateWithin10: 2, lateOver10: 0, earlyLeave: 0, noClockRecord: 1, absence: 1 }
+  }];
+  ledgerApi._test.attachActualSuggestions(rows, calendarTenant);
+  // 迟到≤10 剩 1 次 ×0.5 小时；无打卡 1−1=0 不再扣；旷工没有计数列，不参与核减
+  assert.equal(rows[0].suggestedActualMinutes, 10560 - 30);
+  assert.match(rows[0].suggestedActualNote, /扣减 0.5 小时/);
+  assert.match(rows[0].suggestedActualNote, /已批申述核减：迟到（10分钟以内） ×2、无打卡记录 ×1/);
+  assert.doesNotMatch(rows[0].suggestedActualNote, /旷工/);
+  assert.equal(rows[0].actualMinutes, null, '核减只改读时的建议值，实到仍然留空等人工确认');
+});

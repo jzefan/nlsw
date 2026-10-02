@@ -7,7 +7,7 @@ const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
 const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
-const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS } = require('../../utils/attendance-ledger-actual');
+const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS, APPEAL_TYPES, APPEAL_TYPE_LABELS, APPEAL_OFFSET_FIELDS } = require('../../utils/attendance-ledger-actual');
 
 const OFFSET_MS = 8 * 60 * 60 * 1000;
 const activeMutationTokens = new Set();
@@ -174,6 +174,63 @@ function emptyAttendanceAggregate() {
   };
 }
 
+/** 'YYYY-MM'：parseMonth 的返回值本身没有 value（工资摘要那边是另外拼的），统一从这里取。 */
+function monthKeyOf(month) {
+  if (typeof month?.value === 'string') return month.value;
+  return `${month.year}-${String(month.month).padStart(2, '0')}`;
+}
+
+/** 申述按「发生日期」归属月份：返回该月的字符串边界，用字符串比较即可（ISO 日期按字典序=按时间序）。 */
+function appealMonthRange(month) {
+  const value = monthKeyOf(month);
+  const [year, index] = value.split('-').map(Number);
+  const next = index === 12 ? `${year + 1}-01` : `${year}-${String(index + 1).padStart(2, '0')}`;
+  return { from: `${value}-01`, to: `${next}-01` };
+}
+
+function emptyAppealCounts() {
+  return Object.fromEntries(APPEAL_TYPES.map(type => [type, 0]));
+}
+
+/**
+ * 把申述折算成「员工 ID → { approved, pending } 各类型次数」。
+ * 已批的用于核减台账违纪次数，待审批的只作提示（和加班/出差一样，没批完的数不进「已批」口径）。
+ */
+function collectAppealCounts(records) {
+  const stats = new Map();
+  for (const record of records) {
+    if (record?.type !== 'appeal' || !APPEAL_TYPES.includes(record?.appealType)) continue;
+    const id = String(record.applicantId);
+    if (!stats.has(id)) stats.set(id, { approved: emptyAppealCounts(), pending: emptyAppealCounts() });
+    stats.get(id)[record.status === 'approved' ? 'approved' : 'pending'][record.appealType] += 1;
+  }
+  return stats;
+}
+
+/** 已批申述核减后的违纪次数（旷工在台账里没有对应的计数列，不参与核减；下限 0）。 */
+function withAppealOffset(row, approved) {
+  const effective = { ...row };
+  for (const field of APPEAL_OFFSET_FIELDS) {
+    const raw = Number.isFinite(row?.[field]) ? row[field] : 0;
+    effective[field] = Math.max(0, raw - (approved?.[field] || 0));
+  }
+  return effective;
+}
+
+/** 核减说明（台账备注与「系统建议」提示里展示，不进库）。 */
+function appealOffsetLabel(approved) {
+  const parts = [];
+  for (const field of APPEAL_OFFSET_FIELDS) {
+    const count = approved?.[field] || 0;
+    if (count > 0) parts.push(`${APPEAL_TYPE_LABELS[field]} ×${count}`);
+  }
+  return parts.length ? `已批申述核减：${parts.join('、')}` : '';
+}
+
+function appealCountTotal(counts) {
+  return Object.values(counts || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
 /** 把已审批的申请单折算成「员工 ID → 当月时长」：请假按天分摊到月内，加班/出差按与月份的交集计。 */
 function aggregateApprovedRequests(requests, month) {
   const stats = new Map();
@@ -182,6 +239,8 @@ function aggregateApprovedRequests(requests, month) {
     return stats.get(id);
   };
   for (const request of requests) {
+    // 申述没有时长，不进任何时长口径；它按发生日期核减违纪次数，另行统计（collectAppealCounts）
+    if (request.type === 'appeal') continue;
     const aggregate = forEmployee(String(request.applicantId));
     if (request.type === 'leave') {
       const allocations = request.leaveAllocations;
@@ -253,7 +312,16 @@ async function buildRows(req, month, scope, ledger) {
   const users = await getScopedUsers(req, scope);
   const storedById = new Map((ledger.rows || []).map(row => [String(row.employeeId), row.toObject ? row.toObject() : row]));
   // 一次取回已批与待审批：已批进「已批」口径，待审批只作提示（还没批完，这个月的数可能还会变）
-  const requests = await AttendanceRequest.find({ tenantId: req.tenantId, status: { $in: ['approved', 'pending'] }, startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  const appealRange = appealMonthRange(month);
+  const requests = await AttendanceRequest.find({
+    tenantId: req.tenantId,
+    status: { $in: ['approved', 'pending'] },
+    // 申述没有起止时间，按「发生日期」归属月份，单独列一条分支把它捞进来
+    $or: [
+      { startAt: { $lt: month.end }, endAt: { $gt: month.start } },
+      { type: 'appeal', occurredOn: { $gte: appealRange.from, $lt: appealRange.to } }
+    ]
+  }).lean();
   // Include inactive accounts: current status does not erase historical month records.
   const allUsers = users;
   const userById = new Map(allUsers.map(user => [String(user._id), user]));
@@ -261,6 +329,7 @@ async function buildRows(req, month, scope, ledger) {
   const relevant = requests.filter(item => visibleIds.has(String(item.applicantId)));
   const stats = aggregateApprovedRequests(relevant.filter(item => item.status === 'approved'), month);
   const pendingStats = aggregateApprovedRequests(relevant.filter(item => item.status === 'pending'), month);
+  const appealStats = collectAppealCounts(relevant);
   for (const user of allUsers) if (!stats.has(String(user._id))) stats.set(String(user._id), emptyAttendanceAggregate());
   const rows = [];
   // 应出勤只取决于当月工作日历与工作时段、与人员无关：整月算一次。
@@ -278,12 +347,17 @@ async function buildRows(req, month, scope, ledger) {
     } : defaultLedgerRow(user, expectedMinutes);
     const source = stats.get(id);
     const pending = pendingStats.get(id) ?? emptyAttendanceAggregate();
+    const appeals = appealStats.get(id) ?? { approved: emptyAppealCounts(), pending: emptyAppealCounts() };
     const { _id, __v, ...safe } = row;
     rows.push({
       ...safe,
       employeeId: user._id,
       ...source,
       actualMinutes: row.actualMinutes ?? null,
+      // 已批申述按类型核减违纪次数（旷工在台账里没有计数列，只留痕）；核减说明会出现在备注与「系统建议」提示里
+      appealApprovedCounts: appeals.approved,
+      appealOffsetLabel: appealOffsetLabel(appeals.approved),
+      appealPendingCount: appealCountTotal(appeals.pending),
       // 待审批（未批完）的申请：只做提示，不并入上面任何「已批」口径，也不参与实到
       pendingOvertimeMinutes: pending.overtimeApprovedMinutes,
       pendingFieldworkMinutes: pending.fieldworkApprovedMinutes,
@@ -324,9 +398,11 @@ function attachActualSuggestions(rows, tenant) {
   const rule = readActualRule(tenant);
   const dayMinutes = dailyWorkMinutes(getAttendancePolicy(tenant));
   for (const row of rows) {
-    const suggestion = computeSuggestedActualMinutes(row, rule, dayMinutes);
+    // 已批申述先按类型核减违纪次数，再走同一套规则算建议值；只影响建议值，不写库
+    const offsetLabel = row.appealOffsetLabel || appealOffsetLabel(row.appealApprovedCounts);
+    const suggestion = computeSuggestedActualMinutes(withAppealOffset(row, row.appealApprovedCounts), rule, dayMinutes);
     row.suggestedActualMinutes = suggestion.minutes;
-    row.suggestedActualNote = suggestion.note;
+    row.suggestedActualNote = offsetLabel ? `${suggestion.note}；${offsetLabel}` : suggestion.note;
     row.actualMinutesIsManual = isActualManual(row);
     // 建议只对已确认的自动行生效；待确认与无依据仍然表示未知。
     if (row.confirmationState === 'pending' || row.confirmationState === 'no_basis') row.actualMinutes = null;
@@ -363,10 +439,16 @@ exports.getLedger = async (req, res) => {
  * 只查这名员工当月的已批申请，避免把整月台账都重算一遍。
  */
 async function actualSuggestionFor(row, month, tenantId, tenant) {
-  const requests = await AttendanceRequest.find({ tenantId, applicantId: row.employeeId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean();
+  const range = appealMonthRange(month);
+  const [requests, appeals] = await Promise.all([
+    AttendanceRequest.find({ tenantId, applicantId: row.employeeId, status: 'approved', startAt: { $lt: month.end }, endAt: { $gt: month.start } }).lean(),
+    // 核减口径必须与台账读接口完全一致，否则「采用系统建议值」对不上、会被记成人工值
+    AttendanceRequest.find({ tenantId, applicantId: row.employeeId, type: 'appeal', status: 'approved', occurredOn: { $gte: range.from, $lt: range.to } }).lean()
+  ]);
   const stats = aggregateApprovedRequests(requests, month);
   const source = stats.get(String(row.employeeId)) ?? emptyAttendanceAggregate();
-  const merged = { ...(row.toObject ? row.toObject() : row), ...source };
+  const approved = collectAppealCounts(appeals).get(String(row.employeeId))?.approved;
+  const merged = withAppealOffset({ ...(row.toObject ? row.toObject() : row), ...source }, approved);
   return computeSuggestedActualMinutes(merged, readActualRule(tenant), dailyWorkMinutes(getAttendancePolicy(tenant)));
 }
 

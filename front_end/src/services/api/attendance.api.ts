@@ -3,7 +3,7 @@ import { useAxios } from '@/composables/use-axios'
 const { axiosInstance } = useAxios()
 
 export type AttendanceRequestView = 'mine' | 'inbox' | 'history' | 'team'
-export type AttendanceRequestKind = 'leave' | 'overtime' | 'fieldwork'
+export type AttendanceRequestKind = 'leave' | 'overtime' | 'fieldwork' | 'appeal'
 
 // Keep the API shape permissive while the attendance service contract is being finalized.
 export interface AttendanceRequest {
@@ -24,6 +24,9 @@ export interface AttendanceRequest {
   durationMinutes?: number
   durationHours?: number
   leaveType?: string
+  /** 考勤申述：申述的是哪一天的哪一类考勤异常（申述没有起止时段，这两个字段必填） */
+  occurredOn?: string
+  appealType?: string
   reason?: string
   location?: string
   contact?: string
@@ -121,6 +124,13 @@ export interface AttendanceLedgerRow {
   pendingLeaveMinutes?: number
   /** 待审批的请假没有按天分摊，算不出时长，只能提示「有待审批请假」。 */
   pendingLeaveUnreconciled?: boolean
+  /**
+   * 已批「考勤申述」按类型核减台账违纪次数（旷工只留痕）；只影响建议值，不改库里导入的次数。
+   * appealOffsetLabel 是核减说明，直接显示在备注里；已结账月份没有这几个字段。
+   */
+  appealApprovedCounts?: Record<string, number>
+  appealOffsetLabel?: string
+  appealPendingCount?: number
   actualMinutes: number | null
   /** 'auto' = 采用系统建议值（后续导入/日历变化会重算）；'manual' = 人工改过（不再被建议值覆盖）。 */
   actualMinutesSource?: 'auto' | 'manual' | null
@@ -397,6 +407,7 @@ export interface AttendanceApprovalCounts {
   leave: number
   overtime: number
   fieldwork: number
+  appeal: number
   total: number
 }
 

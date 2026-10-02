@@ -104,10 +104,12 @@ const routeMap: Record<string, BreadcrumbMeta | ((route: RouteLocationNormalized
   '/attendance/settings': current => ({ parent: '设置', title: settingsTabTitle(String(current.query.tab ?? '')) }),
 }
 
-/** 我的申请 / 待我审批按 ?type= 分请假·加班·出差；未带或非法时回落到整组名。 */
+/** 我的申请 / 待我审批按 ?type= 分请假·加班·出差·考勤申述；未带或非法时回落到整组名。 */
 function kindTitle(type: string, suffix: string, fallback: string) {
   const label = (attendanceKindLabels as Record<string, string>)[type]
-  return label ? `${label}${suffix}` : fallback
+  if (!label) return fallback
+  // 「考勤申述」本身就是完整的单子名，不再拼后缀，否则会出现「考勤申述申请」
+  return type === 'appeal' ? label : `${label}${suffix}`
 }
 
 /** 考勤设置的三个视图名与设置页共用一份（utils/attendance-settings.ts）。 */

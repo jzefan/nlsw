@@ -24,13 +24,20 @@ const attendanceRequestSchema = new mongoose.Schema({
     department: { type: String, default: '' },
     title: { type: String, default: '' }
   },
-  type: { type: String, enum: ['leave', 'overtime', 'fieldwork'], required: true },
+  type: { type: String, enum: ['leave', 'overtime', 'fieldwork', 'appeal'], required: true },
   leaveType: { type: String, enum: ['personal', 'sick', 'annual', 'marriage', 'maternity', 'paternity', 'bereavement', 'parental', 'compensatory', 'other'] },
   /** 加班补偿方式：调休 / 加班费 / 无补偿（申请时默认无补偿） */
   compensation: { type: String, enum: ['comp_time', 'overtime_pay', 'none'] },
-  startAt: { type: Date, required: true },
-  endAt: { type: Date, required: true },
-  durationMinutes: { type: Number, required: true, min: 1 },
+  /**
+   * 考勤申述专属：申述的是**哪一天**的哪一类考勤异常。
+   * 申述没有时间区间概念，所以 startAt / endAt / durationMinutes 对申述不必填（见下面的条件 required）。
+   * appealType 取值与台账「导入考勤记录」的次数口径一一对应，另有 absence（旷工，台账无对应计数、只留痕）。
+   */
+  occurredOn: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
+  appealType: { type: String, enum: ['lateWithin10', 'lateOver10', 'earlyLeave', 'noClockRecord', 'absence'] },
+  startAt: { type: Date, required: function () { return this.type !== 'appeal' } },
+  endAt: { type: Date, required: function () { return this.type !== 'appeal' } },
+  durationMinutes: { type: Number, required: function () { return this.type !== 'appeal' }, min: 1 },
   // Persist calculated per-business-day leave values so later calendar edits do not rewrite history.
   leaveAllocations: [{
     date: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },

@@ -13,6 +13,7 @@ const { isAdmin } = require('../../utils/permissions');
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { chinaAttendanceCalendarMeta, ensureChinaAttendanceCalendar, getChinaAttendanceCalendar, hasChinaAttendanceCalendar } = require('../../utils/china-attendance-calendar');
+const { APPEAL_TYPES, APPEAL_TYPE_LABELS } = require('../../utils/attendance-ledger-actual');
 const { _coordination: ledgerCoordination } = require('./attendance-ledger');
 const {
   hasAttendanceRole,
@@ -24,9 +25,11 @@ const {
   sanitizeUser
 } = require('../../utils/attendance-permissions');
 
-const ALLOWED_TYPES = ['leave', 'overtime', 'fieldwork'];
+const ALLOWED_TYPES = ['leave', 'overtime', 'fieldwork', 'appeal'];
 const ALLOWED_LEAVE_TYPES = ['personal', 'sick', 'annual', 'marriage', 'maternity', 'paternity', 'bereavement', 'parental', 'compensatory', 'other'];
 const ALLOWED_COMPENSATION = ['comp_time', 'overtime_pay', 'none'];
+/** 申述类型（= 考勤异常类型）白名单与中文名：与台账违纪扣减口径同一份定义。 */
+const ALLOWED_APPEAL_TYPES = APPEAL_TYPES;
 const SUBMISSION_LOCK_RECOVERY_MIN_AGE_MS = 10 * 60 * 1000;
 const ATTENDANCE_UPLOAD_ROOT = path.resolve(__dirname, '../../uploads/attendance');
 const ATTACHMENT_EXTENSIONS = {
@@ -42,7 +45,7 @@ const ATTACHMENT_EXTENSIONS = {
 };
 const activeLeaveSubmissionTokens = new Set();
 
-const ATTENDANCE_TYPE_LABELS = { leave: '请假', overtime: '加班', fieldwork: '出差' };
+const ATTENDANCE_TYPE_LABELS = { leave: '请假', overtime: '加班', fieldwork: '出差', appeal: '考勤申述' };
 
 /** 取租户配置的时区偏移，配置坏了也不能影响通知本身。 */
 function tenantOffsetMinutes(tenant) {
@@ -68,10 +71,15 @@ function formatDurationText(minutes) {
 
 /** 申请单的一句话摘要，站内通知正文用。 */
 function requestSummary(record, offsetMinutes) {
+  const reason = String(record.reason || '').trim();
+  const reasonText = reason ? `｜${reason.slice(0, 60)}` : '';
+  // 申述没有起止时段，摘要写「发生日期 + 申述类型」
+  if (record.type === 'appeal') {
+    return `${record.occurredOn || ''} ${APPEAL_TYPE_LABELS[record.appealType] || '考勤异常'}${reasonText}`;
+  }
   const range = `${beijingTimestamp(record.startAt, offsetMinutes)} ~ ${beijingTimestamp(record.endAt, offsetMinutes)}`;
   const duration = record.durationMinutes ? `，共 ${formatDurationText(record.durationMinutes)}` : '';
-  const reason = String(record.reason || '').trim();
-  return `${range}${duration}${reason ? `｜${reason.slice(0, 60)}` : ''}`;
+  return `${range}${duration}${reasonText}`;
 }
 
 /** 写站内通知：通知是附属动作，失败只记日志，绝不把提交/审批主流程带崩。 */
@@ -204,11 +212,14 @@ function serializeRequest(request, approverNames) {
     type: data.type,
     leaveType: data.leaveType,
     compensation: data.compensation,
+    occurredOn: data.occurredOn,
+    appealType: data.appealType,
     applicant: data.applicant,
     startAt: data.startAt,
     endAt: data.endAt,
     durationMinutes: data.durationMinutes,
-    durationHours: Math.round((data.durationMinutes / 60) * 100) / 100,
+    // 申述没有时长，这里给 null 而不是 NaN
+    durationHours: Number.isFinite(data.durationMinutes) ? Math.round((data.durationMinutes / 60) * 100) / 100 : null,
     reason: data.reason,
     location: data.location,
     contact: data.contact,
@@ -724,19 +735,48 @@ exports.createRequest = async (req, res) => {
   try {
     const body = req.body || {};
     if (!ALLOWED_TYPES.includes(body.type)) return fail(res, 400, '申请类型无效');
-    const startAt = parseDate(body.startAt), endAt = parseDate(body.endAt);
-    if (!startAt || !endAt || endAt <= startAt) return fail(res, 400, '请填写有效的开始和结束时间');
-    if (startAt.getUTCMinutes() || endAt.getUTCMinutes() || startAt.getUTCSeconds() || startAt.getUTCMilliseconds() || endAt.getUTCSeconds() || endAt.getUTCMilliseconds()) {
-      return fail(res, 400, '申请时间必须精确到整点');
-    }
+    const isAppeal = body.type === 'appeal';
     const reason = cleanText(body.reason, 4000, true);
     if (!reason) return fail(res, 400, '请填写事由');
     const attachments = cleanAttachments(body.attachmentUrls);
     if (!attachments) return fail(res, 400, '附件格式无效');
+    // 申述没有起止时段，这两个值只在非申述分支里赋值（申述分支保持 undefined，不写进库）
+    let startAt, endAt;
     let durationMinutes;
     let leaveAllocations = [];
+    let occurredOn, appealType;
     let generalManagerThresholdDays = 3;
     let generalManagerThresholdMinutes = generalManagerThresholdDays * 24 * 60;
+
+    if (isAppeal) {
+      // 申述针对「某一天的某一类考勤异常」，不校验整点与时长
+      if (typeof body.occurredOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.occurredOn)) {
+        return fail(res, 400, '请填写有效的发生日期');
+      }
+      occurredOn = body.occurredOn;
+      if (occurredOn > beijingTimestamp(Date.now(), tenantOffsetMinutes(req.tenant)).slice(0, 10)) {
+        return fail(res, 400, '发生日期不能晚于今天');
+      }
+      if (!ALLOWED_APPEAL_TYPES.includes(body.appealType)) return fail(res, 400, '申述类型无效');
+      appealType = body.appealType;
+      // 台账按「已批申述次数」核减违纪次数，同一天同一类型重复提交会重复核减
+      const duplicated = await AttendanceRequest.exists({
+        tenantId: req.tenantId,
+        applicantId: req.user._id,
+        type: 'appeal',
+        status: { $in: ['pending', 'approved'] },
+        occurredOn,
+        appealType
+      });
+      if (duplicated) return fail(res, 409, '这一天的同类考勤异常已在申请或已通过，无需重复提交');
+    } else {
+      startAt = parseDate(body.startAt);
+      endAt = parseDate(body.endAt);
+      if (!startAt || !endAt || endAt <= startAt) return fail(res, 400, '请填写有效的开始和结束时间');
+      if (startAt.getUTCMinutes() || endAt.getUTCMinutes() || startAt.getUTCSeconds() || startAt.getUTCMilliseconds() || endAt.getUTCSeconds() || endAt.getUTCMilliseconds()) {
+        return fail(res, 400, '申请时间必须精确到整点');
+      }
+    }
 
     if (body.type === 'leave') {
       if (!ALLOWED_LEAVE_TYPES.includes(body.leaveType)) return fail(res, 400, '请假类型无效');
@@ -758,7 +798,7 @@ exports.createRequest = async (req, res) => {
         endAt: { $gt: startAt }
       });
       if (overlaps) return fail(res, 409, '该时段已有待审批或已批准的请假申请');
-    } else {
+    } else if (!isAppeal) {
       durationMinutes = Math.round((endAt - startAt) / 60000);
       if (durationMinutes < 1 || durationMinutes > 366 * 24 * 60) return fail(res, 400, '申请时长无效或超过一年');
     }
@@ -815,7 +855,7 @@ exports.createRequest = async (req, res) => {
       contact = cleanText(body.contact, 500, true);
       if (!contact) return fail(res, 400, '请填写出差对接对象');
     }
-    if (body.type !== 'leave') {
+    if (body.type === 'fieldwork' || body.type === 'overtime') {
       workContent = cleanText(body.workContent, 2000, true);
       if (!workContent) return fail(res, 400, '请填写工作内容');
     }
@@ -849,6 +889,8 @@ exports.createRequest = async (req, res) => {
       type: body.type,
       leaveType,
       compensation,
+      occurredOn,
+      appealType,
       startAt,
       endAt,
       durationMinutes,
@@ -966,20 +1008,25 @@ exports.reviewRequest = async (req, res) => {
     if (currentIndex < 0) return fail(res, 409, '当前用户不是有效审批人');
     if (decision === 'approve') {
       const monthKeys = new Set();
-      const allocations = record.leaveAllocations;
-      const validAllocations = record.type === 'leave' && Array.isArray(allocations) && allocations.length > 0 &&
-        allocations.every(item => /^\d{4}-\d{2}-\d{2}$/.test(item.date || '') && Number.isInteger(item.minutes) && item.minutes >= 0) &&
-        allocations.reduce((total, item) => total + item.minutes, 0) === record.durationMinutes;
-      if (validAllocations) {
-        for (const allocation of allocations) if (allocation.minutes > 0) monthKeys.add(allocation.date.slice(0, 7));
+      // 申述按「发生日期」所在月份核减台账次数，已结账的月份一样要先重新开启，避免批了却没生效
+      if (record.type === 'appeal') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(record.occurredOn || '')) monthKeys.add(record.occurredOn.slice(0, 7));
       } else {
-        const first = new Date(record.startAt.getTime() + 8 * 60 * 60 * 1000);
-        const last = new Date(record.endAt.getTime() - 1 + 8 * 60 * 60 * 1000);
-        let cursor = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1));
-        const end = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), 1));
-        while (cursor <= end) {
-          monthKeys.add(`${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`);
-          cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+        const allocations = record.leaveAllocations;
+        const validAllocations = record.type === 'leave' && Array.isArray(allocations) && allocations.length > 0 &&
+          allocations.every(item => /^\d{4}-\d{2}-\d{2}$/.test(item.date || '') && Number.isInteger(item.minutes) && item.minutes >= 0) &&
+          allocations.reduce((total, item) => total + item.minutes, 0) === record.durationMinutes;
+        if (validAllocations) {
+          for (const allocation of allocations) if (allocation.minutes > 0) monthKeys.add(allocation.date.slice(0, 7));
+        } else {
+          const first = new Date(record.startAt.getTime() + 8 * 60 * 60 * 1000);
+          const last = new Date(record.endAt.getTime() - 1 + 8 * 60 * 60 * 1000);
+          let cursor = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1));
+          const end = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), 1));
+          while (cursor <= end) {
+            monthKeys.add(`${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`);
+            cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+          }
         }
       }
       for (const month of [...monthKeys].sort()) monthLocks.push(await ledgerCoordination.acquireMonthMutationLock(req.tenantId, month));
