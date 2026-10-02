@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<{
   publishedAt?: string | null
 }>(), { index: 1, month: null, components: null, totals: null })
 
-/** 默认按行列逐项列出，避免默认铺开成需要横向滚动的一整行；一行展示与小票作为可选查看方式保留。 */
+/** 默认按行列逐项列出，避免默认铺开成需要横向滚动的一整行；一行展示与工资小票作为可选查看方式保留。 */
 const view = ref<'list' | 'table' | 'receipt'>('list')
 
 const periodLabel = computed(() => (props.month ? formatPayrollMonthLabel(props.month) : null))
@@ -72,7 +72,7 @@ function columnLabel(column: (typeof payslipColumns)[number]) {
       <div class="flex items-center gap-0.5 rounded-md border p-0.5" role="group" aria-label="工资条查看方式">
         <Button size="sm" :variant="view === 'list' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'list'" @click="view = 'list'">按行列</Button>
         <Button size="sm" :variant="view === 'table' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'table'" @click="view = 'table'">一行展示</Button>
-        <Button size="sm" :variant="view === 'receipt' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'receipt'" @click="view = 'receipt'">小票</Button>
+        <Button size="sm" :variant="view === 'receipt' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'receipt'" @click="view = 'receipt'">工资小票</Button>
       </div>
     </div>
 
@@ -80,7 +80,6 @@ function columnLabel(column: (typeof payslipColumns)[number]) {
       v-if="view === 'receipt'"
       :name="name"
       :period="periodLabel"
-      :published-at="publishedAt"
       :components="components"
       :totals="totals"
     />
