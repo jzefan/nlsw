@@ -23,31 +23,30 @@ function back() {
 
 <template>
   <div class="min-h-svh bg-muted/30">
-    <header class="sticky top-0 z-20 border-b bg-background">
-      <div class="mx-auto flex h-12 w-full max-w-md items-center gap-1">
-        <Button variant="ghost" size="icon" class="size-8 shrink-0" aria-label="返回首页" @click="back">
+    <div class="mx-auto w-full max-w-md p-3 pb-10">
+      <header class="flex items-center gap-1">
+        <Button variant="ghost" size="icon" class="size-7 shrink-0" aria-label="返回首页" @click="back">
           <ChevronLeft class="size-5" />
         </Button>
-        <h1 class="text-base font-semibold">{{ props.title }}</h1>
+        <h1 class="text-lg font-semibold">{{ props.title }}</h1>
+        <nav v-if="props.tabs?.length" class="ml-auto flex gap-1">
+          <router-link
+            v-for="tab in props.tabs"
+            :key="tab.to"
+            :to="tab.to"
+            class="rounded-full px-3 py-1 text-xs font-medium transition-colors"
+            :class="tab.to === props.activePath
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-muted'"
+          >
+            {{ tab.label }}
+          </router-link>
+        </nav>
+      </header>
+
+      <div class="mt-4 space-y-5">
+        <slot />
       </div>
-
-      <nav v-if="props.tabs?.length" class="mx-auto flex w-full max-w-md gap-1 px-3 pb-2">
-        <router-link
-          v-for="tab in props.tabs"
-          :key="tab.to"
-          :to="tab.to"
-          class="rounded-full px-3 py-1 text-xs font-medium transition-colors"
-          :class="tab.to === props.activePath
-            ? 'bg-primary text-primary-foreground'
-            : 'text-muted-foreground hover:bg-muted'"
-        >
-          {{ tab.label }}
-        </router-link>
-      </nav>
-    </header>
-
-    <div class="mx-auto w-full max-w-md space-y-5 p-3 pb-10">
-      <slot />
     </div>
   </div>
 </template>
