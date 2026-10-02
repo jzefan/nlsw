@@ -10,22 +10,20 @@ import {
   payrollTotalsLabels,
 } from '@/constants/payroll-fields'
 import type { PayrollComponents, PayrollTotals } from '@/services/api/payroll.api'
-import { formatBeijingDate, formatCents } from '@/utils/payroll'
+import { formatCents } from '@/utils/payroll'
 
 /**
  * 工资条的小票样式（参考超市购物小票：纸色底 + 虚线分隔 + 点线引导 + 撕边）。
  * 字段口径全部取自 constants/payroll-fields.ts，这里只负责分组与排版，不重算金额。
  */
 const props = withDefaults(defineProps<{
-  /** 纸头标题 */
+  /** 纸头标题后缀，标题实际印作「{姓名}{title}」 */
   title?: string
   /** 纸头期间，如「2026 年 10 月」 */
   period?: string | null
   name: string
   employeeNo?: string | null
   department?: string | null
-  /** 发布日期（有效版本的发布时间） */
-  publishedAt?: string | null
   components?: PayrollComponents | null
   totals?: PayrollTotals | null
   /** 底部留存联文案 */
@@ -35,10 +33,17 @@ const props = withDefaults(defineProps<{
   period: null,
   employeeNo: null,
   department: null,
-  publishedAt: null,
   components: null,
   totals: null,
   stubLabel: '员工留存联',
+})
+
+/** 姓名直接印在标题上（「张三工资条」），下面就不再重复列姓名。 */
+const headerTitle = computed(() => {
+  if (!props.name) return props.title
+  // 拉丁/数字结尾的姓名补一个空格，避免「Zefan JIANG工资条」粘连
+  const gap = /[0-9A-Za-z]$/.test(props.name) ? ' ' : ''
+  return `${props.name}${gap}${props.title}`
 })
 
 /** 明细项名称沿用工资条列定义，避免两处写两套中文名。 */
@@ -55,8 +60,8 @@ const leaveRows = computed(() => rowsOf(payrollAttendanceDeductionKeys))
 const personalRows = computed(() => rowsOf(payrollEmployeeDeductionKeys))
 const employerRows = computed(() => rowsOf(payrollEmployerContributionKeys))
 
+/** 纸头下方只留工号与部门；姓名已进标题，发布日期不再印在小票上。 */
 const metaRows = computed(() => [
-  { label: '姓名', value: props.name },
   { label: '工号', value: props.employeeNo },
   { label: '部门', value: props.department },
 ].filter(row => row.value))
@@ -66,26 +71,23 @@ const metaRows = computed(() => [
   <div class="receipt-shadow mx-auto w-full max-w-sm">
     <article class="receipt font-mono [--receipt-paper:#f8f4ea] [--receipt-ink:#23201c] dark:[--receipt-paper:#221f1c] dark:[--receipt-ink:#eae5dc]">
       <header class="text-center">
-        <h3 class="text-base font-bold tracking-[0.24em]">{{ title }}</h3>
+        <h3 class="text-base font-bold tracking-[0.18em]">{{ headerTitle }}</h3>
         <p v-if="period" class="mt-1 text-xs receipt-quiet">{{ period }}</p>
       </header>
 
       <div class="receipt-rule" />
 
-      <dl class="space-y-1">
-        <div v-for="row in metaRows" :key="row.label" class="receipt-line">
-          <dt class="receipt-quiet">{{ row.label }}</dt>
-          <span class="receipt-leader" />
-          <dd class="min-w-0 text-right">{{ row.value }}</dd>
-        </div>
-        <div class="receipt-line">
-          <dt class="receipt-quiet">发布日期</dt>
-          <span class="receipt-leader" />
-          <dd class="text-right">{{ publishedAt ? formatBeijingDate(publishedAt) : '尚未发布' }}</dd>
-        </div>
-      </dl>
+      <template v-if="metaRows.length">
+        <dl class="space-y-1">
+          <div v-for="row in metaRows" :key="row.label" class="receipt-line">
+            <dt class="receipt-quiet">{{ row.label }}</dt>
+            <span class="receipt-leader" />
+            <dd class="min-w-0 text-right">{{ row.value }}</dd>
+          </div>
+        </dl>
 
-      <div class="receipt-rule" />
+        <div class="receipt-rule" />
+      </template>
 
       <div class="text-center">
         <p class="text-xs receipt-quiet">{{ payrollTotalsLabels.netPayCents }}</p>

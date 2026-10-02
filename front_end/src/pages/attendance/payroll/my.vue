@@ -95,7 +95,6 @@ onMounted(load)
           :name="row.employee?.name ?? ''"
           :employee-no="row.employee?.employeeNo"
           :department="row.employee?.department"
-          :published-at="row.publishedAt"
           :components="row.components"
           :totals="row.totals"
         />
