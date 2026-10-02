@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import PayslipReceipt from '@/components/payslip-receipt.vue'
 import PayslipTable from '@/components/payslip-table.vue'
 import PayrollImportDialog from '@/pages/attendance/components/PayrollImportDialog.vue'
 import PayrollPublishDialog from '@/pages/attendance/components/PayrollPublishDialog.vue'
@@ -46,7 +47,6 @@ import {
   payrollAttendanceDeductionKeys,
   payrollIncomeKeys,
   payrollTotalsLabels,
-  payslipColumns,
   showPayrollPayments,
 } from '@/constants/payroll-fields'
 import { computeCumulativeIncomeTax, type CumulativeTaxBreakdown } from '@/utils/income-tax'
@@ -58,6 +58,7 @@ import {
   formatBeijingDate,
   formatCents,
   formatMinutes,
+  formatPayrollMonthLabel,
   getBeijingMonth,
   parseYuanToCents,
   wallClockToIso,
@@ -204,14 +205,6 @@ function statementComponents(row: PayrollStatementRow) {
 }
 function statementTotals(row: PayrollStatementRow) {
   return row.publishedTotals ?? row.totals ?? row.standardDraft?.totals
-}
-/** 移动端卡片明细：字段口径与 PayslipTable 共用一份列定义。 */
-function statementValue(row: PayrollStatementRow, column: (typeof payslipColumns)[number]) {
-  if (column.kind === 'component') return statementComponents(row)?.[column.key as keyof PayrollComponents]
-  return statementTotals(row)?.[column.key as keyof PayrollTotals]
-}
-function statementColumnLabel(column: (typeof payslipColumns)[number]) {
-  return column.group ? `${column.group} · ${column.label}` : column.label
 }
 
 async function loadStatements() {
@@ -634,16 +627,16 @@ onMounted(() => {
             </div>
             <div v-if="expandedId === row.employeeId" class="space-y-3 border-t bg-muted/30 px-3 py-2">
               <div>
-                <h2 class="mb-2 text-xs font-semibold">
-                  {{ row.publishedTotals ? '有效发布版工资条' : row.standardDraft ? '按薪资标准预估（尚未录入）' : '工资条' }}
-                </h2>
-                <p class="mb-2 text-xs text-muted-foreground">发布日期 {{ row.publishedAt ? formatBeijingDate(row.publishedAt) : '尚未发布' }}</p>
-                <div class="grid grid-cols-2 gap-x-4">
-                  <div v-for="column in payslipColumns" :key="column.key" class="flex items-baseline justify-between gap-2 border-b border-border/40 py-1.5">
-                    <span class="min-w-0 truncate text-xs text-muted-foreground">{{ statementColumnLabel(column) }}</span>
-                    <span class="shrink-0 text-xs font-medium tabular-nums">{{ formatCents(statementValue(row, column)) }}</span>
-                  </div>
-                </div>
+                <PayslipReceipt
+                  :title="row.publishedTotals || !row.standardDraft ? '工资条' : '工资条 · 预估'"
+                  :period="formatPayrollMonthLabel(month)"
+                  :name="row.name || row.displayName || ''"
+                  :employee-no="row.employeeNo"
+                  :department="row.department"
+                  :published-at="row.publishedAt"
+                  :components="statementComponents(row)"
+                  :totals="statementTotals(row)"
+                />
                 <div v-if="row.statementStatus === 'draft' && row.publishedTotals" class="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs">
                   <div class="flex justify-between">
                     <span class="text-muted-foreground">未发布修订草稿实发</span><span class="tabular-nums">{{ formatCents(row.totals?.netPayCents) }}</span>
@@ -917,6 +910,7 @@ onMounted(() => {
                         <PayslipTable
                           :index="rowIndex(row) + 1"
                           :name="row.name || row.displayName || ''"
+                          :month="month"
                           :components="row.publishedComponents ?? row.components ?? row.standardDraft?.components"
                           :totals="row.publishedTotals ?? row.totals ?? row.standardDraft?.totals"
                           :published-at="row.publishedAt"

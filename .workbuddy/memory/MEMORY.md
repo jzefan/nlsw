@@ -16,6 +16,7 @@
   直打 1080 接口 / 注入 playwright。**别写死 sid**，按目标用户 + 探 `/me` 动态挑。
 - playwright 用 `require('playwright-core')` + `NODE_PATH=<workbuddy workspace node_modules>:<项目>/node_modules`；
   拦截接口用**端口 + pathname 谓词**，**别用 `**/xxx**`**（会连 vite 的 `/src/pages/xxx/index.vue` 一起拦 → 白屏）。
+  **移动端下 `Sidebar` 在关闭的 Sheet 里、不进 DOM**（`data-slot="sidebar"` 查不到）→ 等待条件用 `[data-slot="sidebar-wrapper"]`。
   完整脚本见技能 `live-session-api-replay`。
 
 ## 角色与权限
@@ -120,6 +121,27 @@ shadcn `Table` 自带 `[data-slot="table-container"]`（`overflow-auto`），单
 - 登录弹窗挂 **`App.vue`**（不放 default 布局）；**watch 用 `(isLogin, wasLogin)`** 区分「刚挂载」与「真的登出」。
 - **两类审批的 decision 取值不一致**：考勤 `approve|reject`，用章 `approved|rejected`。
 - **测试必须打桩 `Notice.create`**（否则每条提交/审批用例白等超时，2s → 85s）。
+
+## 移动端适配
+- 模块首页 = `pages/mobile/{attendance,payroll,seal}.vue` + `components/hub-shell.vue`（**页内标题行**：← 返回首页 + h1 + 模块胶囊）
+  + `composables/use-module-hub.ts`（入口分组）+ `components/hub-group.vue`；首页入口在 `dashboard-mobile.vue` 常用功能**上方**。
+  hub 页**别另起 sticky 标题栏**——会和 `layouts/default.vue` 顶栏把模块名显示两遍。
+- **权限判据唯一来源 `utils/module-access.ts`**（`canApproveAttendance / canManagePayroll / canApproveSeal / canManageSeal / isSealCustodian`），
+  `sidebar-data.ts` 与模块首页共用——**改可见性只改这里，别两边各写一份**。
+- 页面适配一律 `const { isMobile } = useDevice()` + 模板 `v-if="isMobile"` 卡片分支、`v-else` 保留原桌面表格；
+  **不动接口 / 权限 / 数据结构**。考勤申请详情两端共用 `pages/attendance/components/RequestDetailPanel.vue`。
+  移动端逐页验收的判据与坑见技能 `live-session-api-replay`。
+
+## 工资条小票样式
+- 组件 `components/payslip-receipt.vue`（纸色底 + 虚线分隔 + 点线引导 + 左右/下沿撕边）；
+  挂在 `payslip-table.vue` 的查看方式第三档「小票」（另有 `按行列 / 一行展示`，默认仍是 `按行列`）。
+  移动端两页直接用：`payroll/my.vue` 一条月份一张小票；`statements.vue` 展开区是小票。
+- **分组口径必须复用 `constants/payroll-fields.ts`** 的 `payrollIncomeKeys / payrollAttendanceDeductionKeys /
+  payrollEmployeeDeductionKeys / payrollEmployerContributionKeys / payrollTotalsLabels`，别再写一份字段表。
+- 撕边用 `mask-image` 四层 + `mask-composite: intersect`（不支持时退化成矩形，不影响可读性）；
+  阴影必须挂在**外层**（同元素的 filter 会被 mask 裁掉）。期间文案用 `formatPayrollMonthLabel()`。
+- **坑：scoped 样式里的 `:global(.dark) .x` 会被编译丢掉**（实测产物里没有这条规则，深色覆盖静默失效）。
+  组件级深色改用 Tailwind 任意属性变量：`[--receipt-paper:#f8f4ea] dark:[--receipt-paper:#221f1c]`。
 
 ## 前端页面约定
 - `fieldwork` 界面一律叫**「出差」**（key 不变）。展示名源头：`constants/attendance-labels.ts` + 后端 `ATTENDANCE_TYPE_LABELS` +

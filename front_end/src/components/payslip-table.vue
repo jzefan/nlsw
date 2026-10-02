@@ -4,21 +4,26 @@ import { computed, ref } from 'vue'
 import { payslipColumns } from '@/constants/payroll-fields'
 import type { PayrollComponents, PayrollTotals } from '@/services/api/payroll.api'
 import { Button } from '@/components/ui/button'
+import PayslipReceipt from '@/components/payslip-receipt.vue'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatBeijingDate, formatCents } from '@/utils/payroll'
+import { formatBeijingDate, formatCents, formatPayrollMonthLabel } from '@/utils/payroll'
 
 const props = withDefaults(defineProps<{
   /** 序号，通常为该员工在本月工资表中的行号 */
   index?: number
   name: string
+  /** 工资所属月份（YYYY-MM），小票纸头用；不传就不显示期间 */
+  month?: string | null
   components?: PayrollComponents | null
   totals?: PayrollTotals | null
   /** 发布日期（有效版本的发布时间）；不传就不显示这一项 */
   publishedAt?: string | null
-}>(), { index: 1, components: null, totals: null })
+}>(), { index: 1, month: null, components: null, totals: null })
 
-/** 默认按行列逐项列出，避免默认铺开成需要横向滚动的一整行；一行展示作为可选查看方式保留。 */
-const view = ref<'list' | 'table'>('list')
+/** 默认按行列逐项列出，避免默认铺开成需要横向滚动的一整行；一行展示与小票作为可选查看方式保留。 */
+const view = ref<'list' | 'table' | 'receipt'>('list')
+
+const periodLabel = computed(() => (props.month ? formatPayrollMonthLabel(props.month) : null))
 
 type HeaderCell = { key: string, label: string, colspan: number, rowspan: number }
 
@@ -55,8 +60,8 @@ function columnLabel(column: (typeof payslipColumns)[number]) {
 <template>
   <!-- w-0 + min-w-full：让展开区域自己决定宽度，宽表只在展开区域内横向滚动，不会把外层表格整张撑宽 -->
   <div class="w-0 min-w-full space-y-2">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+    <div class="flex flex-wrap items-center gap-2" :class="view === 'receipt' ? 'justify-end' : 'justify-between'">
+      <div v-if="view !== 'receipt'" class="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
         <span><span class="text-xs text-muted-foreground">序号</span><span class="ml-2 font-medium tabular-nums">{{ index }}</span></span>
         <span><span class="text-xs text-muted-foreground">姓名</span><span class="ml-2 font-medium">{{ name }}</span></span>
         <span v-if="publishedAt !== undefined"
@@ -67,10 +72,20 @@ function columnLabel(column: (typeof payslipColumns)[number]) {
       <div class="flex items-center gap-0.5 rounded-md border p-0.5" role="group" aria-label="工资条查看方式">
         <Button size="sm" :variant="view === 'list' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'list'" @click="view = 'list'">按行列</Button>
         <Button size="sm" :variant="view === 'table' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'table'" @click="view = 'table'">一行展示</Button>
+        <Button size="sm" :variant="view === 'receipt' ? 'secondary' : 'ghost'" class="h-7 px-2 text-xs" :aria-pressed="view === 'receipt'" @click="view = 'receipt'">小票</Button>
       </div>
     </div>
 
-    <div v-if="view === 'list'" class="grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
+    <PayslipReceipt
+      v-if="view === 'receipt'"
+      :name="name"
+      :period="periodLabel"
+      :published-at="publishedAt"
+      :components="components"
+      :totals="totals"
+    />
+
+    <div v-else-if="view === 'list'" class="grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
       <div v-for="column in payslipColumns" :key="column.key" class="flex items-baseline justify-between gap-3 border-b border-border/40 py-1.5">
         <span class="text-xs text-muted-foreground">{{ columnLabel(column) }}</span>
         <span class="text-sm font-medium tabular-nums">{{ formatCents(cellValue(column)) }}</span>

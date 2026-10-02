@@ -134,3 +134,10 @@ export function formatBeijingDate(value: string) {
   if (Number.isNaN(date.valueOf())) return value
   return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
 }
+
+/** 工资条纸头用的期间文案：'2026-10' → '2026 年 10 月'；非 YYYY-MM 原样带回。 */
+export function formatPayrollMonthLabel(month: string | null | undefined) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? ''))
+  if (!match) return String(month ?? '')
+  return `${match[1]} 年 ${Number(match[2])} 月`
+}

@@ -4,15 +4,16 @@ import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { Badge } from '@/components/ui/badge'
+import PayslipReceipt from '@/components/payslip-receipt.vue'
 import PayslipTable from '@/components/payslip-table.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 import { useDevice } from '@/composables/use-device'
-import { getMyPayrollStatements, type MyPayroll, type PayrollComponents, type PayrollTotals } from '@/services/api/payroll.api'
-import { payslipColumns, payrollTotalsLabels, showPayrollPayments } from '@/constants/payroll-fields'
-import { formatBeijingDate, formatCents, getBeijingYear } from '@/utils/payroll'
+import { getMyPayrollStatements, type MyPayroll } from '@/services/api/payroll.api'
+import { payrollTotalsLabels, showPayrollPayments } from '@/constants/payroll-fields'
+import { formatBeijingDate, formatCents, formatPayrollMonthLabel, getBeijingYear } from '@/utils/payroll'
 
 type MyPayrollRow = MyPayroll['rows'][number]
 /** 隐藏发放相关列时，加载/空态/展开行的合并列数 */
@@ -38,16 +39,6 @@ function toggleRow(key: string) {
 function latestRowKey(rows: MyPayrollRow[]) {
   const latest = rows.reduce<MyPayrollRow | null>((max, row) => (!max || (row.month ?? '') > (max.month ?? '') ? row : max), null)
   return latest ? rowKey(latest) : ''
-}
-
-/** 移动端卡片明细：字段口径与 PayslipTable 共用一份列定义，不重写计算逻辑。 */
-function payslipValue(row: MyPayrollRow, column: (typeof payslipColumns)[number]) {
-  if (column.kind === 'component') return row.components?.[column.key as keyof PayrollComponents]
-  return row.totals?.[column.key as keyof PayrollTotals]
-}
-/** 逐项明细的显示名，带两级表头的分组名（如「补贴 · 交通补贴」）。 */
-function payslipLabel(column: (typeof payslipColumns)[number]) {
-  return column.group ? `${column.group} · ${column.label}` : column.label
 }
 
 async function load() {
@@ -92,33 +83,22 @@ onMounted(load)
         </div>
       </div>
     </section>
-    <!-- 移动端：一条工资条一张卡，展开为 2 列键值明细；读取失败走上方的错误块，不落成空状态 -->
-    <div v-if="isMobile && !loadError" class="space-y-2">
+    <!-- 移动端：一条月份一张小票；读取失败走上方的错误块，不落成空状态 -->
+    <div v-if="isMobile && !loadError" class="space-y-4">
       <p v-if="loading" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">加载中…</p>
       <p v-else-if="!payroll?.rows.length" class="rounded-xl border bg-background py-10 text-center text-sm text-muted-foreground">暂无已发布工资条</p>
       <template v-else>
-        <div v-for="row in payroll.rows" :key="rowKey(row)" class="overflow-hidden rounded-xl border bg-background">
-          <button type="button" class="w-full px-3 py-2.5 text-left" :aria-expanded="expandedId === rowKey(row)" @click="toggleRow(rowKey(row))">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium tabular-nums">{{ row.month ?? '—' }}</span>
-              <span class="flex-1" />
-              <Badge variant="outline">已发布</Badge>
-            </div>
-            <div class="mt-1.5 flex items-end justify-between gap-2">
-              <span class="text-xs text-muted-foreground">实发金额</span>
-              <span class="text-lg font-semibold tabular-nums">{{ formatCents(row.totals?.netPayCents) }}</span>
-            </div>
-            <p class="mt-0.5 text-xs text-muted-foreground">发布日期 {{ formatBeijingDate(row.publishedAt) }}</p>
-          </button>
-          <div v-if="expandedId === rowKey(row)" class="border-t bg-muted/30 px-3 py-2">
-            <div class="grid grid-cols-2 gap-x-4">
-              <div v-for="column in payslipColumns" :key="column.key" class="flex items-baseline justify-between gap-2 border-b border-border/40 py-1.5">
-                <span class="min-w-0 truncate text-xs text-muted-foreground">{{ payslipLabel(column) }}</span>
-                <span class="shrink-0 text-xs font-medium tabular-nums">{{ formatCents(payslipValue(row, column)) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PayslipReceipt
+          v-for="row in payroll?.rows ?? []"
+          :key="rowKey(row)"
+          :period="formatPayrollMonthLabel(row.month)"
+          :name="row.employee?.name ?? ''"
+          :employee-no="row.employee?.employeeNo"
+          :department="row.employee?.department"
+          :published-at="row.publishedAt"
+          :components="row.components"
+          :totals="row.totals"
+        />
       </template>
     </div>
 
@@ -145,7 +125,7 @@ onMounted(load)
               <div class="space-y-3 py-1">
                 <div>
                   <h2 class="mb-2 text-xs font-semibold">有效发布版工资条</h2>
-                  <PayslipTable :index="1" :name="row.employee?.name ?? ''" :components="row.components" :totals="row.totals" />
+                  <PayslipTable :index="1" :name="row.employee?.name ?? ''" :month="row.month" :components="row.components" :totals="row.totals" :published-at="row.publishedAt" />
                 </div>
                 <div v-if="showPayrollPayments">
                   <h2 class="mb-2 text-xs font-semibold">收退款记录</h2>
