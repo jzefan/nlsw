@@ -7,7 +7,7 @@ const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
 const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
-const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS, APPEAL_TYPES, APPEAL_TYPE_LABELS, APPEAL_OFFSET_FIELDS } = require('../../utils/attendance-ledger-actual');
+const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS, APPEAL_TYPES, APPEAL_TYPE_LABELS, APPEAL_OFFSET_FIELDS, DEFAULT_DAY_MINUTES } = require('../../utils/attendance-ledger-actual');
 
 const OFFSET_MS = 8 * 60 * 60 * 1000;
 const activeMutationTokens = new Set();
@@ -306,6 +306,134 @@ async function getMonthlyAttendanceSummary(tenantId, month) {
     summary[employeeId] = { ...(closedRows ? frozenAggregate(row) : emptyAttendanceAggregate()), expectedMinutes: row.expectedMinutes ?? null, actualMinutes: actualFor(row) };
   }
   return summary;
+}
+
+/** 自然日序号（按北京时间切天），用来数出差跨了几个自然日。 */
+function dayIndex(timestamp) {
+  return Math.floor((timestamp + OFFSET_MS) / 86400000);
+}
+
+/** 出差口径 = 日历天数（含首尾），只数落在当月内的自然日（与申请列表的展示口径一致）。 */
+function fieldworkDaysInMonth(request, month) {
+  const start = Math.max(request.startAt.getTime(), month.start);
+  const end = Math.min(request.endAt.getTime(), month.end);
+  if (!(end > start)) return 0;
+  return dayIndex(end - 1) - dayIndex(start) + 1;
+}
+
+/** 台账里的次数：非法值与空值都按 0 计（0 是有效值）。 */
+function violationCount(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+function blankPayrollAttendance() {
+  return {
+    leaveMinutes: 0,
+    overtimeMinutes: 0,
+    fieldworkMinutes: 0,
+    fieldworkDays: 0,
+    absenceMinutes: 0,
+    absenceSkippedCount: 0,
+    leaveUnreconciled: false,
+  };
+}
+
+/**
+ * 薪资统计用：按月的考勤口径合计（请假 / 加班 / 出差 + 旷工）。
+ *
+ * 与「考勤统计」同源（已批申请单 + 月台账），时长走同一个 `aggregateApprovedRequests`，
+ * 但**不因工作日历未确认而失败**：日历算不出来时只跳过「旷工」推导，其余时长照常统计。
+ *
+ * 旷工没有独立登记（台账只登记迟到/早退/无打卡的次数），只能按台账缺口推导：
+ *   旷工 = 应出勤 − 实到 − 请假 − 迟到/早退/无打卡扣减（下限 0）
+ * 只对**已确认实到**的行计算，其余（待确认 / 无依据 / 日历未确认）用 absenceSkippedCount
+ * 回报跳过的人数——宁可不显示，也不能把「还没确认」当成旷工。
+ *
+ * @param {string} tenantId
+ * @param {string[]} months 'YYYY-MM'
+ * @param {string|null} employeeId 传值时只统计该员工（本人视角）
+ */
+async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) {
+  const tenant = await Tenant.findById(tenantId).select('settings').lean().catch(error => {
+    console.warn('payroll attendance tenant read failed:', error.message);
+    return null;
+  });
+  let dayMinutes = DEFAULT_DAY_MINUTES;
+  try {
+    dayMinutes = dailyWorkMinutes(getAttendancePolicy(tenant));
+  } catch (error) {
+    // 工作时段配置异常时退回默认日时长：宁可折算口径粗一点，也别让薪资统计整体失败
+    console.warn('payroll attendance policy read failed:', error.message);
+  }
+  const rule = readActualRule(tenant);
+  const byMonth = [];
+  for (const value of months) {
+    const month = parseMonth(value);
+    const bucket = blankPayrollAttendance();
+    try {
+      const range = appealMonthRange(month);
+      const requests = await AttendanceRequest.find({
+        tenantId,
+        status: 'approved',
+        // 申述没有起止时段，按发生日期捞进来做违纪核减（它自己的时长口径为空，不会进上面几个数）
+        $or: [
+          { startAt: { $lt: month.end }, endAt: { $gt: month.start } },
+          { type: 'appeal', occurredOn: { $gte: range.from, $lt: range.to } }
+        ]
+      }).lean();
+      const relevant = employeeId ? requests.filter(item => String(item.applicantId) === String(employeeId)) : requests;
+      const stats = aggregateApprovedRequests(relevant, month);
+      for (const aggregate of stats.values()) {
+        bucket.leaveMinutes += Object.values(aggregate.leaveMinutesByType).reduce((sum, minutes) => sum + violationCount(minutes), 0);
+        bucket.overtimeMinutes += aggregate.overtimeApprovedMinutes;
+        bucket.fieldworkMinutes += aggregate.fieldworkApprovedMinutes;
+        if (aggregate.requiresLeaveReconciliation) bucket.leaveUnreconciled = true;
+      }
+      // 出差天数按日历天数单独数：分钟口径是起止时刻之差，日历天数才是申请列表里展示的那个数
+      for (const request of relevant) {
+        if (request.type === 'fieldwork') bucket.fieldworkDays += fieldworkDaysInMonth(request, month);
+      }
+
+      const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: value }).select('rows status closedSnapshot').lean();
+      const closedRows = ledger?.status === 'closed' ? ledger?.closedSnapshot?.rows : null;
+      const savedRows = closedRows || ledger?.rows || [];
+      const scopedRows = employeeId ? savedRows.filter(row => String(row.employeeId) === String(employeeId)) : savedRows;
+      // 已结账月份用快照里冻结的应出勤；未结账月份按当前日历重算（工作日历一改就能反映）
+      let openExpected = null;
+      if (!closedRows && scopedRows.length) {
+        try { openExpected = await expectedMinutesFor(month.start, month.end, tenant); }
+        catch { openExpected = null; }
+      }
+      const appeals = collectAppealCounts(relevant);
+      for (const row of scopedRows) {
+        const employeeStats = stats.get(String(row.employeeId));
+        const expected = closedRows ? Number(row.expectedMinutes) : openExpected;
+        // 请假没法按天分摊时，请假时长根本没进上面的口径，缺口会被虚算成旷工 —— 这种人不算
+        if (employeeStats?.requiresLeaveReconciliation) {
+          bucket.absenceSkippedCount++;
+          continue;
+        }
+        if (!Number.isInteger(expected) || expected <= 0 || row.confirmationState !== 'confirmed' || !Number.isInteger(row.actualMinutes)) {
+          bucket.absenceSkippedCount++;
+          continue;
+        }
+        const effective = withAppealOffset(row, appeals.get(String(row.employeeId))?.approved);
+        const leaveMinutes = Object.values(employeeStats?.leaveMinutesByType || {}).reduce((sum, minutes) => sum + violationCount(minutes), 0);
+        const deducted = Math.round(
+          violationCount(effective.lateWithin10) * rule.lateWithin10Hours * 60
+          + violationCount(effective.lateOver10) * rule.lateOver10Hours * 60
+          + violationCount(effective.earlyLeave) * rule.earlyLeaveHours * 60
+          + violationCount(effective.noClockRecord) * rule.noClockFullDays * dayMinutes
+        );
+        bucket.absenceMinutes += Math.max(0, expected - row.actualMinutes - leaveMinutes - deducted);
+      }
+    } catch (error) {
+      console.error(`payroll attendance summary failed for ${value}:`, error);
+    }
+    byMonth.push({ month: value, ...bucket });
+  }
+  return { dayMinutes, byMonth };
 }
 
 async function buildRows(req, month, scope, ledger) {
@@ -834,3 +962,4 @@ exports.releaseStaleMonthLock = async (req, res) => {
 exports._test = { parseMonth, sumRows, sumMonthlyStatistics, getScopedUsers, expectedMinutesFor, buildRows, monthLockRecoveryState, aggregateApprovedRequests, attachActualSuggestions, normalizeImportEntry };
 exports._coordination = { acquireMonthMutationLock, releaseMonthMutationLock, activeMutationTokens };
 exports.getMonthlyAttendanceSummary = getMonthlyAttendanceSummary;
+exports.getPayrollAttendanceSummary = getPayrollAttendanceSummary;

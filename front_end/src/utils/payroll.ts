@@ -84,6 +84,18 @@ export function formatMinutes(minutes: number | null | undefined) {
   return `${Number((minutes / 60).toFixed(2))} 小时`
 }
 
+/** 请假/旷工按「天」展示：用当月每日工作分钟折算；日时长读不到时不给数，避免给出错的天数。 */
+export function formatAttendanceDays(minutes: number | null | undefined, dayMinutes: number | null | undefined) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || typeof dayMinutes !== 'number' || !dayMinutes) return '—'
+  return `${Number((minutes / dayMinutes).toFixed(2))} 天`
+}
+
+/** 已经是天数的值（出差日历天数）直接展示。 */
+export function formatDayCount(days: number | null | undefined) {
+  if (typeof days !== 'number' || !Number.isFinite(days)) return '—'
+  return `${Number(days.toFixed(2))} 天`
+}
+
 export function parseYuanToCents(value: string | number | null | undefined): number | null {
   const match = /^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(inputText(value))
   if (!match) return null

@@ -215,11 +215,47 @@ export interface PayrollTaxBasis {
   months: PayrollTaxBasisMonth[]
 }
 
+/**
+ * 薪资统计里的「考勤统计」一行。
+ * 时长/天数来自考勤侧（已批申请单 + 月台账），金额来自**已发布**工资条。
+ * 旷工没有独立登记，是按台账缺口（应出勤 − 实到 − 请假 − 迟到/早退/无打卡扣减）推导的。
+ */
+export interface PayrollAttendanceStatisticsRow {
+  month: string
+  /** 已批请假（分钟）；天数 = leaveMinutes / dayMinutes */
+  leaveMinutes: number
+  /** 已批加班（分钟） */
+  overtimeMinutes: number
+  /** 已批出差（分钟，起止时刻之差） */
+  fieldworkMinutes: number
+  /** 出差日历天数（含首尾，只数落在当月内的自然日） */
+  fieldworkDays: number
+  /** 台账缺口推导出来的旷工（分钟） */
+  absenceMinutes: number
+  /** 没能参与旷工推导的人数（实到待确认 / 无依据 / 日历未确认） */
+  absenceSkippedCount: number
+  /** 有请假单没能按天分摊，未计入请假时长 */
+  leaveUnreconciled: boolean
+  /** 请假扣款 = 病假 + 事假 */
+  leaveDeductionCents: number
+  absenceDeductionCents: number
+  /** 加班补贴（收入项） */
+  overtimeAllowanceCents: number
+}
+
+export interface PayrollAttendanceStatistics {
+  /** 一个工作日的有效分钟数：把请假/旷工分钟折成天用；null 表示考勤口径整体没读到 */
+  dayMinutes: number | null
+  byMonth: PayrollAttendanceStatisticsRow[]
+  totals: PayrollAttendanceStatisticsRow
+}
+
 export interface PayrollStatistics {
   period: 'month' | 'year'
   value: string
   accrual: PayrollMonthlySummary & { publishedCount: number, byMonth: PayrollMonthlySummary[] }
   cash: { paidCents: number, refundCents: number, netPaidCents: number, byMonth: PayrollMonthlySummary[] }
+  attendance: PayrollAttendanceStatistics
 }
 
 export interface MyPayroll {

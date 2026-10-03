@@ -3,7 +3,7 @@ const User = require('../../models/User');
 const PayrollStatement = require('../../models/PayrollStatement');
 const PayrollStandard = require('../../models/PayrollStandard');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
-const { _coordination: monthCoordination, getMonthlyAttendanceSummary } = require('./attendance-ledger');
+const { _coordination: monthCoordination, getMonthlyAttendanceSummary, getPayrollAttendanceSummary } = require('./attendance-ledger');
 const { hasLinkedEmployee } = require('../../utils/attendance-permissions');
 const {
   validatePayrollComponents, validatePayrollStandard, computeStandardContributions,
@@ -721,6 +721,23 @@ function blankStatsRow(month) {
   return { month, statementCount: 0, incomeSubtotalCents: 0, employerContributionCents: 0, totalCompensationCents: 0, attendanceDeductionCents: 0, payableBeforePersonalDeductionsCents: 0, netPayCents: 0, paidCents: 0, refundCents: 0, netPaidCents: 0, remainingCents: 0 };
 }
 
+/**
+ * 「考勤统计」块的一行。
+ * - 时长/天数来自考勤侧（已批申请单 + 月台账），见 attendance-ledger 的 getPayrollAttendanceSummary；
+ * - 金额来自**已发布**工资条：请假 = 病假 + 事假扣款，旷工 = 旷工扣款，加班 = 加班补贴；
+ *   系统没有出差补贴项，所以出差没有金额（保持 0，界面显示「—」）。
+ * - absenceMinutes 是台账缺口推导出来的旷工时长；absenceSkippedCount 是没能参与推导的人数
+ *   （实到未确认 / 无依据 / 日历未确认），>0 时界面要提示缺了这部分。
+ */
+function blankAttendanceRow(month) {
+  return {
+    month,
+    leaveMinutes: 0, overtimeMinutes: 0, fieldworkMinutes: 0, fieldworkDays: 0,
+    absenceMinutes: 0, absenceSkippedCount: 0, leaveUnreconciled: false,
+    leaveDeductionCents: 0, absenceDeductionCents: 0, overtimeAllowanceCents: 0,
+  };
+}
+
 exports.getStatistics = async (req, res) => {
   try {
     const period = req.query.period;
@@ -734,7 +751,15 @@ exports.getStatistics = async (req, res) => {
     const criteria = { tenantId: req.tenantId };
     if (employeeOnly) criteria.employeeId = req.user._id;
     const months = period === 'month' ? [value] : Array.from({ length: 12 }, (_, i) => `${value}-${String(i + 1).padStart(2, '0')}`);
-    const statements = await PayrollStatement.find({ ...criteria, month: { $in: months } }).lean();
+    // 考勤口径单独取：它挂了不影响工资口径，整块退回空值（界面按「考勤数据不可用」处理）
+    const [statements, attendanceSummary] = await Promise.all([
+      PayrollStatement.find({ ...criteria, month: { $in: months } }).lean(),
+      getPayrollAttendanceSummary(req.tenantId, months, employeeOnly ? String(req.user._id) : null).catch(error => {
+        console.error('payroll statistics attendance failed:', error);
+        return null;
+      }),
+    ]);
+    const attendanceByMonth = new Map(months.map(month => [month, blankAttendanceRow(month)]));
     const accrualByMonth = new Map(months.map(month => [month, blankStatsRow(month)]));
     for (const statement of statements) {
       const published = latestPublished(statement);
@@ -747,6 +772,22 @@ exports.getStatistics = async (req, res) => {
       row.refundCents += payment.refundedCents;
       row.netPaidCents += payment.netPaidCents;
       row.remainingCents += Math.max(0, published.totals.netPayCents - payment.netPaidCents);
+      // 考勤四项的金额口径：请假 = 病假 + 事假扣款，与工资条「请假」两级表头一致
+      const components = published.components || {};
+      const attendanceRow = attendanceByMonth.get(statement.month);
+      attendanceRow.leaveDeductionCents += (components.sickLeaveDeductionCents || 0) + (components.personalLeaveDeductionCents || 0);
+      attendanceRow.absenceDeductionCents += components.absenceDeductionCents || 0;
+      attendanceRow.overtimeAllowanceCents += components.overtimeAllowanceCents || 0;
+    }
+    for (const item of attendanceSummary?.byMonth || []) {
+      const row = attendanceByMonth.get(item.month);
+      if (!row) continue;
+      Object.assign(row, {
+        leaveMinutes: item.leaveMinutes, overtimeMinutes: item.overtimeMinutes,
+        fieldworkMinutes: item.fieldworkMinutes, fieldworkDays: item.fieldworkDays,
+        absenceMinutes: item.absenceMinutes, absenceSkippedCount: item.absenceSkippedCount,
+        leaveUnreconciled: item.leaveUnreconciled === true,
+      });
     }
     // Cash accounting follows the date money moved, not the wage month.
     const paymentCriteria = { tenantId: req.tenantId, 'payments.paidAt': { $gte: new Date(parsed.start), $lt: new Date(parsed.end) } };
@@ -769,15 +810,27 @@ exports.getStatistics = async (req, res) => {
     }
     const accrualRows = [...accrualByMonth.values()];
     const cashRows = [...cashByMonth.values()];
+    const attendanceRows = [...attendanceByMonth.values()];
     const accrual = accrualRows.reduce((sum, row) => {
       for (const key of ['statementCount', 'incomeSubtotalCents', 'employerContributionCents', 'totalCompensationCents', 'attendanceDeductionCents', 'payableBeforePersonalDeductionsCents', 'netPayCents', 'paidCents', 'refundCents', 'netPaidCents', 'remainingCents']) sum[key] += row[key];
       return sum;
     }, blankStatsRow(value));
+    const attendanceTotals = attendanceRows.reduce((sum, row) => {
+      for (const key of ['leaveMinutes', 'overtimeMinutes', 'fieldworkMinutes', 'fieldworkDays', 'absenceMinutes', 'absenceSkippedCount', 'leaveDeductionCents', 'absenceDeductionCents', 'overtimeAllowanceCents']) sum[key] += row[key] || 0;
+      sum.leaveUnreconciled = sum.leaveUnreconciled || row.leaveUnreconciled;
+      return sum;
+    }, blankAttendanceRow(value));
     return res.json({ ok: true, data: {
       period,
       value,
       accrual: { ...accrual, byMonth: accrualRows },
       cash: { paidCents: cashPaid, refundCents: cashRefund, netPaidCents: cashPaid - cashRefund, byMonth: cashRows },
+      attendance: {
+        // dayMinutes 为 null 表示考勤口径整体没读到（界面按「—」处理，不影响上面的工资计提）
+        dayMinutes: attendanceSummary?.dayMinutes ?? null,
+        byMonth: attendanceRows,
+        totals: attendanceTotals,
+      },
     } });
   } catch (error) {
     console.error('payroll getStatistics failed:', error);

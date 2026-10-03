@@ -6,9 +6,11 @@ const PayrollStatement = require('../models/PayrollStatement');
 const AttendanceMonthLedger = require('../models/AttendanceMonthLedger');
 const AttendanceRequest = require('../models/AttendanceRequest');
 const PayrollStandard = require('../models/PayrollStandard');
+const Tenant = require('../models/Tenant');
 const payroll = require('../controllers/api/payroll');
 const { COMPONENT_KEYS, DEFAULT_CONTRIBUTION_SCHEME, validatePayrollComponents } = require('../utils/payroll-calculations');
-const monthCoordination = require('../controllers/api/attendance-ledger')._coordination;
+const attendanceLedgerApi = require('../controllers/api/attendance-ledger');
+const monthCoordination = attendanceLedgerApi._coordination;
 
 function id() { return new mongoose.Types.ObjectId(); }
 function response() {
@@ -624,4 +626,176 @@ test('未结账月份允许直接改已发布的工资条再发布，结账后�
   assert.match(blocked.body.error, /先撤回/);
   assert.equal(statement.version, versionBeforeBlock, '被拦住时不能写库');
   assert.equal(statement.draft, undefined, '被拦住时不能落草稿');
+});
+
+/** 薪资统计的考勤块夹具：一份已发布工资条 + 台账 + 考勤申请单。 */
+function attendanceStatisticsFixture({ tenantId, employeeId, otherId, ledger, month = '2026-09' }) {
+  const components = {
+    ...emptyComponents(),
+    basicPayCents: 700_000,
+    overtimeAllowanceCents: 120_000,
+    sickLeaveDeductionCents: 30_000,
+    personalLeaveDeductionCents: 20_000,
+    absenceDeductionCents: 10_000,
+  };
+  const published = {
+    revision: 1,
+    employee: { employeeNo: 'E-1', name: '张三', department: '物流' },
+    components,
+    totals: validatePayrollComponents(components).totals,
+    publishedAt: new Date('2026-10-01T02:00:00Z'),
+    publishedBy: id(),
+  };
+  const statements = [{
+    employeeId, month, employee: published.employee, currentPublishedRevision: 1,
+    revisions: [published], payments: [], version: 2,
+  }];
+  const requests = [
+    {
+      applicantId: employeeId, type: 'leave', leaveType: 'personal', status: 'approved',
+      durationMinutes: 480, leaveAllocations: [{ date: '2026-09-08', minutes: 480 }],
+      startAt: new Date('2026-09-08T01:00:00Z'), endAt: new Date('2026-09-08T10:00:00Z'),
+    },
+    {
+      applicantId: employeeId, type: 'overtime', status: 'approved', compensation: 'overtime_pay',
+      startAt: new Date('2026-09-10T10:00:00Z'), endAt: new Date('2026-09-10T13:00:00Z'),
+    },
+    {
+      applicantId: employeeId, type: 'fieldwork', status: 'approved',
+      startAt: new Date('2026-09-01T01:00:00Z'), endAt: new Date('2026-09-03T10:00:00Z'),
+    },
+  ];
+  return { statements, requests, ledger: ledger(employeeId, otherId) };
+}
+
+test('薪资统计的考勤块：出差按日历天数、加班按小时，请假与旷工按每日工作分钟折成天', async t => {
+  const tenantId = id(), employeeId = id(), otherId = id();
+  const fixture = attendanceStatisticsFixture({
+    tenantId, employeeId, otherId,
+    ledger: (target, other) => {
+      // 应出勤 12000 − 实到 11000 − 请假 480 − 迟到一次（0.5 小时 = 30 分钟）= 490 分钟旷工
+      const rows = [
+        { employeeId: target, expectedMinutes: 12_000, actualMinutes: 11_000, confirmationState: 'confirmed', lateWithin10: 1, lateOver10: 0, earlyLeave: 0, noClockRecord: 0 },
+        { employeeId: other, expectedMinutes: 12_000, actualMinutes: null, confirmationState: 'pending' },
+      ];
+      // 已结账月份读快照里冻结的应出勤，不再按当前日历重算
+      return { status: 'closed', rows, closedSnapshot: { rows } };
+    },
+  });
+  const financeUser = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  t.mock.method(PayrollStatement, 'find', filter => query(filter['payments.paidAt'] ? [] : fixture.statements));
+  t.mock.method(PayrollStatement, 'findOne', () => query(null));
+  t.mock.method(AttendanceRequest, 'find', () => query(fixture.requests));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(fixture.ledger));
+  t.mock.method(Tenant, 'findById', () => query({ settings: {} }));
+
+  const res = response();
+  await payroll.getStatistics({ user: financeUser, tenantId, query: { period: 'month', value: '2026-09' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  const attendance = res.body.data.attendance;
+  assert.equal(attendance.dayMinutes, 480, '一个工作日按 8 小时折');
+  assert.equal(attendance.totals.leaveMinutes, 480);
+  assert.equal(attendance.totals.overtimeMinutes, 180);
+  assert.equal(attendance.totals.fieldworkMinutes, 3420);
+  assert.equal(attendance.totals.fieldworkDays, 3, '出差按日历天数（含首尾）');
+  assert.equal(attendance.totals.absenceMinutes, 490, '旷工 = 应出勤 − 实到 − 请假 − 违纪扣减');
+  assert.equal(attendance.totals.absenceSkippedCount, 1, '实到待确认的人不参与旷工推导');
+  // 金额取自已发布工资条：请假 = 病假 + 事假，旷工与加班补贴各自单独取
+  assert.equal(attendance.totals.leaveDeductionCents, 50_000);
+  assert.equal(attendance.totals.absenceDeductionCents, 10_000);
+  assert.equal(attendance.totals.overtimeAllowanceCents, 120_000);
+  assert.equal(attendance.byMonth.length, 1);
+  assert.equal(attendance.byMonth[0].month, '2026-09');
+  assert.equal(attendance.byMonth[0].fieldworkDays, 3);
+});
+
+test('薪资统计的考勤块：未结账月份按当前日历重算应出勤，不做工时长的旧值不算数', async t => {
+  const tenantId = id(), employeeId = id(), otherId = id();
+  const tenant = { settings: {} };
+  // 用与接口同一条口径先算出真实的当月应出勤，再据此反推期望的旷工
+  const month = { start: Date.UTC(2026, 8, 1) - 8 * 3_600_000, end: Date.UTC(2026, 9, 1) - 8 * 3_600_000 };
+  const expected = await attendanceLedgerApi._test.expectedMinutesFor(month.start, month.end, tenant);
+  const fixture = attendanceStatisticsFixture({
+    tenantId, employeeId, otherId,
+    ledger: (target, other) => ({
+      status: 'open',
+      rows: [
+        // 库里存的 expectedMinutes 故意写成过期的旧值：未结账要以当前日历算出的为准
+        { employeeId: target, expectedMinutes: 9_999, actualMinutes: expected - 1_000, confirmationState: 'confirmed', lateWithin10: 1, lateOver10: 0, earlyLeave: 0, noClockRecord: 0 },
+        { employeeId: other, expectedMinutes: 9_999, actualMinutes: null, confirmationState: 'pending' },
+      ],
+    }),
+  });
+  const financeUser = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  t.mock.method(PayrollStatement, 'find', filter => query(filter['payments.paidAt'] ? [] : fixture.statements));
+  t.mock.method(AttendanceRequest, 'find', () => query(fixture.requests));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(fixture.ledger));
+  t.mock.method(Tenant, 'findById', () => query(tenant));
+
+  const res = response();
+  await payroll.getStatistics({ user: financeUser, tenantId, query: { period: 'month', value: '2026-09' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  const attendance = res.body.data.attendance;
+  assert.equal(attendance.totals.absenceMinutes, 490, '应出勤按当前日历重算：expected − 实到 − 请假 480 − 迟到 30');
+  assert.equal(attendance.totals.absenceSkippedCount, 1, '实到待确认的人不参与旷工推导');
+  assert.equal(attendance.totals.leaveMinutes, 480);
+});
+
+test('薪资统计的考勤块：应出勤算不出来时不报错，时长照常、旷工留空', async t => {
+  const tenantId = id(), employeeId = id(), otherId = id();
+  const fixture = attendanceStatisticsFixture({
+    tenantId, employeeId, otherId,
+    ledger: (target, other) => ({
+      status: 'open',
+      rows: [
+        { employeeId: target, expectedMinutes: 12_000, actualMinutes: 11_000, confirmationState: 'confirmed' },
+        { employeeId: other, expectedMinutes: 12_000, actualMinutes: 12_000, confirmationState: 'confirmed' },
+      ],
+    }),
+  });
+  const financeUser = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  t.mock.method(PayrollStatement, 'find', filter => query(filter['payments.paidAt'] ? [] : fixture.statements));
+  t.mock.method(AttendanceRequest, 'find', () => query(fixture.requests));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(fixture.ledger));
+  // 工作时段配置非法 → 应出勤算不出来（等同于工作日历未确认的路径）
+  t.mock.method(Tenant, 'findById', () => query({ settings: { attendanceWorkPeriods: [{ start: '18:00', end: '09:00' }] } }));
+
+  const res = response();
+  await payroll.getStatistics({ user: financeUser, tenantId, query: { period: 'month', value: '2026-09' } }, res);
+
+  assert.equal(res.statusCode, 200, '考勤口径的问题不能把整页薪资统计打挂');
+  const attendance = res.body.data.attendance;
+  assert.equal(attendance.totals.absenceMinutes, 0, '算不出应出勤就不给旷工数，不能拿 0 冒充');
+  assert.equal(attendance.totals.absenceSkippedCount, 2);
+  assert.equal(attendance.totals.fieldworkDays, 3, '时长不受应出勤是否算得出影响');
+  assert.equal(attendance.totals.overtimeMinutes, 180);
+  assert.equal(res.body.data.accrual.netPayCents, fixture.statements[0].revisions[0].totals.netPayCents, '工资计提照常');
+});
+
+test('薪资统计的考勤块：请假没按天分摊的人不算旷工（缺口里混着没算进来的请假）', async t => {
+  const tenantId = id(), employeeId = id(), otherId = id();
+  const fixture = attendanceStatisticsFixture({
+    tenantId, employeeId, otherId,
+    ledger: (target) => {
+      const rows = [{ employeeId: target, expectedMinutes: 12_000, actualMinutes: 11_000, confirmationState: 'confirmed' }];
+      return { status: 'closed', rows, closedSnapshot: { rows } };
+    },
+  });
+  // 请假单没有按天分摊 → 请假时长进不了口径，这时算缺口会把它当成旷工
+  fixture.requests[0].leaveAllocations = [];
+  const financeUser = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  t.mock.method(PayrollStatement, 'find', filter => query(filter['payments.paidAt'] ? [] : fixture.statements));
+  t.mock.method(AttendanceRequest, 'find', () => query(fixture.requests));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(fixture.ledger));
+  t.mock.method(Tenant, 'findById', () => query({ settings: {} }));
+
+  const res = response();
+  await payroll.getStatistics({ user: financeUser, tenantId, query: { period: 'month', value: '2026-09' } }, res);
+
+  const attendance = res.body.data.attendance;
+  assert.equal(attendance.totals.absenceMinutes, 0, '口径不完整宁可不给旷工数');
+  assert.equal(attendance.totals.absenceSkippedCount, 1);
+  assert.equal(attendance.totals.leaveUnreconciled, true, '界面要能提示有请假单的分摊明细待复核');
 });
