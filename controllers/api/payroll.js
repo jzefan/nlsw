@@ -578,7 +578,12 @@ exports.saveDraft = async (req, res) => {
       updatedAt: now,
     };
     let statement;
-    const existing = await PayrollStatement.findOne({ tenantId: req.tenantId, employeeId: employee._id, month: month.value }).select('_id version');
+    const existing = await PayrollStatement.findOne({ tenantId: req.tenantId, employeeId: employee._id, month: month.value }).select('_id version currentPublishedRevision');
+    // 已发布的工资条：未结账月份允许直接改了再发布（那时的发布本就是过渡版本），
+    // 已结账月份必须先撤回——撤回会把旧版留在 revisions 里，改直接覆盖会丢掉这条记录。
+    if (existing?.currentPublishedRevision && (await monthLedgerStatus(req.tenantId, month.value)) === 'closed') {
+      return fail(res, 409, '当月考勤已结账，已发布的工资条请先撤回再修改');
+    }
     if (!existing) {
       if (version !== 0) return fail(res, 409, '工资条已变化，请刷新后重试');
       try {

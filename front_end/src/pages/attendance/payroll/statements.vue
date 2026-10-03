@@ -92,6 +92,14 @@ const ledgerSettled = computed(() => ledgerStatus.value === 'closed')
 const forcePublish = computed(() => !ledgerSettled.value)
 /** 当月还没有建台账与「建了但没结账」是两个不同的原因，提示里要分开说。 */
 const ledgerMissing = computed(() => ledgerStatus.value === 'missing')
+/**
+ * 已发布的工资条能不能直接改：未结账月份可以（那时的发布本来就是过渡版本，改完直接出下一版），
+ * 结账后必须先「撤回」——撤回会把旧版留在版本记录里，直接覆盖会丢掉这条痕迹。
+ */
+const canRevisePublished = computed(() => !ledgerSettled.value)
+function canEditStatement(row: PayrollStatementRow) {
+  return canEdit.value && (row.statementStatus !== 'published' || canRevisePublished.value)
+}
 const loading = ref(false)
 const loadError = ref(false)
 /** 待发布人数：存了草稿还没发布的人，用于「批量发布」按钮上的提示。 */
@@ -182,7 +190,10 @@ function statementStatusHint(row: PayrollStatementRow) {
     return '工资条还是草稿：只有财务和总经理能看到，员工在「我的工资条」看不到。补全绩效、补贴、考勤扣款、个税后点「发布」，员工才能查看。'
   }
   if (row.statementStatus === 'published') {
-    return `第 ${row.revision} 版已发布，员工可以在「我的工资条」查看；已发布数据计入薪资统计与发薪口径。要更正金额请先「撤回」（保留旧版记录）再重新发布。`
+    if (ledgerSettled.value) {
+      return `第 ${row.revision} 版已发布，员工可以在「我的工资条」查看；已发布数据计入薪资统计与发薪口径。当月考勤已结账，要更正金额请先「撤回」（保留旧版记录）再重新发布。`
+    }
+    return `第 ${row.revision} 版已发布，员工可以在「我的工资条」查看。当月考勤还没结账，这份是过渡版本：点「编辑」改完保存草稿再发布，就会生成第 ${row.revision + 1} 版，不必先撤回。`
   }
   if (row.statementStatus === 'withdrawn') {
     return '这一版已撤回，员工看不到；补充修改后重新发布即可恢复。'
@@ -190,6 +201,29 @@ function statementStatusHint(row: PayrollStatementRow) {
   return row.standardDraft
     ? '本月还没有录入工资条：表格金额是按「薪资设置」里的薪资标准预估的底稿（绩效、补贴、考勤扣款、个税按 0 计）。点「录入」确认并保存草稿后才会成为正式记录，草稿员工看不到。'
     : '本月还没有录入工资条：点「录入」填写并保存草稿；发布之前员工看不到。'
+}
+
+/** 「编辑」按钮的悬停说明：按行当前状态说清改完会发生什么。 */
+function editHint(row: PayrollStatementRow) {
+  if (row.statementStatus === 'missing') return '按薪资标准录入本月工资条'
+  if (row.statementStatus === 'published')
+    return '当月考勤还没结账，可以直接修改这份已发布的工资条；保存草稿后发布就会生成新版本，员工看到的是最新一版'
+  return '修改本月工资条草稿'
+}
+
+/** 「发布」按钮的悬停说明：修订草稿是「再发布」，和首次发布要分开说。 */
+function publishHint(row: PayrollStatementRow) {
+  return row.publishedTotals
+    ? '发布这份修订草稿：版本号接着往下排，员工看到的是新版本'
+    : '发布后员工可以查看本人这份工资条'
+}
+
+/** 发布对话框的副标题：区分「首次发布」与「订正后再发布」。 */
+function publishDialogNote(row: PayrollStatementRow | null) {
+  if (!row) return ''
+  return row.publishedTotals
+    ? `订正第 ${row.revision} 版，发布后生成第 ${row.revision + 1} 版`
+    : '首次发布'
 }
 
 /** 发放状态说明：按已发布版的实发与累计净支付（付款 − 退款）给出金额与差额。 */
@@ -664,7 +698,7 @@ onMounted(() => {
             </button>
             <div class="flex flex-wrap items-center justify-end gap-2 border-t px-3 py-2">
               <Button variant="ghost" size="sm" class="h-9 text-muted-foreground" :aria-expanded="expandedId === row.employeeId" @click="toggleRow(row.employeeId)">{{ expandedId === row.employeeId ? '收起' : '明细' }}</Button>
-              <Button v-if="canEdit && row.statementStatus !== 'published'" variant="outline" size="sm" class="h-9" :aria-label="`编辑工资条：${row.name}`" @click="openEditor(row)"><FileEdit class="size-4" />{{ row.statementStatus === 'missing' ? '录入' : '编辑' }}</Button>
+              <Button v-if="canEditStatement(row)" variant="outline" size="sm" class="h-9" :aria-label="`编辑工资条：${row.name}`" @click="openEditor(row)"><FileEdit class="size-4" />{{ row.statementStatus === 'missing' ? '录入' : '编辑' }}</Button>
               <Button v-if="canEdit && row.statementStatus === 'draft'" variant="outline" size="sm" class="h-9" :aria-label="`发布工资条：${row.name}`" @click="openAction('publish', row)"><Send class="size-4" />发布</Button>
               <Button v-if="canEdit && row.publishedTotals" variant="ghost" size="sm" class="h-9 text-muted-foreground" :aria-label="`撤回工资条：${row.name}`" @click="openAction('withdraw', row)"><RotateCcw class="size-4" />撤回</Button>
             </div>
@@ -884,7 +918,7 @@ onMounted(() => {
                               : '展开工资条明细'
                         }}</TooltipContent>
                       </Tooltip>
-                      <Tooltip v-if="canEdit && row.statementStatus !== 'published'">
+                      <Tooltip v-if="canEditStatement(row)">
                         <TooltipTrigger as-child>
                           <Button
                             variant="ghost"
@@ -897,9 +931,7 @@ onMounted(() => {
                             }}</Button
                           >
                         </TooltipTrigger>
-                        <TooltipContent>{{
-                          row.statementStatus === 'missing' ? '按薪资标准录入本月工资条' : '修改本月工资条草稿'
-                        }}</TooltipContent>
+                        <TooltipContent>{{ editHint(row) }}</TooltipContent>
                       </Tooltip>
                       <Tooltip v-if="canEdit && row.statementStatus === 'draft'">
                         <TooltipTrigger as-child>
@@ -912,7 +944,7 @@ onMounted(() => {
                             ><Send class="size-4" />发布</Button
                           >
                         </TooltipTrigger>
-                        <TooltipContent>发布后员工可以查看本人这份工资条</TooltipContent>
+                        <TooltipContent>{{ publishHint(row) }}</TooltipContent>
                       </Tooltip>
                       <Tooltip v-if="canEdit && row.publishedTotals">
                         <TooltipTrigger as-child>
@@ -925,7 +957,7 @@ onMounted(() => {
                             ><RotateCcw class="size-4" />撤回</Button
                           >
                         </TooltipTrigger>
-                        <TooltipContent>撤回已发布工资条，需要填写原因</TooltipContent>
+                        <TooltipContent>撤回已发布工资条：员工看不到，改完可重新发布；需要填写原因</TooltipContent>
                       </Tooltip>
                       <Tooltip v-if="showPayrollPayments && canEdit && row.publishedTotals && row.remainingCents > 0">
                         <TooltipTrigger as-child>
@@ -1170,7 +1202,9 @@ onMounted(() => {
             actionType === 'withdraw' ? '撤回已发布工资条' : forcePublish ? '强制发布工资条' : '发布工资条'
           }}</AlertDialogTitle
           ><AlertDialogDescription
-            >{{ actionRow?.name }} · {{ month }} · {{ actionRow?.revision ? `第 ${actionRow.revision} 版` : '首次发布' }}</AlertDialogDescription
+            >{{ actionRow?.name }} · {{ month }} · {{
+              actionType === 'withdraw' ? `第 ${actionRow?.revision} 版` : publishDialogNote(actionRow)
+            }}</AlertDialogDescription
           ></AlertDialogHeader
         >
         <div
@@ -1181,6 +1215,7 @@ onMounted(() => {
           <p class="mt-1">
             继续发布属于「强制发布」：工资条照常发给员工，不用填原因，但会在工资表这一行留下「未结账发布」标记，便于事后核对。
           </p>
+          <p v-if="actionRow?.publishedTotals" class="mt-1">这次是订正后再发布：员工会看到新版本，「未结账发布」标记也跟着更新到新版。</p>
         </div>
         <label v-if="actionType === 'withdraw'" for="payroll-withdraw-reason" class="space-y-1.5 text-sm"
           ><span>撤回原因</span

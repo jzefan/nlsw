@@ -576,3 +576,52 @@ test('工资表下发当月考勤结账状态，并保留未结账强制发布�
   assert.equal(closed.body.data.ledgerStatus, 'closed');
   assert.equal(closed.body.data.rows[0].forcedPublish.revision, 1, '事后结账不会抹掉当时的强制发布留痕');
 });
+
+test('未结账月份允许直接改已发布的工资条再发布，结账后必须先撤回', async t => {
+  const tenantId = id(), employeeId = id(), financeId = id();
+  const components = { ...emptyComponents(), basicPayCents: 600000 };
+  const published = { revision: 1, employee: { name: '员工', department: '物流' }, components: { ...components }, totals: validatePayrollComponents(components).totals, publishedAt: new Date('2026-09-25T00:00:00Z'), publishedBy: financeId };
+  const statement = { _id: id(), tenantId, employeeId, month: '2026-09', employee: published.employee, currentPublishedRevision: 1, version: 2, revisions: [published], events: [], payments: [] };
+  t.mock.method(User, 'findOne', () => query({ _id: employeeId, tenantId, employeeNo: 'E-1', profile: { name: '员工' }, department: '物流', status: 'active', mustChangePassword: false }));
+  t.mock.method(User, 'find', () => query([]));
+  t.mock.method(PayrollStatement, 'findOne', () => query(statement));
+  t.mock.method(PayrollStatement, 'findOneAndUpdate', async (_filter, update) => {
+    if (update.$set) Object.assign(statement, update.$set);
+    for (const key of Object.keys(update.$unset || {})) delete statement[key];
+    for (const [key, item] of Object.entries(update.$push || {})) statement[key].push(item);
+    statement.version += update.$inc.version;
+    return statement;
+  });
+  let ledgerStatus = 'open';
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query({ status: ledgerStatus }));
+  t.mock.method(monthCoordination, 'acquireMonthMutationLock', async () => 'month-lock');
+  t.mock.method(monthCoordination, 'releaseMonthMutationLock', async () => {});
+  const req = { user: { _id: financeId, tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] }, tenantId, params: { employeeId: String(employeeId), month: '2026-09' } };
+
+  // 未结账：已发布的行可以直接改，存出来的是「修订草稿」，旧版仍在
+  const saved = response();
+  await payroll.saveDraft({ ...req, body: { version: 2, components: { ...components, performancePayCents: 90000 } } }, saved);
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.body.data.statementStatus, 'draft');
+  assert.equal(saved.body.data.revision, 1, '旧版仍有效，员工看到的还是第 1 版');
+  assert.equal(saved.body.data.publishedTotals.netPayCents, published.totals.netPayCents);
+
+  // 不用撤回就能接着发第 2 版，强发标记跟着新版走
+  const republished = response();
+  await payroll.publish({ ...req, body: { version: statement.version, force: true } }, republished);
+  assert.equal(republished.statusCode, 200);
+  assert.equal(republished.body.data.revision, 2);
+  assert.equal(republished.body.data.statementStatus, 'published');
+  assert.equal(republished.body.data.forcedPublish.revision, 2);
+  assert.deepEqual(statement.revisions.map(item => item.revision), [1, 2]);
+
+  // 结账后同一动作被拦住：必须先撤回，旧版才留得住
+  ledgerStatus = 'closed';
+  const versionBeforeBlock = statement.version;
+  const blocked = response();
+  await payroll.saveDraft({ ...req, body: { version: versionBeforeBlock, components: { ...components, performancePayCents: 100000 } } }, blocked);
+  assert.equal(blocked.statusCode, 409);
+  assert.match(blocked.body.error, /先撤回/);
+  assert.equal(statement.version, versionBeforeBlock, '被拦住时不能写库');
+  assert.equal(statement.draft, undefined, '被拦住时不能落草稿');
+});
