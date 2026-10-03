@@ -141,6 +141,18 @@
   发布对话框副标题区分「首次发布」与「订正第 N 版，发布后生成第 N+1 版」（`publishDialogNote`），
   未结账时标题/按钮改成「强制发布」并给警示块；`publishPayrollStatement(..., force)` / `publishPayrollStatements(month, ids, force)` 传 `force`。
 
+## 薪资统计的「考勤统计」块
+- 时长唯一来源 `attendance-ledger.js` 的 **`getPayrollAttendanceSummary(tenantId, months, employeeId?)`**（复用
+  `aggregateApprovedRequests`，与工资表明细同一份口径）。**别在 payroll.js 里另写时长聚合** → 口径必漂移。
+- 单位：**出差 = 日历天数**（自然日计数，不是 `fieldworkMinutes / dayMinutes`）、**加班 = 小时**、
+  **请假与旷工 = 天**（用 `dayMinutes` 折）。金额取**已发布工资条**：请假 = 病假 + 事假、旷工 = 旷工扣款、
+  加班 = 加班补贴；**没有出差补贴字段 → 出差无金额**。金额为 0 写 ¥0.00（「—」在本仓语义是「取不到数」）。
+- **旷工没有独立登记**（台账只登记迟到/早退/无打卡次数），按台账缺口推导：
+  `应出勤 − 实到 − 请假 − 迟到/早退/无打卡扣减`（下限 0）。只算 `confirmed` 且有整数 `actualMinutes` 的人；
+  其余跳过并回报 `absenceSkippedCount`。**`requiresLeaveReconciliation` 的人必须跳过**（请假没进口径，会被算成旷工）。
+  应出勤：闭月用快照 `row.expectedMinutes`，开月按当前日历重算（库里的可能过期）。算不出来**不抛错**，只跳过。
+- 考勤块整块 `.catch()` 兜住（`dayMinutes === null` 才是整块不可用），**它挂了不能让工资计提报错**。
+
 ## 站内通知
 - `models/Notice.js` + `/notices`、`/unread-count`、`/:id/read`、`/read-all` + 顶栏 `notice-bell.vue`（60s 轮询）。
   **`Notice.link` 是「前端可直接 `router.push` 的路径」**；写通知一律 try/catch，失败只 warn。
