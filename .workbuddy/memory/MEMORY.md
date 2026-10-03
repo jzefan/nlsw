@@ -20,7 +20,11 @@
 - **断言侧栏入口别只看 DOM**：「我的申请」「待我审批」是**折叠分组**，子链接默认不在 DOM → 会误判「入口没加」。
   从组件 `setupState.navMain` 读菜单树（全 DOM 扫 `__vueParentComponent`），或先点开分组再查 DOM。
 - **Radix tooltip 要 hover 到徽标本身**，hover `td` 空白处不触发。
+- **列可见性/溢出断言**：shadcn `Table` 自带 `[data-slot="table-container"]`（`overflow-auto`），单元格被挤住时**外层 `scrollWidth` 仍等于 clientWidth**
+  → 只看外层必误判；要量内层或逐单元格。
+- **写接口回放要带 `origin`/`referer`**，否则被来源校验挡回 403「请求来源无效，请从本站重新操作」（GET 不需要）。
 - `context.unroute(fn)` **按引用比**：谓词写成新的箭头函数不会移除旧路由 → 要换桩就另开 context。
+- 脚本里别用 `... | head -N` 收尾：管道提前关掉会让 node 收 SIGPIPE 直接死，**末尾写出的 JSON/汇总会缺**。
 - 完整脚本见技能 `live-session-api-replay`。
 
 ## 角色与权限
@@ -79,10 +83,6 @@
   本月无应出勤；扣成负数按 0；只导入「迟到合计」未分档 → 不扣。前端必须有 `effectiveActualMinutes(row)`，
   `makeDraft`/`isRowDirty` 都用它（否则一进页面就判成「未保存修改」，挡住切月与结账）。
 
-## 表格页列可见性断言（踩过）
-shadcn `Table` 自带 `[data-slot="table-container"]`（`overflow-auto`），单元格溢出时**外层容器 `scrollWidth` 仍等于 clientWidth**
-→ 只看外层必误判；判据与脚本在技能 `live-session-api-replay`。
-
 ## 考勤申请 / 审批 / 附件
 - 三个入口（我的申请 / 待我审批 / 审核记录）**共用 `RequestList.vue`**；详情是展开行（时间线 `RequestTimeline.vue`：
   提交 → 逐级审批 →（撤回），状态 `等待中|已通过|已驳回|未进行`）。
@@ -122,17 +122,24 @@ shadcn `Table` 自带 `[data-slot="table-container"]`（`overflow-auto`），单
 - **`constants/payroll-fields.ts` 的 `showPayrollPayments = false`**：发放状态/已付/剩余/收退款登记整块隐藏（三处共用）；
   **接口与数据保留，别删代码**。
 
-## 工资条发布前置与强制发布
+## 工资条发布 / 再发布
 - **前置 = 当月考勤已结账**：`monthLedgerStatus(tenantId, month)` → `closed|open|missing`（**没建台账也算未结账**）；
   单条 `publishDraftStatement` 与 `publishBatch` 共用这一条判据，`listStatements` 也复用它下发 `ledgerStatus`。
 - **强制发布**：请求体 `force === true` 才放行，**不要求财务填原因**，仍限财务（`requireFinance`）。批量是「抢锁后统一判一次」，
   未结账且没开 force → 整批 409。
+- **未结账月份可以直接改已发布的工资条并再发布（用户定的口径）**：此时发布本就是过渡版本，
+  已发布的行照样给「编辑」（`canEditStatement(row)` = `canEdit && (status !== 'published' || !ledgerSettled)`），
+  改完只是生成一份修订草稿 → 再发布就是第 N+1 版，**不必先撤回**。
+  **已结账月份反过来**：`saveDraft` 里 `existing.currentPublishedRevision && 台账 closed` → 409「请先撤回再修改」
+  （撤回会把旧版留在 `revisions` 里，直接覆盖会丢痕迹）。守卫放在**版本校验之前**，且用
+  `currentPublishedRevision` 短路 → 普通草稿保存不会多查一次台账。
 - **留痕**：`PayrollStatement.events` 写 `action:'forced_publish'` + `ledgerStatus`（当时快照）；`eventSchema.reason` 改成
   **只在 `action === 'withdrawn'` 时必填**（加事件动作要同步改 enum）。`serializeStatement` 只把**当前有效发布版**对应的强发
-  事件导出为 `forcedPublish`（撤回后正常重发，标记自然消失）；事后结账**不覆盖**该留痕。
-  工资表行上「未结账发布」读 `forcedPublish`，月份级「考勤」列读 `ledgerStatus`。
-- **单条发布弹窗与批量发布弹窗在未结账时标题/按钮都改成「强制发布」**并给警示块；
-  `publishPayrollStatement(..., force)` / `publishPayrollStatements(month, ids, force)` 传 `force`。
+  事件导出为 `forcedPublish`（撤回/再发布后旧标记自然消失，事后结账**不覆盖**）。工资表行上「未结账发布」读 `forcedPublish`，
+  月份级「考勤」列读 `ledgerStatus`。
+- **文案要分两种口径**：`ledgerSettled` 决定「过渡版本（不必撤回）」还是「定稿（先撤回）」；
+  发布对话框副标题区分「首次发布」与「订正第 N 版，发布后生成第 N+1 版」（`publishDialogNote`），
+  未结账时标题/按钮改成「强制发布」并给警示块；`publishPayrollStatement(..., force)` / `publishPayrollStatements(month, ids, force)` 传 `force`。
 
 ## 站内通知
 - `models/Notice.js` + `/notices`、`/unread-count`、`/:id/read`、`/read-all` + 顶栏 `notice-bell.vue`（60s 轮询）。

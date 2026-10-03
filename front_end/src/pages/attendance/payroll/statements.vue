@@ -226,6 +226,12 @@ function publishDialogNote(row: PayrollStatementRow | null) {
     : '首次发布'
 }
 
+/** 录入弹窗标题：改的是一份已发布工资条时要说清（未结账月份允许这么改）。 */
+function editorTitle(row: PayrollStatementRow | null) {
+  if (!row) return '录入工资条'
+  return row.statementStatus === 'published' ? '修改已发布工资条' : '录入工资条'
+}
+
 /** 发放状态说明：按已发布版的实发与累计净支付（付款 − 退款）给出金额与差额。 */
 function paymentStatusHint(row: PayrollStatementRow) {
   const netPayCents = row.publishedTotals?.netPayCents ?? row.totals?.netPayCents
@@ -1131,7 +1137,7 @@ onMounted(() => {
     >
       <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>录入工资条 · {{ editingRow?.name }}</DialogTitle>
+          <DialogTitle>{{ editorTitle(editingRow) }} · {{ editingRow?.name }}</DialogTitle>
           <p class="text-xs text-muted-foreground">
             <template v-if="editingRow?.standard"
               >固定项与社保公积金已按「薪资设置」里的薪资标准带出，可再手工调整。</template
