@@ -26,10 +26,10 @@ import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
 import { canApproveSeal as canApproveSealRequests, canManagePayroll as canManagePayrollModule, canManageSeal as canManageSealModule, canManageSealSettings as canManageSealSettingsModule, canReviewAttendanceRequests } from '@/utils/module-access'
 
-export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false, isSealApprover = false): NavGroup[] {
   const groups: NavGroup[] = []
   // 模块入口可见性与移动端模块首页共用同一份判据（utils/module-access.ts）
-  const access = { isOwner, privilege, attendanceRoles, payrollRoles, title, isCustodian, canReviewAttendance }
+  const access = { isOwner, privilege, attendanceRoles, payrollRoles, title, isCustodian, canReviewAttendance, isSealApprover }
 
   // 总览 - 所有人可见
   groups.push({
@@ -38,6 +38,8 @@ export function generateNavData(privilege: string[], features?: Features, attend
   })
 
   // 考勤入口仅在功能开启后显示；实际分配的审批人也可进入本人待办与审核历史。
+  // 分组先攒着，最后统一插到「数据与报表」之后（见文件末尾）
+  let attendanceGroup: NavGroup | null = null
   if (features?.attendance) {
     const canApprove = canReviewAttendanceRequests(access)
     // 工资管理菜单：财务可录入发布，总经理与董事长只读查看（职务可能是 gm/ceo，也可能是老账号的中文写法）
@@ -95,18 +97,19 @@ export function generateNavData(privilege: string[], features?: Features, attend
           }]
         : []),
     ]
-    groups.push({ title: '考勤与工资', items: attendanceItems })
+    attendanceGroup = { title: '考勤与工资', items: attendanceItems }
   } else if (features?.seal) {
     // 仅开启用章模块、未开考勤时，独立渲染「我的申请」
-    groups.push({
+    attendanceGroup = {
       title: '我的申请',
       items: [
         { title: '用章申请', url: '/seal/requests', icon: CalendarDays }
       ]
-    })
+    }
   }
 
   // 印章管理模块（若启用用章功能，具有管理权限或管理员可见）
+  let sealGroup: NavGroup | null = null
   if (features?.seal) {
     const canManageSeal = canManageSealModule(access)
     if (canManageSeal) {
@@ -116,7 +119,7 @@ export function generateNavData(privilege: string[], features?: Features, attend
         { title: '使用台账', url: '/seal/ledger', icon: FileText },
         ...(canManageSealSettingsModule(access) ? [{ title: '用章设置', url: '/seal/settings', icon: Settings2 }] : [])
       ]
-      groups.push({ title: '印章管理', items: sealItems })
+      sealGroup = { title: '印章管理', items: sealItems }
     }
   }
 
@@ -273,6 +276,10 @@ export function generateNavData(privilege: string[], features?: Features, attend
       items: groupItems,
     })
   }
+
+  // 考勤与工资、印章管理：放在「数据与报表」之后、「其他」之前
+  if (attendanceGroup) groups.push(attendanceGroup)
+  if (sealGroup) groups.push(sealGroup)
 
   // 设置 - 所有人可见
   groups.push({

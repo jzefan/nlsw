@@ -208,8 +208,8 @@ onMounted(() => {
             <TableRow>
               <TableHead class="w-12 whitespace-nowrap">
                 <Checkbox
-                  :checked="allSelected"
-                  @update:checked="toggleSelectAll"
+                  :model-value="allSelected"
+                  @update:model-value="toggleSelectAll"
                 />
               </TableHead>
               <TableHead class="whitespace-nowrap">月份</TableHead>

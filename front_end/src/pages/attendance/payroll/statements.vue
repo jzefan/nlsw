@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Check, ChevronDown, ChevronUp, FileEdit, RotateCcw, Send, SlidersHorizontal, Upload, Wallet } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronUp, FileEdit, Gift, RotateCcw, Send, SlidersHorizontal, Upload, Wallet } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import {
@@ -26,6 +26,7 @@ import PayslipTable from '@/components/payslip-table.vue'
 import PayrollImportDialog from '@/pages/attendance/components/PayrollImportDialog.vue'
 import PayrollPublishDialog from '@/pages/attendance/components/PayrollPublishDialog.vue'
 import PayrollTaxHint from '@/pages/attendance/components/PayrollTaxHint.vue'
+import PayrollWelfareDialog from '@/pages/attendance/components/PayrollWelfareDialog.vue'
 import {
   addPayrollPayment,
   getPayrollStatements,
@@ -46,6 +47,7 @@ import { useDevice } from '@/composables/use-device'
 import { leaveLabel } from '@/constants/attendance-labels'
 import {
   payrollAttendanceDeductionKeys,
+  payrollEmployeeDeductionKeys,
   payrollIncomeKeys,
   payrollTotalsLabels,
   showPayrollPayments,
@@ -74,6 +76,7 @@ const canEdit = computed(() => canEditPayroll(authStore.user))
 const canViewCompany = computed(() => canViewCompanyPayroll(authStore.user))
 const importOpen = ref(false)
 const publishOpen = ref(false)
+const welfareOpen = ref(false)
 /** 移动端把导入 / 批量发布收进底部抽屉，避免顶栏塞不下。 */
 const mobileActionsOpen = ref(false)
 const route = useRoute()
@@ -133,10 +136,14 @@ const paymentForm = ref({
 })
 let requestId = 0
 
-const componentGroups: { title: string; fields: readonly (readonly [PayrollComponentKey, string])[] }[] = [
-  { title: '收入项目', fields: payrollComponentFields.slice(0, 8) },
-  { title: '公司承担', fields: payrollComponentFields.slice(8, 10) },
-  { title: '个人扣款', fields: payrollComponentFields.slice(10) },
+/**
+ * 录入弹窗的三组字段。**按 key 显式列出，不要用 slice 切**：
+ * payrollComponentFields 增减项时 slice 会静默错位（曾把社保个人承担归进「公司承担」）。
+ */
+const componentGroups: { title: string, fields: readonly (readonly [PayrollComponentKey, string])[] }[] = [
+  { title: '收入项目', fields: payrollComponentFields.filter(([key]) => payrollIncomeKeys.includes(key)) },
+  { title: '公司承担', fields: payrollComponentFields.filter(([key]) => key === 'employerSocialInsuranceCents' || key === 'employerHousingFundCents') },
+  { title: '个人扣款', fields: payrollComponentFields.filter(([key]) => payrollEmployeeDeductionKeys.includes(key) || payrollAttendanceDeductionKeys.includes(key)) },
 ]
 const totalFields = (
   [
@@ -606,6 +613,7 @@ onMounted(() => {
           <DrawerHeader><DrawerTitle>工资表操作</DrawerTitle></DrawerHeader>
           <div class="grid gap-2 px-4 pb-6">
             <Button class="h-10" variant="outline" :disabled="loading || !!editingRow || actionBusy || paymentBusy" @click="mobileActionsOpen = false; importOpen = true"><Upload class="mr-1.5 size-4" />导入工资表</Button>
+            <Button class="h-10" variant="outline" :disabled="loading || !!editingRow || actionBusy || paymentBusy" @click="mobileActionsOpen = false; welfareOpen = true"><Gift class="mr-1.5 size-4" />批量福利</Button>
             <Button class="h-10" :disabled="loading || !!editingRow || actionBusy || paymentBusy || !publishableCount" @click="mobileActionsOpen = false; publishOpen = true"><Send class="mr-1.5 size-4" />批量发布<template v-if="publishableCount">（{{ publishableCount }}）</template></Button>
           </div>
         </DrawerContent>
@@ -622,6 +630,13 @@ onMounted(() => {
             :disabled="loading || !!editingRow || actionBusy || paymentBusy"
             @click="importOpen = true"
             ><Upload class="mr-1.5 size-4" />导入</Button
+          >
+          <Button
+            size="sm"
+            variant="outline"
+            :disabled="loading || !!editingRow || actionBusy || paymentBusy"
+            @click="welfareOpen = true"
+            ><Gift class="mr-1.5 size-4" />批量福利</Button
           >
           <Button
             size="sm"
@@ -1126,6 +1141,7 @@ onMounted(() => {
     <PayrollImportDialog v-model:open="importOpen" :month="month" :rows="rows" @imported="loadStatements" />
 
     <PayrollPublishDialog v-model:open="publishOpen" :month="month" :rows="rows" :ledger-status="ledgerStatus" @published="loadStatements" />
+    <PayrollWelfareDialog v-model:open="welfareOpen" :month="month" :rows="rows" @saved="loadStatements" />
 
     <Dialog
       :open="!!editingRow"
@@ -1154,6 +1170,9 @@ onMounted(() => {
         <div class="space-y-5">
           <section v-for="group in componentGroups" :key="group.title" class="space-y-2.5">
             <h2 class="text-xs font-semibold">{{ group.title }}</h2>
+            <p v-if="group.title === '收入项目' && (editingRow?.welfareItems?.length ?? 0) > 0" class="text-xs text-muted-foreground">
+              本月已记节日福利：{{ editingRow?.welfareItems?.map(item => `${item.holidayLabel} ${formatCents(item.amountCents)}`).join('、') }}。改这一栏金额会清掉这层明细。
+            </p>
             <div class="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
               <label v-for="[key, label] in group.fields" :key="key" class="space-y-1.5 text-xs text-muted-foreground">
                 <span class="flex items-center gap-1">

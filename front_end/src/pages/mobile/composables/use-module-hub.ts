@@ -47,6 +47,7 @@ export function useModuleHub() {
     title: user.value?.title ?? '',
     isCustodian: isSealCustodian(user.value, authStore.tenant),
     canReviewAttendance: user.value?.canReviewAttendance === true,
+    isSealApprover: user.value?.isSealApprover === true,
   }))
 
   // 同一类入口在三个首页里保持同一个配色

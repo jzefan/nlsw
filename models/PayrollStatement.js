@@ -9,6 +9,7 @@ const moneyFields = {
   transportAllowanceCents: { type: Number, default: 0, min: 0 },
   lunchAllowanceCents: { type: Number, default: 0, min: 0 },
   overtimeAllowanceCents: { type: Number, default: 0, min: 0 },
+  welfareCents: { type: Number, default: 0, min: 0 },
   employerSocialInsuranceCents: { type: Number, default: 0, min: 0 },
   employerHousingFundCents: { type: Number, default: 0, min: 0 },
   employeeSocialInsuranceCents: { type: Number, default: 0, min: 0 },
@@ -18,6 +19,17 @@ const moneyFields = {
   absenceDeductionCents: { type: Number, default: 0, min: 0 },
   incomeTaxCents: { type: Number, default: 0, min: 0 },
 };
+
+/**
+ * 节日福利明细：一个节日一条，金额合计等于 components.welfareCents。
+ * 单独存明细是为了「同一节日改金额」时能覆盖而不是累加，也为了让工资条能显示
+ * 「国庆节 ¥300.00」这样的来源。holidayLabel 对「其他」存财务自填的名称。
+ */
+const welfareItemSchema = new mongoose.Schema({
+  holiday: { type: String, required: true, maxlength: 20 },
+  holidayLabel: { type: String, required: true, maxlength: 20 },
+  amountCents: { type: Number, required: true, min: 0 },
+}, { _id: false });
 
 const componentsSchema = new mongoose.Schema(moneyFields, { _id: false, id: false });
 const totalsSchema = new mongoose.Schema({
@@ -41,6 +53,8 @@ const publishedRevisionSchema = new mongoose.Schema({
   employee: { type: employeeSnapshotSchema, required: true },
   components: { type: componentsSchema, required: true },
   totals: { type: totalsSchema, required: true },
+  // 与 components.welfareCents 配套的节日明细，随版本一起冻结，撤回后仍能看到当时发了哪些节日。
+  welfareItems: { type: [welfareItemSchema], default: [] },
   publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   publishedAt: { type: Date, required: true },
 }, { _id: false });
@@ -76,6 +90,8 @@ const schema = new mongoose.Schema({
   draft: {
     components: { type: componentsSchema, default: undefined },
     totals: { type: totalsSchema, default: undefined },
+    // 草稿阶段的节日福利明细；金额合计必须等于 draft.components.welfareCents。
+    welfareItems: { type: [welfareItemSchema], default: [] },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedAt: Date,
   },

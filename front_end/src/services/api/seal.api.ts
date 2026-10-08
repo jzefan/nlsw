@@ -38,10 +38,17 @@ export interface SealItem {
   updatedAt: string
 }
 
+export type SealApprovalStatus = 'pending' | 'approved' | 'rejected' | 'skipped'
+
 export interface SealApproval {
   approverId: string
-  role: 'general_manager' | 'owner' | 'delegate'
-  status: 'pending' | 'approved' | 'rejected'
+  role: 'general_manager' | 'owner' | 'delegate' | 'seal_type_approver'
+  /** 该审批人负责的印章类别 */
+  sealTypes?: SealType[]
+  /** 后端序列化注入：审批人姓名与类别中文名（子文档，schema 外的字段不能直接赋值） */
+  approverName?: string
+  sealTypeNames?: string[]
+  status: SealApprovalStatus
   comment?: string
   reviewedAt?: string
 }
@@ -87,7 +94,9 @@ export interface SealRequest {
   remark?: string
   status: SealRequestStatus
   approvals: SealApproval[]
-  currentApproverId?: string | null
+  /** 会签：仍在待审的审批人 id 列表 */
+  currentApproverIds?: string[]
+  pendingApproverIds?: string[]
   sealItems: AssignedSealItem[]
   checkedOutAt?: string | null
   operatorId?: string | null
@@ -129,11 +138,19 @@ export interface SealCustodianCandidate {
   userid: string
 }
 
+/** 一位用章审批人及其负责的印章类别（一个人可管多类，5 类不必对应 5 个人）。 */
+export interface SealApproverConfig {
+  userId: string
+  sealTypes: SealType[]
+}
+
 export interface SealSettings {
   sealEnabled: boolean
   sealCustodianId?: string | null
   sealCustodianIds?: string[]
   candidates?: SealCustodianCandidate[]
+  /** 用章审批人（以人为中心）；未被覆盖的类别走总经理兜底 */
+  sealApprovers?: SealApproverConfig[]
   custodianUser?: {
     _id: string
     profile?: { name?: string }
@@ -143,6 +160,18 @@ export interface SealSettings {
   } | null
   sealOverdueRemindMinutes: number
   sealOverdueEscalateMinutes: number
+}
+
+/** 当前登录人是否有待自己处理的审批步骤（会签口径；兜底代审由 canApproveSeal 覆盖）。 */
+export function hasPendingApprovalForMe(request: SealRequest, myId?: string | null): boolean {
+  if (!myId) return false
+  return (request.approvals || []).some(a => a.status === 'pending' && a.approverId === myId)
+}
+
+/** 单据上我负责的那一步（用于文案「你负责的公章、财务专用章」）。 */
+export function myApprovalStep(request: SealRequest, myId?: string | null): SealApproval | null {
+  if (!myId) return null
+  return (request.approvals || []).find(a => a.status === 'pending' && a.approverId === myId) || null
 }
 
 export interface SealStatisticsItem {
@@ -296,6 +325,7 @@ export async function updateSealSettings(body: {
   sealEnabled?: boolean
   sealCustodianId?: string | null
   sealCustodianIds?: string[]
+  sealApprovers?: SealApproverConfig[]
   sealOverdueRemindMinutes?: number
   sealOverdueEscalateMinutes?: number
 }) {

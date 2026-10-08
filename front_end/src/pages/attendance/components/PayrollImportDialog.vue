@@ -56,6 +56,7 @@ const columnAliases: Record<ComponentKey, string[]> = {
   transportAllowanceCents: ['交通补助', '交通费'],
   lunchAllowanceCents: ['餐补', '午餐补助', '伙食补贴'],
   overtimeAllowanceCents: ['加班费', '加班补助'],
+  welfareCents: ['福利', '福利费', '节日福利'],
   employerSocialInsuranceCents: ['社保单位承担', '公司社保', '社保(公司)'],
   employerHousingFundCents: ['公积金单位承担', '公司公积金', '公积金(公司)'],
   employeeSocialInsuranceCents: ['社保个人', '个人社保', '社保(个人)'],
@@ -360,8 +361,8 @@ async function handleFile(event: Event) {
  * 「补贴 / 请假」这类分组在首行横向合并、子列写第二行。汇总列留空不填也行。
  */
 function downloadTemplate() {
-  const first = ['姓名', '基本工资', '绩效工资', '岗位工资', '工龄工资', '满勤奖', '补贴', '', '', '社保公司承担', '公积金公司承担', '工资总额（含社保公积金）', '社保个人承担', '公积金个人承担', '请假', '', '旷工', '合计应发（不含）', '个人所得税扣款', '实发金额']
-  const second = ['', '', '', '', '', '', '交通补贴', '午餐补贴', '加班补贴', '', '', '', '', '', '病假', '事假', '', '', '', '']
+  const first = ['姓名', '基本工资', '绩效工资', '岗位工资', '工龄工资', '满勤奖', '补贴', '', '', '', '社保公司承担', '公积金公司承担', '工资总额（含社保公积金）', '社保个人承担', '公积金个人承担', '请假', '', '旷工', '合计应发（不含）', '个人所得税扣款', '实发金额']
+  const second = ['', '', '', '', '', '', '交通补贴', '午餐补贴', '加班补贴', '福利', '', '', '', '', '病假', '事假', '', '', '', '']
   const sheet = XLSX.utils.aoa_to_sheet([first, second])
   const merges: XLSX.Range[] = []
   // 列名只在首行 → 纵向合并两行

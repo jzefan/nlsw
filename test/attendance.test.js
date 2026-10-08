@@ -135,44 +135,44 @@ function appealRequestFor(user, tenantId, overrides = {}) {
 test('leave policy uses confirmed weekday schedule, holiday/workday overrides, and rejects unconfirmed years', () => {
   const base = { settings: { attendanceCalendarYears: [2026] } };
   const at = date => new Date(date);
-  assert.equal(calculateLeaveMinutes(at('2026-09-21T09:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), base).minutes, 480);
-  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), base).minutes, 0);
-  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), {
+  assert.equal(calculateLeaveMinutes(at('2026-09-21T08:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), base).minutes, 480);
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T08:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), base).minutes, 0);
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T08:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), {
     settings: { attendanceCalendarYears: [2026], attendanceCalendarOverrides: { '2026-09-19': 'workday' } }
   }).minutes, 480);
-  assert.equal(calculateLeaveMinutes(at('2026-09-21T09:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), {
+  assert.equal(calculateLeaveMinutes(at('2026-09-21T08:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), {
     settings: { attendanceCalendarYears: [2026], attendanceCalendarOverrides: { '2026-09-21': 'holiday' } }
   }).minutes, 0);
   // 内置全国节假日表覆盖的年份视为已确认，表外年份仍需考勤管理员确认
-  assert.equal(calculateLeaveMinutes(at('2026-09-21T09:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), { settings: {} }).minutes, 480);
-  assert.throws(() => calculateLeaveMinutes(at('2027-09-21T09:00:00+08:00'), at('2027-09-21T18:00:00+08:00'), { settings: {} }), /确认 2027 年工作日历/);
+  assert.equal(calculateLeaveMinutes(at('2026-09-21T08:00:00+08:00'), at('2026-09-21T18:00:00+08:00'), { settings: {} }).minutes, 480);
+  assert.throws(() => calculateLeaveMinutes(at('2027-09-21T08:00:00+08:00'), at('2027-09-21T18:00:00+08:00'), { settings: {} }), /确认 2027 年工作日历/);
 });
 
 test('saturday morning option only adds the morning half day on ordinary saturdays', () => {
   const at = date => new Date(date);
   const withSaturdayMorning = { settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true } };
-  // 普通周六（2026-09-19）：只有上午 09:00–12:00 计入，默认工作时段下是 180 分钟
+  // 普通周六（2026-09-19）：只计入上午 08:00–12:00 这段（默认工作时段的第一段），共 240 分钟
   assert.deepEqual(
-    calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), withSaturdayMorning).allocations,
-    [{ date: '2026-09-19', minutes: 180 }]
+    calculateLeaveMinutes(at('2026-09-19T08:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), withSaturdayMorning).allocations,
+    [{ date: '2026-09-19', minutes: 240 }]
   );
-  assert.equal(isWorkdayAt(at('2026-09-19T09:00:00+08:00').getTime(), withSaturdayMorning), true);
+  assert.equal(isWorkdayAt(at('2026-09-19T08:00:00+08:00').getTime(), withSaturdayMorning), true);
   // 周日仍然是休息日
-  assert.equal(isWorkdayAt(at('2026-09-13T09:00:00+08:00').getTime(), withSaturdayMorning), false);
+  assert.equal(isWorkdayAt(at('2026-09-13T08:00:00+08:00').getTime(), withSaturdayMorning), false);
   // 落在周六的法定节假日照休（2026-10-03 在国庆假期内）
-  assert.equal(calculateLeaveMinutes(at('2026-10-03T09:00:00+08:00'), at('2026-10-03T18:00:00+08:00'), withSaturdayMorning).minutes, 0);
+  assert.equal(calculateLeaveMinutes(at('2026-10-03T08:00:00+08:00'), at('2026-10-03T18:00:00+08:00'), withSaturdayMorning).minutes, 0);
   // 国务院调休上班日按完整工作日计：2026-02-28 是周六，2026-09-20 是周日
-  assert.equal(calculateLeaveMinutes(at('2026-02-28T09:00:00+08:00'), at('2026-02-28T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
-  assert.equal(calculateLeaveMinutes(at('2026-09-20T09:00:00+08:00'), at('2026-09-20T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
+  assert.equal(calculateLeaveMinutes(at('2026-02-28T08:00:00+08:00'), at('2026-02-28T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
+  assert.equal(calculateLeaveMinutes(at('2026-09-20T08:00:00+08:00'), at('2026-09-20T18:00:00+08:00'), withSaturdayMorning).minutes, 480);
   // 管理员单日覆盖优先于开关
-  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), {
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T08:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), {
     settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true, attendanceCalendarOverrides: { '2026-09-19': 'holiday' } }
   }).minutes, 0);
-  assert.equal(calculateLeaveMinutes(at('2026-09-13T09:00:00+08:00'), at('2026-09-13T18:00:00+08:00'), {
+  assert.equal(calculateLeaveMinutes(at('2026-09-13T08:00:00+08:00'), at('2026-09-13T18:00:00+08:00'), {
     settings: { attendanceCalendarYears: [2026], attendanceSaturdayMorningWorkday: true, attendanceCalendarOverrides: { '2026-09-13': 'workday' } }
   }).minutes, 480);
   // 开关关着时与原来一致
-  assert.equal(calculateLeaveMinutes(at('2026-09-19T09:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), { settings: { attendanceCalendarYears: [2026] } }).minutes, 0);
+  assert.equal(calculateLeaveMinutes(at('2026-09-19T08:00:00+08:00'), at('2026-09-19T18:00:00+08:00'), { settings: { attendanceCalendarYears: [2026] } }).minutes, 0);
 });
 
 test('leave endpoints must be workdays but an interval may cross weekends', async t => {
@@ -199,7 +199,8 @@ test('leave endpoints must be workdays but an interval may cross weekends', asyn
   mockSubmissionLock(t);
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } }));
-  const spanningRequest = requestFor(user, tenantId, '2026-11-06T17:00:00+08:00', '2026-11-09T10:00:00+08:00');
+  // 11/06 周五下班后 → 11/09 周一上午：跨周末只算两端落在工作时段内的部分
+  const spanningRequest = requestFor(user, tenantId, '2026-11-06T17:00:00+08:00', '2026-11-09T09:00:00+08:00');
   const spanningResponse = response();
   await attendance.createRequest(spanningRequest, spanningResponse);
   assert.equal(spanningResponse.statusCode, 201);
@@ -607,14 +608,14 @@ test('three working days needs only manager approval; more than three adds gener
     return { _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } };
   });
 
-  const exactlyThreeDays = requestFor(user, tenantId, '2026-11-02T09:00:00+08:00', '2026-11-04T18:00:00+08:00');
+  const exactlyThreeDays = requestFor(user, tenantId, '2026-11-02T08:00:00+08:00', '2026-11-04T18:00:00+08:00');
   const exactlyThreeDaysResponse = response();
   await attendance.createRequest(exactlyThreeDays, exactlyThreeDaysResponse);
   assert.equal(exactlyThreeDaysResponse.statusCode, 201);
   assert.equal(exactlyThreeDaysResponse.body.data.durationMinutes, 24 * 60);
   assert.deepEqual(created[0].approvals.map(step => step.role), ['manager']);
 
-  const moreThanThreeDays = requestFor(user, tenantId, '2026-11-02T09:00:00+08:00', '2026-11-05T10:00:00+08:00');
+  const moreThanThreeDays = requestFor(user, tenantId, '2026-11-02T08:00:00+08:00', '2026-11-05T09:00:00+08:00');
   const moreThanThreeDaysResponse = response();
   await attendance.createRequest(moreThanThreeDays, moreThanThreeDaysResponse);
   assert.equal(moreThanThreeDaysResponse.statusCode, 201);
@@ -638,7 +639,7 @@ test('a missing or duplicated general manager blocks a long leave with an action
   }));
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => ({ _id: id(), ...document, toObject() { return { _id: this._id, ...document } } }));
-  const longLeave = () => requestFor(user, tenantId, '2026-11-02T09:00:00+08:00', '2026-11-06T18:00:00+08:00');
+  const longLeave = () => requestFor(user, tenantId, '2026-11-02T08:00:00+08:00', '2026-11-06T18:00:00+08:00');
 
   const missingResponse = response();
   await attendance.createRequest(longLeave(), missingResponse);
@@ -656,7 +657,7 @@ test('a missing or duplicated general manager blocks a long leave with an action
   // 正好 3 个工作日只走直属经理，不受总经理配置影响
   generalManagers = [];
   const exactlyThreeDaysResponse = response();
-  await attendance.createRequest(requestFor(user, tenantId, '2026-11-02T09:00:00+08:00', '2026-11-04T18:00:00+08:00'), exactlyThreeDaysResponse);
+  await attendance.createRequest(requestFor(user, tenantId, '2026-11-02T08:00:00+08:00', '2026-11-04T18:00:00+08:00'), exactlyThreeDaysResponse);
   assert.equal(exactlyThreeDaysResponse.statusCode, 201);
   assert.equal(exactlyThreeDaysResponse.body.data.durationMinutes, 24 * 60);
 });
@@ -680,7 +681,7 @@ test('general manager leave routes directly to the configured delegate', async t
     created.push(document);
     return { _id: id(), ...document, toObject() { return { _id: this._id, ...document }; } };
   });
-  const req = requestFor(user, tenantId, '2026-09-21T09:00:00+08:00', '2026-09-24T18:00:00+08:00');
+  const req = requestFor(user, tenantId, '2026-09-21T08:00:00+08:00', '2026-09-24T18:00:00+08:00');
   req.tenant.settings.attendanceGeneralManagerDelegateId = delegateId;
   const res = response();
   await attendance.createRequest(req, res);
@@ -747,11 +748,51 @@ test('employee profile cannot add or remove the general manager attendance role'
   const memberRes = response();
   await attendance.updateEmployeeProfile({
     user: { role: 'owner' }, tenantId,
-    body: { userId: memberId, employeeNo: 'E-1', department: '运营', managerId: null, attendanceRoles: ['manager', 'general_manager'] }
+    body: { userId: memberId, employeeNo: 'E-1', department: '运营', managerId: null, attendanceRoles: ['general_manager'] }
   }, memberRes);
   assert.equal(memberRes.statusCode, 200);
-  assert.deepEqual(memberUpdate.$set.attendanceRoles, ['manager']);
+  assert.deepEqual(memberUpdate.$set.attendanceRoles, []);
   assert.equal(memberUpdate.$set.attendanceGeneralManagerTenantId, undefined);
+});
+
+test('「经理」角色已停用：不能新增，但存量勾选可原样保留（编辑其他字段不该被 400 打断）', async t => {
+  const tenantId = id(), memberId = id(), legacyId = id();
+  const memberQuery = Promise.resolve({
+    _id: memberId, tenantId, userid: 'member-1', employeeNo: 'E-1', department: '运营', managerId: null,
+    status: 'active', attendanceRoles: [], attendanceTracked: true, profile: { name: '员工' }
+  });
+  memberQuery.select = () => memberQuery;
+  t.mock.method(User, 'exists', async () => null);
+  t.mock.method(User, 'findOne', () => memberQuery);
+  t.mock.method(User, 'updateOne', async () => ({ modifiedCount: 1 }));
+
+  // 新增：没有该角色的人传 manager → 400（防自审改用「直属经理」指向总经理实现）
+  const rejected = response();
+  await attendance.updateEmployeeProfile({
+    user: { role: 'owner' }, tenantId,
+    body: { userId: memberId, employeeNo: 'E-1', department: '运营', managerId: null, attendanceRoles: ['manager'] }
+  }, rejected);
+  assert.equal(rejected.statusCode, 400);
+  assert.match(rejected.body.error, /经理/);
+
+  // 保留：已经勾过的人，编辑其他字段时原样带回 manager → 200 且不清掉
+  const legacyQuery = Promise.resolve({
+    _id: legacyId, tenantId, userid: 'legacy-1', employeeNo: 'E-9', department: '运营', managerId: null,
+    status: 'active', attendanceRoles: ['manager'], attendanceTracked: true, profile: { name: '老经理' }
+  });
+  legacyQuery.select = () => legacyQuery;
+  let legacyUpdate;
+  t.mock.method(User, 'findOne', () => legacyQuery);
+  t.mock.method(User, 'updateOne', async (filter, value) => { legacyUpdate = value; return { modifiedCount: 1 }; });
+
+  const kept = response();
+  await attendance.updateEmployeeProfile({
+    user: { role: 'owner' }, tenantId,
+    body: { userId: legacyId, employeeNo: 'E-9', department: '运营分部', managerId: null, attendanceRoles: ['manager'] }
+  }, kept);
+  assert.equal(kept.statusCode, 200, '存量勾选必须能保存，不能打断编辑');
+  assert.deepEqual(legacyUpdate.$set.attendanceRoles, ['manager'], '存量角色不该被静默清掉');
+  assert.equal(legacyUpdate.$set.department, '运营分部', '其他字段要正常保存');
 });
 
 test('employee people list hides platform accounts', async t => {
@@ -877,7 +918,7 @@ test('attendance submissions and reviews notify the right person in app', async 
   mockSubmissionLock(t);
   t.mock.method(AttendanceRequest, 'exists', async () => false);
   t.mock.method(AttendanceRequest, 'create', async document => ({ _id: requestId, ...document, toObject() { return { _id: this._id, ...document }; } }));
-  const submitted = requestFor(applicant, tenantId, '2026-11-06T09:00:00+08:00', '2026-11-06T18:00:00+08:00');
+  const submitted = requestFor(applicant, tenantId, '2026-11-06T08:00:00+08:00', '2026-11-06T18:00:00+08:00');
   submitted.tenant = tenant;
   const submitRes = response();
   await attendance.createRequest(submitted, submitRes);
@@ -887,7 +928,7 @@ test('attendance submissions and reviews notify the right person in app', async 
   assert.equal(String(noticeWrites[0].userId), String(managerId));
   assert.equal(noticeWrites[0].link, '/attendance/approvals?type=leave');
   assert.match(noticeWrites[0].title, /提交了请假申请/);
-  assert.match(noticeWrites[0].body, /2026-11-06 09:00 ~ 2026-11-06 18:00/);
+  assert.match(noticeWrites[0].body, /2026-11-06 08:00 ~ 2026-11-06 18:00/);
   assert.match(noticeWrites[0].body, /共 8 小时/);
 
   // ② 驳回（末级）→ 通知申请人

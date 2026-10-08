@@ -5,6 +5,12 @@ const secrets = require('../config/secrets');
 
 const ATTENDANCE_ROLES = ['manager', 'general_manager', 'attendance_admin'];
 
+/** 读取与写入共用的默认工作时段（上午 + 下午）；租户未配置时一律回落到这里。 */
+const DEFAULT_WORK_PERIODS = Object.freeze([
+  Object.freeze({ start: '08:00', end: '12:00' }),
+  Object.freeze({ start: '14:00', end: '18:00' }),
+]);
+
 function rolesOf(user) {
   return Array.isArray(user?.attendanceRoles) ? user.attendanceRoles : [];
 }
@@ -75,7 +81,7 @@ function getAttendancePolicy(tenant) {
   const settings = tenant?.settings || {};
   const intervals = Array.isArray(settings.attendanceWorkPeriods) && settings.attendanceWorkPeriods.length
     ? settings.attendanceWorkPeriods
-    : [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }];
+    : DEFAULT_WORK_PERIODS;
   const normalizedIntervals = intervals.map(item => ({ start: toMinutes(item?.start), end: toMinutes(item?.end) }));
   normalizedIntervals.sort((a, b) => a.start - b.start);
   for (let i = 0; i < normalizedIntervals.length; i++) {
@@ -147,8 +153,13 @@ function leadingWorkIntervals(intervals) {
   return leading;
 }
 
+/**
+ * 'HH:MM' → 距零点分钟数；格式不对返回 NaN。
+ * 小时允许一位数（用户在输入框打 `8:00` 很常见），分钟必须是两位。
+ * 输出侧一律经 formatWorkInterval 补零成 `HH:MM`，库里存的都是两位。
+ */
 function toMinutes(value) {
-  const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
   if (!match) return NaN;
   const h = Number(match[1]), m = Number(match[2]);
   return h < 24 && m < 60 ? h * 60 + m : NaN;
@@ -217,6 +228,35 @@ function calculateLeaveMinutes(startAt, endAt, tenant) {
   return { minutes: Math.round(minutes), hoursPerDay: policy.hoursPerDay, policy, allocations };
 }
 
+/**
+ * 校验「工作时段」提交值。
+ * - 必须是 1~4 段（1 段表示全天连续上班，2 段是常见的上下午分开）。
+ * - 每段 HH:MM，结束必须晚于开始。
+ * - 段之间不允许重叠（`getAttendancePolicy` 也要求不重叠，这里提前拦下并给可读原因）。
+ * - 至少 1 分钟、最多 16 小时，避免 0 分钟或跨整天的异常配置。
+ * @returns {{ok: true, periods: Array<{start: string, end: string}>} | {ok: false, error: string}}
+ */
+function validateWorkPeriods(input) {
+  if (!Array.isArray(input) || !input.length) return { ok: false, error: '请至少设置一个工作时段' };
+  if (input.length > 4) return { ok: false, error: '工作时段最多 4 段' };
+  const parsed = [];
+  for (const item of input) {
+    const start = toMinutes(item?.start);
+    const end = toMinutes(item?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return { ok: false, error: '工作时段要用 HH:MM 格式，例如 09:00' };
+    if (end <= start) return { ok: false, error: '每个时段的结束时间必须晚于开始时间' };
+    if (end - start < 1) return { ok: false, error: '每个时段至少 1 分钟' };
+    parsed.push({ start, end });
+  }
+  parsed.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < parsed.length; i++) {
+    if (parsed[i - 1].end > parsed[i].start) return { ok: false, error: '工作时段不能相互重叠' };
+  }
+  const total = parsed.reduce((sum, item) => sum + (item.end - item.start), 0);
+  if (total > 16 * 60) return { ok: false, error: '一天工作时间不能超过 16 小时' };
+  return { ok: true, periods: parsed.map(formatWorkInterval) };
+}
+
 function sanitizeUser(user) {
   return {
     id: user._id,
@@ -229,12 +269,14 @@ function sanitizeUser(user) {
 
 module.exports = {
   ATTENDANCE_ROLES,
+  DEFAULT_WORK_PERIODS,
   rolesOf,
   hasAttendanceRole,
   hasLinkedEmployee,
   canViewTeam,
   requireAttendanceEnabled,
   requireEmployee,
+  validateWorkPeriods,
   getAttendancePolicy,
   calculateLeaveMinutes,
   isWorkdayAt,

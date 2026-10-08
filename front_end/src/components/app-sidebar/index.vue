@@ -35,7 +35,7 @@ const navMain = computed(() => {
   const payroll = user.value?.payrollRoles
   const payrollRoles = Array.isArray(payroll) ? payroll : payroll ? [payroll] : []
   const isCustodian = isSealCustodian(user.value, authStore.tenant)
-  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian, user.value?.canReviewAttendance === true)
+  return generateNavData(privilege, features.value, attendanceRoles, payrollRoles, authStore.isOwner, user.value?.title ?? '', isCustodian, user.value?.canReviewAttendance === true, user.value?.isSealApprover === true)
 })
 
 // 侧边栏标题：standalone 模式显示"公司名+物流系统"，平台用户显示"物流管理平台"，租户用户显示系统名

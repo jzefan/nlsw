@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
-import { Clock, Loader2, UserCheck, ChevronsUpDown, Search, X } from 'lucide-vue-next'
+import { Clock, Loader2, UserCheck, Stamp, ChevronsUpDown, Search, X, Plus, UserPlus } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -14,31 +14,64 @@ import {
 import {
   getSealSettings,
   updateSealSettings,
+  SEAL_TYPE_MAP,
   type SealCustodianCandidate,
+  type SealApproverConfig,
+  type SealType,
 } from '@/services/api/seal.api'
+
+const APPROVER_SEAL_TYPES: SealType[] = ['official', 'finance', 'contract', 'invoice', 'legal']
 
 const loading = ref(false)
 const saving = ref(false)
 const candidateList = ref<SealCustodianCandidate[]>([])
 const searchKeyword = ref('')
 const popoverOpen = ref(false)
+const approverSearch = ref('')
+const approverPickerOpen = ref(false)
 
 const form = ref({
   sealCustodianIds: [] as string[],
-  sealOverdueRemindMinutes: 120,
-  sealOverdueEscalateMinutes: 1440
+  sealApprovers: [] as SealApproverConfig[],
+  sealOverdueRemindHours: 2,
+  sealOverdueEscalateHours: 24
 })
+
+function minutesToHours(minutes: unknown, fallback: number) {
+  const mins = Number(minutes)
+  if (!Number.isFinite(mins) || mins <= 0) return fallback
+  return Math.round((mins / 60) * 100) / 100
+}
+
+function hoursToMinutes(hours: number) {
+  return Math.round(Number(hours) * 60)
+}
+
+function matchCandidate(p: SealCustodianCandidate, kw: string) {
+  return (p.name && p.name.toLowerCase().includes(kw)) ||
+    (p.department && p.department.toLowerCase().includes(kw)) ||
+    (p.employeeNo && p.employeeNo.toLowerCase().includes(kw)) ||
+    (p.userid && p.userid.toLowerCase().includes(kw))
+}
 
 const filteredCandidates = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
   if (!kw) return candidateList.value
-  return candidateList.value.filter(p =>
-    (p.name && p.name.toLowerCase().includes(kw)) ||
-    (p.department && p.department.toLowerCase().includes(kw)) ||
-    (p.employeeNo && p.employeeNo.toLowerCase().includes(kw)) ||
-    (p.userid && p.userid.toLowerCase().includes(kw))
-  )
+  return candidateList.value.filter(p => matchCandidate(p, kw))
 })
+
+/** 审批人选择器的候选：与保管员共用候选人列表，但搜索词独立，避免两个弹窗互相干扰。 */
+const filteredApproverCandidates = computed(() => {
+  const kw = approverSearch.value.trim().toLowerCase()
+  const chosen = new Set(form.value.sealApprovers.map(a => a.userId))
+  const pool = candidateList.value.filter(p => !chosen.has(p.userId))
+  if (!kw) return pool
+  return pool.filter(p => matchCandidate(p, kw))
+})
+
+function candidateById(id: string) {
+  return candidateList.value.find(p => p.userId === id) || { userId: id, name: '未知员工', userid: id }
+}
 
 const selectedCustodians = computed(() => {
   return form.value.sealCustodianIds.map(id => {
@@ -65,6 +98,47 @@ function clearCustodians() {
   form.value.sealCustodianIds = []
 }
 
+// --- 用章审批人（以人为中心） ---
+
+/** 某人已负责的类别；用于在勾选时禁用别人已占的类别（一个类别只能归一个人）。 */
+function typesTakenBy(userId: string) {
+  return new Set(
+    form.value.sealApprovers.find(a => a.userId === userId)?.sealTypes || [],
+  )
+}
+
+/** 该类别是否已被**别人**占用 → 别人行里不可再勾。 */
+function typeOwnedByOther(type: SealType, userId: string) {
+  const owner = form.value.sealApprovers.find(a => a.sealTypes.includes(type))
+  return Boolean(owner && owner.userId !== userId)
+}
+
+function ownerNameOf(type: SealType) {
+  const owner = form.value.sealApprovers.find(a => a.sealTypes.includes(type))
+  return owner ? candidateById(owner.userId).name : ''
+}
+
+function addApprover(userId: string) {
+  form.value.sealApprovers.push({ userId, sealTypes: [] })
+  approverPickerOpen.value = false
+  approverSearch.value = ''
+}
+
+function removeApprover(userId: string) {
+  form.value.sealApprovers = form.value.sealApprovers.filter(a => a.userId !== userId)
+}
+
+function toggleApproverType(userId: string, type: SealType) {
+  const entry = form.value.sealApprovers.find(a => a.userId === userId)
+  if (!entry) return
+  const idx = entry.sealTypes.indexOf(type)
+  if (idx > -1) {
+    entry.sealTypes.splice(idx, 1)
+  } else if (!typeOwnedByOther(type, userId)) {
+    entry.sealTypes.push(type)
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -77,12 +151,18 @@ async function loadData() {
       } else {
         form.value.sealCustodianIds = []
       }
-      form.value.sealOverdueRemindMinutes = res.data.sealOverdueRemindMinutes || 120
-      form.value.sealOverdueEscalateMinutes = res.data.sealOverdueEscalateMinutes || 1440
+      form.value.sealOverdueRemindHours = minutesToHours(res.data.sealOverdueRemindMinutes, 2)
+      form.value.sealOverdueEscalateHours = minutesToHours(res.data.sealOverdueEscalateMinutes, 24)
 
       if (Array.isArray(res.data.candidates)) {
         candidateList.value = res.data.candidates
       }
+
+      form.value.sealApprovers = (res.data.sealApprovers || [])
+        .map(a => ({
+          userId: String(a.userId),
+          sealTypes: (a.sealTypes || []).filter(t => APPROVER_SEAL_TYPES.includes(t))
+        }))
     }
   } catch (err: any) {
     toast.error('加载用章设置失败')
@@ -92,22 +172,27 @@ async function loadData() {
 }
 
 async function handleSave() {
-  if (form.value.sealOverdueRemindMinutes <= 0) {
-    toast.error('逾期通知直属主管阈值必须大于 0 分钟')
+  if (form.value.sealOverdueRemindHours <= 0) {
+    toast.error('逾期通知直属主管阈值必须大于 0 小时')
     return
   }
-  if (form.value.sealOverdueEscalateMinutes <= 0) {
-    toast.error('逾期升级总经理阈值必须大于 0 分钟')
+  if (form.value.sealOverdueEscalateHours <= 0) {
+    toast.error('逾期升级总经理阈值必须大于 0 小时')
     return
   }
+  // 没勾任何类别的人等于没配，保存前直接去掉，免得白占一行
+  const approvers = form.value.sealApprovers
+    .filter(a => a.sealTypes.length > 0)
+    .map(a => ({ userId: a.userId, sealTypes: [...a.sealTypes] }))
 
   saving.value = true
   try {
     const res = await updateSealSettings({
       sealCustodianIds: form.value.sealCustodianIds,
       sealCustodianId: form.value.sealCustodianIds[0] || null,
-      sealOverdueRemindMinutes: Number(form.value.sealOverdueRemindMinutes),
-      sealOverdueEscalateMinutes: Number(form.value.sealOverdueEscalateMinutes)
+      sealApprovers: approvers,
+      sealOverdueRemindMinutes: hoursToMinutes(form.value.sealOverdueRemindHours),
+      sealOverdueEscalateMinutes: hoursToMinutes(form.value.sealOverdueEscalateHours)
     })
     if (res.ok) {
       toast.success('用章设置已保存')
@@ -220,9 +305,8 @@ onMounted(() => {
                   @click="toggleCustodian(person.userId)"
                 >
                   <Checkbox
-                    :checked="form.sealCustodianIds.includes(person.userId)"
+                    :model-value="form.sealCustodianIds.includes(person.userId)"
                     class="shrink-0"
-                    @click.stop="toggleCustodian(person.userId)"
                   />
                   <div class="flex-1 min-w-0">
                     <div class="font-medium text-foreground truncate">{{ person.name }}</div>
@@ -250,6 +334,119 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 用章审批人（以人为中心：一个人可负责多类印章） -->
+      <div class="rounded-lg border bg-card p-4 space-y-4 sm:p-5">
+        <div class="flex items-center gap-2">
+          <Stamp class="h-4 w-4 text-primary" />
+          <h3 class="text-sm font-semibold text-foreground">用章审批人</h3>
+        </div>
+
+        <p class="text-muted-foreground leading-relaxed">
+          指定审批人并勾选他负责的印章类别，一个人可负责多类。一张申请涉及多种印章时，需各审批人都通过才算完成；未分配给任何人的类别由总经理审批。
+        </p>
+
+        <div v-if="form.sealApprovers.length > 0" class="divide-y rounded-md border">
+          <div
+            v-for="entry in form.sealApprovers"
+            :key="entry.userId"
+            class="flex items-start justify-between gap-3 px-3 py-2.5"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="font-medium text-foreground">{{ candidateById(entry.userId).name }}</span>
+                <span
+                  v-if="candidateById(entry.userId).department"
+                  class="text-[11px] text-muted-foreground truncate"
+                >
+                  {{ candidateById(entry.userId).department }}
+                </span>
+              </div>
+
+              <!-- 该审批人负责的类别：已归他 = 选中样式；归别人 = 禁用并提示 -->
+              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                <button
+                  v-for="type in APPROVER_SEAL_TYPES"
+                  :key="type"
+                  type="button"
+                  class="rounded border px-1.5 py-0.5 text-[11px] transition-colors"
+                  :class="[
+                    typesTakenBy(entry.userId).has(type)
+                      ? 'border-primary bg-primary/[0.06] text-foreground'
+                      : typeOwnedByOther(type, entry.userId)
+                        ? 'cursor-not-allowed border-border text-muted-foreground/40'
+                        : 'border-border text-muted-foreground hover:bg-accent/50'
+                  ]"
+                  :disabled="typeOwnedByOther(type, entry.userId) && !typesTakenBy(entry.userId).has(type)"
+                  :title="typeOwnedByOther(type, entry.userId) ? `已由 ${ownerNameOf(type)} 负责` : ''"
+                  @click="toggleApproverType(entry.userId, type)"
+                >
+                  {{ SEAL_TYPE_MAP[type] }}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+              title="移除该审批人"
+              @click="removeApprover(entry.userId)"
+            >
+              <X class="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
+          尚未指定审批人，所有类别由总经理审批
+        </div>
+
+        <div class="pt-1">
+          <Popover v-model:open="approverPickerOpen">
+            <PopoverTrigger as-child>
+              <Button variant="outline" size="sm" class="h-8 px-3 text-xs">
+                <UserPlus class="h-3.5 w-3.5 mr-1.5" />
+                添加审批人
+              </Button>
+            </PopoverTrigger>
+
+            <PopoverContent class="w-[calc(100vw-2rem)] max-w-80 p-2 space-y-2 text-xs" align="start">
+              <div class="relative">
+                <Search class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  v-model="approverSearch"
+                  placeholder="按姓名、部门或工号搜索..."
+                  class="h-8 pl-8 text-xs"
+                />
+              </div>
+
+              <div class="max-h-56 overflow-y-auto space-y-0.5 py-1">
+                <div
+                  v-if="filteredApproverCandidates.length === 0"
+                  class="py-6 text-center text-xs text-muted-foreground"
+                >
+                  {{ candidateList.length === 0 ? '暂无可选员工' : '未找到匹配员工' }}
+                </div>
+
+                <div
+                  v-for="person in filteredApproverCandidates"
+                  :key="person.userId"
+                  class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/50 cursor-pointer select-none transition-colors"
+                  @click="addApprover(person.userId)"
+                >
+                  <Plus class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-foreground truncate">{{ person.name }}</div>
+                    <div class="text-[11px] text-muted-foreground truncate">
+                      {{ person.department || '未分配部门' }}{{ person.employeeNo ? ` · ${person.employeeNo}` : '' }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+
       <!-- 逾期催办分级阈值卡片 -->
       <div class="rounded-lg border bg-card p-4 space-y-4 sm:p-5">
         <div class="flex items-center gap-2">
@@ -263,28 +460,30 @@ onMounted(() => {
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
           <div class="space-y-1.5">
-            <label class="font-medium text-foreground">通知直属主管阈值（分钟）</label>
+            <label class="font-medium text-foreground">通知直属主管阈值（小时）</label>
             <Input
-              v-model="form.sealOverdueRemindMinutes"
+              v-model.number="form.sealOverdueRemindHours"
               type="number"
-              min="10"
+              min="0.5"
+              step="0.5"
               class="h-9"
             />
             <span class="text-[11px] text-muted-foreground">
-              默认 120 分钟（即逾期 2 小时后自动提醒借用人直属主管协助催缴）
+              默认 2 小时，即逾期 2 小时后自动提醒借用人直属主管协助催缴
             </span>
           </div>
 
           <div class="space-y-1.5">
-            <label class="font-medium text-foreground">升级通知总经理阈值（分钟）</label>
+            <label class="font-medium text-foreground">升级通知总经理阈值（小时）</label>
             <Input
-              v-model="form.sealOverdueEscalateMinutes"
+              v-model.number="form.sealOverdueEscalateHours"
               type="number"
-              min="60"
+              min="1"
+              step="1"
               class="h-9"
             />
             <span class="text-[11px] text-muted-foreground">
-              默认 1440 分钟（即逾期 24 小时后自动升级预警通知公司总经理）
+              默认 24 小时，即逾期 24 小时后自动升级预警通知公司总经理
             </span>
           </div>
         </div>

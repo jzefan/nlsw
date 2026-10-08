@@ -33,6 +33,12 @@ const submitting = ref(false)
 const checkingAvailability = ref(false)
 const availabilityMap = ref<Record<SealType, SealAvailabilityItem> | null>(null)
 
+/**
+ * 申请人姓名：与后端 snapshot 同口径（profile.name → userid）。
+ * 存量账号可能没填姓名，退回登录名，别留空。
+ */
+const applicantName = computed(() => authStore.user?.name || authStore.user?.userid || '—')
+
 const form = ref({
   useDepartment: '',
   useAt: '',
@@ -170,7 +176,7 @@ async function handleSubmit() {
     })
 
     if (res.ok) {
-      toast.success('用章申请已提交，等待总经理审批')
+      toast.success('用章申请已提交，等待审批')
       emit('update:open', false)
       emit('success')
     } else {
@@ -186,7 +192,9 @@ async function handleSubmit() {
 
 <template>
   <Dialog :open="open" @update:open="(val: boolean) => emit('update:open', val)">
-    <DialogContent class="max-w-xl max-h-[90vh] overflow-y-auto p-6">
+    <!-- 用带 sm: 前缀的宽度：DialogContent 自带 sm:max-w-lg，tailwind-merge 不去重不同修饰符，
+         写 max-w-2xl 会被它压住（实测只有 510px） -->
+    <DialogContent class="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-6">
       <DialogHeader>
         <DialogTitle class="text-base font-semibold">新建用章申请</DialogTitle>
       </DialogHeader>
@@ -196,7 +204,10 @@ async function handleSubmit() {
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-muted-foreground">申请人</label>
-            <Input :value="authStore.user?.name || authStore.user?.userid" disabled class="bg-muted/50 h-9" />
+            <!-- 只读展示，不用 Input：ui/Input 只认 modelValue，:value 会被当普通属性挂上去、不生效 -->
+            <div class="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm text-foreground">
+              {{ applicantName }}
+            </div>
           </div>
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-muted-foreground">用章部门</label>
@@ -204,19 +215,20 @@ async function handleSubmit() {
           </div>
         </div>
 
-        <!-- 用章时间段 -->
-        <div class="grid grid-cols-2 gap-3">
+        <!-- 用章时间段：日期 + 时 + 分 三段并排至少要 320px（日期 144 + 时分 152 + 间隙），
+             放半宽列里会溢出并切掉「分」，所以两个时间各占一整行 -->
+        <div class="space-y-3">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-muted-foreground">
               用章时间 <span class="text-destructive">*</span>
             </label>
-            <DateTimePicker v-model="form.useAt" placeholder="选择用章时间" class="w-full" />
+            <DateTimePicker v-model="form.useAt" label="用章时间" class="w-full" />
           </div>
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-muted-foreground">
               预计归还时间 <span class="text-destructive">*</span>
             </label>
-            <DateTimePicker v-model="form.expectedReturnAt" placeholder="选择预计归还时间" class="w-full" />
+            <DateTimePicker v-model="form.expectedReturnAt" label="预计归还时间" class="w-full" />
           </div>
         </div>
 

@@ -7,9 +7,8 @@ const SealUsageLog = require('../../models/SealUsageLog');
 const Notice = require('../../models/Notice');
 const Tenant = require('../../models/Tenant');
 const User = require('../../models/User');
-const { canManageSeals, canApproveSealRequest, resolveSealApprover } = require('../../utils/seal-permissions');
-const { isAdmin } = require('../../utils/permissions');
-const { isGeneralManagerTitle } = require('../../utils/user-title');
+const { canManageSeals, canApproveSealRequest, hasGlobalSealApprovalView, resolveSealApprovers } = require('../../utils/seal-permissions');
+const { filterRealEmployees } = require('../../utils/test-account');
 
 const SEAL_TYPE_NAMES = {
   official: '公章',
@@ -20,6 +19,76 @@ const SEAL_TYPE_NAMES = {
 };
 
 const ALL_SEAL_TYPES = ['official', 'finance', 'contract', 'invoice', 'legal'];
+
+/** 审批人姓名注入用：`approvals` 是子文档，直接塞 schema 没有的字段会被 strict 静默丢掉。 */
+function approverNameMap(requests) {
+  const ids = new Set();
+  for (const r of requests) {
+    for (const a of r?.approvals || []) {
+      if (a?.approverId) ids.add(String(a.approverId));
+    }
+  }
+  return ids;
+}
+
+async function loadApproverNames(ids) {
+  if (ids.size === 0) return new Map();
+  const users = await User.find({ _id: { $in: [...ids] } })
+    .select('_id profile.name userid department')
+    .lean();
+  const map = new Map();
+  for (const u of users) {
+    map.set(String(u._id), u.profile?.name || u.userid || '');
+  }
+  return map;
+}
+
+/**
+ * 给单据注入审批人姓名与「我是否要审这一步」的标记（前端据此渲染会签进度与操作按钮）。
+ * 纯读时派生，不写库。
+ */
+async function serializeRequests(items) {
+  const nameMap = await loadApproverNames(approverNameMap(items));
+  return items.map(item => {
+    const approvals = (item.approvals || []).map(a => ({
+      ...a,
+      approverName: nameMap.get(String(a.approverId)) || '未知审批人',
+      sealTypeNames: (a.sealTypes || []).map(t => SEAL_TYPE_NAMES[t] || t)
+    }));
+    return {
+      ...item,
+      approvals,
+      pendingApproverIds: (item.currentApproverIds || []).map(String)
+    };
+  });
+}
+
+/** 保持 currentApproverIds 与 approvals 里 pending 步骤一致（唯一写入口）。 */
+function syncPendingApprovers(request) {
+  request.currentApproverIds = (request.approvals || [])
+    .filter(a => a.status === 'pending')
+    .map(a => a.approverId);
+  return request.currentApproverIds;
+}
+
+/**
+ * 把租户里存的用章审批人配置整形成前端要的形状（id 转字符串、按印章类别排序、丢掉空项）。
+ * 兜住脏数据：sealTypes 缺失/含未知类别/整条为空，都只影响展示，不让读取直接 500。
+ */
+function normalizeSealApprovers(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const entry of raw) {
+    if (!entry?.userId) continue;
+    const types = (Array.isArray(entry.sealTypes) ? entry.sealTypes : [])
+      .filter(t => ALL_SEAL_TYPES.includes(t));
+    out.push({
+      userId: String(entry.userId),
+      sealTypes: ALL_SEAL_TYPES.filter(t => types.includes(t))
+    });
+  }
+  return out;
+}
 
 /**
  * 首次访问或租户开启时，幂等预置 5 类各 1 枚实体章
@@ -391,8 +460,8 @@ exports.createRequest = async (req, res) => {
     );
     const serialNo = String(counter.next).padStart(6, '0');
 
-    // 3. 解析单级审批人
-    const { approver, role } = await resolveSealApprover(req.tenantId, req.user, req.tenant?.settings);
+    // 3. 按印章类别解析审批人（会签：一人或多人都要通过；未配置的类别走总经理兜底）
+    const steps = await resolveSealApprovers(req.tenantId, sealTypes, req.user, req.tenant?.settings);
 
     // 4. 构建申请单
     const applicantSnapshot = {
@@ -416,13 +485,14 @@ exports.createRequest = async (req, res) => {
       reason: reason.trim(),
       remark: (remark || '').trim(),
       status: 'pending',
-      currentApproverId: approver._id,
-      approvals: [{
-        approverId: approver._id,
-        role,
+      currentApproverIds: steps.map(s => s.approver._id),
+      approvals: steps.map(s => ({
+        approverId: s.approver._id,
+        role: s.role,
+        sealTypes: s.sealTypes,
         status: 'pending',
         comment: ''
-      }]
+      }))
     });
 
     // 5. 记录流水台账
@@ -446,17 +516,21 @@ exports.createRequest = async (req, res) => {
       }).catch(console.error);
     }
 
-    // 发站内通知给审批人
-    await Notice.create({
-      tenantId: req.tenantId,
-      userId: approver._id,
-      kind: 'general',
-      title: '待审批：用章申请',
-      body: `${applicantSnapshot.name} 提交了用章申请单 No.${serialNo}（${documentName}），请及时审批。`,
-      link: `/seal/requests?view=inbox&id=${newRequest._id}`
-    }).catch(console.error);
+    // 发站内通知给每一位审批人
+    const typeLabel = sealTypes.map(t => SEAL_TYPE_NAMES[t]).join('、');
+    await Promise.all(steps.map(async (step) => {
+      await Notice.create({
+        tenantId: req.tenantId,
+        userId: step.approver._id,
+        kind: 'general',
+        title: '待审批：用章申请',
+        body: `${applicantSnapshot.name} 提交了用章申请单 No.${serialNo}（${documentName}，${typeLabel}），请及时审批。`,
+        link: `/seal/requests?view=inbox&id=${newRequest._id}`
+      }).catch(console.error);
+    }));
 
-    return res.json({ ok: true, data: newRequest });
+    const [serialized] = await serializeRequests([newRequest.toObject()]);
+    return res.json({ ok: true, data: serialized });
   } catch (error) {
     console.error('createRequest error:', error);
     return res.status(500).json({ ok: false, error: error.message || '提交用章申请失败' });
@@ -472,13 +546,20 @@ exports.createRequest = async (req, res) => {
  * 列表与待办计数共用同一判据，避免角标数字与列表条数对不上。
  */
 function hasGlobalApprovalView(user) {
-  return user.role === 'owner' || isAdmin(user.privilege) || isGeneralManagerTitle(user.title) || (Array.isArray(user.attendanceRoles) && user.attendanceRoles.includes('general_manager'));
+  return hasGlobalSealApprovalView(user);
 }
 
-/** 「待我审批」的查询条件：全公司视角看所有 pending，其余只看轮到自己那一步。 */
+/**
+ * 「待我审批」的查询条件：全公司视角看所有 pending，其余只看**自己名下还有 pending 步骤**的单据。
+ *
+ * 判据直接打在 `approvals` 上（唯一数据源），而不是派生的 currentApproverIds：
+ * 存量单据只有旧字段 currentApproverId、没有 currentApproverIds，用派生字段会让他们收不到单。
+ */
 function sealInboxQuery(req) {
   const query = { tenantId: req.tenantId, status: 'pending' };
-  if (!hasGlobalApprovalView(req.user)) query.currentApproverId = req.user._id;
+  if (!hasGlobalApprovalView(req.user)) {
+    query.approvals = { $elemMatch: { approverId: req.user._id, status: 'pending' } };
+  }
   return query;
 }
 
@@ -513,7 +594,7 @@ exports.getRequests = async (req, res) => {
       if (globalApprovalView) {
         query.status = 'pending';
       } else {
-        query.currentApproverId = req.user._id;
+        query.approvals = { $elemMatch: { approverId: req.user._id, status: 'pending' } };
         query.status = 'pending';
       }
     } else if (view === 'history') {
@@ -554,9 +635,11 @@ exports.getRequests = async (req, res) => {
       }
     }
 
+    const serialized = await serializeRequests(items);
+
     return res.json({
       ok: true,
-      data: items,
+      data: serialized,
       pagination: {
         page,
         limit,
@@ -595,7 +678,8 @@ exports.getRequestDetail = async (req, res) => {
       .sort({ at: 1 })
       .lean();
 
-    return res.json({ ok: true, data: { ...request, logs } });
+    const [serialized] = await serializeRequests([request]);
+    return res.json({ ok: true, data: { ...serialized, logs } });
   } catch (error) {
     console.error('getRequestDetail error:', error);
     return res.status(500).json({ ok: false, error: '获取申请详情失败' });
@@ -623,7 +707,11 @@ exports.withdrawRequest = async (req, res) => {
 
     request.status = 'withdrawn';
     request.withdrawnAt = new Date();
-    request.currentApproverId = null;
+    // 撤回后所有待审步骤记 skipped，否则 syncPendingApprovers 会把他们重新收进待审名单
+    for (const a of request.approvals || []) {
+      if (a.status === 'pending') a.status = 'skipped';
+    }
+    syncPendingApprovers(request);
     request.updatedAt = new Date();
     await request.save();
 
@@ -652,8 +740,10 @@ exports.withdrawRequest = async (req, res) => {
 };
 
 /**
- * 单级审批：总经理 / owner 审批
- * POST /seal/requests/:id/review
+ * 会签审批：一单可能有多个审批步骤（按印章类别分人）。
+ * - 通过：只把**当前用户自己那一步**标 approved；全部步骤都通过后单据才转「待发章」
+ * - 驳回：整单 rejected，其余仍 pending 的步骤记 skipped（无需再等他们点）
+ * 路由：POST /seal/requests/:id/review
  */
 exports.reviewRequest = async (req, res) => {
   try {
@@ -672,10 +762,21 @@ exports.reviewRequest = async (req, res) => {
     }
 
     if (!canApproveSealRequest(req.user, req.tenant, request)) {
-      return res.status(403).json({ ok: false, error: '无权审批此单据（仅审批人、总经理或管理员可审批）' });
+      return res.status(403).json({ ok: false, error: '无权审批此单据（仅本单审批人、总经理或管理员可审批）' });
     }
 
     const operatorName = req.user.profile?.name || req.user.userid;
+
+    // 定位当前用户自己那一步；兜底代审（owner/admin/GM 且不是本单审批人）时取第一步 pending
+    const approvals = request.approvals || [];
+    let myStep = approvals.find(a => a.status === 'pending' && String(a.approverId) === String(req.user._id));
+    if (!myStep) {
+      myStep = approvals.find(a => a.status === 'pending');
+      if (!myStep) {
+        return res.status(400).json({ ok: false, error: '该单据已无待审批步骤' });
+      }
+    }
+    const myStepTypes = (myStep.sealTypes || []).map(t => SEAL_TYPE_NAMES[t] || t);
 
     if (decision === 'approved') {
       // 审批通过复检容量冲突（仅排除当前单据，且只与已批准、在借、逾期单据对比，不与其它 pending 单据互锁死锁）
@@ -696,13 +797,56 @@ exports.reviewRequest = async (req, res) => {
         }
       }
 
-      request.status = 'approved';
-      request.currentApproverId = null;
-      if (request.approvals && request.approvals.length > 0) {
-        request.approvals[0].status = 'approved';
-        request.approvals[0].comment = (comment || '').trim();
-        request.approvals[0].reviewedAt = new Date();
+      myStep.status = 'approved';
+      myStep.comment = (comment || '').trim();
+      myStep.reviewedAt = new Date();
+
+      const remaining = syncPendingApprovers(request);
+
+      if (remaining.length > 0) {
+        // 会签未完成：单据仍待审批
+        request.updatedAt = new Date();
+        await request.save();
+
+        // 写流水（只记自己这一步负责的类别）
+        for (const st of (myStep.sealTypes || [])) {
+          await SealUsageLog.create({
+            tenantId: req.tenantId,
+            sealType: st,
+            requestId: request._id,
+            action: 'approve',
+            operatorId: req.user._id,
+            operatorName,
+            note: comment ? `审批通过（${SEAL_TYPE_NAMES[st]}）: ${comment.trim()}` : `审批通过（${SEAL_TYPE_NAMES[st]}）`
+          }).catch(console.error);
+        }
+
+        // 通知申请人仍有步骤在审，并催下一位审批人
+        await Notice.create({
+          tenantId: req.tenantId,
+          userId: request.applicantId,
+          kind: 'general',
+          title: '用章申请部分通过',
+          body: `你的用章申请 No.${request.serialNo}（${request.documentName}）已由 ${operatorName} 通过${myStepTypes.length ? `（${myStepTypes.join('、')}）` : ''}，尚待 ${remaining.length} 位审批人处理。`,
+          link: `/seal/requests?id=${request._id}`
+        }).catch(console.error);
+
+        await Promise.all(remaining.map(approverId => Notice.create({
+          tenantId: req.tenantId,
+          userId: approverId,
+          kind: 'general',
+          title: '待审批：用章申请',
+          body: `用章申请单 No.${request.serialNo}（${request.documentName}）仍在等待你的审批。`,
+          link: `/seal/requests?view=inbox&id=${request._id}`
+        }).catch(console.error)));
+
+        const [serialized] = await serializeRequests([request.toObject()]);
+        return res.json({ ok: true, data: serialized, message: `已通过你负责的${myStepTypes.join('、') || ''}部分，尚待其他审批人处理` });
       }
+
+      // 全部通过 → 待发章
+      request.status = 'approved';
+      request.updatedAt = new Date();
       await request.save();
 
       // 写流水
@@ -724,7 +868,7 @@ exports.reviewRequest = async (req, res) => {
         userId: request.applicantId,
         kind: 'seal_approved',
         title: '用章申请已批准',
-        body: `你的用章申请 No.${request.serialNo}（${request.documentName}）已获总经理审批通过，请前往保管员处领取实体章。`,
+        body: `你的用章申请 No.${request.serialNo}（${request.documentName}）已审批通过，请前往保管员处领取实体章。`,
         link: `/seal/requests?id=${request._id}`
       }).catch(console.error);
 
@@ -741,14 +885,21 @@ exports.reviewRequest = async (req, res) => {
         }).catch(console.error);
       }
     } else {
-      // 驳回
-      request.status = 'rejected';
-      request.currentApproverId = null;
-      if (request.approvals && request.approvals.length > 0) {
-        request.approvals[0].status = 'rejected';
-        request.approvals[0].comment = (comment || '').trim();
-        request.approvals[0].reviewedAt = new Date();
+      // 驳回：整单结束，其余待审步骤记 skipped
+      for (const a of request.approvals || []) {
+        if (a.status === 'pending') {
+          if (String(a.approverId) === String(req.user._id) && a === myStep) {
+            a.status = 'rejected';
+            a.comment = (comment || '').trim();
+            a.reviewedAt = new Date();
+          } else {
+            a.status = 'skipped';
+          }
+        }
       }
+      request.status = 'rejected';
+      syncPendingApprovers(request);
+      request.updatedAt = new Date();
       await request.save();
 
       // 写流水
@@ -778,7 +929,8 @@ exports.reviewRequest = async (req, res) => {
       }).catch(console.error);
     }
 
-    return res.json({ ok: true, data: request });
+    const [serialized] = await serializeRequests([request.toObject()]);
+    return res.json({ ok: true, data: serialized });
   } catch (error) {
     console.error('reviewRequest error:', error);
     return res.status(500).json({ ok: false, error: '审批操作失败' });
@@ -1192,17 +1344,22 @@ exports.getSettings = async (req, res) => {
     const rawCustodianIds = settings.sealCustodianIds?.length
       ? settings.sealCustodianIds
       : (settings.sealCustodianId ? [settings.sealCustodianId] : []);
-    const custodianIds = rawCustodianIds.map(String);
 
-    // 查询租户候选员工（在职且非平台超管）
-    const candidateUsers = await User.find({
+    // 查询租户候选员工（在职且非平台超管）；测试账号不是真员工，不该被派保管员/审批用章
+    const foundCandidates = await User.find({
       tenantId: req.tenantId,
       role: { $ne: 'platform' },
       status: { $ne: 'disabled' }
     })
-      .select('_id profile.name userid employeeNo department title')
+      .select('_id profile.name userid role employeeNo department title')
       .sort({ department: 1, 'profile.name': 1, userid: 1 })
       .lean();
+
+    const candidateUsers = filterRealEmployees(foundCandidates);
+    const realEmployeeIds = new Set(candidateUsers.map(u => String(u._id)));
+    // 库里**已存的**保管员/审批人也可能是测试账号（配置是历史留下的），
+    // 候选列表过滤了还不够，这里要把已存的 id 一并剔掉，否则设置页仍会显示测试账号。
+    const custodianIds = rawCustodianIds.map(String).filter(id => realEmployeeIds.has(id));
 
     const candidates = candidateUsers.map(u => ({
       userId: String(u._id),
@@ -1220,6 +1377,8 @@ exports.getSettings = async (req, res) => {
         sealCustodianId: custodianIds[0] || null,
         sealCustodianIds: custodianIds,
         candidates,
+        sealApprovers: normalizeSealApprovers(settings.sealApprovers)
+          .filter(approver => realEmployeeIds.has(String(approver.userId))),
         sealOverdueRemindMinutes: Number(settings.sealOverdueRemindMinutes) || 120,
         sealOverdueEscalateMinutes: Number(settings.sealOverdueEscalateMinutes) || 1440
       }
@@ -1240,6 +1399,7 @@ exports.updateSettings = async (req, res) => {
       sealEnabled,
       sealCustodianId,
       sealCustodianIds,
+      sealApprovers,
       sealOverdueRemindMinutes,
       sealOverdueEscalateMinutes
     } = req.body;
@@ -1262,8 +1422,9 @@ exports.updateSettings = async (req, res) => {
           _id: { $in: ids },
           tenantId: req.tenantId,
           status: { $ne: 'disabled' }
-        }).select('_id');
-        const verifiedIds = validUsers.map(u => u._id);
+        }).select('_id profile.name userid role');
+        // 测试账号不能被派为保管员
+        const verifiedIds = filterRealEmployees(validUsers).map(u => u._id);
         tenant.settings.sealCustodianIds = verifiedIds;
         tenant.settings.sealCustodianId = verifiedIds[0] || null;
       } else {
@@ -1272,7 +1433,8 @@ exports.updateSettings = async (req, res) => {
       }
     } else if (sealCustodianId !== undefined) {
       if (sealCustodianId) {
-        const u = await User.findOne({ _id: sealCustodianId, tenantId: req.tenantId, status: { $ne: 'disabled' } });
+        const found = await User.findOne({ _id: sealCustodianId, tenantId: req.tenantId, status: { $ne: 'disabled' } }).select('profile.name userid role');
+        const u = found ? filterRealEmployees([found])[0] : null;
         if (!u) {
           return res.status(400).json({ ok: false, error: '指定的保管员用户不存在或已停用' });
         }
@@ -1282,6 +1444,55 @@ exports.updateSettings = async (req, res) => {
         tenant.settings.sealCustodianId = null;
         tenant.settings.sealCustodianIds = [];
       }
+    }
+
+    if (sealApprovers !== undefined) {
+      const incoming = Array.isArray(sealApprovers) ? sealApprovers : [];
+      const rows = [];
+      const seenUsers = new Set();
+      const typeOwner = new Map();
+
+      for (const entry of incoming) {
+        const userId = entry?.userId ? String(entry.userId) : '';
+        if (!userId) continue;
+
+        if (seenUsers.has(userId)) {
+          return res.status(400).json({ ok: false, error: '同一位员工只能配置一条用章审批记录' });
+        }
+        seenUsers.add(userId);
+
+        const types = (Array.isArray(entry.sealTypes) ? entry.sealTypes : [])
+          .filter(t => ALL_SEAL_TYPES.includes(t));
+        // 一个类别只能归一个人；撞车直接报错，别静默丢弃（静默丢会让用户以为配上了）
+        for (const t of types) {
+          if (typeOwner.has(t)) {
+            return res.status(400).json({
+              ok: false,
+              error: `「${SEAL_TYPE_NAMES[t]}」已被另一位审批人占用，请先从对方那里移除`
+            });
+          }
+          typeOwner.set(t, userId);
+        }
+        rows.push({ userId, sealTypes: types });
+      }
+
+      const requestedIds = rows.map(r => r.userId);
+      if (requestedIds.length > 0) {
+        const valid = await User.find({
+          _id: { $in: requestedIds },
+          tenantId: req.tenantId,
+          status: { $ne: 'disabled' },
+          role: { $ne: 'platform' }
+        }).select('_id profile.name userid role').lean();
+        // 测试账号不能被指定为用章审批人
+        const validIds = new Set(filterRealEmployees(valid).map(u => String(u._id)));
+        const bad = requestedIds.filter(id => !validIds.has(id));
+        if (bad.length > 0) {
+          return res.status(400).json({ ok: false, error: '指定的用章审批人不存在或已停用，请重新选择' });
+        }
+      }
+
+      tenant.settings.sealApprovers = rows;
     }
 
     if (sealOverdueRemindMinutes !== undefined) {

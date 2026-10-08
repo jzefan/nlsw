@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { Check, Pencil, X } from 'lucide-vue-next'
+import { Check, Pencil, Settings2, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 
 import { useDevice } from '@/composables/use-device'
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -20,6 +21,7 @@ import {
   getGeneralManagerDelegate,
   saveAttendanceCalendarDay,
   saveAttendanceCalendarSaturdayMorning,
+  saveAttendanceWorkPeriods,
   saveAttendanceLedgerActualRule,
   saveAttendanceProfile,
   saveGeneralManagerDelegate,
@@ -114,6 +116,70 @@ const actualRuleDirty = computed(() => {
 const saturdayMorning = ref(false)
 const saturdayMorningPeriods = ref<{ start: string, end: string }[]>([])
 const savingSaturdayMorning = ref(false)
+/**
+ * 每天的工作时段（上午 + 下午），租户级、不按年度区分：请假折算、应出勤、实到扣减都读它。
+ * 只按「两段」呈现（这是绝大多数公司的形态），想合并成一段就把中间休息去掉、起止拉通。
+ */
+interface WorkPeriodRow { start: string, end: string }
+const workPeriods = ref<WorkPeriodRow[]>([])
+const workPeriodsBaseline = ref<WorkPeriodRow[]>([])
+const savingWorkPeriods = ref(false)
+/** 每天合计小时数，写出来免得使用者自己算，也提示它会跟着变。输入不合法时按 0 算（保存已被禁用）。 */
+const workHoursPerDay = computed(() => {
+  const minutes = workPeriods.value.reduce((sum, item) => {
+    const start = periodMinutes(item.start)
+    const end = periodMinutes(item.end)
+    return start === null || end === null ? sum : sum + (end - start)
+  }, 0)
+  const hours = minutes / 60
+  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1)
+})
+const workPeriodsDirty = computed(() => {
+  const current = workPeriods.value
+  const baseline = workPeriodsBaseline.value
+  return current.length !== baseline.length || current.some((item, index) => item.start !== baseline[index]?.start || item.end !== baseline[index]?.end)
+})
+/** 格式与区间都合法才让保存；错误就地提示，不用弹窗打断。 */
+const workPeriodsError = computed(() => {
+  const periods = workPeriods.value
+  if (!periods.length) return '至少需要一个时段'
+  const parsed: { start: number, end: number }[] = []
+  for (const item of periods) {
+    const start = periodMinutes(item.start)
+    const end = periodMinutes(item.end)
+    if (start === null || end === null) return '时间要用 HH:MM 格式'
+    if (end <= start) return '结束时间要晚于开始时间'
+    parsed.push({ start, end })
+  }
+  const sorted = [...parsed].sort((a, b) => a.start - b.start)
+  for (let i = 1; i < sorted.length; i++) if (sorted[i - 1].end > sorted[i].start) return '两段时间不能重叠'
+  const total = parsed.reduce((sum, item) => sum + (item.end - item.start), 0)
+  if (total > 16 * 60) return '一天工作时间不能超过 16 小时'
+  return ''
+})
+/** 弹窗开关：三个设置（周六上午、工作时间、实到规则）收在这里，主界面只留摘要。 */
+const workRuleDialogOpen = ref(false)
+/** 主界面摘要用「已保存的值」而不是草稿，避免弹窗里改到一半主界面就跟着变。 */
+const workPeriodsText = computed(() => {
+  const saved = workPeriodsBaseline.value.length ? workPeriodsBaseline.value : workPeriods.value
+  if (!saved.length) return '未设置'
+  return saved.map(item => `${item.start}–${item.end}`).join('、')
+})
+const actualRuleText = computed(() => {
+  const baseline = actualRuleBaseline.value
+  if (!actualRuleFields.value.length) return actualRuleLoaded.value ? '规则不可用' : '加载中…'
+  return actualRuleFields.value
+    .map(field => `${field.label} ${baseline ? Number(baseline[field.key]) : Number(actualRuleDraft.value[field.key])} ${field.unit === 'hour' ? '小时' : '工作日'}/次`)
+    .join(' · ')
+})
+/** 'HH:MM' → 距零点分钟数；格式不对返回 null（不是 NaN，便于判空）。 */
+function periodMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim())
+  if (!match) return null
+  const h = Number(match[1])
+  const m = Number(match[2])
+  return h < 24 && m < 60 ? h * 60 + m : null
+}
 const CALENDAR_BASE_YEAR = 2026
 /** 年度下拉：2026 年（国务院安排起始年）到当前年份后 10 年；当前年份早于 2026 时从当前年份起。 */
 const yearOptions = computed(() => {
@@ -141,13 +207,32 @@ const calendarMonths = computed(() => Array.from({ length: 12 }, (_, monthIndex)
 }))
 const officialHolidayCount = computed(() => defaultDays.value.filter(day => day.type === 'holiday').length)
 const officialWorkdayCount = computed(() => defaultDays.value.filter(day => day.type === 'workday').length)
-// 「总经理」由用户管理的职位决定，这里不提供勾选
+/**
+ * 「总经理」由用户管理的职位决定，不在勾选项里。
+ *
+ * 「经理」角色已于 2026-10-07 停止开放（用户决定）：它的唯一作用是「防自审」，
+ * 而这件事用「直属经理」就能达成 —— 本人是经理时，把直属经理设成总经理，审批链自然就走到总经理。
+ * 不必为「带团队的人」单独维护一个角色。
+ * 留着 roleLabels / ATTENDANCE_ROLE_HINTS 里的 manager 条目，是为了**仍显示存量勾选过该角色的人**，
+ * 不能因为不开放新勾选就把已有数据显示成空白。
+ */
 const roleOptions = [
-  { value: 'manager', label: '经理' },
   { value: 'attendance_admin', label: '考勤管理员' },
 ]
 // 「总经理」不在勾选项里，但摘要仍要显示中文
 const roleLabels: Record<string, string> = { manager: '经理', general_manager: '总经理', attendance_admin: '考勤管理员' }
+
+/** 角色用途说明（顶部说明块用）。manager 保留条目以便解释存量勾选的人为什么这样。 */
+const ATTENDANCE_ROLE_HINTS: Record<string, string> = {
+  manager: '已停用（不再开放勾选）。该角色的作用是让本人的申请改由总经理终审；现在改用「直属经理」实现同样效果 —— 本人是经理时，把直属经理设为总经理即可。',
+  general_manager: '终审全部申请，可查看全公司考勤数据。本人的申请由「总经理申请审批人」处理。',
+  attendance_admin: '维护考勤设置与台账，可确认实到、结账、重开月份，范围为全公司。不涉及单据审批。',
+}
+
+/** 顶部只讲**还能勾选**的角色；已停用的「经理」不占篇幅，改由下方单独一句交代迁移办法。 */
+const visibleRoleHints = computed(() => roleOptions.map(role => role.value))
+/** 库里还勾着已停用「经理」角色的人数（仅提示，不阻断编辑）。 */
+const legacyManagerCount = computed(() => people.value.filter(person => Array.isArray(person.attendanceRoles) && person.attendanceRoles.includes('manager')).length)
 
 /** 左侧菜单用 ?tab= 指定当前视图；没带参数（旧书签、直接进地址）时落到第一个可见视图。 */
 function resolveView(): AttendanceSettingsView | '' {
@@ -511,6 +596,11 @@ async function loadCalendar(targetYear = year.value) {
     officialStatus.value = data?.official?.status ?? ''
     saturdayMorning.value = data?.saturdayMorning?.enabled === true
     saturdayMorningPeriods.value = data?.saturdayMorning?.periods ?? []
+    // 工作时段是租户级设置，同一份配置每个年度都读得到，这里只取一次当基线。
+    const periods = (data?.workPeriods?.length ? data.workPeriods : [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }])
+      .map(item => ({ start: item.start, end: item.end }))
+    workPeriods.value = periods
+    workPeriodsBaseline.value = periods.map(item => ({ ...item }))
     calendarLoadSucceeded.value = true
   }
   catch (error) {
@@ -601,6 +691,34 @@ async function saveSaturdayMorning(enabled: boolean) {
   }
 }
 
+/**
+ * 保存工作时段。租户级设置，影响所有年度与所有考勤口径，请假折算、应出勤、实到扣减都读它。
+ * 已结账的月份用当时冻结的应出勤快照，不受这次修改影响。
+ */
+async function saveWorkPeriods() {
+  if (savingWorkPeriods.value || workPeriodsError.value || !workPeriodsDirty.value) return
+  const previous = workPeriods.value.map(item => ({ ...item }))
+  savingWorkPeriods.value = true
+  try {
+    const result = await saveAttendanceWorkPeriods(previous)
+    if (result.ok === false) throw new Error(String(result.error || '保存工作时段失败'))
+    const periods = result.data?.periods?.length ? result.data.periods : previous
+    workPeriods.value = periods.map(item => ({ start: item.start, end: item.end }))
+    workPeriodsBaseline.value = workPeriods.value.map(item => ({ ...item }))
+    // 周六上午是从工作时段里切出来的，改了起止时间它也会跟着变
+    saturdayMorningPeriods.value = result.data?.saturdayMorning?.periods ?? saturdayMorningPeriods.value
+    window.dispatchEvent(new CustomEvent('attendance-calendar-updated'))
+    toast.success(`工作时段已更新为 ${workPeriods.value.map(item => `${item.start}–${item.end}`).join('、')}`)
+  }
+  catch (error) {
+    workPeriods.value = previous
+    showError(error)
+  }
+  finally {
+    savingWorkPeriods.value = false
+  }
+}
+
 // 年度只能从下拉里选，非法值进不来，不再需要范围校验
 watch(year, (nextYear) => {
   if (nextYear === calendarLoadedYear.value) return
@@ -638,6 +756,16 @@ onMounted(() => { void applyRouteView() })
           <Badge variant="outline">{{ people.length }} 人</Badge>
           <Button variant="ghost" size="sm" class="h-7 px-2 text-muted-foreground" :disabled="peopleLoading" @click="reloadPeople">刷新</Button>
         </div>
+      </div>
+      <!-- 考勤角色的用途光看名字看不出来（尤其「经理」容易被误解成「能审批下属单据」），在这里讲清 -->
+      <div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+        <p class="mb-1 font-medium text-foreground">考勤角色管什么</p>
+        <p v-for="role in visibleRoleHints" :key="role" class="flex gap-2">
+          <span class="w-20 shrink-0 text-foreground">{{ roleLabels[role] }}</span>
+          <span>{{ ATTENDANCE_ROLE_HINTS[role] }}</span>
+        </p>
+        <p class="mt-1 border-t pt-1">「直属经理」决定谁审谁的单子：申请人走的是「直属经理 →（长假时）总经理」。本人在公司里带团队也一样 —— 把自己的「直属经理」设成总经理，提交的申请就直接由总经理审批，不会出现自己审自己的下属。</p>
+        <p v-if="legacyManagerCount" class="mt-1">另有 {{ legacyManagerCount }} 人勾选过已停用的「经理」角色，该角色不再开放勾选；让他们的「直属经理」指向总经理即可达到同样效果。</p>
       </div>
       <!-- 移动端：一人一张卡，避免表格横向滚动；数据、草稿与桌面端共用 -->
       <div v-if="isMobile" class="space-y-2">
@@ -695,9 +823,14 @@ onMounted(() => { void applyRouteView() })
                 <dd class="min-w-0 flex-1">
                   <div v-if="!isPersonEditing(person)" class="text-muted-foreground">{{ roleSummary(person) }}</div>
                   <div v-else class="space-y-2">
-                    <label v-for="role in roleOptions" :key="role.value" class="flex items-center gap-2">
+                    <label v-for="role in roleOptions" :key="role.value" class="flex items-center gap-2" :title="ATTENDANCE_ROLE_HINTS[role.value]">
                       <Checkbox :model-value="hasDraftRole(person, role.value)" :disabled="person.status !== 'active' && !hasDraftRole(person, role.value)" @update:model-value="checked => toggleDraftRole(person, role.value, checked === true)" />
                       <span>{{ role.label }}</span>
+                    </label>
+                    <!-- 存量勾选的「经理」：已停用但保留（不静默丢数据），只读展示且不能取消 -->
+                    <label v-if="hasDraftRole(person, 'manager')" class="flex items-center gap-2" :title="ATTENDANCE_ROLE_HINTS.manager">
+                      <Checkbox :model-value="true" disabled />
+                      <span class="text-muted-foreground">经理<span class="ml-1 text-xs">（已停用）</span></span>
                     </label>
                   </div>
                 </dd>
@@ -758,7 +891,12 @@ onMounted(() => { void applyRouteView() })
                 <div v-else class="flex flex-wrap gap-x-3 gap-y-1">
                   <div v-for="role in roleOptions" :key="role.value" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Checkbox :id="`attendance-role-${person.userId}-${role.value}`" :model-value="hasDraftRole(person, role.value)" :disabled="person.status !== 'active' && !hasDraftRole(person, role.value)" @update:model-value="checked => toggleDraftRole(person, role.value, checked === true)" />
-                    <label :for="`attendance-role-${person.userId}-${role.value}`">{{ role.label }}</label>
+                    <label :for="`attendance-role-${person.userId}-${role.value}`" :title="ATTENDANCE_ROLE_HINTS[role.value]">{{ role.label }}</label>
+                  </div>
+                  <!-- 存量勾选的「经理」：已停用但保留（不静默丢数据），只读展示且不能取消 -->
+                  <div v-if="hasDraftRole(person, 'manager')" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                    <Checkbox disabled />
+                    <label :title="ATTENDANCE_ROLE_HINTS.manager">经理（已停用）</label>
                   </div>
                 </div>
               </TableCell>
@@ -917,34 +1055,22 @@ onMounted(() => { void applyRouteView() })
         <span v-else class="sm:ml-auto">{{ saturdayMorning ? '按周一至周五上班、周六上午上班' : '按周一至周五上班、周末休息' }}</span>
         <span v-if="calendarSaving" class="basis-full text-primary sm:basis-auto">正在保存 {{ savingCalendarDate }}…</span>
       </div>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2">
-        <Switch
-          id="attendance-saturday-morning"
-          :model-value="saturdayMorning"
-          :disabled="savingSaturdayMorning || calendarLoading || !calendarLoadSucceeded"
-          @update:model-value="saveSaturdayMorning"
-        />
-        <label for="attendance-saturday-morning" class="text-sm">周六上午按工作日计</label>
-        <span v-if="saturdayMorning" class="text-xs text-muted-foreground">计入 {{ saturdayMorningPeriods.map(item => `${item.start}–${item.end}`).join('、') }}，法定节假日与调休上班日除外</span>
-        <span v-else class="text-xs text-muted-foreground">法定节假日与调休上班日除外，半天计入月应出勤</span>
-        <span v-if="savingSaturdayMorning" class="text-primary">正在保存…</span>
-      </div>
-      <section class="rounded-lg border px-3 py-2.5">
-        <div :class="isMobile ? 'space-y-2' : 'flex flex-wrap items-start justify-between gap-x-3 gap-y-2'">
-          <div class="min-w-0">
-            <h2 class="text-sm font-medium">实到分钟计算规则</h2>
-            <p class="mt-0.5 text-xs text-muted-foreground">台账的实到 = 应出勤 − 请假 − 以下扣减，自动填入供确认，可改成实际值；改过的行不再被覆盖。1 个工作日 = {{ actualRuleDayHours }} 小时。</p>
-          </div>
-          <Button size="sm" variant="outline" :class="isMobile ? 'h-9 w-full' : ''" :disabled="actualRuleSaving || !actualRuleDirty" @click="saveActualRule">{{ actualRuleSaving ? '保存中…' : '保存' }}</Button>
+      <section class="space-y-2 rounded-lg border px-3 py-2.5">
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <h2 class="text-sm font-medium">考勤规则</h2>
+          <Button size="sm" variant="outline" :class="isMobile ? 'h-9 w-full' : ''" @click="workRuleDialogOpen = true">
+            <Settings2 class="mr-1.5 size-4" />调整规则
+          </Button>
         </div>
-        <div v-if="actualRuleFields.length" :class="isMobile ? 'mt-2.5 space-y-2' : 'mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2'">
-          <label v-for="field in actualRuleFields" :key="field.key" class="flex items-center gap-2 text-xs">
-            <span class="text-muted-foreground">{{ field.label }}</span>
-            <Input v-model="actualRuleDraft[field.key]" :class="isMobile ? 'h-9 flex-1 text-right tabular-nums' : 'h-7 w-16 text-right tabular-nums'" inputmode="decimal" :aria-label="`${field.label}每次扣减`" />
-            <span :class="isMobile ? 'shrink-0 text-muted-foreground' : 'text-muted-foreground'">{{ field.unit === 'hour' ? '小时/次' : '工作日/次' }}</span>
-          </label>
-        </div>
-        <p v-else class="mt-2 text-xs text-muted-foreground">{{ actualRuleLoaded ? '规则不可用' : '加载中…' }}</p>
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[7rem_minmax(0,1fr)]">
+          <dt class="text-muted-foreground">工作时间</dt>
+          <dd class="tabular-nums">{{ workPeriodsText }}<span class="ml-1 text-xs text-muted-foreground">（一天 {{ workHoursPerDay }} 小时）</span></dd>
+          <dt class="text-muted-foreground">周六上午</dt>
+          <dd>{{ saturdayMorning ? `按工作日计，计入 ${saturdayMorningPeriods.map(item => `${item.start}–${item.end}`).join('、')}` : '不计工作日' }}</dd>
+          <dt class="text-muted-foreground">实到扣减</dt>
+          <dd class="text-xs leading-5">{{ actualRuleText }}<span class="ml-1 text-muted-foreground">（1 个工作日 = {{ actualRuleDayHours }} 小时）</span></dd>
+        </dl>
+        <p class="text-xs text-muted-foreground">实到 = 应出勤 − 请假 − 以上扣减；已结账的月份仍按当时的标准。</p>
       </section>
       <div v-if="calendarLoading" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <div v-for="month in 12" :key="month" class="h-64 animate-pulse rounded-lg border bg-muted/30" />
@@ -991,6 +1117,75 @@ onMounted(() => { void applyRouteView() })
     <div v-else class="rounded-md border p-8 text-center text-sm text-muted-foreground">
       当前账号没有可配置项<span v-if="!isOwner && roles.includes('general_manager')">，工作日历由考勤管理员维护</span>
     </div>
+
+    <!-- 考勤规则设置：周六上午、工作时间、实到扣减收在这里，主界面只展示已生效的摘要 -->
+    <Dialog v-model:open="workRuleDialogOpen">
+      <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>考勤规则</DialogTitle>
+          <DialogDescription>影响请假折算、应出勤与台账实到扣减。已结账的月份仍按当时的标准。</DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-4">
+          <section class="space-y-2 rounded-md border px-3 py-2.5">
+            <div class="flex items-center gap-x-3 gap-y-1">
+              <Switch
+                id="attendance-saturday-morning"
+                :model-value="saturdayMorning"
+                :disabled="savingSaturdayMorning || calendarLoading || !calendarLoadSucceeded"
+                @update:model-value="saveSaturdayMorning"
+              />
+              <label for="attendance-saturday-morning" class="text-sm">周六上午按工作日计</label>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              {{ saturdayMorning ? `每周六计入 ${saturdayMorningPeriods.map(item => `${item.start}–${item.end}`).join('、')}（从工作时间里切出）` : '当前不计入，法定节假日与调休上班日除外' }}
+              <span v-if="savingSaturdayMorning" class="text-primary">正在保存…</span>
+            </p>
+          </section>
+
+          <section class="space-y-2 rounded-md border px-3 py-2.5">
+            <div class="flex items-start justify-between gap-x-4 gap-y-2">
+              <div class="min-w-0 flex-1">
+                <h3 class="text-sm font-medium">工作时间</h3>
+                <p class="mt-0.5 text-xs text-muted-foreground">一天合计 {{ workHoursPerDay }} 小时。改这里的起止时间，周六上午时段会跟着变。</p>
+              </div>
+              <Button size="sm" variant="outline" class="shrink-0" :disabled="savingWorkPeriods || !workPeriodsDirty || !!workPeriodsError" @click="saveWorkPeriods">{{ savingWorkPeriods ? '保存中…' : '保存' }}</Button>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div v-for="(item, index) in workPeriods" :key="index" class="flex items-center gap-2 text-xs">
+                <span class="text-muted-foreground">{{ index === 0 ? '上午' : index === workPeriods.length - 1 ? '下午' : `第 ${index + 1} 段` }}</span>
+                <Input v-model="item.start" class="h-8 w-20 text-center tabular-nums" placeholder="08:00" maxlength="5" inputmode="numeric" :aria-label="`第 ${index + 1} 段开始时间`" />
+                <span class="text-muted-foreground">至</span>
+                <Input v-model="item.end" class="h-8 w-20 text-center tabular-nums" placeholder="12:00" maxlength="5" inputmode="numeric" :aria-label="`第 ${index + 1} 段结束时间`" />
+              </div>
+            </div>
+            <p v-if="workPeriodsError" class="text-xs text-destructive">{{ workPeriodsError }}</p>
+          </section>
+
+          <section class="space-y-2 rounded-md border px-3 py-2.5">
+            <div class="flex items-start justify-between gap-x-4 gap-y-2">
+              <div class="min-w-0 flex-1">
+                <h3 class="text-sm font-medium">实到扣减规则</h3>
+                <p class="mt-0.5 text-xs text-muted-foreground">台账实到 = 应出勤 − 请假 − 以下扣减，自动填入供确认，可改成实际值；改过的行不再被覆盖。1 个工作日 = {{ actualRuleDayHours }} 小时。</p>
+              </div>
+              <Button size="sm" variant="outline" class="shrink-0" :disabled="actualRuleSaving || !actualRuleDirty" @click="saveActualRule">{{ actualRuleSaving ? '保存中…' : '保存' }}</Button>
+            </div>
+            <div v-if="actualRuleFields.length" class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+              <label v-for="field in actualRuleFields" :key="field.key" class="flex items-center gap-2 text-xs">
+                <span class="min-w-0 flex-1 truncate text-muted-foreground">{{ field.label }}</span>
+                <Input v-model="actualRuleDraft[field.key]" class="h-8 w-20 shrink-0 text-right tabular-nums" inputmode="decimal" :aria-label="`${field.label}每次扣减`" />
+                <span class="shrink-0 text-muted-foreground">{{ field.unit === 'hour' ? '小时/次' : '工作日/次' }}</span>
+              </label>
+            </div>
+            <p v-else class="text-xs text-muted-foreground">{{ actualRuleLoaded ? '规则不可用' : '加载中…' }}</p>
+          </section>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="workRuleDialogOpen = false">关闭</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
   </main>
 </template>

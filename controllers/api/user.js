@@ -12,6 +12,8 @@ const mongoose = require('mongoose');
 const { isAllowedOrigin } = require('../../middleware/requireSameOrigin');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { isGeneralManagerTitle } = require('../../utils/user-title');
+const { isSealApproverFlag } = require('../../utils/seal-permissions');
+const { filterRealEmployees } = require('../../utils/test-account');
 const PayrollRoleMutationLock = require('../../models/PayrollRoleMutationLock');
 const { getApprovalAccess: getAttendanceApprovalAccess } = require('./attendance');
 const os = require('os');
@@ -229,6 +231,8 @@ exports.getMe = async (req, res) => {
         (Array.isArray(req.tenant?.settings?.sealCustodianIds) && req.tenant.settings.sealCustodianIds.some(id => String(id) === String(req.user._id))) ||
         (req.tenant?.settings?.sealCustodianId && String(req.tenant.settings.sealCustodianId) === String(req.user._id))
       ),
+      /** 是否是用章审批人（可一人负责多类印章）：决定要不要给他「用章审批」入口 */
+      isSealApprover: isSealApproverFlag(req.tenant?.settings, req.user._id),
       mustChangePassword: req.user.mustChangePassword === true,
       preferences: req.user.preferences || {},
     };
@@ -537,8 +541,10 @@ exports.getPayrollRoleCandidates = async (req, res) => {
   try {
     if (!req.user || !req.tenantId || req.user.role === 'platform') return res.status(403).json({ ok: false, message: '无权查看薪资角色候选人' });
     if (!canManageFinanceRoles(req.user)) return res.status(403).json({ ok: false, message: '只有公司主账号、管理员或总经理可以维护财务权限' });
-    const users = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
-      .select('_id userid phone profile.name profile.phone employeeNo department managerId payrollRoles status mustChangePassword').sort({ 'profile.name': 1 }).lean();
+    const found = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
+      .select('_id userid phone profile.name profile.phone role employeeNo department managerId payrollRoles status mustChangePassword').sort({ 'profile.name': 1 }).lean();
+    // 测试账号不出现在薪资权限的人选里
+    const users = filterRealEmployees(found);
     const rows = users.map(user => ({
       userId: user._id,
       userid: user.userid || '',

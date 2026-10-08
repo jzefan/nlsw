@@ -21,6 +21,8 @@ export interface ModuleAccessInput {
   isCustodian: boolean
   /** 被单独指派的考勤审批人 */
   canReviewAttendance: boolean
+  /** 被指派为用章审批人（可一人负责多类印章） */
+  isSealApprover?: boolean
 }
 
 /** 考勤「待我审批」入口：与后端 canReviewAttendance 同口径。 */
@@ -39,10 +41,14 @@ export function canManagePayroll(input: ModuleAccessInput) {
     || titleCode === 'ceo'
 }
 
-/** 「用章审批」入口：只有能审用章单的人才给入口，与后端 hasGlobalApprovalView 一致。 */
+/**
+ * 「用章审批」入口：主账号 / 管理员 / 总经理给全公司视角，
+ * 另外**某一印章类别配置的审批人**也给入口（否则收得到单子却找不到入口，与考勤踩过的坑同类）。
+ */
 export function canApproveSeal(input: ModuleAccessInput) {
   const titleCode = getTitleCode(input.title)
-  return input.isOwner
+  return input.isSealApprover === true
+    || input.isOwner
     || isAdmin(input.privilege)
     || input.attendanceRoles.includes('general_manager')
     || titleCode === 'gm'

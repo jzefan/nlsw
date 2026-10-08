@@ -7,6 +7,7 @@ const AttendanceRequest = require('../../models/AttendanceRequest');
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
 const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
+const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
 const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS, APPEAL_TYPES, APPEAL_TYPE_LABELS, APPEAL_OFFSET_FIELDS, DEFAULT_DAY_MINUTES } = require('../../utils/attendance-ledger-actual');
 
 const OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -72,22 +73,35 @@ function requireOwner(req, res) {
   return false;
 }
 
+const USER_FIELDS = 'employeeNo phone profile.phone profile.name userid role department title status';
+
+/**
+ * 某个范围内「真正计入考勤」的人。
+ * 三个条件层层收窄：不是平台账号 → 打开了纳入考勤开关 → 不是测试账号。
+ * 测试账号（test / zefan 之类）不进应出勤与实到统计，用户 2026-10-06 明确要求。
+ */
+async function scopedUsers(req, query) {
+  const users = await User.find(query).select(USER_FIELDS).lean();
+  return filterRealEmployees(users);
+}
+
 async function getScopedUsers(req, scope) {
   // 平台账号不是公司员工，从不进入台账与统计；其余账号按各人的「纳入考勤统计」开关过滤（未设置视为纳入）。
   const base = { tenantId: req.tenantId, role: { $ne: 'platform' }, attendanceTracked: { $ne: false } };
-  if (scope === 'mine') return User.find({ ...base, _id: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
-  if (isCompanyViewer(req.user)) return User.find(base).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+  // mine 视角是「看自己」，即使自己是测试账号也不返回空 —— 否则本人连自己的台账都打不开。
+  if (scope === 'mine') return scopedUsers(req, { ...base, _id: req.user._id });
+  if (isCompanyViewer(req.user)) return scopedUsers(req, base);
   if (hasAttendanceRole(req.user, 'manager')) {
     if (scope !== 'team') throw Object.assign(new Error('经理仅可查看本人或直属团队'), { status: 403 });
-    return User.find({ ...base, managerId: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+    return scopedUsers(req, { ...base, managerId: req.user._id });
   }
   if (scope === 'team') throw Object.assign(new Error('无权查看团队台账'), { status: 403 });
-  return User.find({ ...base, _id: req.user._id }).select('employeeNo phone profile.phone profile.name userid department title status').lean();
+  return scopedUsers(req, { ...base, _id: req.user._id });
 }
 
-/** 平台账号与关闭考勤统计的账号不允许写入台账。 */
+/** 平台账号、关闭考勤统计的账号、测试账号都不允许写入台账。 */
 function isAttendanceTracked(user) {
-  return user?.role !== 'platform' && user?.attendanceTracked !== false;
+  return user?.role !== 'platform' && user?.attendanceTracked !== false && !isTestAccount(user);
 }
 
 function defaultLedgerRow(user, expectedMinutes) {
@@ -354,6 +368,22 @@ function blankPayrollAttendance() {
  * @param {string[]} months 'YYYY-MM'
  * @param {string|null} employeeId 传值时只统计该员工（本人视角）
  */
+/**
+ * 某个租户下所有测试账号的 id 集合。
+ *
+ * 薪资统计的时长/缺勤是从**申请单与台账行**聚合来的，那些表里没有 userid、没法就地按前缀过滤，
+ * 只能先问出「哪些 id 是测试账号」再排除。
+ *
+ * `candidateIds` 是这次统计实际会用到的申请人/台账行 id 集合：**只查这些人**，
+ * 而不是全租户扫一遍 —— 顺带让那些不涉及真实账号的调用（测试夹具、只查本人的路径）完全不必碰数据库。
+ */
+async function testAccountIdsAmong(tenantId, candidateIds) {
+  const ids = [...new Set((candidateIds || []).map(String).filter(id => mongoose.Types.ObjectId.isValid(id)))];
+  if (!ids.length) return new Set();
+  const users = await User.find({ tenantId, _id: { $in: ids } }).select('userid profile.name role').lean().catch(() => []);
+  return new Set(users.filter(isTestAccount).map(user => String(user._id)));
+}
+
 async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) {
   const tenant = await Tenant.findById(tenantId).select('settings').lean().catch(error => {
     console.warn('payroll attendance tenant read failed:', error.message);
@@ -382,7 +412,18 @@ async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) 
           { type: 'appeal', occurredOn: { $gte: range.from, $lt: range.to } }
         ]
       }).lean();
-      const relevant = employeeId ? requests.filter(item => String(item.applicantId) === String(employeeId)) : requests;
+      const scopedRequests = employeeId ? requests.filter(item => String(item.applicantId) === String(employeeId)) : requests;
+      const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: value }).select('rows status closedSnapshot').lean();
+      const closedRows = ledger?.status === 'closed' ? ledger?.closedSnapshot?.rows : null;
+      const savedRows = closedRows || ledger?.rows || [];
+      const scopedRows = employeeId ? savedRows.filter(row => String(row.employeeId) === String(employeeId)) : savedRows;
+      // 测试账号提过的申请单、台账行都不计入薪资统计（用户 2026-10-06 要求：不纳入考勤与工资）。
+      // 只查这次实际用到的那些 id；「只看本人」时本来就在白名单内，不必多查。
+      const excluded = employeeId ? new Set() : await testAccountIdsAmong(tenantId, [
+        ...scopedRequests.map(item => item.applicantId),
+        ...scopedRows.map(row => row.employeeId),
+      ]);
+      const relevant = scopedRequests.filter(item => !excluded.has(String(item.applicantId)));
       const stats = aggregateApprovedRequests(relevant, month);
       for (const aggregate of stats.values()) {
         bucket.leaveMinutes += Object.values(aggregate.leaveMinutesByType).reduce((sum, minutes) => sum + violationCount(minutes), 0);
@@ -395,18 +436,15 @@ async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) 
         if (request.type === 'fieldwork') bucket.fieldworkDays += fieldworkDaysInMonth(request, month);
       }
 
-      const ledger = await AttendanceMonthLedger.findOne({ tenantId, month: value }).select('rows status closedSnapshot').lean();
-      const closedRows = ledger?.status === 'closed' ? ledger?.closedSnapshot?.rows : null;
-      const savedRows = closedRows || ledger?.rows || [];
-      const scopedRows = employeeId ? savedRows.filter(row => String(row.employeeId) === String(employeeId)) : savedRows;
+      const ledgerRows = scopedRows.filter(row => !excluded.has(String(row.employeeId)));
       // 已结账月份用快照里冻结的应出勤；未结账月份按当前日历重算（工作日历一改就能反映）
       let openExpected = null;
-      if (!closedRows && scopedRows.length) {
+      if (!closedRows && ledgerRows.length) {
         try { openExpected = await expectedMinutesFor(month.start, month.end, tenant); }
         catch { openExpected = null; }
       }
       const appeals = collectAppealCounts(relevant);
-      for (const row of scopedRows) {
+      for (const row of ledgerRows) {
         const employeeStats = stats.get(String(row.employeeId));
         const expected = closedRows ? Number(row.expectedMinutes) : openExpected;
         // 请假没法按天分摊时，请假时长根本没进上面的口径，缺口会被虚算成旷工 —— 这种人不算
@@ -554,7 +592,13 @@ exports.getLedger = async (req, res) => {
       const allowedIds = new Set(allowed.map(user => String(user._id)));
       rows = ledger.closedSnapshot.rows.filter(row => allowedIds.has(String(row.employeeId)));
     } else rows = await buildRows(req, month, scope, ledger);
-    return res.json({ ok: true, data: { month: req.query.month, status: ledger.status, version: ledger.version, rows: stripPersonLabels(rows), totals: sumRows(rows) } });
+    // dayMinutes：1 个工作日 = 多少分钟。前端把实到拆成「天 + 小时」两个输入框要用它换算，
+    // 读不到时前端回落 480。台账本身的存储与计算口径仍是分钟。
+    const dayMinutes = (() => {
+      try { return dailyWorkMinutes(getAttendancePolicy(req.tenant)); }
+      catch { return DEFAULT_DAY_MINUTES; }
+    })();
+    return res.json({ ok: true, data: { month: req.query.month, status: ledger.status, version: ledger.version, dayMinutes, rows: stripPersonLabels(rows), totals: sumRows(rows) } });
   } catch (e) {
     if (e.status) return err(res, e.status, e.message, e.code);
     console.error('attendance ledger read failed:', e);

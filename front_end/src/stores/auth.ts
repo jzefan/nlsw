@@ -15,6 +15,8 @@ export interface User {
   payrollRoles?: string[] | string
   mustChangePassword?: boolean
   isSealCustodian?: boolean
+  /** 是否是用章审批人（后端 /me 按 Tenant.settings.sealApproverMap 下发，可一人管多类章） */
+  isSealApprover?: boolean
 }
 
 export interface Tenant {

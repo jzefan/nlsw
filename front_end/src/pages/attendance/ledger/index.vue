@@ -8,7 +8,6 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MonthPicker } from '@/components/ui/date-picker'
-import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -30,6 +29,7 @@ import { leaveTypeLabels } from '@/constants/attendance-labels'
 import { formatMinutes } from '@/utils/payroll'
 
 interface LedgerDraft {
+  /** 实到按「天 + 小时」两个框录入；这里存的是换算回分钟后的字符串，空串表示未填。 */
   actualMinutes: string
   confirmationState: '' | Exclude<AttendanceLedgerConfirmationState, 'pending'>
   note: string
@@ -116,7 +116,59 @@ function effectiveActualMinutes(row: AttendanceLedger['rows'][number]) {
   return row.actualMinutes ?? null
 }
 
+/**
+ * 1 个工作日 = 多少分钟。台账内部仍按分钟存，这里只用于「天 ↔ 小时」换算；读不到按 8 小时兜底。
+ * 与后端 `dailyWorkMinutes` 同一个口径（DEFAULT_DAY_MINUTES = 480）。
+ */
+const DEFAULT_DAY_MINUTES = 480
+const dayMinutes = computed(() => {
+  const value = ledger.value?.dayMinutes
+  return typeof value === 'number' && value > 0 ? value : DEFAULT_DAY_MINUTES
+})
+const dayHours = computed(() => dayMinutes.value / 60)
+
+/**
+ * 下拉选项：天 0–50（**必须含 0** —— 不足一个工作日的实到天数就是 0，缺了它下拉会显示空白）；
+ * 小时 0–15，**步进 0.5**（必须含 0.5 —— 迟到扣减默认 0.5 小时，只给整数会让「迟到 1 次」
+ * 这类建议值在下拉里匹配不到）。值用字符串，与 Select 保持一致。
+ */
+const dayOptions = Array.from({ length: 51 }, (_, index) => String(index))
+const hourOptions = Array.from({ length: 31 }, (_, index) => String(index / 2))
+
+/** 分钟 → 「天 / 小时」两个下拉的选中值。小时吸附到 0.5 网格，保证一定能命中 hourOptions。 */
+function splitActual(minutes: number | null | undefined): { days: string, hours: string } {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return { days: '', hours: '' }
+  const perDay = dayMinutes.value
+  const days = Math.floor(minutes / perDay)
+  // 半小时为一格：0.5 小时 = 30 分钟。规则扣减本身就是 0.5 小时粒度，吸附后不丢信息。
+  const restHours = Math.round(((minutes - days * perDay) / 60) * 2) / 2
+  // 余数吸附后刚好满一天（如 479 分钟 → 8 小时），进位一天，避免出现「19 天 8 小时」
+  if (restHours >= dayHours.value) return { days: String(days + 1), hours: '0' }
+  return { days: String(days), hours: String(restHours) }
+}
+
+/** 「天 / 小时」两个下拉 → 分钟。任一为空且另一个也为空时返回 null（0 是有效值）。 */
+function joinActual(days: string, hours: string): number | null {
+  const dayPart = String(days ?? '').trim()
+  const hourPart = String(hours ?? '').trim()
+  if (!dayPart && !hourPart) return null
+  const dayNumber = dayPart ? Number(dayPart) : 0
+  const hourNumber = hourPart ? Number(hourPart) : 0
+  if (!Number.isInteger(dayNumber) || dayNumber < 0) return null
+  if (!Number.isFinite(hourNumber) || hourNumber < 0) return null
+  return Math.round(dayNumber * dayMinutes.value + hourNumber * 60)
+}
+
+/** 只读展示：「19 天 4 小时」，整天时省略小时部分。 */
+function formatActual(minutes: number | null | undefined) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return '—'
+  const { days, hours } = splitActual(minutes)
+  if (Number(hours) === 0) return `${days} 天`
+  return `${days} 天 ${hours} 小时`
+}
+
 function makeDraft(row: AttendanceLedger['rows'][number]): LedgerDraft {
+  // 待确认行用系统建议值预填：用户点开就能看到自动算出来的结果，改不改都行。
   const actual = row.confirmationState === 'pending' ? row.suggestedActualMinutes ?? null : effectiveActualMinutes(row)
   return {
     actualMinutes: actual === null ? '' : String(actual),
@@ -228,6 +280,16 @@ function isRowEditing(row: AttendanceLedger['rows'][number]) {
   return canManage.value && !isClosed.value && editingEmployeeId.value === row.employeeId
 }
 
+/** 「天」「小时」任一下拉变化 → 换算成分钟写回 draft。 */
+function onActualPartChange(row: AttendanceLedger['rows'][number], part: 'days' | 'hours', value: unknown) {
+  const draft = drafts[row.employeeId]
+  if (!draft) return
+  const current = splitActual(draft.actualMinutes === '' ? null : Number(draft.actualMinutes))
+  const minutes = joinActual(part === 'days' ? String(value ?? '') : current.days, part === 'hours' ? String(value ?? '') : current.hours)
+  // 两个都空才清空；只选了一个也保留（0 是有效值）
+  draft.actualMinutes = minutes === null ? '' : String(minutes)
+}
+
 function startEditRow(row: AttendanceLedger['rows'][number]) {
   if (editingEmployeeId.value === row.employeeId) return
   if (hasUnsavedChanges.value) {
@@ -260,7 +322,7 @@ async function saveRow(row: AttendanceLedger['rows'][number]) {
   let actualMinutes: number | null = null
   if (submittedDraft.confirmationState === 'confirmed') {
     if (submittedDraft.actualMinutes === '' || !Number.isInteger(minutes) || minutes < 0) {
-      toast.error('请填写有效的实到分钟数')
+      toast.error(`请填写有效的实到天数与小时（1 天 = ${dayHours.value} 小时）`)
       return false
     }
     actualMinutes = minutes
@@ -429,7 +491,7 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
               <TableHead class="w-40">已批加班</TableHead>
               <TableHead class="w-32">已批出差</TableHead>
               <TableHead class="min-w-36">考勤记录（导入）</TableHead>
-              <TableHead class="w-28">实到分钟</TableHead>
+              <TableHead class="w-40">实到（天/小时）</TableHead>
               <TableHead class="w-28">确认状态</TableHead>
               <TableHead class="min-w-40">说明</TableHead>
               <TableHead v-if="canManage && !isClosed" class="w-24 text-right">操作</TableHead>
@@ -465,20 +527,38 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
                 <span v-else class="text-muted-foreground">—</span>
               </TableCell>
               <TableCell class="tabular-nums">
-                <Input
-                  v-if="isRowEditing(row)"
-                  v-model="drafts[row.employeeId].actualMinutes"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="h-8 w-24 text-right tabular-nums"
-                  :aria-label="`${row.name}实到分钟`"
-                  :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote"
-                  :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
-                />
-                <span v-else>{{ formatMinutes(effectiveActualMinutes(row)) }}</span>
-                <!-- 建议值只算不写库：标出来，免得被当成已确认的数据；完整计算过程在提示里 -->
-                <div v-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualNote" class="text-[11px] text-muted-foreground" :title="row.suggestedActualNote">系统建议</div>
+                <div v-if="isRowEditing(row)" class="flex items-center gap-1">
+                  <Select
+                    :model-value="splitActual(drafts[row.employeeId].actualMinutes === '' ? null : Number(drafts[row.employeeId].actualMinutes)).days"
+                    :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
+                    @update:model-value="value => onActualPartChange(row, 'days', value)"
+                  >
+                    <SelectTrigger size="sm" class="h-8 w-[4.5rem] text-xs tabular-nums" :aria-label="`${row.name}实到天数`" :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote">
+                      <SelectValue placeholder="天" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="option in dayOptions" :key="option" :value="option">{{ option }}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span class="text-xs text-muted-foreground">天</span>
+                  <Select
+                    :model-value="splitActual(drafts[row.employeeId].actualMinutes === '' ? null : Number(drafts[row.employeeId].actualMinutes)).hours"
+                    :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
+                    @update:model-value="value => onActualPartChange(row, 'hours', value)"
+                  >
+                    <SelectTrigger size="sm" class="h-8 w-[4.5rem] text-xs tabular-nums" :aria-label="`${row.name}实到小时`" :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote">
+                      <SelectValue placeholder="小时" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="option in hourOptions" :key="option" :value="option">{{ option }}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span class="text-xs text-muted-foreground">小时</span>
+                </div>
+                <span v-else>{{ formatActual(effectiveActualMinutes(row)) }}</span>
+                <!-- 建议值只算不写库：把算出来的数直接显示出来，并标明是本月自动算的；完整计算过程在提示里 -->
+                <div v-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualMinutes !== null && row.suggestedActualMinutes !== undefined" class="text-[11px] text-muted-foreground" :title="row.suggestedActualNote">本月 {{ formatActual(row.suggestedActualMinutes) }}</div>
+                <div v-else-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualNote" class="text-[11px] text-muted-foreground" :title="row.suggestedActualNote">本月</div>
               </TableCell>
               <TableCell>
                 <Select v-if="isRowEditing(row)" :model-value="drafts[row.employeeId].confirmationState || '__pending__'" @update:model-value="value => { drafts[row.employeeId].confirmationState = value == null || value === '__pending__' ? '' : String(value) as LedgerDraft['confirmationState']; onConfirmationChange(row.employeeId) }">
@@ -524,19 +604,37 @@ onMounted(() => { if (activeView.value === 'detail') void loadLedger() })
               <div><div class="text-xs text-muted-foreground">应出勤</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.expectedMinutes) }}</div></div>
               <div>
                 <div class="text-xs text-muted-foreground">实到</div>
-                <Input
-                  v-if="isRowEditing(row)"
-                  v-model="drafts[row.employeeId].actualMinutes"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="mt-0.5 h-8 text-right tabular-nums"
-                  :aria-label="`${row.name}实到分钟`"
-                  :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote"
-                  :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
-                />
-                <div v-else class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(effectiveActualMinutes(row)) }}</div>
-                <div v-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualNote" class="mt-0.5 text-[11px] text-muted-foreground" :title="row.suggestedActualNote">系统建议</div>
+                <div v-if="isRowEditing(row)" class="mt-0.5 flex items-center gap-1">
+                  <Select
+                    :model-value="splitActual(drafts[row.employeeId].actualMinutes === '' ? null : Number(drafts[row.employeeId].actualMinutes)).days"
+                    :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
+                    @update:model-value="value => onActualPartChange(row, 'days', value)"
+                  >
+                    <SelectTrigger size="sm" class="h-8 w-full text-xs tabular-nums" :aria-label="`${row.name}实到天数`" :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote">
+                      <SelectValue placeholder="天" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="option in dayOptions" :key="option" :value="option">{{ option }}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span class="shrink-0 text-xs text-muted-foreground">天</span>
+                  <Select
+                    :model-value="splitActual(drafts[row.employeeId].actualMinutes === '' ? null : Number(drafts[row.employeeId].actualMinutes)).hours"
+                    :disabled="drafts[row.employeeId].confirmationState === 'no_basis'"
+                    @update:model-value="value => onActualPartChange(row, 'hours', value)"
+                  >
+                    <SelectTrigger size="sm" class="h-8 w-full text-xs tabular-nums" :aria-label="`${row.name}实到小时`" :title="row.actualMinutesIsManual ? '' : row.suggestedActualNote">
+                      <SelectValue placeholder="小时" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="option in hourOptions" :key="option" :value="option">{{ option }}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span class="shrink-0 text-xs text-muted-foreground">小时</span>
+                </div>
+                <div v-else class="mt-0.5 text-sm font-medium tabular-nums">{{ formatActual(effectiveActualMinutes(row)) }}</div>
+                <div v-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualMinutes !== null && row.suggestedActualMinutes !== undefined" class="mt-0.5 text-[11px] text-muted-foreground" :title="row.suggestedActualNote">本月 {{ formatActual(row.suggestedActualMinutes) }}</div>
+                <div v-else-if="!isRowEditing(row) && !row.actualMinutesIsManual && row.suggestedActualNote" class="mt-0.5 text-[11px] text-muted-foreground" :title="row.suggestedActualNote">本月</div>
               </div>
               <div><div class="text-xs text-muted-foreground">请假</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(sumRecordMinutes(row.leaveMinutesByType)) }}</div></div>
               <div><div class="text-xs text-muted-foreground">已批加班</div><div class="mt-0.5 text-sm font-medium tabular-nums">{{ formatMinutes(row.overtimeApprovedMinutes) }}</div></div>

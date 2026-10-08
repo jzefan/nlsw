@@ -10,6 +10,8 @@ const {
   normalizeContributionScheme, contributionSchemeTotals, validateContributionScheme, withContributionSchemeRates,
   COMPONENT_KEYS, STANDARD_MONEY_KEYS, STANDARD_BASE_KEYS, STANDARD_RATE_KEYS,
 } = require('../../utils/payroll-calculations');
+const { WELFARE_HOLIDAY_OPTIONS, WELFARE_HOLIDAY_LABELS, validateWelfareEntry, applyWelfareEntry, sumWelfareItems } = require('../../utils/payroll-welfare');
+const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { isChairmanTitle, isGeneralManagerTitle } = require('../../utils/user-title');
 
@@ -33,6 +35,15 @@ function parsePeriod(period, value) {
 // 未设置 status 的历史账号视为在职；密码是否改过与薪资权限无关
 function isFinance(user) {
   return user?.status !== 'disabled' && Array.isArray(user.payrollRoles) && user.payrollRoles.includes('finance');
+}
+
+/**
+ * 工资条相关列表的公共查询条件：只列本租户在职员工，且**排除平台管理员账号**。
+ * 平台账号（role: 'platform'）是SaaS 运营方的人，不是本公司员工，不该出现在工资表里。
+ * 与考勤台账的 `getScopedUsers` 口径一致（那边同样按 role 排除 platform）。
+ */
+function payrollEmployeeQuery(tenantId) {
+  return { tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' } };
 }
 
 // 总经理与董事长可只读查看全员工资：职务可能是代码（gm/ceo）或老账号的中文写法（总经理/董事长）。
@@ -110,6 +121,25 @@ function effectiveComponents(statement) {
   return null;
 }
 
+/**
+ * 节日福利明细的下发口径：明细的金额合计必须等于当前有效金额里的 welfareCents。
+ * 旧工资条（功能上线前录的）没有明细，只有合计 —— 这时补一条占位明细，
+ * 让界面与「批量福利」的覆盖逻辑都还能正常工作，而不是显示成 0。
+ */
+function normalizeWelfareItems(items, components) {
+  const list = (Array.isArray(items) ? items : [])
+    .filter(item => item && WELFARE_HOLIDAY_LABELS[item.holiday] !== undefined && Number.isSafeInteger(item.amountCents) && item.amountCents >= 0)
+    .map(item => ({ holiday: item.holiday, holidayLabel: item.holidayLabel || WELFARE_HOLIDAY_LABELS[item.holiday], amountCents: item.amountCents }));
+  const total = components?.welfareCents || 0;
+  if (!list.length) return total > 0 ? [{ holiday: 'other', holidayLabel: '福利（历史录入）', amountCents: total }] : [];
+  // 明细与合计对不上（手工改过 welfareCents、或历史脏数据）时以合计为准补齐差额，
+  // 不让界面显示一个和实发金额不一致的合计。
+  const diff = total - sumWelfareItems(list);
+  if (diff === 0) return list;
+  if (diff > 0) return [...list, { holiday: 'other', holidayLabel: '福利（手工调整）', amountCents: diff }];
+  return list;
+}
+
 function paymentSums(payments = []) {
   let paid = 0;
   let refunded = 0;
@@ -175,6 +205,9 @@ async function serializeStatement(statement, actorNames) {
     statementStatus = 'withdrawn';
   }
   const publishedNetPayCents = published?.totals?.netPayCents ?? 0;
+  // 节日福利明细跟着「当前有效金额」走：有草稿用草稿的明细，否则用当前发布版的。
+  // 合计与 components.welfareCents 始终一致，旧数据没有明细时按合计兜底成一条。
+  const welfareItems = normalizeWelfareItems(data.draft?.components ? data.draft.welfareItems : published?.welfareItems, components);
   // 只有「当前有效发布版」是强制发出来的才打标记；撤回后重新正常发布，标记自然消失。
   const forced = published
     ? (data.events || []).find(event => event.action === 'forced_publish' && event.revision === published.revision) || null
@@ -187,6 +220,7 @@ async function serializeStatement(statement, actorNames) {
     paymentStatus: paymentStatus(published ? 'published' : statementStatus, publishedNetPayCents, sums.netPaidCents),
     components,
     totals,
+    welfareItems,
     publishedComponents: published?.components || null,
     publishedTotals: published?.totals || null,
     paidCents: sums.netPaidCents,
@@ -249,10 +283,11 @@ async function loadEmployee(employeeId, tenantId) {
 async function loadEmployees(employeeIds, tenantId) {
   const ids = [...new Set((employeeIds || []).map(String).filter(id => mongoose.Types.ObjectId.isValid(id)))];
   if (!ids.length) return new Map();
-  const users = await User.find({ _id: { $in: ids }, tenantId, status: { $ne: 'disabled' } })
-    .select('employeeNo phone profile.phone profile.name userid department status')
+  const users = await User.find({ ...payrollEmployeeQuery(tenantId), _id: { $in: ids } })
+    .select('employeeNo phone profile.phone profile.name userid role department status')
     .lean();
-  return new Map(users.map(user => [String(user._id), user]));
+  // 测试账号不给工资条：即使前端把它传了进来，这里也当「不存在」，不写库。
+  return new Map(filterRealEmployees(users).map(user => [String(user._id), user]));
 }
 
 function emptyMonthlyRow(user) {
@@ -349,12 +384,15 @@ exports.listStatements = async (req, res) => {
     if (!(await requirePayrollReader(req, res))) return;
     const month = parseMonth(req.query.month);
     if (!month) return fail(res, 400, '月份格式应为 YYYY-MM');
-    const [employees, statements, ledgerStatus] = await Promise.all([
-      User.find({ tenantId: req.tenantId, status: { $ne: 'disabled' } })
-        .select('employeeNo phone profile.name profile.phone userid department status').sort({ department: 1, employeeNo: 1 }).lean(),
+    const [allEmployees, statements, ledgerStatus] = await Promise.all([
+      User.find(payrollEmployeeQuery(req.tenantId))
+        .select('employeeNo phone profile.name profile.phone userid role department status').sort({ department: 1, employeeNo: 1 }).lean(),
       PayrollStatement.find({ tenantId: req.tenantId, month: month.value }).lean(),
       monthLedgerStatus(req.tenantId, month.value),
     ]);
+    // 测试账号不进入工资表：既不列新行，下面补历史行时也要挡掉。
+    const employees = filterRealEmployees(allEmployees);
+    const testAccountIds = new Set(allEmployees.filter(user => !employees.includes(user)).map(user => String(user._id)));
     const byEmployee = new Map(statements.map(statement => [String(statement.employeeId), statement]));
     const employeeById = new Map(employees.map(user => [String(user._id), user]));
     const actorNames = await getActorNames(statements);
@@ -365,6 +403,7 @@ exports.listStatements = async (req, res) => {
     }
     // Keep previously paid/history rows visible after an employee is deactivated.
     for (const statement of statements) {
+      if (testAccountIds.has(String(statement.employeeId))) continue;
       if (employees.some(user => String(user._id) === String(statement.employeeId))) continue;
       rows.push(await serializeStatement(statement, actorNames));
     }
@@ -420,8 +459,10 @@ exports.getTaxBasis = async (req, res) => {
 exports.listStandards = async (req, res) => {
   try {
     if (!(await requirePayrollReader(req, res))) return;
-    const employees = await User.find({ tenantId: req.tenantId, status: { $ne: 'disabled' } })
-      .select('employeeNo phone profile.name profile.phone userid department status').sort({ department: 1, employeeNo: 1 }).lean();
+    const allEmployees = await User.find(payrollEmployeeQuery(req.tenantId))
+      .select('employeeNo phone profile.name profile.phone userid role department status').sort({ department: 1, employeeNo: 1 }).lean();
+    // 测试账号不进薪资设置
+    const employees = filterRealEmployees(allEmployees);
     const standards = await PayrollStandard.find({ tenantId: req.tenantId }).lean();
     const standardByEmployee = new Map(standards.map(item => [String(item.employeeId), item]));
     const employeeById = new Map(employees.map(user => [String(user._id), user]));
@@ -550,7 +591,7 @@ async function publishDraftStatement({ tenantId, employeeId, month, userId, expe
   const revision = (statement.revisions || []).reduce((max, item) => Math.max(max, item.revision), 0) + 1;
   const publishedAt = new Date();
   const update = {
-    $push: { revisions: { revision, employee: statement.employee, components: statement.draft.components, totals: statement.draft.totals, publishedBy: userId, publishedAt } },
+    $push: { revisions: { revision, employee: statement.employee, components: statement.draft.components, totals: statement.draft.totals, welfareItems: statement.draft.welfareItems || [], publishedBy: userId, publishedAt } },
     $set: { currentPublishedRevision: revision, updatedAt: publishedAt },
     $unset: { draft: 1 },
     $inc: { version: 1, __v: 1 },
@@ -572,9 +613,21 @@ exports.saveDraft = async (req, res) => {
     if (!month || !employee || !Number.isInteger(version) || version < 0) return fail(res, 400, '月份、员工或版本无效');
     if (!validated.ok) return fail(res, 400, validated.error);
     const now = new Date();
+    const existingFull = await PayrollStatement.findOne({ tenantId: req.tenantId, employeeId: employee._id, month: month.value })
+      .select('draft.components draft.welfareItems currentPublishedRevision');
+    const previousItems = existingFull?.draft?.welfareItems || [];
+    // 手工改过「福利」金额就说明明细已经不按节日拆了，直接清空；否则原样带过去，
+    // 免得「批量福利」刚录的明细在下次保存时被冲掉。
+    const itemsMatchAmount = sumWelfareItems(previousItems) === (existingFull?.draft?.components?.welfareCents || 0);
     const values = {
       employee: employeeSnapshot(employee),
-      draft: { components: validated.components, totals: validated.totals, updatedBy: req.user._id, updatedAt: now },
+      draft: {
+        components: validated.components,
+        totals: validated.totals,
+        welfareItems: itemsMatchAmount ? previousItems : [],
+        updatedBy: req.user._id,
+        updatedAt: now,
+      },
       updatedAt: now,
     };
     let statement;
@@ -647,7 +700,7 @@ exports.withdraw = async (req, res) => {
       $push: { events: { action: 'withdrawn', revision: published.revision, actorId: req.user._id, reason: reason.trim(), at: now } },
       $set: {
         currentPublishedRevision: null,
-        draft: { components: validated.components, totals: validated.totals, updatedBy: statement.draft?.updatedBy || req.user._id, updatedAt: statement.draft?.updatedAt || now },
+        draft: { components: validated.components, totals: validated.totals, welfareItems: normalizeWelfareItems(published.welfareItems, validated.components), updatedBy: statement.draft?.updatedBy || req.user._id, updatedAt: statement.draft?.updatedAt || now },
         updatedAt: now,
       },
       $inc: { version: 1, __v: 1 },
@@ -722,6 +775,23 @@ function blankStatsRow(month) {
 }
 
 /**
+ * 把测试账号的工资条从统计里剔掉。
+ * 工资条本身只有 employeeId、没有 userid，得回查这些人的账号判据。
+ * **只查这次统计实际用到的那些 id**；没有候选时直接返回，不必碰数据库。
+ */
+async function filterOutTestAccountStatements(tenantId, statements) {
+  if (!statements.length) return statements;
+  const ids = [...new Set(statements.map(item => String(item.employeeId)))]
+    .filter(id => mongoose.Types.ObjectId.isValid(id));
+  if (!ids.length) return statements;
+  const users = await User.find({ tenantId, _id: { $in: ids } })
+    .select('userid profile.name role').lean().catch(() => []);
+  const testIds = new Set(users.filter(isTestAccount).map(user => String(user._id)));
+  if (!testIds.size) return statements;
+  return statements.filter(item => !testIds.has(String(item.employeeId)));
+}
+
+/**
  * 「考勤统计」块的一行。
  * - 时长/天数来自考勤侧（已批申请单 + 月台账），见 attendance-ledger 的 getPayrollAttendanceSummary；
  * - 金额来自**已发布**工资条：请假 = 病假 + 事假扣款，旷工 = 旷工扣款，加班 = 加班补贴；
@@ -752,13 +822,15 @@ exports.getStatistics = async (req, res) => {
     if (employeeOnly) criteria.employeeId = req.user._id;
     const months = period === 'month' ? [value] : Array.from({ length: 12 }, (_, i) => `${value}-${String(i + 1).padStart(2, '0')}`);
     // 考勤口径单独取：它挂了不影响工资口径，整块退回空值（界面按「考勤数据不可用」处理）
-    const [statements, attendanceSummary] = await Promise.all([
+    const [allStatements, attendanceSummary] = await Promise.all([
       PayrollStatement.find({ ...criteria, month: { $in: months } }).lean(),
       getPayrollAttendanceSummary(req.tenantId, months, employeeOnly ? String(req.user._id) : null).catch(error => {
         console.error('payroll statistics attendance failed:', error);
         return null;
       }),
     ]);
+    // 测试账号的工资条不计入合计（自己看自己时除外，那条路本来只查本人）
+    const statements = employeeOnly ? allStatements : (await filterOutTestAccountStatements(req.tenantId, allStatements));
     const attendanceByMonth = new Map(months.map(month => [month, blankAttendanceRow(month)]));
     const accrualByMonth = new Map(months.map(month => [month, blankStatsRow(month)]));
     for (const statement of statements) {
@@ -842,6 +914,123 @@ exports.getStatistics = async (req, res) => {
 const MAX_BATCH_ROWS = 500;
 
 /**
+ * 批量给当月全体在职员工记一笔节日福利。
+ *
+ * 口径（与用户 2026-10-06 定的交互一致）：
+ * - 范围是**当月工资表里的全部员工**，不逐人勾选——福利是全员同额的事，让财务按人勾选反而容易漏人。
+ * - 同一个节日**覆盖不累加**：先发中秋 200、改成 300 得到 300，不是 500。
+ * - 只写草稿，不发布：录完财务自己核对，之后走原有的「批量发布」。
+ * - 已发布过的人会被覆盖成未发布修订草稿，用 hadPublished 标出来提醒重新发布。
+ * - 当月考勤已结账且工资条已发布的，按 saveDraft 的同一口径跳过（要改得先撤回），逐人回报原因。
+ * - 员工当月还没有任何工资数据时以 0 起底：只写福利这一项，其余保持 0，
+ *   不去猜薪资标准（财务后续手工补，或用「导入」整表覆盖）。
+ */
+exports.batchWelfare = async (req, res) => {
+  let monthLock;
+  try {
+    if (!(await requireFinance(req, res))) return;
+    const month = parseMonth(req.params.month);
+    const entry = validateWelfareEntry(req.body);
+    if (!month) return fail(res, 400, '月份格式应为 YYYY-MM');
+    if (!entry.ok) return fail(res, 400, entry.error);
+    const allEmployees = await User.find(payrollEmployeeQuery(req.tenantId))
+      .select('employeeNo phone profile.name userid role department status').lean();
+    // 测试账号不是真员工，不发福利
+    const employees = filterRealEmployees(allEmployees);
+    if (!employees.length) return fail(res, 400, '当前没有在职员工');
+    if (employees.length > MAX_BATCH_ROWS) return fail(res, 400, `当月在职员工超过 ${MAX_BATCH_ROWS} 人，请分批处理`);
+    monthLock = await monthCoordination.acquireMonthMutationLock(req.tenantId, month.value);
+    // 结账口径只查一次，逐人复用；整批要么都能改要么都改不了。
+    const ledgerStatus = await monthLedgerStatus(req.tenantId, month.value);
+    const existingStatements = await PayrollStatement.find({ tenantId: req.tenantId, month: month.value })
+      .select('employeeId version currentPublishedRevision draft');
+    const byEmployee = new Map(existingStatements.map(statement => [String(statement.employeeId), statement]));
+    const now = new Date();
+    const results = [];
+    for (const employee of employees) {
+      const employeeId = String(employee._id);
+      const label = { employeeId, name: employee.profile?.name || employee.userid || '', employeeNo: employee.employeeNo || '' };
+      const existing = byEmployee.get(employeeId);
+      if (existing?.currentPublishedRevision && ledgerStatus === 'closed') {
+        results.push({ ...label, status: 'failed', error: '当月考勤已结账，该员工工资条需先撤回再修改' });
+        continue;
+      }
+      // 基准金额：有草稿用草稿，没有就用当前发布版，都没有就全 0 起底。
+      const baseComponents = existing?.draft?.components
+        || (existing ? latestPublished(existing)?.components : null)
+        || Object.fromEntries(COMPONENT_KEYS.map(key => [key, 0]));
+      const applied = applyWelfareEntry(normalizeWelfareItems(existing?.draft?.welfareItems, baseComponents), entry.entry);
+      const components = { ...asObject(baseComponents), welfareCents: sumWelfareItems(applied.items) };
+      const validated = validatePayrollComponents(components);
+      if (!validated.ok) {
+        results.push({ ...label, status: 'failed', error: validated.error });
+        continue;
+      }
+      const values = {
+        employee: employeeSnapshot(employee),
+        draft: { components: validated.components, totals: validated.totals, welfareItems: applied.items, updatedBy: req.user._id, updatedAt: now },
+        updatedAt: now,
+      };
+      if (!existing) {
+        try {
+          await PayrollStatement.create({ tenantId: req.tenantId, employeeId, month: month.value, ...values, version: 1 });
+          results.push({ ...label, status: 'created', hadPublished: false, replaced: applied.replaced });
+        } catch (error) {
+          if (error?.code === 11000) results.push({ ...label, status: 'failed', error: '工资条已被其他财务建立，请刷新后重试' });
+          else throw error;
+        }
+        continue;
+      }
+      const updated = await PayrollStatement.findOneAndUpdate({ _id: existing._id, tenantId: req.tenantId, version: existing.version }, {
+        $set: values,
+        $inc: { version: 1, __v: 1 },
+      }, { new: true, runValidators: true });
+      if (!updated) results.push({ ...label, status: 'failed', error: '工资条已被其他财务修改，请刷新后重试' });
+      else {
+        results.push({
+          ...label,
+          status: 'updated',
+          hadPublished: Boolean(existing.currentPublishedRevision),
+          replaced: applied.replaced,
+          previousAmountCents: applied.previousAmountCents,
+          welfareCents: validated.components.welfareCents,
+        });
+      }
+    }
+    const succeeded = results.filter(item => item.status !== 'failed').length;
+    return res.json({ ok: true, data: {
+      month: month.value,
+      holiday: entry.entry.holiday,
+      holidayLabel: entry.entry.holidayLabel,
+      amountCents: entry.entry.amountCents,
+      ledgerStatus,
+      results,
+      succeeded,
+      failed: results.length - succeeded,
+      overwrittenPublished: results.filter(item => item.hadPublished).length,
+      created: results.filter(item => item.status === 'created').length,
+    } });
+  } catch (error) {
+    console.error('payroll batchWelfare failed:', error);
+    if (error?.status === 409 || error?.name === 'VersionError') return fail(res, 409, error.message || '考勤台账正在处理或工资条已变化，请刷新后重试');
+    return fail(res, 500, '批量录入福利失败');
+  } finally {
+    if (monthLock) await monthCoordination.releaseMonthMutationLock(req.tenantId, monthLock).catch(() => {});
+  }
+};
+
+/** 节日福利下拉清单由后端下发，前端不另写一份，避免两边节假日对不上。 */
+exports.listWelfareHolidays = async (req, res) => {
+  try {
+    if (!(await requirePayrollReader(req, res))) return;
+    return res.json({ ok: true, data: { holidays: WELFARE_HOLIDAY_OPTIONS } });
+  } catch (error) {
+    console.error('payroll listWelfareHolidays failed:', error);
+    return fail(res, 500, '读取节日清单失败');
+  }
+};
+
+/**
  * 按月份批量导入工资草稿。
  * - 名单匹配（姓名/工号）在导入弹窗里完成，这里只接收 employeeId + 16 项录入金额。
  * - 只写草稿、不发布；当月已发布过的人会被覆盖成「未发布修订草稿」，用 hadPublished 标出来提醒财务重新发布。
@@ -874,7 +1063,7 @@ exports.importDrafts = async (req, res) => {
       }
       const values = {
         employee: employeeSnapshot(employee),
-        draft: { components: validated.components, totals: validated.totals, updatedBy: req.user._id, updatedAt: now },
+        draft: { components: validated.components, totals: validated.totals, welfareItems: [], updatedBy: req.user._id, updatedAt: now },
         updatedAt: now,
       };
       const existing = await PayrollStatement.findOne({ tenantId: req.tenantId, employeeId, month: month.value }).select('_id version currentPublishedRevision');
@@ -948,4 +1137,4 @@ exports.publishBatch = async (req, res) => {
   }
 };
 
-exports._test = { parseMonth, parsePeriod, paymentSums, paymentStatus, latestPublished, effectiveComponents, collectTaxBasis, serializeStatement, isSafeProofUrl, monthLedgerStatus, isMonthLedgerClosed, publishDraftStatement, loadEmployees };
+exports._test = { parseMonth, parsePeriod, paymentSums, paymentStatus, latestPublished, effectiveComponents, collectTaxBasis, serializeStatement, isSafeProofUrl, monthLedgerStatus, isMonthLedgerClosed, publishDraftStatement, loadEmployees, normalizeWelfareItems };

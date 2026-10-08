@@ -94,15 +94,19 @@ watch(() => [props.minValue, props.maxValue, selectedDate.value] as const, () =>
 </script>
 
 <template>
-  <div role="group" :aria-label="label" class="flex min-w-0 flex-wrap gap-2 sm:flex-nowrap">
-    <DatePicker :model-value="selectedDate" :disabled="disabled" :min-date="minDate" :max-date="maxDate" :disabled-date="disabledDate" :disabled-hint="disabledHint" :date-indicator="dateIndicator" placeholder="选择日期" class="h-9" @update:model-value="updateDate" @visible-year-change="emit('visible-year-change', $event)" />
-    <div class="flex gap-2">
+  <!-- 三段固定宽度并排：日期 11rem + 时 4.5rem + 分 4.5rem + 间隙。
+       宽度约束放在外层容器，不去覆盖 DatePicker 内部的 w-full（那会与 tailwind-merge 打架）。 -->
+  <div role="group" :aria-label="label" class="flex min-w-0 flex-wrap gap-2">
+    <div class="w-[11rem] shrink-0">
+      <DatePicker :model-value="selectedDate" :disabled="disabled" :min-date="minDate" :max-date="maxDate" :disabled-date="disabledDate" :disabled-hint="disabledHint" :date-indicator="dateIndicator" placeholder="选择日期" class="h-9" @update:model-value="updateDate" @visible-year-change="emit('visible-year-change', $event)" />
+    </div>
+    <div class="flex shrink-0 gap-2">
       <Select :model-value="selectedHour" :disabled="disabled" @update:model-value="updateHour">
-        <SelectTrigger class="w-20" :aria-label="`${label}小时`"><SelectValue placeholder="时" /></SelectTrigger>
+        <SelectTrigger class="w-[4.5rem]" :aria-label="`${label}小时`"><SelectValue placeholder="时" /></SelectTrigger>
         <SelectContent><SelectItem v-for="hour in availableHours" :key="hour" :value="hour">{{ hour }} 时</SelectItem></SelectContent>
       </Select>
       <Select v-if="minuteStep < 60" :model-value="selectedMinute" :disabled="disabled" @update:model-value="updateMinute">
-        <SelectTrigger class="w-20" :aria-label="`${label}分钟`"><SelectValue placeholder="分" /></SelectTrigger>
+        <SelectTrigger class="w-[4.5rem]" :aria-label="`${label}分钟`"><SelectValue placeholder="分" /></SelectTrigger>
         <SelectContent><SelectItem v-for="minute in minutes" :key="minute" :value="minute">{{ minute }} 分</SelectItem></SelectContent>
       </Select>
     </div>

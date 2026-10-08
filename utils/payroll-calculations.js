@@ -7,6 +7,7 @@ const COMPONENT_KEYS = Object.freeze([
   'transportAllowanceCents',
   'lunchAllowanceCents',
   'overtimeAllowanceCents',
+  'welfareCents',
   'employerSocialInsuranceCents',
   'employerHousingFundCents',
   'employeeSocialInsuranceCents',
@@ -19,7 +20,7 @@ const COMPONENT_KEYS = Object.freeze([
 
 const INCOME_KEYS = Object.freeze([
   'basicPayCents', 'performancePayCents', 'positionPayCents', 'seniorityPayCents',
-  'attendanceBonusCents', 'transportAllowanceCents', 'lunchAllowanceCents', 'overtimeAllowanceCents',
+  'attendanceBonusCents', 'transportAllowanceCents', 'lunchAllowanceCents', 'overtimeAllowanceCents', 'welfareCents',
 ]);
 const ATTENDANCE_DEDUCTION_KEYS = Object.freeze([
   'sickLeaveDeductionCents', 'personalLeaveDeductionCents', 'absenceDeductionCents',

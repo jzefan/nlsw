@@ -151,7 +151,7 @@ type FeatureItem = { title: string; icon: any; url: string; color: string; bgCol
 
 /**
  * 考勤与工资、用章是两块独立模块，各自有自己的移动端首页（入口卡片 + 返回工作台），
- * 所以在「常用功能」之上单列一行，而不是混进功能格子里。
+ * 所以单列一块，而不是混进功能格子里。位置在「常用功能」之后、「其它」之前（与桌面端侧栏一致）。
  */
 const moduleEntries = computed<FeatureItem[]>(() => {
   const items: FeatureItem[] = []
@@ -290,16 +290,15 @@ const allFeatures = computed<{ group: string; items: FeatureItem[] }[]>(() => {
     ],
   })
 
-  // 设置
-  groups.push({
-    group: '设置',
-    items: [
-      { title: '密码修改', icon: Settings, url: '/settings/account', color: 'text-gray-600', bgColor: 'bg-gray-50 dark:bg-gray-900/30' },
-    ],
-  })
-
+  // 注意：「设置」不在这里返回 —— 它要排在「考勤与工资 / 用章」之后（与桌面端侧栏顺序一致），
+  // 由 accountItems 单独渲染。
   return groups
 })
+
+/** 「设置」组：桌面端排在考勤/用章之后，移动端保持同一顺序。 */
+const accountItems = computed<FeatureItem[]>(() => [
+  { title: '密码修改', icon: Settings, url: '/settings/account', color: 'text-gray-600', bgColor: 'bg-gray-50 dark:bg-gray-900/30' },
+])
 
 const featuresExpanded = ref(false)
 
@@ -593,22 +592,6 @@ function selectYear(year: string) {
       </div>
     </div>
 
-    <!-- 模块入口：进入各自模块首页，页面内有返回按钮回到本页 -->
-    <div v-if="moduleEntries.length" class="px-3 mt-4 grid gap-3" :class="moduleEntries.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
-      <button
-        v-for="item in moduleEntries"
-        :key="item.url"
-        class="flex items-center gap-3 p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-700 active:scale-[0.98] transition-transform"
-        @click="navigateTo(item.url)"
-      >
-        <div class="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" :class="item.bgColor">
-          <component :is="item.icon" class="h-5 w-5" :class="item.color" />
-        </div>
-        <span class="min-w-0 flex-1 text-sm font-medium text-gray-700 dark:text-gray-200 text-left truncate">{{ item.title }}</span>
-        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground/60" />
-      </button>
-    </div>
-
     <!-- Feature Grid -->
     <div class="px-3 mt-4">
       <div class="flex items-center justify-between mb-3">
@@ -655,6 +638,40 @@ function selectYear(year: string) {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 模块入口：进入各自模块首页，页面内有返回按钮回到本页。
+         排在「常用功能」之后，与桌面端侧栏顺序一致（数据 → 考勤/用章 → 其它） -->
+    <div v-if="moduleEntries.length" class="px-3 mt-4 grid gap-3" :class="moduleEntries.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+      <button
+        v-for="item in moduleEntries"
+        :key="item.url"
+        class="flex items-center gap-3 p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-700 active:scale-[0.98] transition-transform"
+        @click="navigateTo(item.url)"
+      >
+        <div class="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" :class="item.bgColor">
+          <component :is="item.icon" class="h-5 w-5" :class="item.color" />
+        </div>
+        <span class="min-w-0 flex-1 text-sm font-medium text-gray-700 dark:text-gray-200 text-left truncate">{{ item.title }}</span>
+        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      </button>
+    </div>
+
+    <!-- 其它（设置）：始终排在最后 -->
+    <div class="px-3 mt-4">
+      <div class="grid grid-cols-4 gap-3">
+        <button
+          v-for="item in accountItems"
+          :key="item.url"
+          class="flex flex-col items-center gap-1.5 p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-700 active:scale-95 transition-transform"
+          @click="navigateTo(item.url)"
+        >
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center" :class="item.bgColor">
+            <component :is="item.icon" class="h-5 w-5" :class="item.color" />
+          </div>
+          <span class="text-[11px] text-gray-600 dark:text-gray-400 font-medium leading-tight text-center">{{ item.title }}</span>
+        </button>
       </div>
     </div>
 

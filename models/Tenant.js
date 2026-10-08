@@ -51,6 +51,11 @@ var tenantSchema = new mongoose.Schema({
     theme: String,
     companyName: String,  // 显示在界面上的公司名称
     attendanceEnabled: { type: Boolean, default: false }, // 考勤模块开关
+    // 每天的工作时段（上午/下午各一段的起止时间）。不写默认值：未配置时由读取路径
+    // （utils/attendance-permissions.js 的 DEFAULT_WORK_PERIODS）兜底成 09:00–12:00 + 13:00–18:00。
+    // **必须在这里声明**，否则 strict 模式会静默丢弃写入，配置永远不生效。
+    // _id: false —— 时段只是个 {start, end} 对，不需要也不该带子文档 _id（会污染存库数据与前端比较）
+    attendanceWorkPeriods: { type: [{ start: String, end: String, _id: false }], default: undefined },
     attendanceCalendarOverrides: { type: mongoose.Schema.Types.Mixed, default: {} }, // YYYY-MM-DD: holiday | workday
     attendanceCalendarYears: { type: [Number], default: [] }, // 管理员已确认日历的年份
     attendanceSaturdayMorningWorkday: { type: Boolean, default: false }, // 每周六上午按工作日计（法定节假日与调休上班日除外）
@@ -77,6 +82,15 @@ var tenantSchema = new mongoose.Schema({
     sealCustodianIds: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: [] }, // 专职印章保管员（多选）
     sealOverdueRemindMinutes: { type: Number, default: 120 }, // 逾期催办主管阈值（分钟）
     sealOverdueEscalateMinutes: { type: Number, default: 1440 }, // 逾期升级总经理阈值（分钟）
+    // 用章审批人（以人为中心）：一个人可负责多类印章，5 类不必对应 5 个人。
+    // 未被任何审批人覆盖的印章类别 = 该类别走兜底链（总经理 → 总经理代理 → 公司主账号）。
+    // 一个人只能出现一次；同一印章类别不允许同时挂两个人（否则会变成双人会签，语义要重新定义）。
+    // 必须在这里声明，否则写入会被 strict 静默丢弃。
+    sealApprovers: [{
+      _id: false,
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      sealTypes: { type: [String], default: [] }
+    }],
     requireReceiptForSettle: { type: Boolean, default: false },  // 结算前是否必须有回执
     drayageRate: { type: Number, default: 0 },  // 车运到船应收单价（元/吨），0=使用原有计算逻辑
     ownVehicleDeductPayable: { type: Boolean, default: true },  // 自有车利润是否减去应付金额，true=减去（默认），false=不减

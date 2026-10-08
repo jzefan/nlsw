@@ -191,6 +191,8 @@ export interface AttendanceLedger {
   month: string
   status: AttendanceLedgerStatus
   version: number
+  /** 1 个工作日 = 多少分钟；用来把实到拆成「天 + 小时」。老数据或异常配置下可能缺失，前端按 480 兜底。 */
+  dayMinutes?: number
   rows: AttendanceLedgerRow[]
   totals: AttendanceLedgerTotals
 }
@@ -213,6 +215,7 @@ export const payrollComponentFields = [
   ['transportAllowanceCents', '交通补贴'],
   ['lunchAllowanceCents', '午餐补贴'],
   ['overtimeAllowanceCents', '加班补贴'],
+  ['welfareCents', '福利'],
   ['employerSocialInsuranceCents', '社保公司承担'],
   ['employerHousingFundCents', '公积金公司承担'],
   ['employeeSocialInsuranceCents', '社保个人承担'],
@@ -281,6 +284,19 @@ export interface AttendanceSaturdayMorning {
 
 export async function saveAttendanceCalendarSaturdayMorning(enabled: boolean) {
   const response = await axiosInstance.post<AttendanceResponse<AttendanceSaturdayMorning>>('/attendance/calendar/saturday-morning', { enabled })
+  return response.data
+}
+
+/** 每天的工作时段（上午/下午各一段的起止时间），租户级设置。 */
+export interface AttendanceWorkPeriodsResult {
+  periods: { start: string, end: string }[]
+  /** 每天合计小时数：时段一改它就变，台账实到扣减按小时口径走。 */
+  hoursPerDay: number
+  saturdayMorning: AttendanceSaturdayMorning
+}
+
+export async function saveAttendanceWorkPeriods(periods: { start: string, end: string }[]) {
+  const response = await axiosInstance.post<AttendanceResponse<AttendanceWorkPeriodsResult>>('/attendance/calendar/work-periods', { periods })
   return response.data
 }
 

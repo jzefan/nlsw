@@ -17,6 +17,8 @@ import {
   getSealRequestDetail,
   withdrawSealRequest,
   reviewSealRequest,
+  hasPendingApprovalForMe,
+  myApprovalStep,
   SEAL_TYPE_MAP,
   SEAL_STATUS_MAP,
   type SealRequest,
@@ -165,7 +167,8 @@ async function submitReview() {
       comment: reviewComment.value
     })
     if (res.ok) {
-      toast.success(reviewDecision.value === 'approved' ? '审批通过' : '已驳回申请')
+      // 会签未完成时后端会带 message 说明「你已通过、仍在等人审」
+      toast.success(res.message || (reviewDecision.value === 'approved' ? '审批通过' : '已驳回申请'))
       // 刚审完一条：侧栏角标与页面待办链接立刻跟着减
       void approvalStore.refresh()
       reviewDialogOpen.value = false
@@ -191,10 +194,24 @@ function formatDateTime(val: string | undefined | null) {
 
 /** 移动端卡片与展开区的动作条件，与桌面端表格里的判断保持一致。 */
 function canReviewRow(row: SealRequest) {
-  return row.status === 'pending' && (isInbox.value || row.currentApproverId === authStore.user?.id || authStore.isOwner)
+  if (row.status !== 'pending') return false
+  // 会签：我自己名下还有待审步骤，或我是有兜底代审权的人（owner / 管理员 / 总经理）
+  if (hasPendingApprovalForMe(row, authStore.user?.id)) return true
+  return isInbox.value || authStore.isOwner || authStore.isAppAdmin
 }
 function canWithdrawRow(row: SealRequest) {
   return ['pending', 'approved'].includes(row.status) && (isMine.value || String(row.applicantId) === String(authStore.user?.id))
+}
+
+/** 审批弹窗标题：会签时说明这一步只覆盖我负责的类别。 */
+function reviewScopeText(row: SealRequest | null) {
+  if (!row) return ''
+  const step = myApprovalStep(row, authStore.user?.id)
+  if (step && (step.sealTypeNames?.length || step.sealTypes?.length)) {
+    const names = step.sealTypeNames?.length ? step.sealTypeNames : (step.sealTypes || []).map(t => SEAL_TYPE_MAP[t])
+    return `你负责的：${names.join('、')}`
+  }
+  return ''
 }
 
 /** 详情面板要用的展示文本，桌面展开行与移动端卡片共用同一份。 */
@@ -211,6 +228,20 @@ function detailSealItems(detail: SealRequest) {
 }
 function detailLogs(detail: SealRequest) {
   return (detail.logs || []).map(log => ({ id: log._id, operator: log.operatorName || '系统', note: log.note || '', time: formatDateTime(log.at) }))
+}
+
+/** 审批进度（会签）：把 approvals 摊平成一行一格能直接渲染的形状。 */
+function detailApprovals(detail: SealRequest) {
+  return (detail.approvals || []).map((a, idx) => ({
+    id: `${a.approverId}-${idx}`,
+    name: a.approverName || '未知审批人',
+    scope: a.sealTypeNames?.length
+      ? a.sealTypeNames.join('、')
+      : (a.sealTypes || []).map(t => SEAL_TYPE_MAP[t]).join('、'),
+    status: a.status,
+    comment: a.comment || '',
+    time: a.reviewedAt ? formatDateTime(a.reviewedAt) : ''
+  }))
 }
 
 watch([statusFilter, sealTypeFilter], () => {
@@ -373,6 +404,7 @@ onMounted(() => {
               <SealRequestDetailPanel
                 :display="detailDisplay(expandedDetail)"
                 :seal-items="detailSealItems(expandedDetail)"
+                :approvals="detailApprovals(expandedDetail)"
                 :logs="detailLogs(expandedDetail)"
               />
 
@@ -497,7 +529,7 @@ onMounted(() => {
               <!-- 操作 -->
               <TableCell class="text-right space-x-1">
                 <!-- 审批操作 -->
-                <template v-if="row.status === 'pending' && (isInbox || row.currentApproverId === authStore.user?.id || authStore.isOwner)">
+                <template v-if="canReviewRow(row)">
                   <Button
                     variant="outline"
                     size="sm"
@@ -553,6 +585,7 @@ onMounted(() => {
                   v-else-if="expandedDetail"
                   :display="detailDisplay(expandedDetail)"
                   :seal-items="detailSealItems(expandedDetail)"
+                  :approvals="detailApprovals(expandedDetail)"
                   :logs="detailLogs(expandedDetail)"
                 />
               </TableCell>
@@ -595,6 +628,14 @@ onMounted(() => {
           <div>
             <span class="text-muted-foreground">申请人：</span>
             <span>{{ reviewingItem?.applicant?.name }} ({{ reviewingItem?.useDepartment }})</span>
+          </div>
+
+          <div v-if="reviewScopeText(reviewingItem)" class="text-muted-foreground">
+            {{ reviewScopeText(reviewingItem) }}
+          </div>
+
+          <div v-if="reviewingItem && (reviewingItem.approvals || []).filter(a => a.status === 'pending').length > 1" class="text-muted-foreground">
+            本单需各审批人全部通过，你通过后仍会保留在待审批列表中直至其他人处理完毕。
           </div>
 
           <div class="space-y-1.5 pt-1">

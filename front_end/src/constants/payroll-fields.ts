@@ -29,6 +29,7 @@ export const payslipColumns: PayrollColumn[] = [
   { kind: 'component', key: 'transportAllowanceCents', label: '交通补贴', group: '补贴' },
   { kind: 'component', key: 'lunchAllowanceCents', label: '午餐补贴', group: '补贴' },
   { kind: 'component', key: 'overtimeAllowanceCents', label: '加班补贴', group: '补贴' },
+  { kind: 'component', key: 'welfareCents', label: '福利', group: '补贴' },
   { kind: 'component', key: 'employerSocialInsuranceCents', label: '社保公司承担' },
   { kind: 'component', key: 'employerHousingFundCents', label: '公积金公司承担' },
   { kind: 'totals', key: 'totalCompensationCents', label: '工资总额（含社保公积金）' },
@@ -54,6 +55,7 @@ export const payrollIncomeKeys: readonly (keyof PayrollComponents)[] = [
   'transportAllowanceCents',
   'lunchAllowanceCents',
   'overtimeAllowanceCents',
+  'welfareCents',
 ]
 
 /** 请假与旷工扣款项。与后端 utils/payroll-calculations.js 的 ATTENDANCE_DEDUCTION_KEYS 一致。 */

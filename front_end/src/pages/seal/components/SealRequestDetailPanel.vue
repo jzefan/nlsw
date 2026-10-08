@@ -1,13 +1,23 @@
 <script setup lang="ts">
 /**
  * 用章申请详情：桌面端展开行与移动端卡片共用同一份内容，避免两处各写一套后走样。
- * 展示文本由父组件按行算好传进来（display / sealItems / logs），这里只负责排版。
+ * 展示文本由父组件按行算好传进来（display / sealItems / approvals / logs），这里只负责排版。
  */
-import { Stamp } from 'lucide-vue-next'
+import { Stamp, Check, X, Minus } from 'lucide-vue-next'
 
 import { Badge } from '@/components/ui/badge'
 
-const props = defineProps<{
+type ApprovalRow = {
+  id: string
+  name: string
+  /** 该审批人负责的印章类别 */
+  scope: string
+  status: 'pending' | 'approved' | 'rejected' | 'skipped'
+  comment: string
+  time: string
+}
+
+const props = withDefaults(defineProps<{
   /** 父组件算好的展示文本 */
   display: {
     reason: string
@@ -19,9 +29,20 @@ const props = defineProps<{
   }
   /** 分配的实体印章明细 */
   sealItems: { id: string, code: string, typeName: string }[]
+  /** 审批进度（会签：每位审批人一行） */
+  approvals?: ApprovalRow[]
   /** 操作审计台账轨迹 */
   logs: { id: string, operator: string, note: string, time: string }[]
-}>()
+}>(), {
+  approvals: () => [],
+})
+
+const APPROVAL_STATUS: Record<ApprovalRow['status'], { label: string; icon: typeof Check; class: string }> = {
+  approved: { label: '已通过', icon: Check, class: 'text-emerald-600 dark:text-emerald-400' },
+  rejected: { label: '已驳回', icon: X, class: 'text-destructive' },
+  pending: { label: '待审批', icon: Minus, class: 'text-muted-foreground' },
+  skipped: { label: '未进行', icon: Minus, class: 'text-muted-foreground/60' },
+}
 </script>
 
 <template>
@@ -59,6 +80,25 @@ const props = defineProps<{
           <span>{{ item.code }}</span>
           <Badge variant="outline" class="text-[10px] px-1 py-0">{{ item.typeName }}</Badge>
         </div>
+      </div>
+    </div>
+
+    <!-- 审批进度（会签） -->
+    <div v-if="props.approvals.length > 0" class="space-y-1.5">
+      <div class="font-medium text-xs text-muted-foreground">审批进度：</div>
+      <div class="space-y-1">
+        <template v-for="a in props.approvals" :key="a.id">
+          <div class="flex items-center gap-2 rounded border bg-background px-2.5 py-1.5 text-xs">
+            <component :is="APPROVAL_STATUS[a.status].icon" class="h-3.5 w-3.5 shrink-0" :class="APPROVAL_STATUS[a.status].class" />
+            <span class="font-medium text-foreground">{{ a.name }}</span>
+            <span v-if="a.scope" class="text-muted-foreground">{{ a.scope }}</span>
+            <span class="ml-auto shrink-0" :class="APPROVAL_STATUS[a.status].class">
+              {{ APPROVAL_STATUS[a.status].label }}
+            </span>
+            <span v-if="a.time" class="shrink-0 text-[11px] text-muted-foreground/80 tabular-nums">{{ a.time }}</span>
+          </div>
+          <div v-if="a.comment" class="px-2.5 text-[11px] text-muted-foreground">{{ a.comment }}</div>
+        </template>
       </div>
     </div>
 

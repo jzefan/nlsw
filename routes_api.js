@@ -123,6 +123,7 @@ module.exports = function (app) {
   app.post('/attendance/calendar/day', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendarDay);
   app.post('/attendance/calendar', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendar);
   app.post('/attendance/calendar/saturday-morning', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateCalendarSaturdayMorning);
+  app.post('/attendance/calendar/work-periods', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.updateWorkPeriods);
   app.get('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, attendanceApiController.getGeneralManagerDelegate);
   app.post('/attendance/settings/approval-delegate', requireTenant, requireAttendanceEnabled, requireSameOrigin, attendanceApiController.setGeneralManagerDelegate);
   app.get('/attendance/settings/submission-locks', requireTenant, requireAttendanceEnabled, attendanceApiController.listSubmissionLocks);
@@ -155,6 +156,9 @@ module.exports = function (app) {
   // 按月批量：导入工资草稿（名单匹配在前端完成，这里只收员工与金额）与批量发布待发布草稿
   app.post('/attendance/payroll/import/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.importDrafts);
   app.post('/attendance/payroll/publish-batch/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.publishBatch);
+  // 节日福利：清单只读（与工资表同一批读者），录入仅财务
+  app.get('/attendance/payroll/welfare-holidays', requireTenant, requireAttendanceEnabled, payrollController.listWelfareHolidays);
+  app.post('/attendance/payroll/welfare-batch/:month', requireTenant, requireAttendanceEnabled, requireSameOrigin, payrollController.batchWelfare);
   app.get('/attendance/payroll/statistics', requireTenant, requireAttendanceEnabled, payrollController.getStatistics);
 
   // Seal API (用章管理) (tenant-scoped)

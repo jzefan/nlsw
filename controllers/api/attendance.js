@@ -13,6 +13,7 @@ const { isAdmin } = require('../../utils/permissions');
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { chinaAttendanceCalendarMeta, ensureChinaAttendanceCalendar, getChinaAttendanceCalendar, hasChinaAttendanceCalendar } = require('../../utils/china-attendance-calendar');
+const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
 const { APPEAL_TYPES, APPEAL_TYPE_LABELS } = require('../../utils/attendance-ledger-actual');
 const { _coordination: ledgerCoordination } = require('./attendance-ledger');
 const {
@@ -20,6 +21,8 @@ const {
   hasLinkedEmployee,
   canViewTeam,
   getAttendancePolicy,
+  validateWorkPeriods,
+  DEFAULT_WORK_PERIODS,
   calculateLeaveMinutes,
   isWorkdayAt,
   sanitizeUser
@@ -289,9 +292,11 @@ exports.listPeople = async (req, res) => {
   try {
     if (!requirePeopleManager(req, res)) return;
     // 平台账号不是公司员工，不出现在考勤员工资料里
-    const people = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
-      .select('employeeNo phone profile.name profile.phone userid department title managerId attendanceRoles attendanceTracked payrollRoles mustChangePassword status')
+    const found = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
+      .select('employeeNo phone profile.name profile.phone userid role department title managerId attendanceRoles attendanceTracked payrollRoles mustChangePassword status')
       .sort({ department: 1, employeeNo: 1, userid: 1 }).lean();
+    // 测试账号同样不出现在员工资料里
+    const people = filterRealEmployees(found);
     const rows = people.map(toPersonRow);
     const labels = buildPersonLabels(rows);
     // 直属经理必须是本租户在职员工，正常情况下已在 rows 内；若该经理账号已不存在则单独回查兜底。
@@ -363,11 +368,20 @@ exports.updateEmployeeProfile = async (req, res) => {
     // 「总经理」由用户管理的职位决定，这里不允许增删，只能原样保留。
     const storedGeneralManager = attendanceRoles.includes('general_manager');
     if (Object.prototype.hasOwnProperty.call(req.body, 'attendanceRoles')) {
-      const allowed = ['manager', 'general_manager', 'attendance_admin'];
-      if (!Array.isArray(req.body.attendanceRoles) || req.body.attendanceRoles.length > allowed.length || req.body.attendanceRoles.some(role => !allowed.includes(role)) || new Set(req.body.attendanceRoles).size !== req.body.attendanceRoles.length) {
+      // 「经理」已停止开放（2026-10-07 用户决定）：它的唯一作用是防自审，而那用「直属经理」指向总经理就能达成。
+      // **存量勾选允许原样保留**（编辑其他字段时前端会把它带回来，不能报 400 打断保存），只是不接受**新增**。
+      const requested = Array.isArray(req.body.attendanceRoles) ? req.body.attendanceRoles : [];
+      // 新增 manager 一律拒（存量勾选可原样带回，见 keptManager）
+      if (requested.includes('manager') && !(user.attendanceRoles || []).includes('manager')) {
+        return fail(res, 400, '「经理」角色已停用，请把该员工的「直属经理」设为总经理，即可让本人的申请由总经理审批');
+      }
+      const allowed = ['attendance_admin', 'general_manager'];
+      const keptManager = requested.includes('manager');
+      const effective = allowed.concat(keptManager ? ['manager'] : []);
+      if (requested.length > effective.length || requested.some(role => !effective.includes(role)) || new Set(requested).size !== requested.length) {
         return fail(res, 400, '考勤角色无效');
       }
-      attendanceRoles = req.body.attendanceRoles.filter(role => role !== 'general_manager');
+      attendanceRoles = requested.filter(role => role !== 'general_manager');
       if (storedGeneralManager) attendanceRoles = [...attendanceRoles, 'general_manager'];
       if (!isActive && attendanceRoles.length > 0) return fail(res, 400, '停用员工不能分配考勤角色');
     }
@@ -438,7 +452,7 @@ exports.getCalendar = async (req, res) => {
         year,
         confirmed: configuredYears.has(year),
         configuredYears: [...configuredYears].sort((a, b) => a - b),
-        defaultWorkPeriods: [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '18:00' }],
+        defaultWorkPeriods: DEFAULT_WORK_PERIODS,
         workPeriods: attendancePolicy.intervals,
         defaultDays: getChinaAttendanceCalendar(year),
         days: entries,
@@ -541,6 +555,38 @@ exports.updateCalendarSaturdayMorning = async (req, res) => {
     console.error('attendance updateCalendarSaturdayMorning failed:', error);
     if (error?.name === 'VersionError') return fail(res, 409, '工作日历已被其他管理员更新，请刷新后重试');
     return fail(res, 500, '更新周六上午上班设置失败');
+  }
+};
+
+/**
+ * 每天的工作时段（上午 + 下午的起止时间），租户级设置，影响所有年度与所有考勤口径：
+ * 请假折算、应出勤计算、实到扣减都读这一份。
+ *
+ * 改它**不改已结账月份**：台账一旦结账就冻结了 `expectedMinutes` 快照，
+ * 历史月份仍按当时的配置算，重开那个月才会用新配置。
+ */
+exports.updateWorkPeriods = async (req, res) => {
+  try {
+    const isOwner = req.user?.role === 'owner';
+    if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
+    const validated = validateWorkPeriods(req.body?.periods);
+    if (!validated.ok) return fail(res, 400, validated.error);
+    const tenant = req.tenant;
+    if (!tenant) return fail(res, 403, '缺少租户配置');
+    tenant.settings.attendanceWorkPeriods = validated.periods;
+    tenant.markModified('settings.attendanceWorkPeriods');
+    await tenant.save();
+    const policy = getAttendancePolicy(tenant);
+    return res.json({ ok: true, data: {
+      periods: policy.intervals,
+      // 每天总时长跟着变：台账「实到自动计算」按小时口径扣减，口径必须同步。
+      hoursPerDay: policy.hoursPerDay,
+      saturdayMorning: { enabled: policy.saturdayMorning, periods: policy.morningIntervals },
+    } });
+  } catch (error) {
+    console.error('attendance updateWorkPeriods failed:', error);
+    if (error?.name === 'VersionError') return fail(res, 409, '工作日历已被其他管理员更新，请刷新后重试');
+    return fail(res, 500, '更新工作时段失败');
   }
 };
 

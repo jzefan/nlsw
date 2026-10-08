@@ -11,6 +11,8 @@ export interface PayrollComponents {
   transportAllowanceCents: number
   lunchAllowanceCents: number
   overtimeAllowanceCents: number
+  /** 节日福利合计（各节日明细金额之和），进收入合计与实发金额。 */
+  welfareCents: number
   employerSocialInsuranceCents: number
   employerHousingFundCents: number
   employeeSocialInsuranceCents: number
@@ -120,6 +122,14 @@ export interface PayrollStandardRow {
 /** 当月考勤台账状态：closed 已结账 / open 已建台账但未结账 / missing 还没建台账。 */
 export type PayrollLedgerStatus = 'closed' | 'open' | 'missing'
 
+/** 节日福利明细里的一条：一个节日一笔，金额合计等于 components.welfareCents。 */
+export interface PayrollWelfareItem {
+  /** 固定节假日的 key，或 'other'（财务自填名称） */
+  holiday: string
+  holidayLabel: string
+  amountCents: number
+}
+
 export interface PayrollStatementRow {
   employeeId: string
   employeeNo: string
@@ -132,6 +142,8 @@ export interface PayrollStatementRow {
   paymentStatus: 'unpaid' | 'partial' | 'paid' | 'not_publish'
   components: PayrollComponents | null
   totals: PayrollTotals | null
+  /** 当前有效金额里的节日福利明细（与 components.welfareCents 合计一致） */
+  welfareItems?: PayrollWelfareItem[]
   publishedComponents: PayrollComponents | null
   publishedTotals: PayrollTotals | null
   /** 该员工的薪资标准，用于录入弹窗预填 */
@@ -322,6 +334,42 @@ export interface PayrollPublishSummary {
   failed: number
 }
 
+/** 节日福利下拉清单：固定节假日 + 「其他」，由后端下发，前端不另写一份。 */
+export interface PayrollWelfareHoliday {
+  key: string
+  label: string
+}
+
+export interface PayrollWelfareRowResult {
+  employeeId: string
+  name: string
+  employeeNo: string
+  status: 'created' | 'updated' | 'failed'
+  /** 该员工当月本来就有已发布版本：被覆盖成未发布草稿，需要重新发布才会生效 */
+  hadPublished?: boolean
+  /** 这次是覆盖该节日原有的金额（true）还是新增一笔（false） */
+  replaced?: boolean
+  /** 被覆盖掉的旧金额；只有 replaced 为 true 时有值 */
+  previousAmountCents?: number
+  /** 覆盖后该员工的福利合计 */
+  welfareCents?: number
+  error?: string
+}
+
+export interface PayrollWelfareSummary {
+  month: string
+  holiday: string
+  holidayLabel: string
+  amountCents: number
+  ledgerStatus?: PayrollLedgerStatus
+  results: PayrollWelfareRowResult[]
+  succeeded: number
+  failed: number
+  overwrittenPublished: number
+  /** 本月原本没有工资数据、被新建出工资条的人数 */
+  created: number
+}
+
 interface ApiResponse<T> { ok: boolean, data?: T, error?: string, message?: string }
 
 export async function getPayrollStatements(month: string) {
@@ -382,6 +430,21 @@ export async function importPayrollDrafts(month: string, rows: PayrollImportInpu
 /** 批量发布当月待发布草稿：一次抢月度锁、一次校验考勤结账，逐人独立发布。 */
 export async function publishPayrollStatements(month: string, employeeIds: string[], force = false) {
   const response = await axiosInstance.post<ApiResponse<PayrollPublishSummary>>(`/attendance/payroll/publish-batch/${encodeURIComponent(month)}`, { employeeIds, force })
+  return response.data
+}
+
+/** 节日福利下拉清单。只读，权限与工资表一致。 */
+export async function getPayrollWelfareHolidays() {
+  const response = await axiosInstance.get<ApiResponse<{ holidays: PayrollWelfareHoliday[] }>>('/attendance/payroll/welfare-holidays')
+  return response.data
+}
+
+/**
+ * 批量给当月全体在职员工记一笔节日福利：同一节日覆盖不累加，只写草稿不发布。
+ * holiday 选「其他」时必须带 holidayLabel。
+ */
+export async function batchPayrollWelfare(month: string, input: { holiday: string, holidayLabel?: string, amountCents: number }) {
+  const response = await axiosInstance.post<ApiResponse<PayrollWelfareSummary>>(`/attendance/payroll/welfare-batch/${encodeURIComponent(month)}`, input)
   return response.data
 }
 

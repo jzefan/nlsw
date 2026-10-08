@@ -799,3 +799,31 @@ test('薪资统计的考勤块：请假没按天分摊的人不算旷工（缺�
   assert.equal(attendance.totals.absenceSkippedCount, 1);
   assert.equal(attendance.totals.leaveUnreconciled, true, '界面要能提示有请假单的分摊明细待复核');
 });
+
+/**
+ * 回归护栏：工资条相关列表必须排除平台管理员账号（role: 'platform'）。
+ * 平台账号是 SaaS 运营方的人，不是本公司员工 —— 出现在工资表里是错的。
+ * 与考勤台账 `getScopedUsers` 的口径保持一致（那边同样按 role 排除 platform）。
+ * 断言直接查传给 User.find 的 filter：不锁死这条，以后新增列表查询漏了过滤会重犯。
+ */
+test('工资条列表排除平台管理员账号（含工资表、员工薪资标准、批量福利）', async t => {
+  const tenantId = id();
+  const finance = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+  const filters = [];
+  t.mock.method(User, 'find', filter => { filters.push(filter); return query([]); });
+  t.mock.method(User, 'findOne', () => query({ settings: {} }));
+  t.mock.method(PayrollStatement, 'find', () => query([]));
+  t.mock.method(PayrollStandard, 'find', () => query([]));
+  stubAttendanceDependencies(t);
+
+  await payroll.listStatements({ user: finance, tenantId, query: { month: '2026-09' } }, response());
+  await payroll.listStandards({ user: finance, tenantId }, response());
+  await payroll.batchWelfare({ user: finance, tenantId, params: { month: '2026-09' }, body: { holiday: 'spring_festival', amountCents: 100000 } }, response());
+
+  assert.ok(filters.length >= 3, `应至少记录到 3 次员工列表查询，实际 ${filters.length} 次`);
+  for (const filter of filters) {
+    assert.deepEqual(filter.role, { $ne: 'platform' }, '员工列表查询必须按 role 排除平台管理员');
+    assert.equal(filter.tenantId, tenantId);
+    assert.deepEqual(filter.status, { $ne: 'disabled' });
+  }
+});
