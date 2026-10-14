@@ -462,7 +462,6 @@ const totalAmount = ref(0)
 const prePayment = ref(0)
 const selectedTotalWeight = ref(0)
 const selectedTotalAmount = ref(0)
-const allReceiptOk = ref(true)
 const allNotNeed = ref(true)
 
 // 按钮显示控制
@@ -1287,7 +1286,6 @@ function calcSummaryFromRecords(records: any[]) {
   let ta = 0
   let pp = 0
   let rowCount = 0
-  let receiptOk = true
   let notNeed = true
 
   // 应用同样的客户端筛选逻辑
@@ -1360,7 +1358,6 @@ function calcSummaryFromRecords(records: any[]) {
       pp += (inv.charge_cash || 0) + (inv.charge_oil || 0)
       if (!isVessel) tsw += inv.total_weight
       else tsw += inv.total_weight
-      if (inv.receipt !== 1) receiptOk = false
       if (inv.vessel_price >= 0) notNeed = false
     }
 
@@ -1383,7 +1380,6 @@ function calcSummaryFromRecords(records: any[]) {
         tw += v.weight
         pp += (v.charge_cash || 0) + (v.charge_oil || 0)
         if (inv.vessel_settle_state === '已结算') tsw += v.weight
-        if (v.receipt !== 1) receiptOk = false
         if (v.price >= 0) notNeed = false
       })
     }
@@ -1393,7 +1389,6 @@ function calcSummaryFromRecords(records: any[]) {
   totalSendWeight.value = tsw
   totalAmount.value = ta
   prePayment.value = pp
-  allReceiptOk.value = receiptOk
   allNotNeed.value = notNeed
   summaryTableRowCount.value = rowCount
 }
@@ -1414,7 +1409,6 @@ function buildTableData() {
     totalSendWeight.value = 0
     totalAmount.value = 0
     prePayment.value = 0
-    allReceiptOk.value = true
     allNotNeed.value = true
   }
 
@@ -1531,7 +1525,6 @@ function buildTableData() {
         totalSendWeight.value += inv.total_weight
       }
 
-      if (inv.receipt !== 1) allReceiptOk.value = false
       if (inv.vessel_price >= 0) allNotNeed.value = false
     }
 
@@ -1562,7 +1555,6 @@ function buildTableData() {
             totalSendWeight.value += veh.weight
           }
 
-          if (veh.receipt !== 1) allReceiptOk.value = false
           if (veh.price >= 0) allNotNeed.value = false
         }
       })
@@ -2326,30 +2318,84 @@ function handleBatchCharge() {
   delayInfoDialog.value?.openBatch(allWnoList)
 }
 
-// 批量回执
+// 批量回执的目标（弹窗里展示、确认后提交）
+const batchReceiptTarget = ref<{ waybillNo: string, wnoList: string[] } | null>(null)
+
+/**
+ * 计算批量回执的目标：只允许针对同一个船（运单）。
+ * - 当前页的行按所属运单归组：车运子行归它的父船运单，船/车主行归自身；
+ * - 归到多个运单时不允许批量（提示用户先筛选到单个船）；
+ * - 命中的船要带上它下面的**全部车运记录**，含折叠、不在当前页、被结算状态过滤掉的那些。
+ */
+function collectBatchReceiptTarget() {
+  const rows = pagedData.value
+  if (rows.length === 0) {
+    toast.warning('当前页没有可设置的记录')
+    return null
+  }
+
+  const groups = new Map<string, { mainRow: any, subRow: any }>()
+  rows.forEach((row) => {
+    const waybillNo = row.waybill_no
+    if (!waybillNo) return
+    const group = groups.get(waybillNo) || { mainRow: null, subRow: null }
+    if (row.isSubItem) group.subRow = group.subRow || row
+    else group.mainRow = group.mainRow || row
+    groups.set(waybillNo, group)
+  })
+
+  if (groups.size === 0) {
+    toast.warning('当前页没有可设置的记录')
+    return null
+  }
+  if (groups.size > 1) {
+    toast.error('当前页包含多个船/运单，批量回执只能针对同一个船下面的车运记录')
+    return null
+  }
+
+  const [waybillNo, group] = [...groups.entries()][0]
+  const wnoList = new Set<string>()
+  // 船/车主行本身也在当前页，就一并标记
+  if (group.mainRow) wnoList.add(waybillNo)
+  // 该船下的全部车运（主行被隐藏时从子行的 parentRow 取）
+  const vehObj = group.mainRow?.vehObj || group.subRow?.parentRow?.vehObj || {}
+  Object.keys(vehObj).forEach(key => wnoList.add(key))
+
+  if (wnoList.size === 0) {
+    toast.warning('当前页没有可设置的记录')
+    return null
+  }
+  return { waybillNo, wnoList: [...wnoList] }
+}
+
+// 批量回执（点「回执信息」表头）
 function handleBatchReceipt() {
+  const target = collectBatchReceiptTarget()
+  if (!target) return
+  batchReceiptTarget.value = target
   batchReceiptDialog.value = true
 }
 
-// 确认批量回执
+// 确认批量回执：把目标记录统一标记为「已回执」
 async function handleConfirmBatchReceipt() {
-  try {
-    const allNo = tableData.value
-      .filter((row) => !row.isSubItem || row.parentExpanded)
-      .map((row) => (row.isSubItem ? row.inner_waybill_no : row.waybill_no))
+  const target = batchReceiptTarget.value
+  if (!target || target.wnoList.length === 0) {
+    toast.warning('没有可设置的记录')
+    return
+  }
 
+  try {
     await settleApi.updateVesselDelayInfo({
-      unshipData: { receipt: allReceiptOk.value ? 0 : 1 },
-      wnoList: allNo,
+      unshipData: { receipt: 1 },
+      wnoList: target.wnoList,
       partInd: 2,
     })
 
-    toast.success('批量设置回执成功')
+    toast.success(`已批量标记 ${target.wnoList.length} 条记录的回执`)
+    batchReceiptTarget.value = null
     handleSearch(true)
-  } catch (error) {
-    if (error !== 'cancel') {
-      toast.error('批量设置回执失败')
-    }
+  } catch (error: any) {
+    toast.error(error?.message || '批量设置回执失败')
   }
 }
 
@@ -2590,14 +2636,82 @@ async function handleConfirmBatchNotNeed() {
   }
 }
 
-// 切换回执状态
+// 船运回执整组：船本身 + 它下面的全部车运（含当前页没展示的车运）
+// 独立车运单（不是船、也没有车运子项）返回 null
+function collectVesselReceiptGroup(row: any) {
+  const parent = row.isSubItem ? row.parentRow : row.isVessel ? row : null
+  if (!parent?.vehObj) return null
+
+  const innerList = Object.keys(parent.vehObj)
+  if (innerList.length === 0) return null
+
+  return {
+    parent,
+    vehObj: parent.vehObj,
+    wnoList: parent.waybill_no ? [parent.waybill_no, ...innerList] : innerList,
+  }
+}
+
+// 已结算/已付款的记录不能取消回执（与后端 toggleVesselReceipt 校验一致）
+function isSettledOrPaidState(state?: string) {
+  return state === '已结算' || state === '已付款'
+}
+
+// 内存同步整组回执状态：船主行、已渲染的车运子行，以及 vehObj（重建表格时子行取这里）
+function applyVesselReceipt(group: any, wnoList: string[], receipt: number) {
+  const wanted = new Set(wnoList)
+  tableData.value.forEach((r: any) => {
+    const wno = r.isSubItem ? r.inner_waybill_no : r.waybill_no
+    if (wanted.has(wno)) r.receipt = receipt
+  })
+  wnoList.forEach((wno: string) => {
+    if (group.vehObj[wno]) group.vehObj[wno].receipt = receipt
+  })
+}
+
+// 切换回执状态：船运记录整组联动（船本身 + 它下面的所有车运，含未展示的），
+// 点船运行或它下面任意车运行都是同一个效果；独立车运单只改自己。
 async function handleToggleReceipt(row: any) {
-  const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
   const newReceipt = row.receipt === 1 ? 0 : 1
+  const group = collectVesselReceiptGroup(row)
+
+  if (!group) {
+    const wno = row.isSubItem ? row.inner_waybill_no : row.waybill_no
+    try {
+      await settleApi.toggleVesselReceipt(wno, newReceipt)
+      row.receipt = newReceipt
+      toast.success(newReceipt === 1 ? '已标记回执' : '已取消回执')
+    } catch (error: any) {
+      toast.error(error.message || '操作失败')
+    }
+    return
+  }
+
+  // 取消回执时跳过已结算/已付款的记录（单条接口本来就会拒掉这些）
+  const wnoList = newReceipt === 0
+    ? group.wnoList.filter((wno: string) => !isSettledOrPaidState(
+        wno === group.parent.waybill_no ? group.parent.vessel_settle_state : group.vehObj[wno]?.state,
+      ))
+    : group.wnoList
+  const skipped = group.wnoList.length - wnoList.length
+
+  if (wnoList.length === 0) {
+    toast.warning('该船下的记录都已结算或已付款，不能取消回执')
+    return
+  }
+
   try {
-    await settleApi.toggleVesselReceipt(wno, newReceipt)
-    row.receipt = newReceipt
-    toast.success(newReceipt === 1 ? '已标记回执' : '已取消回执')
+    await settleApi.updateVesselDelayInfo({
+      unshipData: { receipt: newReceipt },
+      wnoList,
+      partInd: 2,
+    })
+    applyVesselReceipt(group, wnoList, newReceipt)
+    toast.success(newReceipt === 1
+      ? `该船下的 ${wnoList.length} 条记录已标记回执`
+      : skipped > 0
+        ? `已取消 ${wnoList.length} 条回执，${skipped} 条已结算/已付款未取消`
+        : `该船下的 ${wnoList.length} 条记录已取消回执`)
   } catch (error: any) {
     toast.error(error.message || '操作失败')
   }
@@ -3897,13 +4011,23 @@ async function restoreFocusAfterUpload() {
                 <span v-else class="text-sm font-medium">预付</span>
               </TableHead>
               <TableHead
-                class="px-0 py-1.5 text-center w-24 sticky top-0 right-0 min-w-24 bg-muted z-30 shadow-sm"
+                class="px-0 py-1.5 text-center w-24 sticky top-0 right-0 min-w-24 bg-muted z-30 shadow-sm hover:bg-orange-100 dark:hover:bg-orange-950/40 transition-colors"
+                :class="{ 'cursor-pointer': hasPrivilegePrice }"
                 nowrap
+                @click="hasPrivilegePrice && handleBatchReceipt()"
               >
-                <!-- <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs" @click="handleBatchReceipt"> -->
-                <UiButton v-if="hasPrivilegePrice" variant="secondary" size="sm" class="h-6 text-xs">
-                  回执信息
-                </UiButton>
+                <template v-if="hasPrivilegePrice">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <UiButton variant="secondary" size="sm" class="h-6 text-xs"> 回执信息 </UiButton>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>批量标记同一个船下的回执</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </template>
                 <span v-else class="text-sm font-medium">回执信息</span>
               </TableHead>
             </TableRow>
@@ -5021,7 +5145,8 @@ async function restoreFocusAfterUpload() {
       >
         <template #title>批量回执</template>
         <template #description>
-          <p>您确定要批量设置回执吗？</p>
+          <p>将把该船下的 {{ batchReceiptTarget?.wnoList.length || 0 }} 条记录标记为「已回执」。</p>
+          <p class="mt-2">是否确定进行批量设置？</p>
         </template>
       </ConfirmDialog>
 
