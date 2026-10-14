@@ -106,12 +106,16 @@ mongodump "${MONGODUMP_ARGS[@]}"
 collect_path() {
   local source_path="$1"
   local alias_name="$2"
+  # -e 会跟随软链：uploads 指向数据盘且数据盘没挂上时，这里是悬空链接 → 直接跳过并告警，
+  # 避免"备份成功"但实际什么都没备到。
   if [[ -e "${source_path}" ]]; then
     mkdir -p "${TMP_DIR}/${alias_name}"
-    cp -a "${source_path}" "${TMP_DIR}/${alias_name}/"
+    # 必须用 -L（跟随符号链接）。默认的 -a 隐含 -d，会把 uploads 这个软链本身拷过去，
+    # 备份包里只剩一个指向 /mnt/data 的悬空链接，几十 G 回单会被静默漏备。
+    cp -aL "${source_path}" "${TMP_DIR}/${alias_name}/"
     log "已收集: ${source_path}"
   else
-    log "跳过不存在路径: ${source_path}"
+    log "跳过不存在路径或悬空链接: ${source_path}"
   fi
 }
 

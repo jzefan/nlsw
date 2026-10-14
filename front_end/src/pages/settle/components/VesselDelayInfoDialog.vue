@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import * as settleApi from '@/services/api/settle.api'
+import { compressImageFile } from '@/utils/compress-image'
 
 const emit = defineEmits(['confirm'])
 
@@ -218,7 +219,7 @@ function handleDrop(event: DragEvent) {
 }
 
 // 处理文件列表
-function processFiles(files: File[]) {
+async function processFiles(files: File[]) {
   // 检查总数是否超过限制（包括已上传的图片）
   const remainingSlots = MAX_FILES - totalImagesCount.value
   if (files.length > remainingSlots) {
@@ -226,12 +227,15 @@ function processFiles(files: File[]) {
     files = files.slice(0, remainingSlots)
   }
 
-  for (const file of files) {
+  for (const rawFile of files) {
     // 检查文件类型
-    if (!file.type.startsWith('image/')) {
-      toast.warning(`${file.name} 不是图片文件，已跳过`)
+    if (!rawFile.type.startsWith('image/')) {
+      toast.warning(`${rawFile.name} 不是图片文件，已跳过`)
       continue
     }
+
+    // 先压缩再判大小：手机原图常年 3–5MB，压完通常只剩几百 KB
+    const file = await compressImageFile(rawFile)
 
     // 检查文件大小（最大5M）
     if (file.size > MAX_FILE_SIZE) {

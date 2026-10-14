@@ -16,6 +16,7 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { compressImageFile } from '@/utils/compress-image'
 import { formatDate } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import {
@@ -402,17 +403,19 @@ function handleUploadDrop(event: DragEvent) {
   if (files.length > 0) processUploadFiles(files)
 }
 
-function processUploadFiles(files: File[]) {
+async function processUploadFiles(files: File[]) {
   const remaining = MAX_FILES - images.value.length - uploadPreviewImages.value.length
   if (files.length > remaining) {
     toast.warning(`最多只能上传${MAX_FILES}张图片，当前还可以添加${remaining}张`)
     files = files.slice(0, remaining)
   }
-  for (const file of files) {
-    if (!file.type.startsWith('image/')) {
-      toast.warning(`${file.name} 不是图片文件，已跳过`)
+  for (const rawFile of files) {
+    if (!rawFile.type.startsWith('image/')) {
+      toast.warning(`${rawFile.name} 不是图片文件，已跳过`)
       continue
     }
+    // 先压缩再判大小：手机原图常年 3–5MB，压完通常只剩几百 KB
+    const file = await compressImageFile(rawFile)
     if (file.size > MAX_FILE_SIZE) {
       toast.warning(`${file.name} 超过5MB，已跳过`)
       continue
