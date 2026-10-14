@@ -35,3 +35,6 @@ deploy/deploy.sh
 
 conductor/
 
+
+# 数据修复脚本写出的回滚快照，不入库
+scripts/backups/
