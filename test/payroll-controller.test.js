@@ -190,6 +190,90 @@ test('a draft correction retains latest published totals in company aggregates',
   assert.equal(res.body.data.totals.draftCount, 1);
 });
 
+test('「不纳入薪资统计」的员工不进工资表与薪资设置的员工查询范围', async t => {
+  const tenantId = id();
+  const filters = [];
+  t.mock.method(User, 'find', filter => { filters.push(filter); return query([]); });
+  t.mock.method(PayrollStatement, 'find', () => query([]));
+  stubAttendanceDependencies(t);
+  const finance = { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] };
+
+  const table = response();
+  await payroll.listStatements({ user: finance, tenantId, query: { month: '2026-09' } }, table);
+  assert.equal(table.statusCode, 200);
+  assert.deepEqual(filters[0].payrollTracked, { $ne: false }, '工资表不列关掉薪资统计的员工');
+
+  const standards = response();
+  await payroll.listStandards({ user: finance, tenantId }, standards);
+  assert.equal(standards.statusCode, 200);
+  assert.deepEqual(filters[1].payrollTracked, { $ne: false }, '薪资设置用同一份员工范围');
+});
+
+test('工资表隐藏「不纳入薪资统计」员工的历史工资条，但保留停用员工的', async t => {
+  const tenantId = id(), disabledId = id(), excludedId = id();
+  const employee = { employeeNo: 'E-1', name: '员工', department: '物流' };
+  const statementFor = employeeId => ({
+    employeeId, month: '2026-09', currentPublishedRevision: 1, payments: [],
+    employee,
+    revisions: [{ revision: 1, employee, components: emptyComponents(), totals: validatePayrollComponents(emptyComponents()).totals, publishedAt: new Date('2026-10-01T00:00:00Z') }],
+  });
+  t.mock.method(User, 'find', filter => {
+    // 主员工列表查询带 payrollTracked 条件（关掉的已被库里挡掉，返回空）；
+    // 历史行归属人的回查返回一个停用员工、一个被关掉薪资统计的员工。
+    if (filter.payrollTracked) return query([]);
+    return query([
+      { _id: disabledId, userid: 'member-2', profile: { name: '停用员工' }, role: 'member', status: 'disabled' },
+      { _id: excludedId, userid: 'member-3', profile: { name: '外部人员' }, role: 'member', payrollTracked: false },
+    ]);
+  });
+  t.mock.method(PayrollStatement, 'find', filter => query(filter.month ? [statementFor(disabledId), statementFor(excludedId)] : []));
+  stubAttendanceDependencies(t);
+
+  const res = response();
+  await payroll.listStatements({ user: { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] }, tenantId, query: { month: '2026-09' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  const rowIds = res.body.data.rows.map(row => String(row.employeeId));
+  assert.ok(rowIds.includes(String(disabledId)), '停用员工的历史工资条仍要可见');
+  assert.ok(!rowIds.includes(String(excludedId)), '关掉薪资统计的员工连历史行也不显示');
+});
+
+test('薪资统计不计入「不纳入薪资统计」员工的工资条与考勤申请', async t => {
+  const tenantId = id(), excludedId = id(), includedId = id();
+  const components = { ...emptyComponents(), basicPayCents: 700_000 };
+  const totals = validatePayrollComponents(components).totals;
+  const statementFor = (employeeId, name) => ({
+    employeeId, month: '2026-09', currentPublishedRevision: 1, payments: [],
+    revisions: [{ revision: 1, employee: { employeeNo: 'E-1', name, department: '物流' }, components, totals, publishedAt: new Date('2026-10-01T02:00:00Z') }],
+  });
+  const leaveRequest = (applicantId, date) => ({
+    applicantId, type: 'leave', leaveType: 'personal', status: 'approved',
+    durationMinutes: 480, leaveAllocations: [{ date, minutes: 480 }],
+    startAt: new Date(`${date}T01:00:00Z`), endAt: new Date(`${date}T10:00:00Z`),
+  });
+  const statements = [statementFor(excludedId, '外部人员'), statementFor(includedId, '员工')];
+  const requests = [leaveRequest(excludedId, '2026-09-08'), leaveRequest(includedId, '2026-09-09')];
+  t.mock.method(User, 'find', () => query([
+    { _id: excludedId, userid: 'member-out', profile: { name: '外部人员' }, role: 'member', payrollTracked: false },
+    { _id: includedId, userid: 'member-1', profile: { name: '员工' }, role: 'member' },
+  ]));
+  t.mock.method(PayrollStatement, 'find', filter => query(filter['payments.paidAt'] ? [] : statements));
+  t.mock.method(AttendanceRequest, 'find', () => query(requests));
+  t.mock.method(AttendanceMonthLedger, 'findOne', () => query(null));
+  t.mock.method(Tenant, 'findById', () => query({ settings: {} }));
+
+  const res = response();
+  await payroll.getStatistics({
+    user: { _id: id(), tenantId, status: 'active', mustChangePassword: false, payrollRoles: ['finance'] },
+    tenantId, query: { period: 'month', value: '2026-09' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.accrual.statementCount, 1, '只统计纳入的那一个人');
+  assert.equal(res.body.data.accrual.netPayCents, totals.netPayCents);
+  assert.equal(res.body.data.attendance.totals.leaveMinutes, 480, '被排除员工的已批请假也不计入');
+});
+
 test('employee statement response includes own payment history', async t => {
   const tenantId = id(), employeeId = id(), financeId = id();
   const payment = { direction: 'payment', amountCents: 5000, paidAt: new Date('2026-03-05T00:00:00Z'), statementRevision: 1, createdBy: financeId, createdAt: new Date('2026-03-05T00:00:00Z') };
@@ -260,7 +344,9 @@ test('month parsing uses strict Beijing natural-month boundaries', () => {
   assert.equal(payroll._test.parsePeriod('year', '2026').end, Date.UTC(2027, 0, 1) - 8 * 3600000);
 });
 
-test('chairman can read the company payroll list but never write statements', async t => {
+// 2026-10-12 权限口径变更：owner 与职务总经理/董事长是「全模块全权」，不再只读。
+// privilege 里的 admin 仍不给工资权限（那条只管老业务模块）。
+test('chairman has full payroll access while other job titles are still denied', async t => {
   const tenantId = id(), employeeId = id();
   const chairman = { _id: id(), tenantId, status: 'active', title: 'ceo', mustChangePassword: false, payrollRoles: [] };
   t.mock.method(User, 'find', () => query([{ _id: employeeId, employeeNo: 'E-1', profile: { name: '员工' }, department: '物流', status: 'active' }]));
@@ -271,17 +357,36 @@ test('chairman can read the company payroll list but never write statements', as
   assert.equal(listRes.statusCode, 200);
   assert.equal(listRes.body.data.rows.length, 1);
 
-  t.mock.method(PayrollStatement, 'findOne', () => assert.fail('chairman writes must stop before loading a statement'));
-  t.mock.method(PayrollStatement, 'findOneAndUpdate', () => assert.fail('chairman writes must stop before updating a statement'));
+  // 写入不再停在鉴权：saveStandard 的鉴权后紧跟参数校验，403 只会来自 requireFinance
   const draftRes = response();
-  await payroll.saveDraft({
-    user: chairman, tenantId, params: { employeeId, month: '2026-09' },
-    body: { components: emptyComponents(), version: 0 },
+  await payroll.saveStandard({
+    user: chairman, tenantId, params: { employeeId }, body: { standard: {}, version: 0 },
   }, draftRes);
-  assert.equal(draftRes.statusCode, 403);
-  const publishRes = response();
-  await payroll.publish({ user: chairman, tenantId, params: { employeeId, month: '2026-09' }, body: { version: 1 } }, publishRes);
-  assert.equal(publishRes.statusCode, 403);
+  assert.notEqual(draftRes.statusCode, 403, '董事长不应被工资写入鉴权拦下');
+
+  // 公司主账号同样全权（此前是零权限）
+  const ownerRes = response();
+  await payroll.saveStandard({
+    user: { _id: id(), tenantId, role: 'owner', status: 'active', mustChangePassword: false, payrollRoles: [] },
+    tenantId, params: { employeeId }, body: { standard: {}, version: 0 },
+  }, ownerRes);
+  assert.notEqual(ownerRes.statusCode, 403, '公司主账号不应被工资写入鉴权拦下');
+
+  // 非一把手职务、且没有薪资角色的账号仍应被拒
+  const plainRes = response();
+  await payroll.saveStandard({
+    user: { _id: id(), tenantId, status: 'active', title: 'operator', mustChangePassword: false, payrollRoles: [] },
+    tenantId, params: { employeeId }, body: { standard: {}, version: 0 },
+  }, plainRes);
+  assert.equal(plainRes.statusCode, 403);
+
+  // privilege 含 admin 也不给工资权限
+  const adminPrivilegeRes = response();
+  await payroll.saveStandard({
+    user: { _id: id(), tenantId, status: 'active', privilege: ['admin'], mustChangePassword: false, payrollRoles: [] },
+    tenantId, params: { employeeId }, body: { standard: {}, version: 0 },
+  }, adminPrivilegeRes);
+  assert.equal(adminPrivilegeRes.statusCode, 403, '老业务的 admin 权限位不应放行工资写入');
 });
 
 test('legacy Chinese job titles keep the same payroll read access as their codes', async t => {
@@ -499,7 +604,7 @@ test('recorded months ignore the salary standard and rows without a standard hav
   assert.equal(rows.get(String(otherId)).standardDraft, null);
 });
 
-test('salary standards are readable by payroll readers and writable by finance only', async t => {
+test('salary standards are readable by payroll readers and writable by finance or top leaders', async t => {
   const tenantId = id(), employeeId = id();
   t.mock.method(User, 'find', () => query([{ _id: employeeId, employeeNo: 'E-1', profile: { name: '员工' }, department: '物流', status: 'active' }]));
   t.mock.method(PayrollStandard, 'find', () => query([]));
@@ -520,8 +625,14 @@ test('salary standards are readable by payroll readers and writable by finance o
   t.mock.method(PayrollStandard, 'findOne', () => query(null));
   t.mock.method(PayrollStandard, 'create', async values => ({ ...values, updatedAt: new Date() }));
 
+  // 2026-10-12 权限口径变更：职务一把手（董事长）与 owner 都是全权，不再只读
+  const savedByChairman = response();
+  await payroll.saveStandard({ user: chairman, tenantId, params: { employeeId }, body: { standard: standardInput(), version: 0 } }, savedByChairman);
+  assert.equal(savedByChairman.statusCode, 200, '董事长应可保存薪资标准');
+
+  // 没有任何薪资角色、职务也不是一把手的账号仍应被拒
   const writeDenied = response();
-  await payroll.saveStandard({ user: chairman, tenantId, params: { employeeId }, body: { standard: standardInput(), version: 0 } }, writeDenied);
+  await payroll.saveStandard({ user: member, tenantId, params: { employeeId }, body: { standard: standardInput(), version: 0 } }, writeDenied);
   assert.equal(writeDenied.statusCode, 403);
 
   const saved = response();

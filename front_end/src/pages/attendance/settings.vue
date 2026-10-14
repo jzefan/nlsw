@@ -33,6 +33,7 @@ import {
 import { getPayrollRoleCandidates, savePayrollRoles, type PayrollRoleCandidate } from '@/services/api/payroll.api'
 import { useAuthStore } from '@/stores/auth'
 import { canSeeAttendanceSettings, canViewAttendanceSettingsView, visibleAttendanceSettingsViews, type AttendanceSettingsView } from '@/utils/attendance-settings'
+import { isFullPrivilege } from '@/utils/module-access'
 
 /** 员工资料行的编辑草稿；只有点「编辑」后才写入，取消或保存后重置。 */
 interface PersonDraft {
@@ -42,6 +43,7 @@ interface PersonDraft {
   managerId: string
   attendanceRoles: string[]
   attendanceTracked: boolean
+  payrollTracked: boolean
 }
 
 const authStore = useAuthStore()
@@ -59,8 +61,11 @@ const payrollRoles = computed(() => {
 const isOwner = computed(() => authStore.isOwner)
 /** 左侧菜单与页面用同一份可见性规则，避免菜单能点、进来了却说无权。 */
 const settingsRoles = computed(() => ({
-  isOwner: isOwner.value,
-  isAppAdmin: authStore.isAppAdmin,
+  isFullPrivilege: isFullPrivilege({
+    isOwner: isOwner.value,
+    userid: authStore.user?.userid || '',
+    title: authStore.user?.title || '',
+  }),
   attendanceRoles: roles.value,
   payrollRoles: payrollRoles.value,
 }))
@@ -266,6 +271,7 @@ function makePersonDraft(person: AttendancePerson): PersonDraft {
     managerId: person.managerId ?? '',
     attendanceRoles: [...person.attendanceRoles!],
     attendanceTracked: person.attendanceTracked !== false,
+    payrollTracked: person.payrollTracked !== false,
   }
 }
 function isPersonEditing(person: AttendancePerson) {
@@ -280,6 +286,7 @@ function isPersonDirty(person: AttendancePerson) {
     || draft.department.trim() !== (person.department ?? '').trim()
     || draft.managerId !== (person.managerId ?? '')
     || draft.attendanceTracked !== (person.attendanceTracked !== false)
+    || draft.payrollTracked !== (person.payrollTracked !== false)
     || [...draft.attendanceRoles].sort().join(',') !== [...person.attendanceRoles!].sort().join(',')
 }
 function startEditPerson(person: AttendancePerson) {
@@ -488,6 +495,7 @@ async function savePerson(person: AttendancePerson) {
     managerId: draft.managerId || '',
     attendanceRoles: [...draft.attendanceRoles],
     attendanceTracked: draft.attendanceTracked,
+    payrollTracked: draft.payrollTracked,
   }
   savingUser.value = person.userId
   try {
@@ -845,6 +853,16 @@ onMounted(() => { void applyRouteView() })
                   <span v-else :class="person.attendanceTracked === false ? 'text-muted-foreground' : ''">{{ person.attendanceTracked === false ? '不纳入' : '纳入' }}</span>
                 </dd>
               </div>
+              <div class="flex items-center gap-3 px-3 py-2">
+                <dt class="w-16 shrink-0 text-muted-foreground">薪资统计</dt>
+                <dd class="min-w-0 flex-1">
+                  <label v-if="isPersonEditing(person)" class="flex items-center gap-2">
+                    <Checkbox :model-value="personDrafts[person.userId].payrollTracked" @update:model-value="checked => personDrafts[person.userId].payrollTracked = checked === true" />
+                    <span>纳入</span>
+                  </label>
+                  <span v-else :class="person.payrollTracked === false ? 'text-muted-foreground' : ''">{{ person.payrollTracked === false ? '不纳入' : '纳入' }}</span>
+                </dd>
+              </div>
             </dl>
             <div class="flex items-center justify-end gap-2 border-t px-3 py-2">
               <template v-if="isPersonEditing(person)">
@@ -857,11 +875,11 @@ onMounted(() => { void applyRouteView() })
         </template>
       </div>
       <div v-else class="overflow-x-auto rounded-md border bg-background">
-        <Table class="min-w-[1080px]">
-          <TableHeader><TableRow><TableHead class="w-36">员工姓名</TableHead><TableHead class="w-36">手机号</TableHead><TableHead class="w-24">工号</TableHead><TableHead class="w-36">部门</TableHead><TableHead class="w-40">直属经理</TableHead><TableHead class="w-52">考勤角色</TableHead><TableHead class="w-28">考勤统计</TableHead><TableHead class="w-24 text-right">操作</TableHead></TableRow></TableHeader>
+        <Table class="min-w-[1200px]">
+          <TableHeader><TableRow><TableHead class="w-36">员工姓名</TableHead><TableHead class="w-36">手机号</TableHead><TableHead class="w-24">工号</TableHead><TableHead class="w-36">部门</TableHead><TableHead class="w-40">直属经理</TableHead><TableHead class="w-52">考勤角色</TableHead><TableHead class="w-28">考勤统计</TableHead><TableHead class="w-28">薪资统计</TableHead><TableHead class="w-24 text-right">操作</TableHead></TableRow></TableHeader>
           <TableBody>
-            <TableRow v-if="peopleLoading"><TableCell colspan="8" class="h-16 text-center text-muted-foreground">加载中…</TableCell></TableRow>
-            <TableRow v-else-if="!people.length"><TableCell colspan="8" class="h-16 text-center text-muted-foreground">暂无员工</TableCell></TableRow>
+            <TableRow v-if="peopleLoading"><TableCell colspan="9" class="h-16 text-center text-muted-foreground">加载中…</TableCell></TableRow>
+            <TableRow v-else-if="!people.length"><TableCell colspan="9" class="h-16 text-center text-muted-foreground">暂无员工</TableCell></TableRow>
             <TableRow v-for="person in people" :key="person.userId">
               <TableCell><div class="font-medium">{{ person.name || '未命名' }}</div><div v-if="person.status !== 'active'" class="text-xs text-muted-foreground">已停用</div></TableCell>
               <TableCell>
@@ -906,6 +924,13 @@ onMounted(() => { void applyRouteView() })
                   <label :for="`attendance-tracked-${person.userId}`">纳入</label>
                 </div>
                 <span v-else :class="person.attendanceTracked === false ? 'text-muted-foreground' : ''">{{ person.attendanceTracked === false ? '不纳入' : '纳入' }}</span>
+              </TableCell>
+              <TableCell>
+                <div v-if="isPersonEditing(person)" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Checkbox :id="`payroll-tracked-${person.userId}`" :model-value="personDrafts[person.userId].payrollTracked" @update:model-value="checked => personDrafts[person.userId].payrollTracked = checked === true" />
+                  <label :for="`payroll-tracked-${person.userId}`">纳入</label>
+                </div>
+                <span v-else :class="person.payrollTracked === false ? 'text-muted-foreground' : ''">{{ person.payrollTracked === false ? '不纳入' : '纳入' }}</span>
               </TableCell>
               <TableCell class="text-right">
                 <template v-if="isPersonEditing(person)">

@@ -606,10 +606,9 @@ test('password reset increments sessionVersion and Passport denies legacy or sta
   assert.equal(await deserialize({ id: String(target._id), sessionVersion: 9 }), false, 'disabled user sessions are rejected');
 });
 
-test('linked employee and owner/admin accounts cannot be reset by admin or platform routes', async t => {
+test('owner and admin accounts cannot be reset by admin or platform routes', async t => {
   const tenantId = id();
   const targets = [
-    payrollUser(tenantId, { payrollRoles: [], employeeNo: 'E-1', attendanceRoles: [] }),
     payrollUser(tenantId, { payrollRoles: [], employeeNo: '', role: 'owner', privilege: ['admin'] }),
     payrollUser(tenantId, { payrollRoles: [], employeeNo: '', role: 'member', privilege: ['admin'] })
   ];

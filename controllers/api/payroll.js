@@ -13,7 +13,7 @@ const {
 const { WELFARE_HOLIDAY_OPTIONS, WELFARE_HOLIDAY_LABELS, validateWelfareEntry, applyWelfareEntry, sumWelfareItems } = require('../../utils/payroll-welfare');
 const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
 const { buildPersonLabels } = require('../../utils/person-label');
-const { isChairmanTitle, isGeneralManagerTitle } = require('../../utils/user-title');
+const { isChairmanTitle, isGeneralManagerTitle, isFullPrivilegeUser } = require('../../utils/user-title');
 
 const MAX_AMOUNT_CENTS = 10_000_000_000;
 const fail = (res, status, message) => res.status(status).json({ ok: false, error: message });
@@ -32,27 +32,40 @@ function parsePeriod(period, value) {
   return { value, year, start: Date.UTC(year, 0, 1) - 8 * 3600000, end: Date.UTC(year + 1, 0, 1) - 8 * 3600000 };
 }
 
+// 全模块全权：登录名 admin / 公司主账号 owner / 职务总经理·董事长，不看 privilege。
+// 老业务的 `privilege: ['admin']`（用户管理里的「管理」）**不延伸到工资**。
+function isFullPrivilege(user) {
+  return user?.status !== 'disabled' && isFullPrivilegeUser(user);
+}
+
 // 未设置 status 的历史账号视为在职；密码是否改过与薪资权限无关
 function isFinance(user) {
-  return user?.status !== 'disabled' && Array.isArray(user.payrollRoles) && user.payrollRoles.includes('finance');
+  return user?.status !== 'disabled' && (
+    Array.isArray(user.payrollRoles) && user.payrollRoles.includes('finance')
+    || isFullPrivilege(user)
+  );
 }
 
 /**
  * 工资条相关列表的公共查询条件：只列本租户在职员工，且**排除平台管理员账号**。
  * 平台账号（role: 'platform'）是SaaS 运营方的人，不是本公司员工，不该出现在工资表里。
  * 与考勤台账的 `getScopedUsers` 口径一致（那边同样按 role 排除 platform）。
+ *
+ * 同时排除「关闭了薪资统计」的员工（`payrollTracked === false`，默认纳入）：他们不进工资表、
+ * 薪资设置、批量福利与工资条导入 —— 否则会给一个工资表里根本看不到的人生成工资条。
  */
 function payrollEmployeeQuery(tenantId) {
-  return { tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' } };
+  return { tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' }, payrollTracked: { $ne: false } };
 }
 
-// 总经理与董事长可只读查看全员工资：职务可能是代码（gm/ceo）或老账号的中文写法（总经理/董事长）。
-// 董事长不占用唯一的总经理薪资角色，且两人都不能录入或发布。
+// 总经理与董事长可查看全员工资：职务可能是代码（gm/ceo）或老账号的中文写法（总经理/董事长）。
+// 董事长不占用唯一的总经理薪资角色。两人的录入/发布权来自 isFullPrivilege（登录名 admin / owner / 一把手）。
 function isActiveLeader(user) {
   return user?.status !== 'disabled'
     && (isGeneralManagerTitle(user?.title) || isChairmanTitle(user?.title));
 }
 
+// 读取权 = 录入权（财务或全权用户）或只读权（薪资总经理 / 职务一把手）。
 function isPayrollReader(user) {
   return isFinance(user)
     || (user?.status !== 'disabled' && Array.isArray(user.payrollRoles) && user.payrollRoles.includes('general_manager'))
@@ -246,7 +259,7 @@ function getNetPaid(statement) {
 
 async function requireFinance(req, res) {
   if (!req.user || !isFinance(req.user)) {
-    fail(res, 403, '仅在职财务人员可执行工资管理');
+    fail(res, 403, '仅财务、公司主账号或总经理/董事长可执行工资管理');
     return false;
   }
   const tenantId = req.user.tenantId?._id || req.user.tenantId;
@@ -259,7 +272,7 @@ async function requireFinance(req, res) {
 
 async function requirePayrollReader(req, res) {
   if (!req.user || !isPayrollReader(req.user)) {
-    fail(res, 403, '仅财务、总经理或董事长可查看全员工资');
+    fail(res, 403, '仅财务、公司主账号或总经理/董事长可查看全员工资');
     return false;
   }
   const tenantId = req.user.tenantId?._id || req.user.tenantId;
@@ -270,9 +283,10 @@ async function requirePayrollReader(req, res) {
   return true;
 }
 
+/** 单条工资录入/工资标准保存要落在「参与工资口径」的员工身上：停用与被关掉薪资统计的都取不到。 */
 async function loadEmployee(employeeId, tenantId) {
   if (!mongoose.Types.ObjectId.isValid(employeeId)) return null;
-  const user = await User.findOne({ _id: employeeId, tenantId, status: { $ne: 'disabled' } })
+  const user = await User.findOne({ _id: employeeId, tenantId, status: { $ne: 'disabled' }, payrollTracked: { $ne: false } })
     .select('employeeNo phone profile.phone profile.name userid department status')
     .lean();
   if (!user) return null;
@@ -402,9 +416,22 @@ exports.listStatements = async (req, res) => {
       rows.push(statement ? await serializeStatement(statement, actorNames) : emptyMonthlyRow(user));
     }
     // Keep previously paid/history rows visible after an employee is deactivated.
+    // 但平台账号、测试账号与被关掉「薪资统计」的员工**连历史行也不显示**（用户 2026-10-09 定的口径），
+    // 而 payrollEmployeeQuery 已把这三类都挡在 employees 之外、分不出彼此，
+    // 所以对「没有当期行、却有历史工资条」的人回查一次账号状态：停用员工保留，其余挡掉。
+    const hiddenOwnerIds = new Set(testAccountIds);
+    const orphanIds = [...new Set(statements.map(statement => String(statement.employeeId)))]
+      .filter(employeeId => !employeeById.has(employeeId) && mongoose.Types.ObjectId.isValid(employeeId));
+    if (orphanIds.length) {
+      const owners = await User.find({ tenantId: req.tenantId, _id: { $in: orphanIds } })
+        .select('userid profile.name role payrollTracked').lean().catch(() => []);
+      for (const owner of owners) {
+        if (owner.role === 'platform' || owner.payrollTracked === false || isTestAccount(owner)) hiddenOwnerIds.add(String(owner._id));
+      }
+    }
     for (const statement of statements) {
-      if (testAccountIds.has(String(statement.employeeId))) continue;
-      if (employees.some(user => String(user._id) === String(statement.employeeId))) continue;
+      if (hiddenOwnerIds.has(String(statement.employeeId))) continue;
+      if (employeeById.has(String(statement.employeeId))) continue;
       rows.push(await serializeStatement(statement, actorNames));
     }
     const displayNames = buildPersonLabels(rows.map(row => {
@@ -775,20 +802,19 @@ function blankStatsRow(month) {
 }
 
 /**
- * 把测试账号的工资条从统计里剔掉。
- * 工资条本身只有 employeeId、没有 userid，得回查这些人的账号判据。
- * **只查这次统计实际用到的那些 id**；没有候选时直接返回，不必碰数据库。
+ * 这批工资条里，哪些员工不该进薪资统计：测试账号，以及被关掉「薪资统计」的员工。
+ * 工资条本身只有 employeeId、没有 userid/开关，得回查这些人的账号判据。
+ * **只查这次统计实际用到的那些 id**；没有候选时直接返回空集合，不必碰数据库。
  */
-async function filterOutTestAccountStatements(tenantId, statements) {
-  if (!statements.length) return statements;
-  const ids = [...new Set(statements.map(item => String(item.employeeId)))]
+async function excludedPayrollEmployeeIds(tenantId, statements) {
+  const ids = [...new Set((statements || []).map(item => String(item.employeeId)))]
     .filter(id => mongoose.Types.ObjectId.isValid(id));
-  if (!ids.length) return statements;
+  if (!ids.length) return new Set();
   const users = await User.find({ tenantId, _id: { $in: ids } })
-    .select('userid profile.name role').lean().catch(() => []);
-  const testIds = new Set(users.filter(isTestAccount).map(user => String(user._id)));
-  if (!testIds.size) return statements;
-  return statements.filter(item => !testIds.has(String(item.employeeId)));
+    .select('userid profile.name role payrollTracked').lean().catch(() => []);
+  return new Set(users
+    .filter(user => isTestAccount(user) || user.payrollTracked === false)
+    .map(user => String(user._id)));
 }
 
 /**
@@ -821,16 +847,24 @@ exports.getStatistics = async (req, res) => {
     const criteria = { tenantId: req.tenantId };
     if (employeeOnly) criteria.employeeId = req.user._id;
     const months = period === 'month' ? [value] : Array.from({ length: 12 }, (_, i) => `${value}-${String(i + 1).padStart(2, '0')}`);
+    // Cash accounting follows the date money moved, not the wage month.
+    const paymentCriteria = { tenantId: req.tenantId, 'payments.paidAt': { $gte: new Date(parsed.start), $lt: new Date(parsed.end) } };
+    if (employeeOnly) paymentCriteria.employeeId = req.user._id;
     // 考勤口径单独取：它挂了不影响工资口径，整块退回空值（界面按「考勤数据不可用」处理）
-    const [allStatements, attendanceSummary] = await Promise.all([
+    const [allStatements, attendanceSummary, paymentStatements] = await Promise.all([
       PayrollStatement.find({ ...criteria, month: { $in: months } }).lean(),
       getPayrollAttendanceSummary(req.tenantId, months, employeeOnly ? String(req.user._id) : null).catch(error => {
         console.error('payroll statistics attendance failed:', error);
         return null;
       }),
+      PayrollStatement.find(paymentCriteria).select('payments employeeId').lean(),
     ]);
-    // 测试账号的工资条不计入合计（自己看自己时除外，那条路本来只查本人）
-    const statements = employeeOnly ? allStatements : (await filterOutTestAccountStatements(req.tenantId, allStatements));
+    // 测试账号与被关掉「薪资统计」的员工整个不进统计：计提口径与资金口径都要剔掉。
+    // 「只看本人」那条路本来只查本人，不必过滤。id 集合一次算出来，两处共用。
+    const excludedIds = employeeOnly
+      ? new Set()
+      : await excludedPayrollEmployeeIds(req.tenantId, [...allStatements, ...paymentStatements]);
+    const statements = excludedIds.size ? allStatements.filter(item => !excludedIds.has(String(item.employeeId))) : allStatements;
     const attendanceByMonth = new Map(months.map(month => [month, blankAttendanceRow(month)]));
     const accrualByMonth = new Map(months.map(month => [month, blankStatsRow(month)]));
     for (const statement of statements) {
@@ -862,12 +896,10 @@ exports.getStatistics = async (req, res) => {
       });
     }
     // Cash accounting follows the date money moved, not the wage month.
-    const paymentCriteria = { tenantId: req.tenantId, 'payments.paidAt': { $gte: new Date(parsed.start), $lt: new Date(parsed.end) } };
-    if (employeeOnly) paymentCriteria.employeeId = req.user._id;
-    const paymentStatements = await PayrollStatement.find(paymentCriteria).select('payments').lean();
     const cashByMonth = new Map(months.map(month => [month, blankStatsRow(month)]));
     let cashPaid = 0, cashRefund = 0;
     for (const statement of paymentStatements) {
+      if (excludedIds.has(String(statement.employeeId))) continue;
       for (const item of statement.payments || []) {
         const timestamp = new Date(item.paidAt).getTime();
         if (timestamp < parsed.start || timestamp >= parsed.end) continue;

@@ -41,6 +41,9 @@ var userSchema = new mongoose.Schema({
   },
   // 是否纳入考勤台账与统计（默认纳入）。平台账号不适用，由 role 判定，与开关无关。
   attendanceTracked: { type: Boolean, default: true },
+  // 是否纳入薪资口径（默认纳入）。关闭后不出现在工资表、薪资统计、薪资设置、
+  // 批量福利与工资条导入里，已有的历史工资条也不再列出。平台账号不适用，由 role 判定。
+  payrollTracked: { type: Boolean, default: true },
   // Payroll access is independent of legacy system privileges such as admin.
   payrollRoles: {
     type: [{ type: String, enum: ['finance', 'general_manager'] }],

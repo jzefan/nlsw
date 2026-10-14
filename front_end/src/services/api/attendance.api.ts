@@ -69,6 +69,8 @@ export interface AttendancePerson {
   attendanceRoles?: string[]
   /** 是否纳入考勤台账与统计；后端未设置时视为纳入 */
   attendanceTracked?: boolean
+  /** 是否纳入薪资口径（工资表 / 薪资统计 / 薪资设置）；后端未设置时视为纳入 */
+  payrollTracked?: boolean
   payrollRoles?: string[]
   mustChangePassword?: boolean
   [key: string]: unknown
@@ -261,7 +263,7 @@ export async function getAttendancePeople() {
   return response.data
 }
 
-export async function saveAttendanceProfile(profile: Pick<AttendancePerson, 'userId' | 'employeeNo' | 'phone' | 'department' | 'managerId' | 'attendanceRoles' | 'attendanceTracked'>) {
+export async function saveAttendanceProfile(profile: Pick<AttendancePerson, 'userId' | 'employeeNo' | 'phone' | 'department' | 'managerId' | 'attendanceRoles' | 'attendanceTracked' | 'payrollTracked'>) {
   const response = await axiosInstance.post<AttendanceResponse>('/attendance/users/profile', profile)
   return response.data
 }
