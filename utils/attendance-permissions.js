@@ -1,5 +1,6 @@
 const Tenant = require('../models/Tenant');
 const { isStandalone } = require('./deploy-mode');
+const { isTopLeaderTitle } = require('./user-title');
 const { getChinaAttendanceCalendar, getChinaAttendanceCalendarYears } = require('./china-attendance-calendar');
 const secrets = require('../config/secrets');
 
@@ -71,8 +72,15 @@ function requireEmployee(req, res, next) {
   return next();
 }
 
+/**
+ * 团队考勤查看范围：考勤三类角色，外加职务总经理/董事长（一把手，view=team 时给全公司视角）。
+ * 与 `privilege` 的 admin 无关——老业务的管理权限位不覆盖考勤。
+ */
 function canViewTeam(user) {
-  return hasAttendanceRole(user, 'manager') || hasAttendanceRole(user, 'general_manager') || hasAttendanceRole(user, 'attendance_admin');
+  return hasAttendanceRole(user, 'manager')
+    || hasAttendanceRole(user, 'general_manager')
+    || hasAttendanceRole(user, 'attendance_admin')
+    || isTopLeaderTitle(user?.title);
 }
 
 // Work schedule intentionally lives behind this policy accessor so a later settings API

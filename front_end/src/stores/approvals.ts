@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { getAttendanceApprovalCounts } from '@/services/api/attendance.api'
 import { getSealPendingCount } from '@/services/api/seal.api'
 import { useAuthStore } from '@/stores/auth'
+import { isFullPrivilege } from '@/utils/module-access'
 
 /** 有待审批入口的五类，也是审批页待办链接的取值集合。 */
 export type ApprovalKind = 'leave' | 'overtime' | 'fieldwork' | 'appeal' | 'seal'
@@ -46,10 +47,16 @@ export const useApprovalStore = defineStore('approvals', () => {
     return roles ? [roles] : []
   })
 
-  /** 与「待我审批」菜单的可见性同口径：没有审批权的人不必轮询（接口只会返回 0）。 */
+  /**
+   * 与「待我审批」菜单的可见性同口径：没有审批权的人不必轮询（接口只会返回 0）。
+   * 全权身份 = 登录名 admin / owner / 职务总经理·董事长；老业务的「管理」权限位不计入。
+   */
   const canReview = computed(() =>
-    authStore.isOwner
-    || authStore.isAppAdmin
+    isFullPrivilege({
+      isOwner: authStore.isOwner,
+      userid: authStore.user?.userid ?? '',
+      title: authStore.user?.title ?? '',
+    })
     || authStore.user?.canReviewAttendance === true
     || attendanceRoles.value.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role))
   )

@@ -463,7 +463,8 @@ async function handleResetPassword() {
       toast.error('重置密码失败', { description: result.message })
     }
   } catch (e: any) {
-    toast.error('重置密码失败', { description: e.message })
+    // 403 这类拒绝是业务判定（不是网络故障），要读后端给的判定文案，别只显示 axios 的 "Request failed with status code 403"
+    toast.error('重置密码失败', { description: e.response?.data?.message || e.response?.data?.error || e.message })
   }
 }
 

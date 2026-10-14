@@ -809,13 +809,22 @@ test('employee people list hides platform accounts', async t => {
   assert.deepEqual(filters[0], { tenantId, role: { $ne: 'platform' } });
 });
 
-test('app admin can manage employee profiles while ordinary members cannot', async t => {
+// 2026-10-12 权限口径：员工资料仅登录名 admin / owner / 总经理·董事长可维护；
+// 老业务的`privilege: ['admin']`（「管理」权限位）**不延伸到考勤**。
+test('full-privilege identities manage employee profiles while legacy admin privilege cannot', async t => {
   const tenantId = id(), userId = id();
   t.mock.method(User, 'find', () => ({ select() { return this; }, sort() { return this; }, lean: async () => [] }));
-  const admin = { role: 'member', privilege: ['admin'] };
+  const admin = { role: 'owner', privilege: [] };
   const listRes = response();
   await attendance.listPeople({ tenantId, user: admin }, listRes);
   assert.equal(listRes.statusCode, 200);
+
+  // 登录名 admin 与职务一把手同样可以
+  for (const u of [{ role: 'member', userid: 'admin', privilege: [] }, { role: 'member', title: 'gm', privilege: [] }, { role: 'member', title: '总经理', privilege: [] }]) {
+    const res = response();
+    await attendance.listPeople({ tenantId, user: u }, res);
+    assert.equal(res.statusCode, 200, `${u.userid || u.title} 应能读取员工资料，实际 ${res.statusCode}`);
+  }
 
   const employeeUser = {
     _id: userId, tenantId, userid: 'employee-1', role: 'member', status: 'active',
@@ -829,16 +838,26 @@ test('app admin can manage employee profiles while ordinary members cannot', asy
   await attendance.updateEmployeeProfile({ tenantId, user: admin, body: { userId, attendanceTracked: false } }, updateRes);
   assert.equal(updateRes.statusCode, 200);
 
-  for (const user of [{ role: 'member', privilege: [] }, { role: 'platform', privilege: ['admin'] }]) {
+  for (const user of [
+    { role: 'member', privilege: [] },
+    // 老业务的「管理」权限位：不再是员工资料的放行条件
+    { role: 'member', privilege: ['admin'] },
+    { role: 'member', title: '业务员', privilege: ['admin'] },
+    // 考勤管理员也不因此获得员工资料维护权
+    { role: 'member', attendanceRoles: ['attendance_admin'], privilege: [] },
+    { role: 'platform', privilege: ['admin'] },
+  ]) {
     const deniedList = response(), deniedUpdate = response();
     await attendance.listPeople({ tenantId, user }, deniedList);
     await attendance.updateEmployeeProfile({ tenantId, user, body: { userId } }, deniedUpdate);
-    assert.equal(deniedList.statusCode, 403);
-    assert.equal(deniedUpdate.statusCode, 403);
+    const label = user.privilege?.includes('admin') ? '「管理」权限位' : user.title || user.role;
+    assert.equal(deniedList.statusCode, 403, `${label} 读取员工资料应被拒`);
+    assert.equal(deniedUpdate.statusCode, 403, `${label} 维护员工资料应被拒`);
   }
 
+  // 总经理代理解释人接口只给考勤总经理角色，与员工资料维护权无关
   const delegateRes = response();
-  await attendance.getGeneralManagerDelegate({ tenantId, user: admin }, delegateRes);
+  await attendance.getGeneralManagerDelegate({ tenantId, user: { role: 'member', privilege: ['admin'], attendanceRoles: [] } }, delegateRes);
   assert.equal(delegateRes.statusCode, 403);
 });
 
@@ -877,6 +896,48 @@ test('employee profile stores the attendance tracking switch and rejects platfor
   await attendance.updateEmployeeProfile({ user: { role: 'owner' }, tenantId, body: { userId, attendanceTracked: false } }, platformRes);
   assert.equal(platformRes.statusCode, 400);
   assert.match(platformRes.body.error, /平台账号/);
+});
+
+test('employee profile stores the payroll tracking switch independently of the attendance switch', async t => {
+  const tenantId = id(), userId = id();
+  const employeeUser = {
+    _id: userId, tenantId, userid: 'member-1', employeeNo: 'E-1', department: '运营', managerId: null,
+    status: 'active', role: 'member', attendanceRoles: [], attendanceTracked: false, payrollTracked: true,
+    profile: { name: '员工' }
+  };
+  const profileQuery = Promise.resolve(employeeUser);
+  profileQuery.select = () => profileQuery;
+  let update;
+  t.mock.method(User, 'findOne', () => profileQuery);
+  t.mock.method(User, 'exists', async () => null);
+  t.mock.method(User, 'updateOne', async (filter, value) => { update = value; return { modifiedCount: 1 }; });
+
+  // 只提交薪资开关时，考勤开关要保持库里的原值（两个开关互不连带）
+  const offRes = response();
+  await attendance.updateEmployeeProfile({ user: { role: 'owner' }, tenantId, body: { userId, payrollTracked: false } }, offRes);
+  assert.equal(offRes.statusCode, 200);
+  assert.equal(update.$set.payrollTracked, false);
+  assert.equal(update.$set.attendanceTracked, false, '没提交考勤开关时沿用库里的值');
+  assert.equal(offRes.body.data.payrollTracked, false);
+
+  const onRes = response();
+  await attendance.updateEmployeeProfile({ user: { role: 'owner' }, tenantId, body: { userId, payrollTracked: true } }, onRes);
+  assert.equal(onRes.statusCode, 200);
+  assert.equal(update.$set.payrollTracked, true);
+
+  const invalidRes = response();
+  await attendance.updateEmployeeProfile({ user: { role: 'owner' }, tenantId, body: { userId, payrollTracked: 'no' } }, invalidRes);
+  assert.equal(invalidRes.statusCode, 400);
+  assert.match(invalidRes.body.error, /薪资统计/);
+
+  // 没设置过的历史账号视为纳入（与考勤开关同一约定）
+  const legacyQuery = Promise.resolve({ ...employeeUser, payrollTracked: undefined });
+  legacyQuery.select = () => legacyQuery;
+  t.mock.method(User, 'findOne', () => legacyQuery);
+  const legacyRes = response();
+  await attendance.updateEmployeeProfile({ user: { role: 'owner' }, tenantId, body: { userId } }, legacyRes);
+  assert.equal(legacyRes.statusCode, 200);
+  assert.equal(update.$set.payrollTracked, true);
 });
 
 test('cross-person withdrawal is scoped to applicant and duplicate review returns conflict', async t => {

@@ -2,8 +2,7 @@ const Tenant = require('../models/Tenant');
 const User = require('../models/User');
 const { isStandalone } = require('./deploy-mode');
 const secrets = require('../config/secrets');
-const { isAdmin } = require('./permissions');
-const { isGeneralManagerTitle, isChairmanTitle } = require('./user-title');
+const { isFullPrivilegeUser, isGeneralManagerTitle } = require('./user-title');
 
 function requireAuthenticated(req, res) {
   if (!req.user?._id) {
@@ -49,13 +48,20 @@ async function requireSealEnabled(req, res, next) {
 const SEAL_TYPE_ORDER = ['official', 'finance', 'contract', 'invoice', 'legal'];
 
 /**
- * 判断用户是否有权发章/收章/催还/管理印章台账（集中保管）
- * 包含：专职印章保管员、总经理/董事长、公司主账号(owner)、管理员(admin)
+ * 判断用户是否有权发章/收章/催还/管理印章台账（集中保管）。
+ *
+ * 只有两个来源：
+ * 1. 身份：登录名 admin / owner 主账号 / 职务总经理·董事长（isFullPrivilegeUser）
+ * 2. 配置：在「用章设置」里被指派为印章保管员
+ *
+ * 2026-10-12 用户确认两点：
+ * - `privilege: ['admin']`（老业务的「管理」权限）**不延伸到用章**；
+ * - 考勤角色 general_manager 也不单独授予 —— 考勤总经理要用章，得在用章设置里被指派为保管员，
+ *   或职务本身就是总经理/董事长。
  */
 function canManageSeals(user, tenant) {
   if (!user) return false;
-  if (user.role === 'owner') return true;
-  if (isAdmin(user.privilege)) return true;
+  if (isFullPrivilegeUser(user)) return true;
 
   const custodianIds = tenant?.settings?.sealCustodianIds;
   if (Array.isArray(custodianIds) && custodianIds.some(id => String(id) === String(user._id))) {
@@ -65,12 +71,6 @@ function canManageSeals(user, tenant) {
   if (custodianId && String(custodianId) === String(user._id)) {
     return true;
   }
-
-  // 考勤角色或职位代码是总经理/董事长
-  const roles = Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [];
-  if (roles.includes('general_manager')) return true;
-  if (isGeneralManagerTitle(user.title) || isChairmanTitle(user.title)) return true;
-
   return false;
 }
 
@@ -92,14 +92,15 @@ async function requireSealManager(req, res, next) {
 }
 
 /**
- * 中间件：用章设置读写权限（owner 或 admin）
+ * 中间件：用章设置读写权限。仅全权身份（登录名 admin / owner / 总经理·董事长）。
+ * 老业务的 `privilege: ['admin']` 不在这里生效。
  */
 function requireSealAdmin(req, res, next) {
   if (!requireAuthenticated(req, res)) return;
-  if (req.user.role === 'owner' || isAdmin(req.user.privilege)) {
+  if (isFullPrivilegeUser(req.user)) {
     return next();
   }
-  return res.status(403).json({ ok: false, error: '仅公司主账号或管理员可配置用章设置' });
+  return res.status(403).json({ ok: false, error: '仅公司主账号、总经理或董事长可配置用章设置' });
 }
 
 /**
@@ -241,8 +242,9 @@ async function resolveSealApprovers(tenantId, sealTypes, applicantUser, tenantSe
  *
  * 会签口径：只要该用户是 approvals 里某个 **pending** 步骤的审批人就有权；
  * 全部通过/驳回后不再有权（避免重复提交同一单）。
- * 公司主账号(owner) / 管理员(admin) / 总经理保留全公司兜底代审权。
- * 注意：专职保管员(sealCustodianId)若非上述角色，仅负责发章/收章，无权业务审批。
+ * 登录名 admin / 公司主账号(owner) / 职务总经理·董事长 保留全公司兜底代审权。
+ * 注意：专职保管员(sealCustodianId)若非上述身份，仅负责发章/收章，无权业务审批；
+ * `privilege: ['admin']`（老业务「管理」权限）也不授予代审权。
  */
 function canApproveSealRequest(user, tenant, request) {
   if (!user) return false;
@@ -255,20 +257,16 @@ function canApproveSealRequest(user, tenant, request) {
   // 兜底代审只在单据还处于待审批状态时有效
   if (request?.status && request.status !== 'pending') return false;
 
-  if (user.role === 'owner' || isAdmin(user.privilege)) return true;
-  const roles = Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [];
-  if (roles.includes('general_manager')) return true;
-  if (isGeneralManagerTitle(user.title) || isChairmanTitle(user.title)) return true;
-  return false;
+  return isFullPrivilegeUser(user);
 }
 
-/** 用章审批的「全公司视角」：主账号 / 管理员 / 总经理职务或角色。列表与待办计数共用同一判据。 */
+/**
+ * 用章审批的「全公司视角」：登录名 admin / 主账号 / 职务总经理·董事长。
+ * 被指派为某章审批人的人走 `isSealApproverFlag`（入口可见），但不算全公司视角。
+ */
 function hasGlobalSealApprovalView(user) {
   if (!user) return false;
-  if (user.role === 'owner' || isAdmin(user.privilege)) return true;
-  const roles = Array.isArray(user.attendanceRoles) ? user.attendanceRoles : [];
-  if (roles.includes('general_manager')) return true;
-  return isGeneralManagerTitle(user.title) || isChairmanTitle(user.title);
+  return isFullPrivilegeUser(user);
 }
 
 module.exports = {

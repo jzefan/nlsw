@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Textarea } from '@/components/ui/textarea'
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
+import { isFullPrivilege } from '@/utils/module-access'
 import {
   getSealRequests,
   getSealRequestDetail,
@@ -195,9 +196,13 @@ function formatDateTime(val: string | undefined | null) {
 /** 移动端卡片与展开区的动作条件，与桌面端表格里的判断保持一致。 */
 function canReviewRow(row: SealRequest) {
   if (row.status !== 'pending') return false
-  // 会签：我自己名下还有待审步骤，或我是有兜底代审权的人（owner / 管理员 / 总经理）
+  // 会签：我自己名下还有待审步骤，或我是有兜底代审权的人（登录名 admin / owner / 总经理·董事长）
   if (hasPendingApprovalForMe(row, authStore.user?.id)) return true
-  return isInbox.value || authStore.isOwner || authStore.isAppAdmin
+  return isInbox.value || isFullPrivilege({
+    isOwner: authStore.isOwner,
+    userid: authStore.user?.userid || '',
+    title: authStore.user?.title || '',
+  })
 }
 function canWithdrawRow(row: SealRequest) {
   return ['pending', 'approved'].includes(row.status) && (isMine.value || String(row.applicantId) === String(authStore.user?.id))

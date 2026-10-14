@@ -8,7 +8,7 @@ var secrets = require("../config/secrets");
 var { isAdmin } = require("../utils/permissions");
 var { isStandalone, getDeployMode, getStandaloneCompany } = require("../utils/deploy-mode");
 var { getBillImportCarrierRule } = require("../utils/tenant-settings");
-var { hasProtectedIdentity, hasProtectedPrivileges, bumpSessionVersion, changePasswordWithCas, identityVersionFilter } = require("../utils/user-security");
+var { hasProtectedIdentity, hasProtectedPrivileges, hasProtectedCredentials, bumpSessionVersion, changePasswordWithCas, identityVersionFilter } = require("../utils/user-security");
 var { migrateBinaryToArray } = require("../utils/privilege-migration");
 var { isGeneralManagerTitle } = require("../utils/user-title");
 
@@ -417,8 +417,8 @@ exports.postResetPassword = async function (req, res, next) {
       // Handle case where user is not found, though original code implied it would exist or error out
       return res.json({ ok: false, msg: "User not found" });
     }
-    if (hasProtectedIdentity(user)) {
-      return res.status(403).json({ ok: false, msg: "员工、管理员或薪资账号只能通过本人凭据或身份核验流程改密" });
+    if (hasProtectedCredentials(user)) {
+      return res.status(403).json({ ok: false, msg: "总经理、管理员或薪资账号只能通过本人凭据或身份核验流程改密" });
     }
     const changed = await changePasswordWithCas(User, user, "123456", legacyUserQuery(req, {}), { mustChangePassword: true, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });
     if (!changed) return res.status(409).json({ ok: false, msg: "用户身份已变化，请刷新后重试" });

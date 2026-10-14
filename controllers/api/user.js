@@ -7,7 +7,7 @@ const { isStandalone, getDeployMode, getStandaloneCompany } = require('../../uti
 const { migrateBinaryToArray } = require('../../utils/privilege-migration');
 const { getBillImportCarrierRule, sanitizeBillImportCarrierRule } = require('../../utils/tenant-settings');
 const secrets = require('../../config/secrets');
-const { hasProtectedIdentity, hasProtectedPrivileges, bumpSessionVersion, identityVersionFilter, changePasswordWithCas } = require('../../utils/user-security');
+const { hasProtectedIdentity, hasProtectedPrivileges, hasProtectedCredentials, bumpSessionVersion, identityVersionFilter, changePasswordWithCas } = require('../../utils/user-security');
 const mongoose = require('mongoose');
 const { isAllowedOrigin } = require('../../middleware/requireSameOrigin');
 const { buildPersonLabels } = require('../../utils/person-label');
@@ -664,8 +664,8 @@ exports.resetPassword = async (req, res) => {
       return res.json({ ok: false, message: '用户未找到' });
     }
 
-    if (hasProtectedIdentity(user)) {
-      return res.status(403).json({ ok: false, message: '员工、管理员或薪资账号只能通过本人凭据或身份核验流程改密' });
+    if (hasProtectedCredentials(user)) {
+      return res.status(403).json({ ok: false, message: '总经理、管理员或薪资账号只能通过本人凭据或身份核验流程改密' });
     }
 
     const changed = await changePasswordWithCas(User, user, '123456', tenantQuery, { mustChangePassword: true, unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } });

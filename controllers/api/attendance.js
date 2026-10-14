@@ -9,8 +9,7 @@ const AttendanceSubmissionLock = require('../../models/AttendanceSubmissionLock'
 const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const Notice = require('../../models/Notice');
 const { identityVersionFilter } = require('../../utils/user-security');
-const { isAdmin } = require('../../utils/permissions');
-const { migrateBinaryToArray } = require('../../utils/privilege-migration');
+const { isFullPrivilegeUser } = require('../../utils/user-title');
 const { buildPersonLabels } = require('../../utils/person-label');
 const { chinaAttendanceCalendarMeta, ensureChinaAttendanceCalendar, getChinaAttendanceCalendar, hasChinaAttendanceCalendar } = require('../../utils/china-attendance-calendar');
 const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
@@ -249,11 +248,13 @@ function requireExactOwner(req, res) {
   return true;
 }
 
+/**
+ * 员工资料维护：仅登录名 admin / 公司主账号 owner / 职务总经理·董事长。
+ * `privilege: ['admin']`（老业务「管理」）**不延伸到考勤**；经理、普通员工都进不来。
+ */
 function requirePeopleManager(req, res) {
-  const privilege = req.user?.privilege;
-  const admin = isAdmin(Array.isArray(privilege) ? privilege : migrateBinaryToArray(privilege));
-  if (req.user?.role !== 'owner' && (req.user?.role === 'platform' || !admin)) {
-    fail(res, 403, '仅公司主账号或管理员可维护员工资料');
+  if (!isFullPrivilegeUser(req.user)) {
+    fail(res, 403, '仅公司主账号、总经理或董事长可维护员工资料');
     return false;
   }
   return true;
@@ -283,6 +284,7 @@ function toPersonRow(user) {
     managerId: user.managerId || null,
     attendanceRoles: user.attendanceRoles || [],
     attendanceTracked: user.attendanceTracked !== false,
+    payrollTracked: user.payrollTracked !== false,
     payrollRoles: user.payrollRoles || [],
     mustChangePassword: user.mustChangePassword === true
   };
@@ -293,7 +295,7 @@ exports.listPeople = async (req, res) => {
     if (!requirePeopleManager(req, res)) return;
     // 平台账号不是公司员工，不出现在考勤员工资料里
     const found = await User.find({ tenantId: req.tenantId, role: { $ne: 'platform' } })
-      .select('employeeNo phone profile.name profile.phone userid role department title managerId attendanceRoles attendanceTracked payrollRoles mustChangePassword status')
+      .select('employeeNo phone profile.name profile.phone userid role department title managerId attendanceRoles attendanceTracked payrollTracked payrollRoles mustChangePassword status')
       .sort({ department: 1, employeeNo: 1, userid: 1 }).lean();
     // 测试账号同样不出现在员工资料里
     const people = filterRealEmployees(found);
@@ -393,8 +395,15 @@ exports.updateEmployeeProfile = async (req, res) => {
       attendanceTracked = req.body.attendanceTracked;
     }
 
+    // 与考勤统计开关对称：关闭后不进工资表、薪资统计、薪资设置、批量福利与导入。
+    let payrollTracked = user.payrollTracked !== false;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'payrollTracked')) {
+      if (typeof req.body.payrollTracked !== 'boolean') return fail(res, 400, '是否纳入薪资统计取值无效');
+      payrollTracked = req.body.payrollTracked;
+    }
+
     const update = {
-      $set: { employeeNo, department, managerId, attendanceRoles, attendanceTracked },
+      $set: { employeeNo, department, managerId, attendanceRoles, attendanceTracked, payrollTracked },
       $unset: { attendanceGeneralManagerTenantId: 1 },
       $inc: { securityIdentityVersion: 1 }
     };
@@ -416,7 +425,7 @@ exports.updateEmployeeProfile = async (req, res) => {
     }
     const write = await User.updateOne(identityVersionFilter(user, { tenantId: req.tenantId }), update, { runValidators: true });
     if ((write.modifiedCount ?? write.nModified) !== 1) return fail(res, 409, '员工身份已被并发修改，请刷新后重试');
-    return res.json({ ok: true, data: { userId: user._id, employeeNo, name: user.profile?.name || user.userid, phone: phoneProvided ? phone : (user.phone || user.profile?.phone || ''), department, managerId, attendanceRoles, status: user.status || 'active' } });
+    return res.json({ ok: true, data: { userId: user._id, employeeNo, name: user.profile?.name || user.userid, phone: phoneProvided ? phone : (user.phone || user.profile?.phone || ''), department, managerId, attendanceRoles, attendanceTracked, payrollTracked, status: user.status || 'active' } });
   } catch (error) {
     console.error('attendance updateEmployeeProfile failed:', error);
     if (error?.code === 11000) return fail(res, 409, '工号已被本租户其他员工使用');
@@ -469,7 +478,7 @@ exports.getCalendar = async (req, res) => {
 
 exports.updateCalendar = async (req, res) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const isOwner = req.user?.role === 'owner' || req.user?.userid === 'admin';
     if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
     const year = req.body?.year;
     const days = req.body?.days;
@@ -509,7 +518,7 @@ exports.updateCalendar = async (req, res) => {
 
 exports.updateCalendarDay = async (req, res) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const isOwner = req.user?.role === 'owner' || req.user?.userid === 'admin';
     if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
     const { year, date, type } = req.body || {};
     if (!Number.isInteger(year) || year < 2000 || year > 2100 || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number(date.slice(0, 4)) !== year || !['holiday', 'workday'].includes(type)) {
@@ -540,7 +549,7 @@ exports.updateCalendarDay = async (req, res) => {
 /** 特殊情况：每周六上午算工作日（法定节假日与调休上班日除外），是租户级开关、不按年度区分。 */
 exports.updateCalendarSaturdayMorning = async (req, res) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const isOwner = req.user?.role === 'owner' || req.user?.userid === 'admin';
     if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
     const enabled = req.body?.enabled;
     if (typeof enabled !== 'boolean') return fail(res, 400, '周六上午上班取值无效');
@@ -567,7 +576,7 @@ exports.updateCalendarSaturdayMorning = async (req, res) => {
  */
 exports.updateWorkPeriods = async (req, res) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const isOwner = req.user?.role === 'owner' || req.user?.userid === 'admin';
     if (!isOwner && (!hasAttendanceRole(req.user, 'attendance_admin') || !hasEmployeeTenantContext(req))) return fail(res, 403, '仅公司主账号或考勤管理员可维护工作日历');
     const validated = validateWorkPeriods(req.body?.periods);
     if (!validated.ok) return fail(res, 400, validated.error);
@@ -693,8 +702,9 @@ exports.getApprovalAccess = async (req) => {
   const userTenantId = user?.tenantId?._id || user?.tenantId;
   const tenantId = req.tenantId || req.tenant?._id || userTenantId;
   if (!user?._id || user.status === 'disabled' || user.role === 'platform' || !tenantId || String(userTenantId) !== String(tenantId)) return false;
-  const privilege = Array.isArray(user.privilege) ? user.privilege : migrateBinaryToArray(user.privilege);
-  if (user.role === 'owner' || isAdmin(privilege) || canViewTeam(user)) return true;
+  // 全权身份（登录名 admin / owner / 总经理·董事长）+ 考勤角色 + 代理人 + 有下属 + 被指派。
+  // `privilege: ['admin']`（老业务「管理」）不延伸到这里。
+  if (isFullPrivilegeUser(user) || canViewTeam(user)) return true;
   if (String(req.tenant?.settings?.attendanceGeneralManagerDelegateId || '') === String(user._id)) return true;
   const [hasReports, hasAssignedRequest] = await Promise.all([
     User.exists({ tenantId, status: { $ne: 'disabled' }, role: { $ne: 'platform' }, managerId: user._id }),
@@ -991,7 +1001,7 @@ exports.getRequestAttachment = async (req, res) => {
 
     const userId = String(req.user?._id || '');
     const isAllowed = String(record.applicantId) === userId
-      || req.user?.role === 'owner'
+      || isFullPrivilegeUser(req.user)
       || hasAttendanceRole(req.user, 'attendance_admin')
       || hasAttendanceRole(req.user, 'general_manager')
       || (record.approvals || []).some(approval => String(approval.approverId) === userId);
@@ -1116,3 +1126,6 @@ exports.reviewRequest = async (req, res) => {
     }
   }
 };
+
+// 权限守卫的测试出口（与 attendance-ledger 的 exports._test 同一约定）
+exports._test = { requirePeopleManager, getApprovalAccess: exports.getApprovalAccess };

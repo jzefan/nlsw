@@ -5,7 +5,7 @@ import ApprovalPendingLinks from '@/components/approval/ApprovalPendingLinks.vue
 import { useAuthStore } from '@/stores/auth'
 import { useDevice } from '@/composables/use-device'
 import { Badge } from '@/components/ui/badge'
-import { getTitleCode } from '@/services/api/user.api'
+import { isFullPrivilege } from '@/utils/module-access'
 import SealRequestList from './components/SealRequestList.vue'
 
 const route = useRoute()
@@ -17,12 +17,10 @@ const pendingCount = ref(0)
 const hasGlobalApproval = ref(false)
 
 const canReview = computed(() => {
-  if (authStore.isOwner || authStore.isAppAdmin) return true
-  const titleCode = getTitleCode(authStore.user?.title || '')
-  if (titleCode === 'gm' || titleCode === 'ceo') return true
-  const roles = authStore.user?.attendanceRoles
-  const arr = Array.isArray(roles) ? roles : roles ? [roles] : []
-  return arr.includes('general_manager') || hasGlobalApproval.value || pendingCount.value > 0
+  // 与后端 canApproveSealRequest / hasGlobalSealApprovalView 同口径：
+  // 全权身份（登录名 admin / owner / 总经理·董事长）+ 本人被指派为某章审批人 + 本人有在审单。
+  if (isFullPrivilege({ isOwner: authStore.isOwner, userid: authStore.user?.userid || '', title: authStore.user?.title || '' })) return true
+  return hasGlobalApproval.value || pendingCount.value > 0
 })
 
 const view = computed<'mine' | 'inbox' | 'history' | 'all'>(() => {

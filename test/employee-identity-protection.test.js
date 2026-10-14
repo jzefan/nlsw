@@ -8,7 +8,7 @@ const userApi = require('../controllers/api/user');
 const userController = require('../controllers/user');
 const platformApi = require('../controllers/api/platform');
 const payrollApi = require('../controllers/api/payroll');
-const { hasProtectedIdentity, hasProtectedPrivileges } = require('../utils/user-security');
+const { hasProtectedIdentity, hasProtectedPrivileges, hasProtectedCredentials } = require('../utils/user-security');
 
 const id = () => new mongoose.Types.ObjectId();
 function response() {
@@ -65,6 +65,38 @@ function userStore(t, initial) {
   return { snapshot, writes };
 }
 
+// 删除与改登录手机号属「接管身份」，对任何员工身份都禁止，与能否重置密码无关。
+async function assertTakeoverBlocked(target, actor, tenantId) {
+  const req = body => ({ user: actor, tenantId, body });
+  const actions = [
+    res => userApi.postUserMgr(req({ act: 'modify', data: { userid: target.userid, phone: 'attacker-phone', privilege: [] } }), res),
+    res => userApi.postUserMgr(req({ act: 'delete', userid: target.userid }), res),
+    res => userController.postUserMgr(req({ act: 'modify', data: { userid: target.userid, phone: 'attacker-phone', privilege: [] } }), res),
+    res => userController.postUserMgr(req({ act: 'delete', userid: target.userid }), res)
+  ];
+  for (const action of actions) {
+    const res = response();
+    await action(res);
+    assert.equal(res.statusCode, 403);
+  }
+}
+
+// 重置密码已按角色分级：普通员工允许主账号/平台管理员重置。
+async function assertResetAllowed(target, actor, tenantId) {
+  for (const reset of [
+    res => userApi.resetPassword({ user: actor, tenantId, body: { user: { userid: target.userid } } }, res),
+    res => userController.postResetPassword({ user: actor, tenantId, body: { user: { userid: target.userid } } }, res, error => { throw error; })
+  ]) {
+    const res = response();
+    await reset(res);
+    assert.equal(res.statusCode, 200);
+  }
+  const platformRes = response();
+  await platformApi.resetUserPassword({ body: { userId: target._id } }, platformRes);
+  assert.equal(platformRes.statusCode, 200);
+}
+
+// 受保护凭据（总经理/管理员/薪资/考勤角色/平台身份）三条重置入口都必须 403。
 async function assertProtectedRoutes(target, actor, tenantId) {
   const req = body => ({ user: actor, tenantId, body });
   const actions = [
@@ -83,7 +115,7 @@ async function assertProtectedRoutes(target, actor, tenantId) {
   }
 }
 
-test('ordinary employee with published salary and no optional identity fields cannot be taken over or deleted', async t => {
+test('ordinary employee can be reset by owner or platform but still cannot be taken over or deleted', async t => {
   const target = employee();
   const store = userStore(t, target);
   t.mock.method(PayrollStatement, 'find', filter => {
@@ -97,10 +129,15 @@ test('ordinary employee with published salary and no optional identity fields ca
   const salary = response();
   await payrollApi.getMyStatements({ user: store.snapshot(), tenantId: target.tenantId, query: { year: '2026' } }, salary);
   assert.equal(salary.body.data.rows[0].totals.netPayCents, 500000);
-  await assertProtectedRoutes(target, { _id: id(), role: 'member', privilege: ['admin'] }, target.tenantId);
-  assert.equal(store.writes.length, 0);
+  // 员工身份本身仍受保护：接管与删除两条路依然被拦。
+  await assertTakeoverBlocked(target, { _id: id(), role: 'member', privilege: ['admin'] }, target.tenantId);
   assert.equal(store.snapshot().password, 'original-hash');
-  assert.equal(store.snapshot().sessionVersion, 3);
+  // 但主账号/平台管理员可以重置其密码（忘记密码的恢复入口）。
+  await assertResetAllowed(target, { _id: id(), role: 'owner', privilege: ['admin'] }, target.tenantId);
+  assert.equal(store.snapshot().password, 'hash:123456');
+  assert.equal(store.snapshot().mustChangePassword, true);
+  // 三条重置入口各使 sessionVersion +1（起始 3）。
+  assert.equal(store.snapshot().sessionVersion, 6);
 });
 
 for (const [label, fields] of [
@@ -112,20 +149,23 @@ for (const [label, fields] of [
     const target = employee(fields);
     const store = userStore(t, target);
     assert.equal(hasProtectedIdentity(target), true);
-    const res = response();
-    await platformApi.resetUserPassword({ body: { userId: target._id } }, res);
-    assert.equal(res.statusCode, 403);
+    // 员工身份不受停用/排除考勤影响：接管与删除仍然被拦（重置密码已按角色分级放开）。
+    await assertTakeoverBlocked(target, { _id: id(), role: 'member', privilege: ['admin'] }, target.tenantId);
     assert.equal(store.writes.length, 0);
   });
 }
 
-test('owners and platform actors cannot bypass company member identity protection', async t => {
+test('owners and platform actors cannot take over or delete a company member, but may reset its password', async t => {
   const target = employee();
   const store = userStore(t, target);
   for (const role of ['owner', 'platform']) {
-    await assertProtectedRoutes(target, { _id: id(), role, privilege: [] }, target.tenantId);
+    await assertTakeoverBlocked(target, { _id: id(), role, privilege: [] }, target.tenantId);
   }
   assert.equal(store.writes.length, 0);
+  assert.equal(store.snapshot().password, 'original-hash');
+
+  await assertResetAllowed(target, { _id: id(), role: 'owner', privilege: [] }, target.tenantId);
+  assert.equal(store.snapshot().password, 'hash:123456');
 });
 
 test('administrator can still maintain ordinary employee system privileges without changing credentials', async t => {
@@ -161,6 +201,25 @@ test('leader titles and platform identities stay protected without optional empl
   const store = userStore(t, target);
   await assertProtectedRoutes(target, { _id: id(), role: 'platform' }, undefined);
   assert.equal(store.writes.length, 0);
+});
+
+test('the graded reset rule keys on authority-bearing attributes, not on having a tenant', async t => {
+  // 工号已全员回填，不能再作为「此账号受保护」的信号：普通员工带工号也允许重置。
+  const ordinary = employee({ employeeNo: 'E-9' });
+  assert.equal(hasProtectedIdentity(ordinary), true, '员工身份本身仍受保护（接管/删除照旧被拦）');
+  assert.equal(hasProtectedCredentials(ordinary), false, '带工号的普通员工不拦重置');
+
+  // 反面：一旦带上管理权或涉薪考勤角色，就必须拦住重置。
+  for (const [label, fields] of [
+    ['owner role', { role: 'owner' }],
+    ['admin privilege', { privilege: ['admin'] }],
+    ['payroll role', { payrollRoles: ['finance'] }],
+    ['attendance role', { attendanceRoles: ['attendance_admin'] }],
+    ['GM title', { title: '总经理' }],
+    ['platform role', { role: 'platform', tenantId: undefined }]
+  ]) {
+    assert.equal(hasProtectedCredentials(employee(fields)), true, `${label} 必须拦住重置`);
+  }
 });
 
 test('unlinked ordinary legacy accounts retain generic recovery and deletion behavior', async t => {

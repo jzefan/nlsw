@@ -22,14 +22,14 @@ import {
 
 import type { NavGroup } from '../types'
 import type { Features } from '@/stores/auth'
-import { hasPermission, isAdmin, PERMISSIONS } from '@/constants/permissions'
+import { hasPermission, PERMISSIONS } from '@/constants/permissions'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
-import { canApproveSeal as canApproveSealRequests, canManagePayroll as canManagePayrollModule, canManageSeal as canManageSealModule, canManageSealSettings as canManageSealSettingsModule, canReviewAttendanceRequests } from '@/utils/module-access'
+import { canApproveSeal as canApproveSealRequests, canManagePayroll as canManagePayrollModule, canManageSeal as canManageSealModule, canManageSealSettings as canManageSealSettingsModule, canReviewAttendanceRequests, isFullPrivilege } from '@/utils/module-access'
 
-export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false, isSealApprover = false): NavGroup[] {
+export function generateNavData(privilege: string[], features?: Features, attendanceRoles: string[] = [], payrollRoles: string[] = [], isOwner = false, title = '', isCustodian = false, canReviewAttendance = false, isSealApprover = false, userid = ''): NavGroup[] {
   const groups: NavGroup[] = []
   // 模块入口可见性与移动端模块首页共用同一份判据（utils/module-access.ts）
-  const access = { isOwner, privilege, attendanceRoles, payrollRoles, title, isCustodian, canReviewAttendance, isSealApprover }
+  const access = { isOwner, userid, privilege, attendanceRoles, payrollRoles, title, isCustodian, canReviewAttendance, isSealApprover }
 
   // 总览 - 所有人可见
   groups.push({
@@ -46,8 +46,7 @@ export function generateNavData(privilege: string[], features?: Features, attend
     const canManagePayroll = canManagePayrollModule(access)
     // 「设置」下的三个视图与考勤设置页共用同一份可见性规则，避免菜单能点、进了页面却说无权
     const settingsViews = visibleAttendanceSettingsViews({
-      isOwner,
-      isAppAdmin: isAdmin(privilege),
+      isFullPrivilege: isFullPrivilege(access),
       attendanceRoles,
       payrollRoles,
     })

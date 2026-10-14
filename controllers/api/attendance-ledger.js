@@ -8,6 +8,7 @@ const AttendanceMonthLedger = require('../../models/AttendanceMonthLedger');
 const AttendanceLedgerAudit = require('../../models/AttendanceLedgerAudit');
 const { hasAttendanceRole, calculateLeaveMinutes, getAttendancePolicy } = require('../../utils/attendance-permissions');
 const { filterRealEmployees, isTestAccount } = require('../../utils/test-account');
+const { isTopLeaderTitle } = require('../../utils/user-title');
 const { readActualRule, validateActualRule, dailyWorkMinutes, isActualManual, computeSuggestedActualMinutes, ACTUAL_RULE_FIELDS, APPEAL_TYPES, APPEAL_TYPE_LABELS, APPEAL_OFFSET_FIELDS, DEFAULT_DAY_MINUTES } = require('../../utils/attendance-ledger-actual');
 
 const OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -25,11 +26,18 @@ function parseMonth(raw) {
   return { year, month, start, end };
 }
 
+// 月结类写操作（确认台账、导入、实到规则、月结/重开）只给登录名 admin / owner 主账号 / 考勤管理员。
+// 职务总经理·董事长**不含在内** —— 他们按 `isFullPrivilegeUser` 是全权身份，但台账写操作是只读视角
+// （数据范围由 isCompanyViewer 给出）。这里要判的是「能不能改数据」，不是「是不是全权身份」。
 function isMonthAdmin(user) {
-  return user?.role === 'owner' || hasAttendanceRole(user, 'attendance_admin');
+  if (!user) return false;
+  return user.userid === 'admin' || user.role === 'owner' || hasAttendanceRole(user, 'attendance_admin');
 }
+// 台账可见范围：主账号、考勤管理员、考勤总经理，以及职务总经理/董事长（只读全公司视角）。
 function isCompanyViewer(user) {
-  return isMonthAdmin(user) || hasAttendanceRole(user, 'general_manager');
+  return isMonthAdmin(user)
+    || hasAttendanceRole(user, 'general_manager')
+    || isTopLeaderTitle(user?.title);
 }
 
 function hasLedgerIdentity(req) {
@@ -68,8 +76,10 @@ function monthLockRecoveryState(lock, now = Date.now()) {
 }
 
 function requireOwner(req, res) {
-  if (req.user?.role === 'owner' && req.tenantId && String(req.user.tenantId?._id || req.user.tenantId) === String(req.tenantId) && req.user.status !== 'disabled') return true;
-  err(res, 403, '仅本公司主账号可恢复月台账锁');
+  const u = req.user;
+  const isMainAccount = Boolean(u) && (u.userid === 'admin' || u.role === 'owner');
+  if (isMainAccount && req.tenantId && String(u.tenantId?._id || u.tenantId) === String(req.tenantId) && u.status !== 'disabled') return true;
+  err(res, 403, '仅公司主账号可恢复月台账锁');
   return false;
 }
 
@@ -369,19 +379,22 @@ function blankPayrollAttendance() {
  * @param {string|null} employeeId 传值时只统计该员工（本人视角）
  */
 /**
- * 某个租户下所有测试账号的 id 集合。
+ * 某个租户下「不进薪资统计」的 id 集合：测试账号 + 被关掉「薪资统计」开关的员工。
  *
- * 薪资统计的时长/缺勤是从**申请单与台账行**聚合来的，那些表里没有 userid、没法就地按前缀过滤，
- * 只能先问出「哪些 id 是测试账号」再排除。
+ * 薪资统计的时长/缺勤是从**申请单与台账行**聚合来的，那些表里没有 userid、也没有薪资开关，
+ * 没法就地过滤，只能先问出「哪些 id 要排除」再剔除。
  *
  * `candidateIds` 是这次统计实际会用到的申请人/台账行 id 集合：**只查这些人**，
  * 而不是全租户扫一遍 —— 顺带让那些不涉及真实账号的调用（测试夹具、只查本人的路径）完全不必碰数据库。
  */
-async function testAccountIdsAmong(tenantId, candidateIds) {
+async function payrollExcludedIdsAmong(tenantId, candidateIds) {
   const ids = [...new Set((candidateIds || []).map(String).filter(id => mongoose.Types.ObjectId.isValid(id)))];
   if (!ids.length) return new Set();
-  const users = await User.find({ tenantId, _id: { $in: ids } }).select('userid profile.name role').lean().catch(() => []);
-  return new Set(users.filter(isTestAccount).map(user => String(user._id)));
+  const users = await User.find({ tenantId, _id: { $in: ids } })
+    .select('userid profile.name role payrollTracked').lean().catch(() => []);
+  return new Set(users
+    .filter(user => isTestAccount(user) || user.payrollTracked === false)
+    .map(user => String(user._id)));
 }
 
 async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) {
@@ -417,9 +430,10 @@ async function getPayrollAttendanceSummary(tenantId, months, employeeId = null) 
       const closedRows = ledger?.status === 'closed' ? ledger?.closedSnapshot?.rows : null;
       const savedRows = closedRows || ledger?.rows || [];
       const scopedRows = employeeId ? savedRows.filter(row => String(row.employeeId) === String(employeeId)) : savedRows;
-      // 测试账号提过的申请单、台账行都不计入薪资统计（用户 2026-10-06 要求：不纳入考勤与工资）。
+      // 测试账号与被关掉「薪资统计」的员工提过的申请单、台账行都不计入薪资统计
+      // （用户 2026-10-06 要求测试账号不纳入考勤与工资；2026-10-09 加了按人关闭的薪资统计开关）。
       // 只查这次实际用到的那些 id；「只看本人」时本来就在白名单内，不必多查。
-      const excluded = employeeId ? new Set() : await testAccountIdsAmong(tenantId, [
+      const excluded = employeeId ? new Set() : await payrollExcludedIdsAmong(tenantId, [
         ...scopedRequests.map(item => item.applicantId),
         ...scopedRows.map(row => row.employeeId),
       ]);

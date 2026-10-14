@@ -29,6 +29,26 @@ function hasProtectedIdentity(user) {
   );
 }
 
+function hasAdminPrivilege(user) {
+  const privilege = Array.isArray(user?.privilege) ? user.privilege : migrateBinaryToArray(user?.privilege);
+  return privilege.includes('admin');
+}
+
+// 重置密码专用判据：只保护「能动用他人数据或具备管理权」的账号。
+// 普通员工即使已登记工号也允许主账号/平台管理员重置，用于本人忘记密码时恢复入口
+// （工号在本项目里已全员回填，不能再作为「此账号受保护」的信号）。
+function hasProtectedCredentials(user) {
+  return Boolean(
+    user?.role === 'platform' ||
+    user?.role === 'owner' ||
+    isGeneralManagerTitle(user?.title) ||
+    isChairmanTitle(user?.title) ||
+    (Array.isArray(user?.payrollRoles) && user.payrollRoles.length > 0) ||
+    (Array.isArray(user?.attendanceRoles) && user.attendanceRoles.length > 0) ||
+    hasAdminPrivilege(user)
+  );
+}
+
 function bumpSessionVersion(user) {
   if (typeof user?.$inc === 'function') {
     user.$inc('sessionVersion', 1);
@@ -67,4 +87,4 @@ async function changePasswordWithCas(User, user, password, scope = {}, { mustCha
   return true;
 }
 
-module.exports = { hasPayrollAccess, hasProtectedPrivileges, hasProtectedIdentity, bumpSessionVersion, bumpSecurityIdentityVersion, identityVersionFilter, changePasswordWithCas };
+module.exports = { hasPayrollAccess, hasProtectedPrivileges, hasProtectedIdentity, hasProtectedCredentials, hasAdminPrivilege, bumpSessionVersion, bumpSecurityIdentityVersion, identityVersionFilter, changePasswordWithCas };

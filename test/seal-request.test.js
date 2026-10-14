@@ -101,17 +101,25 @@ test('canManageSeals authorization matrix', () => {
   const owner = mockUser(tenantId, { role: 'owner' });
   assert.equal(canManageSeals(owner, tenant), true);
 
-  // 3. 系统管理员 admin
-  const admin = mockUser(tenantId, { privilege: ['admin'] });
-  assert.equal(canManageSeals(admin, tenant), true);
+  // 3. 老业务的「管理」权限位**不再**放行用章（2026-10-12 用户确认）
+  const privilegeAdmin = mockUser(tenantId, { privilege: ['admin'] });
+  assert.equal(canManageSeals(privilegeAdmin, tenant), false);
 
-  // 4. 总经理角色 / 职务
-  const gmUser = mockUser(tenantId, { attendanceRoles: ['general_manager'] });
-  assert.equal(canManageSeals(gmUser, tenant), true);
+  // 4. 总经理 / 董事长**职务**（含中文旧写法）
   const gmTitle = mockUser(tenantId, { title: '总经理' });
   assert.equal(canManageSeals(gmTitle, tenant), true);
   const ceoTitle = mockUser(tenantId, { title: '董事长' });
   assert.equal(canManageSeals(ceoTitle, tenant), true);
+
+  // 4.1 2026-10-12 用户确认：考勤角色 general_manager 不再单独授予用章管理权，
+  //     考勤总经理要在用章设置里被指派为保管员、或职务本身就是一把手。
+  const gmRoleOnly = mockUser(tenantId, { attendanceRoles: ['general_manager'] });
+  assert.equal(canManageSeals(gmRoleOnly, tenant), false);
+  assert.equal(canManageSeals(gmRoleOnly, tenantMulti), false);
+  // 职务本身就是一把手时仍然有
+  assert.equal(canManageSeals(mockUser(tenantId, { title: 'gm', attendanceRoles: ['general_manager'] }), tenant), true);
+  // 被指派为保管员后才有
+  assert.equal(canManageSeals(mockUser(tenantId, { _id: custodian2Id, attendanceRoles: ['general_manager'] }), tenantMulti), true);
 
   // 5. 普通员工拒绝
   const regular = mockUser(tenantId);
@@ -334,13 +342,19 @@ test('canApproveSealRequest strictly prevents dedicated custodian without admin/
   const owner = mockUser(tenantId, { role: 'owner' });
   assert.equal(canApproveSealRequest(owner, tenant, pendingReq), true);
 
-  // 系统管理员 admin 有审批权
+  // 老业务的「管理」权限位没有审批权（2026-10-12 用户确认）
   const admin = mockUser(tenantId, { privilege: ['admin'] });
-  assert.equal(canApproveSealRequest(admin, tenant, pendingReq), true);
+  assert.equal(canApproveSealRequest(admin, tenant, pendingReq), false);
 
-  // 总经理有审批权
-  const gm = mockUser(tenantId, { attendanceRoles: ['general_manager'] });
+  // 总经理 / 董事长**职务**有审批权
+  const gm = mockUser(tenantId, { title: 'gm' });
   assert.equal(canApproveSealRequest(gm, tenant, pendingReq), true);
+  const ceo = mockUser(tenantId, { title: 'ceo' });
+  assert.equal(canApproveSealRequest(ceo, tenant, pendingReq), true);
+
+  // 2026-10-12 用户确认：仅挂考勤总经理角色不再有兜底代审权
+  const gmRoleOnly = mockUser(tenantId, { attendanceRoles: ['general_manager'] });
+  assert.equal(canApproveSealRequest(gmRoleOnly, tenant, pendingReq), false);
 });
 
 test('canApproveSealRequest revokes the designated approver right once their step is done', () => {

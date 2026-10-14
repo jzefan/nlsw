@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
+import { isFullPrivilege } from '@/utils/module-access'
 import { useDevice } from '@/composables/use-device'
 import { appealLabel, appealTypeLabels, attendanceKindLabels } from '@/constants/attendance-labels'
 import { Badge } from '@/components/ui/badge'
@@ -77,7 +78,9 @@ const attendanceRoles = computed(() => {
   const roles = authStore.user?.attendanceRoles
   return Array.isArray(roles) ? roles : roles ? [roles] : []
 })
-const canReview = computed(() => authStore.isOwner || authStore.isAppAdmin || authStore.user?.canReviewAttendance === true || attendanceRoles.value.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role)))
+const canReview = computed(() => authStore.user?.canReviewAttendance === true
+  || isFullPrivilege({ isOwner: authStore.isOwner, userid: authStore.user?.userid || '', title: authStore.user?.title || '' })
+  || attendanceRoles.value.some(role => ['manager', 'general_manager', 'attendance_admin'].includes(role)))
 const durationPreview = computed(() => {
   const { startAt, endAt, type } = form.value
   if (!startAt || !endAt) return ''

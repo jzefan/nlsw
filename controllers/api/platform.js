@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Tenant = require('../../models/Tenant');
 const User = require('../../models/User');
-const { hasProtectedIdentity, bumpSessionVersion, changePasswordWithCas } = require('../../utils/user-security');
+const { hasProtectedIdentity, hasProtectedCredentials, bumpSessionVersion, changePasswordWithCas } = require('../../utils/user-security');
 const Bill = require('../../models/Bill');
 const Invoice = require('../../models/Invoice');
 
@@ -515,8 +515,8 @@ exports.resetUserPassword = async (req, res) => {
     if (user.role === 'platform') {
       return res.status(403).json({ ok: false, msg: '无权重置平台用户密码' });
     }
-    if (hasProtectedIdentity(user)) {
-      return res.status(403).json({ ok: false, msg: '不能重置员工、管理员或薪资账号的密码' });
+    if (hasProtectedCredentials(user)) {
+      return res.status(403).json({ ok: false, msg: '不能重置总经理、管理员或薪资账号的密码' });
     }
 
     // 重置密码为默认值

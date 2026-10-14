@@ -25,7 +25,7 @@ import {
 import { useApprovalStore } from '@/stores/approvals'
 import { useAuthStore } from '@/stores/auth'
 import { visibleAttendanceSettingsViews } from '@/utils/attendance-settings'
-import { canApproveSeal, canManagePayroll, canManageSeal, canManageSealSettings, canReviewAttendanceRequests, isSealCustodian } from '@/utils/module-access'
+import { canApproveSeal, canManagePayroll, canManageSeal, canManageSealSettings, canReviewAttendanceRequests, isFullPrivilege, isSealCustodian } from '@/utils/module-access'
 
 /**
  * 移动端「考勤首页 / 工资首页 / 用章首页」的入口清单。
@@ -41,6 +41,7 @@ export function useModuleHub() {
 
   const access = computed<ModuleAccessInput>(() => ({
     isOwner: authStore.isOwner,
+    userid: user.value?.userid ?? '',
     privilege: user.value?.privilege ?? [],
     attendanceRoles: roles(user.value?.attendanceRoles),
     payrollRoles: roles(user.value?.payrollRoles),
@@ -106,8 +107,7 @@ export function useModuleHub() {
       calendar: { icon: CalendarClock, tone: 'slate' },
     }
     const settingsViews = visibleAttendanceSettingsViews({
-      isOwner: authStore.isOwner,
-      isAppAdmin: authStore.isAppAdmin,
+      isFullPrivilege: isFullPrivilege(access.value),
       attendanceRoles: access.value.attendanceRoles,
       payrollRoles: access.value.payrollRoles,
     })
