@@ -655,18 +655,26 @@ exports.markNotRequireSettle = async (req, res) => {
         dbBill.settle_flag = (dbBill.settle_flag || 0) & ~flag;
 
         // 更新 invoices 中的结算状态
+        // 只清代收代付位：前端回传的 settle_flag 是页面缓存里的旧值，
+        // 整值覆盖会把已经打上的客户结算位一起抹掉。
         items.forEach((item) => {
           if (dbBill.invoices) {
             const invInfo = dbBill.invoices.find(
               (inv) => inv.inv_no === item.inv_no,
             );
             if (invInfo) {
-              invInfo.inv_settle_flag = item.settle_flag || 0;
+              invInfo.inv_settle_flag = clearFlag(
+                invInfo.inv_settle_flag,
+                "COLLECTION",
+              );
 
               // 船运：更新 vehicles 中的结算状态
               if (invInfo.vehicles && invInfo.vehicles.length > 0) {
                 invInfo.vehicles.forEach((veh) => {
-                  veh.inv_settle_flag = item.settle_flag || 0;
+                  veh.inv_settle_flag = clearFlag(
+                    veh.inv_settle_flag,
+                    "COLLECTION",
+                  );
                 });
               }
             }
@@ -674,6 +682,7 @@ exports.markNotRequireSettle = async (req, res) => {
         });
       } else {
         // 客户结算：设置价格为 -1
+        dbBill.settle_flag = (dbBill.settle_flag || 0) & ~flag;
         items.forEach((item) => {
           if (dbBill.invoices) {
             const invInfo = dbBill.invoices.find(
@@ -685,6 +694,12 @@ exports.markNotRequireSettle = async (req, res) => {
             }
           }
         });
+      }
+
+      // 提单已没有任何结算位：回退成「已配发」（与 postSettleCollectionNotRequire 口径一致）
+      if ((dbBill.settle_flag || 0) === 0 && dbBill.left_num < EPSILON) {
+        dbBill.left_num = 0;
+        dbBill.status = "已配发";
       }
 
       await dbBill.save();
@@ -744,22 +759,10 @@ exports.cancelNotRequireSettle = async (req, res) => {
       }
 
       if (settle_type === "COLLECTION") {
+        // 取消「不需要代收代付结算」：只把价格从 -1 恢复成 0。
+        // 不回写 inv_settle_flag —— 前端传的是页面缓存里的旧整值，
+        // 写回去会把已经打上的客户结算位一起抹掉。
         dbBill.collection_price = 0;
-        items.forEach((item) => {
-          if (dbBill.invoices) {
-            const invInfo = dbBill.invoices.find(
-              (inv) => inv.inv_no === item.inv_no,
-            );
-            if (invInfo) {
-              invInfo.inv_settle_flag = item.settle_flag || 0;
-              if (invInfo.vehicles && invInfo.vehicles.length > 0) {
-                invInfo.vehicles.forEach((veh) => {
-                  veh.inv_settle_flag = item.settle_flag || 0;
-                });
-              }
-            }
-          }
-        });
       } else {
         items.forEach((item) => {
           if (dbBill.invoices) {

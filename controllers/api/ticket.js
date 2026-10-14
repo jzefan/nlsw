@@ -143,133 +143,200 @@ exports.updateTicket = async (req, res) => {
 };
 
 /**
+ * 删除单张结算单：先回退提单与运单标志，最后才删结算单。
+ *
+ * 回退用字段级 $set（不整文档 save），既避免 __v 版本冲突（VersionError），
+ * 也让回退本身是幂等的 —— 中途失败重试即可，不会留下半成品。
+ */
+async function deleteOneSettle(req, settleId) {
+  const settleQuery = buildTenantQuery(req, { _id: settleId });
+  const dbSettle = await Settle.findOne(settleQuery).exec();
+
+  if (!dbSettle) {
+    console.warn('deleteSettle: 未找到结算记录或无权限 _id=' + settleId);
+    return;
+  }
+
+  // 检查状态是否允许删除（业务拒绝，与执行失败区分开）
+  if (dbSettle.status !== '已结算') {
+    const error = new Error(
+      `结算记录 ${dbSettle.serial_number} 状态为 ${dbSettle.status}，不能删除`
+    );
+    error.code = 'SETTLE_STATUS_NOT_DELETABLE';
+    throw error;
+  }
+
+  const settleType = dbSettle.settle_type;
+  const billIds = [];
+  const allInvNo = [];
+
+  dbSettle.bills.forEach((b) => {
+    billIds.push(b.bill_id);
+    if (!allInvNo.includes(b.inv_no)) {
+      allInvNo.push(b.inv_no);
+    }
+  });
+
+  // 更新Bill的结算状态
+  const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
+  const dbBills = await Bill.find(billQuery).exec();
+
+  // 结算单引用的提单必须都在：缺数据就整体中止，不回退一半
+  const missingBillIds = billIds.filter(
+    (id) => !dbBills.some((bill) => String(bill._id) === String(id))
+  );
+  if (missingBillIds.length > 0) {
+    throw new Error(
+      `结算单 ${dbSettle.serial_number} 引用的提单已不存在：${missingBillIds.join(', ')}`
+    );
+  }
+
+  for (const bill of dbBills) {
+    const before = {
+      settle_flag: bill.settle_flag || 0,
+      status: bill.status,
+      status_flag: bill.status_flag || 0,
+      left_num: bill.left_num,
+      invoices: bill.invoices.map((inv) => inv.inv_settle_flag || 0)
+    };
+
+    // 只在内存里算出回退后的结果，稍后用 $set 一次性落库
+    dbSettle.bills.forEach((sb) => {
+      if (String(bill._id) !== String(sb.bill_id)) return;
+      bill.invoices.forEach((inv) => {
+        if (inv.inv_no === sb.inv_no) {
+          inv.inv_settle_flag = clearFlag(inv.inv_settle_flag, settleType);
+        }
+      });
+    });
+
+    // 更新Bill的settle_flag
+    if (bill.invoices.length === 1) {
+      bill.settle_flag = bill.invoices[0].inv_settle_flag;
+    } else {
+      if (isSameSettleFlag(bill, 'CUSTOMER')) {
+        bill.settle_flag = setFlag(bill.settle_flag, 'CUSTOMER');
+      } else {
+        bill.settle_flag = clearFlag(bill.settle_flag, 'CUSTOMER');
+      }
+
+      if (isSameSettleFlag(bill, 'COLLECTION')) {
+        bill.settle_flag = setFlag(bill.settle_flag, 'COLLECTION');
+      } else {
+        bill.settle_flag = clearFlag(bill.settle_flag, 'COLLECTION');
+      }
+    }
+
+    // 根据settle_flag恢复Bill的真实状态
+    if (bill.settle_flag === 0) {
+      // 没有任何结算，恢复为已配发
+      bill.status = '已配发';
+      bill.status_flag = 2;
+      if (bill.left_num < 0.0001) {
+        bill.left_num = 0;
+      }
+    } else {
+      // 仍有其他类型的结算，保持已结算状态
+      bill.status = '已结算';
+      bill.status_flag = 3;
+    }
+
+    const set = {};
+    bill.invoices.forEach((inv, index) => {
+      const next = inv.inv_settle_flag || 0;
+      if (next !== before.invoices[index]) {
+        set[`invoices.${index}.inv_settle_flag`] = next;
+      }
+    });
+    if (bill.settle_flag !== before.settle_flag) set.settle_flag = bill.settle_flag;
+    if (bill.status !== before.status) set.status = bill.status;
+    if (bill.status_flag !== before.status_flag) set.status_flag = bill.status_flag;
+    if (bill.left_num !== before.left_num) set.left_num = bill.left_num;
+
+    if (Object.keys(set).length === 0) continue;
+
+    const billFilter = { _id: bill._id };
+    if (bill.tenantId) billFilter.tenantId = bill.tenantId;
+    await Bill.updateOne(billFilter, { $set: set });
+  }
+
+  // 更新Invoice的结算状态
+  const invQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNo } });
+  const dbInvs = await Invoice.find(invQuery).exec();
+
+  for (const invoice of dbInvs) {
+    const ids = invoice.bills.map((b) => b.bill_id);
+    const billArrQuery = buildTenantQuery(req, { _id: { $in: ids } });
+    const billArr = await Bill.find(billArrQuery).lean().exec();
+
+    // 检查该运单下的所有提单是否都已结算
+    let settled = true;
+    for (const bill of billArr) {
+      for (const binv of bill.invoices) {
+        if (!checkFlag(binv.inv_settle_flag, settleType)) {
+          settled = false;
+          break;
+        }
+      }
+      if (!settled) break;
+    }
+
+    // 更新运单状态
+    if (settled) {
+      if (!checkFlag(invoice.settle_flag, settleType)) {
+        invoice.state = '已结算';
+        invoice.settle_flag = setFlag(invoice.settle_flag, settleType);
+        await invoice.save();
+      }
+    } else {
+      if (checkFlag(invoice.settle_flag, settleType)) {
+        invoice.state = '已配发';
+        invoice.settle_flag = clearFlag(invoice.settle_flag, settleType);
+        await invoice.save();
+      }
+    }
+  }
+
+  // 删除结算记录：放在最后，前面的回退已完成且幂等，失败可重试
+  const deleteQuery = buildTenantQuery(req, { _id: settleId });
+  const deleteResult = await Settle.deleteOne(deleteQuery);
+  if (deleteResult.deletedCount === 0) {
+    console.warn('deleteSettle: 结算记录未被删除 _id=' + settleId);
+  }
+}
+
+/**
  * 删除结算
  */
 exports.deleteSettle = async (req, res) => {
   try {
-    const { settle_ids, settle_type } = req.body;
+    const { settle_ids } = req.body;
 
     if (!Array.isArray(settle_ids) || settle_ids.length === 0) {
       return res.json({ ok: false, message: '没有要删除的数据' });
     }
 
+    const failed = [];
+
     for (const settleId of settle_ids) {
-      const settleQuery = buildTenantQuery(req, { _id: settleId });
-      const dbSettle = await Settle.findOne(settleQuery).exec();
-
-      if (!dbSettle) {
-        console.warn('deleteSettle: 未找到结算记录或无权限 _id=' + settleId);
-        continue;
-      }
-
-      // 检查状态是否允许删除
-      if (dbSettle.status !== '已结算') {
-        return res.json({
-          ok: false,
-          message: `结算记录 ${dbSettle.serial_number} 状态为 ${dbSettle.status}，不能删除`
-        });
-      }
-
-      const settleType = dbSettle.settle_type;
-      const billIds = [];
-      const allInvNo = [];
-
-      dbSettle.bills.forEach((b) => {
-        billIds.push(b.bill_id);
-        if (!allInvNo.includes(b.inv_no)) {
-          allInvNo.push(b.inv_no);
+      try {
+        await deleteOneSettle(req, settleId);
+      } catch (error) {
+        if (error.code === 'SETTLE_STATUS_NOT_DELETABLE') {
+          console.warn('deleteSettle: ' + error.message);
+          return res.json({ ok: false, message: error.message });
         }
+        console.error('deleteSettle error: _id=' + settleId, error);
+        failed.push(`${settleId}: ${error.message || error}`);
+      }
+    }
+
+    if (failed.length > 0) {
+      return res.status(500).json({
+        ok: false,
+        message: `有 ${failed.length} 张结算单删除失败，提单已回退、结算单未删除，可重试：${failed.join(' | ')}`,
+        failed
       });
-
-      // 更新Bill的结算状态
-      const billQuery = buildTenantQuery(req, { _id: { $in: billIds } });
-      const dbBills = await Bill.find(billQuery).exec();
-
-      for (const bill of dbBills) {
-        dbSettle.bills.forEach((sb) => {
-          if (String(bill._id) === String(sb.bill_id)) {
-            bill.invoices.forEach((inv) => {
-              if (inv.inv_no === sb.inv_no) {
-                inv.inv_settle_flag = clearFlag(inv.inv_settle_flag, settleType);
-              }
-            });
-          }
-        });
-
-        // 更新Bill的settle_flag
-        if (bill.invoices.length === 1) {
-          bill.settle_flag = bill.invoices[0].inv_settle_flag;
-        } else {
-          if (isSameSettleFlag(bill, 'CUSTOMER')) {
-            bill.settle_flag = setFlag(bill.settle_flag, 'CUSTOMER');
-          } else {
-            bill.settle_flag = clearFlag(bill.settle_flag, 'CUSTOMER');
-          }
-
-          if (isSameSettleFlag(bill, 'COLLECTION')) {
-            bill.settle_flag = setFlag(bill.settle_flag, 'COLLECTION');
-          } else {
-            bill.settle_flag = clearFlag(bill.settle_flag, 'COLLECTION');
-          }
-        }
-
-        // 根据settle_flag恢复Bill的真实状态
-        if (bill.settle_flag === 0) {
-          // 没有任何结算，恢复为已配发
-          bill.status = '已配发';
-          bill.status_flag = 2;
-          if (bill.left_num < 0.0001) {
-            bill.left_num = 0;
-          }
-        } else {
-          // 仍有其他类型的结算，保持已结算状态
-          bill.status = '已结算';
-          bill.status_flag = 3;
-        }
-
-        await bill.save();
-      }
-
-      // 更新Invoice的结算状态
-      const invQuery = buildTenantQuery(req, { waybill_no: { $in: allInvNo } });
-      const dbInvs = await Invoice.find(invQuery).exec();
-
-      for (const invoice of dbInvs) {
-        const ids = invoice.bills.map((b) => b.bill_id);
-        const billArrQuery = buildTenantQuery(req, { _id: { $in: ids } });
-        const billArr = await Bill.find(billArrQuery).lean().exec();
-
-        // 检查该运单下的所有提单是否都已结算
-        let settled = true;
-        for (const bill of billArr) {
-          for (const binv of bill.invoices) {
-            if (!checkFlag(binv.inv_settle_flag, settleType)) {
-              settled = false;
-              break;
-            }
-          }
-          if (!settled) break;
-        }
-
-        // 更新运单状态
-        if (settled) {
-          if (!checkFlag(invoice.settle_flag, settleType)) {
-            invoice.state = '已结算';
-            invoice.settle_flag = setFlag(invoice.settle_flag, settleType);
-            await invoice.save();
-          }
-        } else {
-          if (checkFlag(invoice.settle_flag, settleType)) {
-            invoice.state = '已配发';
-            invoice.settle_flag = clearFlag(invoice.settle_flag, settleType);
-            await invoice.save();
-          }
-        }
-      }
-
-      // 删除结算记录
-      const deleteQuery = buildTenantQuery(req, { _id: settleId });
-      await Settle.deleteOne(deleteQuery);
     }
 
     res.json({ ok: true });

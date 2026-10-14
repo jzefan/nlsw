@@ -1128,6 +1128,14 @@ exports.postDeleteSettle = async function (req, res) {
       // ])
       let dbBills = await Bill.find({ _id: { $in: ids } }).exec();
       for (let bill of dbBills) {
+        const before = {
+          settle_flag: bill.settle_flag || 0,
+          status: bill.status,
+          status_flag: bill.status_flag || 0,
+          left_num: bill.left_num,
+          invoices: bill.invoices.map((inv) => inv.inv_settle_flag || 0),
+        };
+
         dbSettle.bills.forEach((sb) => {
           if (String(bill._id) === String(sb.bill_id)) {
             bill.invoices.forEach((inv) => {
@@ -1162,7 +1170,34 @@ exports.postDeleteSettle = async function (req, res) {
           bill.status = "已配发";
         }
 
-        await bill.save();
+        // 字段级 $set：不用整文档 save()，避免 __v 版本冲突（VersionError）让回退中断
+        const set = {};
+        bill.invoices.forEach((inv, index) => {
+          const next = inv.inv_settle_flag || 0;
+          if (next !== before.invoices[index]) {
+            set[`invoices.${index}.inv_settle_flag`] = next;
+          }
+        });
+        if (bill.settle_flag !== before.settle_flag) {
+          set.settle_flag = bill.settle_flag;
+        }
+        if (bill.status !== before.status) {
+          set.status = bill.status;
+          // $set 不触发 pre('save') 的 status_flag 推导，这里显式跟着改
+          set.status_flag = bill.status === "已配发" ? 2 : 3;
+        }
+        if (bill.left_num !== before.left_num) {
+          set.left_num = bill.left_num;
+        }
+        if (Object.keys(set).length === 0) {
+          continue;
+        }
+
+        const billFilter = { _id: bill._id };
+        if (bill.tenantId) {
+          billFilter.tenantId = bill.tenantId;
+        }
+        await Bill.updateOne(billFilter, { $set: set });
       }
 
       let dbInvs = await Invoice.find({ waybill_no: { $in: allInvNo } }).exec();
@@ -1197,11 +1232,17 @@ exports.postDeleteSettle = async function (req, res) {
         }
       }
 
-      await Settle.deleteOne({ serial_number: settle.serial_number });
+      const deleteFilter = { _id: dbSettle._id };
+      if (dbSettle.tenantId) {
+        deleteFilter.tenantId = dbSettle.tenantId;
+      }
+      await Settle.deleteOne(deleteFilter);
     }
 
     res.end(JSON.stringify({ ok: true }));
   } catch (e) {
+    // 不能静默吞掉：提单回退与删除结算单之间失败会留下半成品，必须能从日志看出来
+    console.error("postDeleteSettle error:", e);
     res.end(JSON.stringify({ ok: false, response: e.toString() }));
   }
 };

@@ -172,7 +172,12 @@ function applyInvoicePricingFromExisting(invoiceInfo, existingInvoiceInfo) {
   return {
     ...invoiceInfo,
     price: existingInvoiceInfo ? (existingInvoiceInfo.price || 0) : (invoiceInfo.price || 0),
-    veh_ves_price: existingInvoiceInfo ? (existingInvoiceInfo.veh_ves_price || 0) : (invoiceInfo.veh_ves_price || 0)
+    veh_ves_price: existingInvoiceInfo ? (existingInvoiceInfo.veh_ves_price || 0) : (invoiceInfo.veh_ves_price || 0),
+    // inv_settle_flag 是位图（1=客户结算, 2=代收代付结算），
+    // 重新配发货保存时不能清零，否则已销账的提单会重新出现在未结算列表里。
+    inv_settle_flag: existingInvoiceInfo
+      ? (existingInvoiceInfo.inv_settle_flag || 0)
+      : (invoiceInfo.inv_settle_flag || 0)
   };
 }
 
@@ -642,6 +647,10 @@ exports.updateInvoiceReportTitle = async (req, res) => {
  * @param {string} invoiceState - 运单状态
  */
 function calculateBillStatus(dbBill, invoiceState) {
+  // 已结算的提单不因配发货保存而回退状态：结算状态由结算 / 删除结算流程维护，
+  // 在这里改成「已配发 / 新建」会让已销账的提单看起来没结算过。
+  if ((dbBill.settle_flag || 0) !== 0) return;
+
   const originalNum = dbBill.block_num > 0 ? dbBill.block_num : dbBill.total_weight;
   const leftNum = dbBill.left_num;
 
@@ -1173,17 +1182,26 @@ exports.buildShipInvoice = async (req, res) => {
           inv_settle_flag: 0
         };
 
+        // 保留已有子文档上的结算位：配发货保存不能把已销账标记清掉。
+        // 这里只继承 inv_settle_flag，价格口径维持原样。
+        const existingShipInvoice = dbBill.invoices && dbBill.invoices.length
+          ? dbBill.invoices.find(inv => inv.inv_no === dbInv.waybill_no)
+          : null;
+        const nextShipInvoice = existingShipInvoice
+          ? { ...invoiceInfo, inv_settle_flag: existingShipInvoice.inv_settle_flag || 0 }
+          : invoiceInfo;
+
         if (dbBill.invoices && dbBill.invoices.length) {
           const existingIdx = dbBill.invoices.findIndex(
             inv => inv.inv_no === dbInv.waybill_no
           );
           if (existingIdx >= 0) {
-            dbBill.invoices[existingIdx] = invoiceInfo;
+            dbBill.invoices[existingIdx] = nextShipInvoice;
           } else {
-            dbBill.invoices.push(invoiceInfo);
+            dbBill.invoices.push(nextShipInvoice);
           }
         } else {
-          dbBill.invoices = [invoiceInfo];
+          dbBill.invoices = [nextShipInvoice];
         }
 
         savedBills.push(dbBill);
