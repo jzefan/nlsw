@@ -64,8 +64,15 @@ const router = createRouter({
   history: createWebHistory(),
   routes: setupLayouts(routes as RouteRecordRaw[]),
 
-  scrollBehavior() {
-    return { left: 0, top: 0, behavior: 'smooth' }
+  // 路由切换后把「主内容区」滚回顶部。
+  // 注意：侧栏与主内容区都是内部 overflow-auto 容器，而这里的 scrollBehavior 最终只会调用
+  // window.scrollTo，够不到它们；真正的主内容回滚由 layouts/default.vue 里 watch(route.fullPath) 完成。
+  // 不要给布局加 :key="route" 来「强制刷新」——那会把整个布局连侧栏一起重建，
+  // 侧栏的滚动位置与折叠状态都会丢失（用户每点一次菜单都要从头找）。
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.hash) return { el: to.hash }
+    return { el: '[data-slot="sidebar-inset"]', top: 0, left: 0, behavior: 'smooth' }
   },
 })
 

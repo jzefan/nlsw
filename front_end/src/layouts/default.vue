@@ -134,6 +134,17 @@ onMounted(() => {
   }
 })
 
+// 切换页面时把主内容区滚回顶部（侧栏保持不动）。
+// 主内容区是内部 overflow-auto 容器，router 的 scrollBehavior 只能作用于 window，够不到它。
+const mainContentRef = ref<HTMLElement | null>(null)
+
+watch(() => route.fullPath, () => {
+  // 等页面内容渲染完再滚，否则新内容可能又把位置顶掉
+  nextTick(() => {
+    mainContentRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+})
+
 // 计算面包屑（不包括首页，首页在模板中固定显示）
 const breadcrumbs = computed(() => {
   const path = route.path
@@ -212,7 +223,7 @@ const breadcrumbs = computed(() => {
         </div>
       </header>
       <SubscriptionBanner @open-payment="showPaymentQR = true" />
-      <div class="overflow-auto grow min-h-0">
+      <div ref="mainContentRef" class="overflow-auto grow min-h-0">
         <div :class="cn('p-0 md:p-4 md:min-w-[1024px]', contentLayout === 'centered' ? 'container mx-auto ' : '')">
           <router-view />
         </div>

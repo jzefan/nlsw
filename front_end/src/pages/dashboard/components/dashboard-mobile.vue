@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
@@ -455,11 +455,47 @@ function navigateTo(url: string) {
 
 // Year picker
 const showYearPicker = ref(false)
+const yearButtonRef = ref<HTMLElement | null>(null)
+// 下拉挂在 body 上（Teleport），否则会被 header 的 overflow-hidden 裁掉、
+// 且 z-index 被困在 header 的层叠上下文里，点不到。
+const yearMenuStyle = ref<Record<string, string>>({})
+
+function updateYearMenuPosition() {
+  const el = yearButtonRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  yearMenuStyle.value = {
+    top: `${rect.bottom + 4}px`,
+    left: `${Math.max(8, Math.min(rect.right - 96, window.innerWidth - 104))}px`,
+  }
+}
+
+function toggleYearPicker() {
+  showYearPicker.value = !showYearPicker.value
+  if (showYearPicker.value) {
+    updateYearMenuPosition()
+    // 视口尺寸/滚动变化时跟随按钮位置，避免菜单与按钮错位
+    window.addEventListener('resize', updateYearMenuPosition)
+    window.addEventListener('scroll', updateYearMenuPosition, true)
+  } else {
+    window.removeEventListener('resize', updateYearMenuPosition)
+    window.removeEventListener('scroll', updateYearMenuPosition, true)
+  }
+}
 
 function selectYear(year: string) {
   selectedYear.value = year
   showYearPicker.value = false
 }
+
+function closeYearPicker() {
+  showYearPicker.value = false
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateYearMenuPosition)
+  window.removeEventListener('scroll', updateYearMenuPosition, true)
+})
 </script>
 
 <template>
@@ -482,32 +518,14 @@ function selectYear(year: string) {
         </div>
         <div class="flex items-center gap-2">
           <!-- Year selector -->
-          <div class="relative">
-            <button
-              class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/20 text-sm font-medium backdrop-blur-sm min-w-[100px] justify-center"
-              @click="showYearPicker = !showYearPicker"
-            >
-              {{ selectedYear }}年
-              <ChevronRight class="h-3.5 w-3.5 transition-transform" :class="showYearPicker ? 'rotate-90' : ''" />
-            </button>
-            <!-- Year dropdown -->
-            <div
-              v-if="showYearPicker"
-              class="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-slate-800 rounded-xl shadow-xl border p-2 max-h-48 overflow-y-auto w-24"
-            >
-              <button
-                v-for="y in years.slice(0, 10)"
-                :key="y"
-                class="w-full text-left px-3 py-1.5 text-sm rounded-lg transition-colors"
-                :class="y === selectedYear
-                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'"
-                @click="selectYear(y)"
-              >
-                {{ y }}年
-              </button>
-            </div>
-          </div>
+          <button
+            ref="yearButtonRef"
+            class="relative flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/20 text-sm font-medium backdrop-blur-sm min-w-[100px] justify-center"
+            @click="toggleYearPicker"
+          >
+            {{ selectedYear }}年
+            <ChevronRight class="h-3.5 w-3.5 transition-transform" :class="showYearPicker ? 'rotate-90' : ''" />
+          </button>
           <button
             class="p-2 rounded-full bg-white/20 backdrop-blur-sm"
             :disabled="loading"
@@ -894,9 +912,30 @@ function selectYear(year: string) {
     <!-- Year picker overlay backdrop -->
     <div
       v-if="showYearPicker"
-      class="fixed inset-0 z-20"
-      @click="showYearPicker = false"
+      class="fixed inset-0 z-40"
+      @click="closeYearPicker"
     />
+
+    <!-- Year dropdown:挂在 body 上,避开 header 的 overflow-hidden 与层叠上下文 -->
+    <Teleport to="body">
+      <div
+        v-if="showYearPicker"
+        class="fixed z-50 bg-white dark:bg-slate-800 rounded-xl shadow-xl border p-2 max-h-48 overflow-y-auto w-24"
+        :style="yearMenuStyle"
+      >
+        <button
+          v-for="y in years.slice(0, 10)"
+          :key="y"
+          class="w-full text-left px-3 py-1.5 text-sm rounded-lg transition-colors"
+          :class="y === selectedYear
+            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
+            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'"
+          @click="selectYear(y)"
+        >
+          {{ y }}年
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 

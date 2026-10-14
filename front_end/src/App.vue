@@ -18,8 +18,11 @@ useSessionMonitor()
   <ServerStaleBanner />
 
   <Suspense>
-    <router-view v-slot="{ Component, route }">
-      <component :is="Component" :key="route" />
+    <!-- 不要给布局加 :key="route"：整棵布局（含侧栏）会每次导航都被重建，
+         导致侧栏滚动位置回到顶部、折叠分组全部收起。本项目没有动态参数路由，
+         不需要靠 key 强制重挂载；路由不同 vue-router 本就会替换组件。 -->
+    <router-view v-slot="{ Component }">
+      <component :is="Component" />
     </router-view>
 
     <template #fallback>
