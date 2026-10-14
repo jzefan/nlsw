@@ -11,6 +11,10 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
 
+import { priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
+
+import type { PriceMode } from '../types'
+
 const emit = defineEmits(['confirm'])
 
 const visible = ref(false)
@@ -19,13 +23,17 @@ const invoiceData = ref<any>(null)
 const forVessel = ref(true)
 const innerNo = ref('')
 const vehInfo = ref<any>(null)
-const priceMode = ref('unit')
+const priceMode = ref<PriceMode>('unit')
 const priceValue = ref('')
 const remark = ref('')
 
+// 回填期间抑制换算：open() 会改写输入方式，
+// 那时若被当成用户切换，刚回填的单价会被再除以一次重量。
+let restoring = false
+
 // 监听价格模式变化，自动转换价格
 watch(priceMode, (newMode, oldMode) => {
-  if (!priceValue.value || !oldMode)
+  if (restoring || !priceValue.value || !oldMode)
     return
 
   const currentValue = Number.parseFloat(priceValue.value)
@@ -42,9 +50,11 @@ watch(priceMode, (newMode, oldMode) => {
     // 从单价转为打包价
     priceValue.value = (currentValue * weight).toFixed(2)
   }
-})
+}, { flush: 'sync' })
 
 function open(inv: any, isVessel: boolean, inner?: string) {
+  restoring = true
+
   invoiceData.value = inv
   forVessel.value = isVessel
   innerNo.value = inner || ''
@@ -53,25 +63,24 @@ function open(inv: any, isVessel: boolean, inner?: string) {
   remark.value = ''
 
   if (forVessel.value) {
-    // 主运单
-    if (inv.vessel_price > 0) {
-      priceValue.value = inv.vessel_price.toString()
-    }
+    // 主运单：按上次的输入方式回显（vessel_price 存的是单价，打包价需换算回总价）
+    priceMode.value = priceModeFromDb(inv.price_mode)
     remark.value = inv.price_remark || ''
+    priceValue.value = unitPriceToInput(inv.vessel_price || 0, inv.total_weight || 0, priceMode.value)
   }
   else if (inner) {
     // 内部车辆
     const vehObj = makeVehInfo(inv)
     if (vehObj && vehObj[inner]) {
       vehInfo.value = vehObj[inner]
-      if (vehObj[inner].price > 0) {
-        priceValue.value = vehObj[inner].price.toString()
-      }
+      priceMode.value = priceModeFromDb(vehObj[inner].price_mode)
       remark.value = vehObj[inner].price_remark || ''
+      priceValue.value = unitPriceToInput(vehObj[inner].price || 0, vehObj[inner].weight || 0, priceMode.value)
     }
   }
 
   visible.value = true
+  restoring = false
 }
 
 async function handleConfirm() {
@@ -103,7 +112,8 @@ async function handleConfirm() {
         totalPrice = price * weight
       }
       else {
-        unitPrice = price / weight
+        // 打包价 → 单价：与显示口径一致保留 3 位，否则会把浮点噪声（如 1600/30=53.333333333333336）写进库
+        unitPrice = Number((price / weight).toFixed(3))
         totalPrice = price
       }
 
@@ -111,7 +121,7 @@ async function handleConfirm() {
         wno: invoiceData.value.waybill_no,
         price: totalPrice,
         inner: 0,
-        mode: priceMode.value === 'unit' ? 0 : 1,
+        mode: priceModeToDb(priceMode.value),
         unitPrice,
         remark: remark.value,
       })
@@ -125,7 +135,8 @@ async function handleConfirm() {
         totalPrice = price * weight
       }
       else {
-        unitPrice = price / weight
+        // 同上：打包价 → 单价按 3 位取整
+        unitPrice = Number((price / weight).toFixed(3))
         totalPrice = price
       }
 
@@ -133,7 +144,7 @@ async function handleConfirm() {
         wno: innerNo.value,
         price: totalPrice,
         inner: 1,
-        mode: priceMode.value === 'unit' ? 0 : 1,
+        mode: priceModeToDb(priceMode.value),
         unitPrice,
         remark: remark.value,
       })
@@ -183,6 +194,7 @@ function makeVehInfo(inv: any) {
         num: veh.send_num,
         weight: veh.send_weight,
         price: veh.veh_price || 0,
+        price_mode: veh.price_mode || 0,
         ship_from: veh.veh_ship_from,
         price_remark: veh.price_remark || '',
       }

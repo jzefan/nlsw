@@ -35,31 +35,48 @@ const priceLabel = computed(() => {
   return '代收代付价格'
 })
 
-// 初始化数据
+// 记住每个提单上次保存时用的输入方式：库里只存单价（元/吨），重新打开时按它换算回打包价
+const savedModeMap = new Map<string, PriceMode>()
+
+// 用户切换输入方式时按发运重量换算价格。
+// 只在这里做换算——初始化回填不经过这里，否则刚回填的单价会被再换算一次。
+function changeMode(next: PriceMode) {
+  if (next === priceMode.value) {
+    return
+  }
+
+  const weight = props.bill.send_weight
+  if (priceValue.value > 0 && weight > 0) {
+    priceValue.value
+      = next === 'bale'
+        ? Number((priceValue.value * weight).toFixed(2))
+        : Number((priceValue.value / weight).toFixed(2))
+  }
+
+  priceMode.value = next
+}
+
+// 初始化数据（immediate：弹窗可能在 open 已为 true 时挂载）
 watch(
   () => props.open,
   (newVal) => {
-    if (newVal) {
-      const currentPrice = props.settleMode === 'CUSTOMER' ? props.bill.price : props.bill.collection_price
-      priceValue.value = currentPrice > 0 ? currentPrice : 0
-      remark.value = props.bill.incoming_price_remark || ''
-      priceMode.value = 'unit'
+    if (!newVal) {
+      return
     }
-  },
-)
 
-// 监听价格模式变化，自动转换价格
-watch(priceMode, (newMode, oldMode) => {
-  if (priceValue.value > 0 && oldMode) {
-    if (newMode === 'bale') {
-      // 单价 → 打包价
-      priceValue.value = Number((priceValue.value * props.bill.send_weight).toFixed(2))
-    } else {
-      // 打包价 → 单价
-      priceValue.value = Number((priceValue.value / props.bill.send_weight).toFixed(2))
-    }
-  }
-})
+    const currentPrice = props.settleMode === 'CUSTOMER' ? props.bill.price : props.bill.collection_price
+    const unitPrice = currentPrice > 0 ? currentPrice : 0
+    const mode = savedModeMap.get(`${props.settleMode}:${props.bill._id}`) || 'unit'
+
+    priceMode.value = mode
+    priceValue.value
+      = mode === 'bale' && unitPrice > 0 && props.bill.send_weight > 0
+        ? Number((unitPrice * props.bill.send_weight).toFixed(2))
+        : unitPrice
+    remark.value = props.bill.incoming_price_remark || ''
+  },
+  { immediate: true },
+)
 
 // 保存价格
 async function handleSave() {
@@ -95,6 +112,7 @@ async function handleSave() {
         props.bill.collection_price = finalPrice
       }
       props.bill.incoming_price_remark = remark.value
+      savedModeMap.set(`${props.settleMode}:${props.bill._id}`, priceMode.value)
 
       toast.success('价格保存成功')
       emit('update:open', false)
@@ -154,11 +172,21 @@ function handleClose() {
           <label class="text-sm font-medium mb-2 block">输入方式</label>
           <div class="flex gap-4">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="priceMode" type="radio" value="unit" class="h-4 w-4 text-primary focus:ring-primary" />
+              <input
+                type="radio"
+                class="h-4 w-4 text-primary focus:ring-primary"
+                :checked="priceMode === 'unit'"
+                @change="changeMode('unit')"
+              />
               <span class="text-sm">每吨单价</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="priceMode" type="radio" value="bale" class="h-4 w-4 text-primary focus:ring-primary" />
+              <input
+                type="radio"
+                class="h-4 w-4 text-primary focus:ring-primary"
+                :checked="priceMode === 'bale'"
+                @change="changeMode('bale')"
+              />
               <span class="text-sm">打包价</span>
             </label>
           </div>

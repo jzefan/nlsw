@@ -11,6 +11,10 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
 
+import { priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
+
+import type { PriceMode } from '../types'
+
 const emit = defineEmits(['confirm'])
 
 interface RecordGroup {
@@ -32,7 +36,7 @@ type VehicleGroup = RecordGroup
 
 const visible = ref(false)
 const saving = ref(false)
-const priceMode = ref('unit')
+const priceMode = ref<PriceMode>('unit')
 
 const vesselGroups = ref<VesselGroup[]>([])
 const vehicleGroups = ref<VehicleGroup[]>([])
@@ -59,7 +63,9 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
   selectedRecords.value = selected
   selectedInnerNo.value = innerNos
   dbRecords.value = allRecords
-  priceMode.value = 'unit'
+  // 按选中记录回显上次的输入方式（价格落库前一律换算成单价，所以要换算回来展示）
+  const mode = resolveInitialMode(selected, innerNos, allRecords)
+  priceMode.value = mode
   unifiedPrice.value = ''
   unifiedRemark.value = ''
 
@@ -78,7 +84,7 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
       totalWeight: record.total_weight,
       totalPrice: record.vessel_price > 0 ? record.vessel_price * record.total_weight : 0,
       price: record.vessel_price || 0,
-      priceInput: record.vessel_price > 0 ? record.vessel_price.toString() : '',
+      priceInput: unitPriceToInput(record.vessel_price || 0, record.total_weight || 0, mode),
       remarkInput: record.price_remark || '',
       details: [{ wno: record.waybill_no, weight: record.total_weight }],
     })
@@ -117,7 +123,7 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
         totalWeight: aggregatedWeight,
         totalPrice: vehPrice > 0 ? vehPrice * aggregatedWeight : 0,
         price: vehPrice,
-        priceInput: vehPrice > 0 ? vehPrice.toString() : '',
+        priceInput: unitPriceToInput(vehPrice || 0, aggregatedWeight || 0, mode),
         remarkInput: priceRemark,
         details: [{ wno: innerNo, weight: aggregatedWeight }],
       })
@@ -172,7 +178,7 @@ async function handleConfirm() {
 
     const wnoList: string[] = []
     const priceData: any[] = []
-    const mode = priceMode.value === 'unit' ? 0 : 1
+    const mode = priceModeToDb(priceMode.value)
 
     // 处理车船号价格
     selectedRecords.value.forEach((record) => {
@@ -186,7 +192,8 @@ async function handleConfirm() {
       if (priceMode.value === 'unit') {
         unitPrice = price
       } else {
-        unitPrice = price / group.totalWeight
+        // 打包价 → 单价：与显示口径一致保留 3 位，避免浮点噪声入库
+        unitPrice = Number((price / group.totalWeight).toFixed(3))
       }
 
       wnoList.push(record.waybill_no)
@@ -215,7 +222,8 @@ async function handleConfirm() {
       if (priceMode.value === 'unit') {
         unitPrice = price
       } else {
-        unitPrice = price / group.totalWeight
+        // 同上：打包价 → 单价按 3 位取整
+        unitPrice = Number((price / group.totalWeight).toFixed(3))
       }
 
       if (!wnoList.includes(inv.waybill_no)) {
@@ -262,6 +270,32 @@ function handleClose(open: boolean) {
 function getInvoiceByInnerNo(innerNo: string, records: any[]) {
   const wno = innerNo.substring(0, 17)
   return records.find((inv) => inv.waybill_no === wno)
+}
+
+// 查内部运单对应的车辆记录（取最后一条匹配，与价格聚合口径一致）
+function findVehicle(inv: any, innerNo: string) {
+  let hit: any = null
+  inv?.bills?.forEach((bill: any) => {
+    (bill.vehicles || []).forEach((veh: any) => {
+      if (veh.inner_waybill_no === innerNo) {
+        hit = veh
+      }
+    })
+  })
+  return hit
+}
+
+// 打开时该用什么输入方式：以第一条选中记录为准。
+// 同一批里方式可能不一致，这只影响展示口径，不改任何数值。
+function resolveInitialMode(selected: any[], innerNos: string[], allRecords: any[]): PriceMode {
+  if (selected.length > 0) {
+    return priceModeFromDb(selected[0].price_mode)
+  }
+  if (innerNos.length > 0) {
+    const inv = getInvoiceByInnerNo(innerNos[0], allRecords)
+    return priceModeFromDb(findVehicle(inv, innerNos[0])?.price_mode)
+  }
+  return 'unit'
 }
 
 // 生成唯一ID（替换特殊字符）

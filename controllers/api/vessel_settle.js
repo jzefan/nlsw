@@ -341,6 +341,9 @@ exports.getInvoiceSettleVessel = async (req, res) => {
 exports.applyApproximateTotalWeightFilter = applyApproximateTotalWeightFilter;
 
 // 更新价格
+// 口径约定（重要）：vessel_price / vehicles[].veh_price 恒为「元/吨」单价，
+// price_mode 只记录用户这次用的是「每吨单价(0)」还是「打包价(1)」，用于下次打开价格输入时回显，
+// 不参与任何金额换算（金额一律 = 单价 × 重量）。前端 priceData[].mode 与之一致。
 exports.updateVesselPrice = async (req, res) => {
   try {
     const { wnoList, priceData } = req.body;
@@ -360,6 +363,10 @@ exports.updateVesselPrice = async (req, res) => {
 
       if (pd.inner === 0) {
         invoice.vessel_price = pd.unitPrice;
+        // 记住输入方式（老客户端不发 mode 时保留原值，不清零）
+        if (pd.mode !== undefined && pd.mode !== null) {
+          invoice.price_mode = Number(pd.mode) === 1 ? 1 : 0;
+        }
         invoice.price_remark = pd.remark;
         // 收集需要同步 veh_ves_price 的 Bill
         invoice.bills.forEach((bill) => {
@@ -377,6 +384,9 @@ exports.updateVesselPrice = async (req, res) => {
           bill.vehicles.forEach((veh) => {
             if (veh.inner_waybill_no === pd.wno) {
               veh.veh_price = pd.unitPrice;
+              if (pd.mode !== undefined && pd.mode !== null) {
+                veh.price_mode = Number(pd.mode) === 1 ? 1 : 0;
+              }
               veh.price_remark = pd.remark;
               // 记录需要同步到 Bill 的变更
               const billIdStr = String(bill.bill_id);

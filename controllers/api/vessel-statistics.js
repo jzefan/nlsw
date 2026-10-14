@@ -37,27 +37,12 @@ function buildCustomerNameExpr() {
 
 function buildMainRecordSinglePriceExpr() {
   // 应付单价优先级：vessel_price（Invoice 级别） > veh_ves_price（提单级别）
-  // vessel_price 存在时需根据 price_mode 换算：
-  //   price_mode=0（每吨）: 单价 = vessel_price
-  //   price_mode=1（打包）: 单价 = vessel_price / total_weight
+  // vessel_price 恒为「元/吨」单价：用户可能按打包价录入，但落库前已换算成单价，
+  // Invoice.price_mode 只表示录入方式，**不参与换算**（历史实现曾按 price_mode 再除一次重量，已移除）。
   return {
     $cond: [
       { $gt: [{ $ifNull: ["$vessel_price", 0] }, 0] },
-      {
-        $cond: [
-          { $eq: [{ $ifNull: ["$price_mode", 0] }, 1] },
-          // 打包模式：单价 = vessel_price / total_weight
-          {
-            $cond: [
-              { $gt: [{ $ifNull: ["$total_weight", 0] }, 0] },
-              { $divide: ["$vessel_price", "$total_weight"] },
-              0,
-            ],
-          },
-          // 每吨模式：单价 = vessel_price
-          "$vessel_price",
-        ],
-      },
+      "$vessel_price",
       // 无 vessel_price 时 fallback 到提单级别的 veh_ves_price
       { $ifNull: ["$billDoc.invoices.veh_ves_price", 0] },
     ],
@@ -386,7 +371,7 @@ exports.getVesselRevenueData = async (req, res) => {
 
     const db_invs = await Invoice.find(invQuery)
       .select(
-        "waybill_no vehicle_vessel_name ship_date bills total_weight vessel_price price_mode selfOwned",
+        "waybill_no vehicle_vessel_name ship_date bills total_weight vessel_price selfOwned",
       )
       .lean()
       .exec();
@@ -451,9 +436,7 @@ exports.getVesselRevenueData = async (req, res) => {
         // 应付单价（与明细 mainSinglePriceExpr 一致）
         let payableSinglePrice = invInBill.veh_ves_price || 0;
         if (inv.vessel_price > 0) {
-          payableSinglePrice = inv.price_mode === 1
-            ? inv.vessel_price / (inv.total_weight || 1)  // 打包模式：换算为单价
-            : inv.vessel_price;  // 每吨模式
+          payableSinglePrice = inv.vessel_price; // vessel_price 恒为元/吨
         }
         const payable = payableSinglePrice * weight;
 

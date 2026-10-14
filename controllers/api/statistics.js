@@ -434,13 +434,10 @@ exports.getDashboardStatistics = async function (req, res) {
               $group: {
                 _id: '$vehicle_vessel_name',
                 weight: { $sum: '$total_weight' },
+                // vessel_price 恒为「元/吨」单价（Invoice.price_mode 只记录入方式，不参与换算）
                 total_price: {
                   $sum: {
-                    $cond: {
-                      if: { $eq: [{ $ifNull: ['$price_mode', 0] }, 1] },
-                      then: { $ifNull: ['$vessel_price', 0] }, // 打包价：直接取价格
-                      else: { $multiply: [{ $ifNull: ['$vessel_price', 0] }, { $ifNull: ['$total_weight', 0] }] } // 每吨价：单价×重量
-                    }
+                    $multiply: [{ $ifNull: ['$vessel_price', 0] }, { $ifNull: ['$total_weight', 0] }]
                   }
                 }
               }
@@ -472,11 +469,8 @@ exports.getDashboardStatistics = async function (req, res) {
                 weight: { $sum: '$_innerWeight' },
                 total_price: {
                   $sum: {
-                    $cond: {
-                      if: { $eq: [{ $ifNull: ['$bills.vehicles.price_mode', 0] }, 1] },
-                      then: { $ifNull: ['$bills.vehicles.veh_price', 0] },
-                      else: { $multiply: [{ $ifNull: ['$bills.vehicles.veh_price', 0] }, '$_innerWeight'] }
-                    }
+                    // veh_price 恒为「元/吨」单价（vehicles[].price_mode 只记录入方式，不参与换算）
+                    $multiply: [{ $ifNull: ['$bills.vehicles.veh_price', 0] }, '$_innerWeight']
                   }
                 }
               }
