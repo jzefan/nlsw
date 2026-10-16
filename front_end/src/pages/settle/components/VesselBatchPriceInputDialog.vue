@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
 
-import { priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
+import { inputToUnitPrice, priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
 
 import type { PriceMode } from '../types'
 
@@ -27,6 +27,10 @@ interface RecordGroup {
   totalPrice: number
   price: number
   priceInput: string
+  /** 单价的精确值（元/吨）：入库用它，priceInput 只是按输入方式取整后的显示 */
+  exactUnitPrice: number
+  /** 上次程序写入的显示值，用作「用户有没有改过」的基准 */
+  lastRenderedPrice: string
   remarkInput: string
   details: Array<{ wno: string; weight: number }>
 }
@@ -59,6 +63,23 @@ function applyUnifiedPrice() {
   })
 }
 
+// 每个输入框维护「单价的精确值 + 上次程序写入的显示值」：
+// 界面上的值仍等于基准 → 用户没改过 → 换算沿用精确值，
+// 避免「显示取整 → 再乘回去」的漂移（打包价 500 → 显示 15.273 → 切回打包价 499.99）。
+function setGroupPriceDisplay(group: RecordGroup, unitPrice: number, mode: PriceMode) {
+  group.exactUnitPrice = unitPrice
+  group.lastRenderedPrice = unitPriceToInput(unitPrice, group.totalWeight || 0, mode)
+  group.priceInput = group.lastRenderedPrice
+}
+
+// 当前输入框对应的单价精确值；mode 显式传入（v-model 与 @update:model-value 的先后顺序不可依赖）
+function groupExactUnitPrice(group: RecordGroup, mode: PriceMode) {
+  if (String(group.priceInput ?? '') === group.lastRenderedPrice) {
+    return group.exactUnitPrice
+  }
+  return inputToUnitPrice(group.priceInput, group.totalWeight || 0, mode)
+}
+
 function open(selected: any[], innerNos: string[], allRecords: any[]) {
   selectedRecords.value = selected
   selectedInnerNo.value = innerNos
@@ -75,7 +96,7 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
     const vehName = record.vehicle_vessel_name
     if (!vehName) return
 
-    vesselList.push({
+    const group: VesselGroup = {
       id: generateId(`${vehName}_${record.waybill_no}`),
       name: vehName,
       wno: record.waybill_no,
@@ -84,10 +105,14 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
       totalWeight: record.total_weight,
       totalPrice: record.vessel_price > 0 ? record.vessel_price * record.total_weight : 0,
       price: record.vessel_price || 0,
-      priceInput: unitPriceToInput(record.vessel_price || 0, record.total_weight || 0, mode),
+      priceInput: '',
+      exactUnitPrice: 0,
+      lastRenderedPrice: '',
       remarkInput: record.price_remark || '',
       details: [{ wno: record.waybill_no, weight: record.total_weight }],
-    })
+    }
+    setGroupPriceDisplay(group, record.vessel_price || 0, mode)
+    vesselList.push(group)
   })
 
   // 构建车辆列表（内部运单，同一 inner_waybill_no + veh_name 的记录需要聚合）
@@ -114,7 +139,7 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
     })
 
     if (vehName) {
-      vehicleList.push({
+      const group: VehicleGroup = {
         id: generateId(`${vehName}_${innerNo}`),
         name: vehName,
         wno: innerNo,
@@ -123,10 +148,14 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
         totalWeight: aggregatedWeight,
         totalPrice: vehPrice > 0 ? vehPrice * aggregatedWeight : 0,
         price: vehPrice,
-        priceInput: unitPriceToInput(vehPrice || 0, aggregatedWeight || 0, mode),
+        priceInput: '',
+        exactUnitPrice: 0,
+        lastRenderedPrice: '',
         remarkInput: priceRemark,
         details: [{ wno: innerNo, weight: aggregatedWeight }],
-      })
+      }
+      setGroupPriceDisplay(group, vehPrice || 0, mode)
+      vehicleList.push(group)
     }
   })
 
@@ -136,39 +165,17 @@ function open(selected: any[], innerNos: string[], allRecords: any[]) {
   visible.value = true
 }
 
-// 价格模式切换时自动转换所有价格
+// 价格模式切换：按各组的单价精确值重新渲染显示（绝不拿显示值来回乘除）
 function handlePriceModeChange(newMode: string) {
-  const isToUnit = newMode === 'unit'
+  const mode: PriceMode = newMode === 'bale' ? 'bale' : 'unit'
+  // 输入框里现存的仍是「切换前那种方式」的值，解析时要按旧方式
+  const prevMode: PriceMode = mode === 'unit' ? 'bale' : 'unit'
 
   // 统一价格无法转换（没有对应重量），直接清空
   unifiedPrice.value = ''
 
-  // 转换车船号价格
-  vesselGroups.value.forEach((group) => {
-    if (group.priceInput && Number.parseFloat(group.priceInput) > 0) {
-      const currentValue = Number.parseFloat(group.priceInput)
-      if (isToUnit) {
-        // 打包价 -> 单价
-        group.priceInput = (currentValue / group.totalWeight).toFixed(3)
-      } else {
-        // 单价 -> 打包价
-        group.priceInput = (currentValue * group.totalWeight).toFixed(2)
-      }
-    }
-  })
-
-  // 转换车辆价格
-  vehicleGroups.value.forEach((group) => {
-    if (group.priceInput && Number.parseFloat(group.priceInput) > 0) {
-      const currentValue = Number.parseFloat(group.priceInput)
-      if (isToUnit) {
-        // 打包价 -> 单价
-        group.priceInput = (currentValue / group.totalWeight).toFixed(3)
-      } else {
-        // 单价 -> 打包价
-        group.priceInput = (currentValue * group.totalWeight).toFixed(2)
-      }
-    }
+  ;[...vesselGroups.value, ...vehicleGroups.value].forEach((group) => {
+    setGroupPriceDisplay(group, groupExactUnitPrice(group, prevMode), mode)
   })
 }
 
@@ -188,13 +195,8 @@ async function handleConfirm() {
       const price = Number.parseFloat(group.priceInput)
       if (isNaN(price) || (price < 0 && price !== -1)) return
 
-      let unitPrice = 0
-      if (priceMode.value === 'unit') {
-        unitPrice = price
-      } else {
-        // 打包价 → 单价：与显示口径一致保留 3 位，避免浮点噪声入库
-        unitPrice = Number((price / group.totalWeight).toFixed(3))
-      }
+      // 入库用单价精确值（显示值是取整过的，不能拿它回算）
+      const unitPrice = groupExactUnitPrice(group, priceMode.value)
 
       wnoList.push(record.waybill_no)
       priceData.push({
@@ -218,13 +220,8 @@ async function handleConfirm() {
       const price = Number.parseFloat(group.priceInput)
       if (isNaN(price) || (price < 0 && price !== -1)) return
 
-      let unitPrice = 0
-      if (priceMode.value === 'unit') {
-        unitPrice = price
-      } else {
-        // 同上：打包价 → 单价按 3 位取整
-        unitPrice = Number((price / group.totalWeight).toFixed(3))
-      }
+      // 同上：入库用单价精确值
+      const unitPrice = groupExactUnitPrice(group, priceMode.value)
 
       if (!wnoList.includes(inv.waybill_no)) {
         wnoList.push(inv.waybill_no)

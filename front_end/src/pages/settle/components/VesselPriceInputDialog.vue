@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import * as settleApi from '@/services/api/settle.api'
 
-import { priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
+import { inputToUnitPrice, priceModeFromDb, priceModeToDb, unitPriceToInput } from '../price-mode'
 
 import type { PriceMode } from '../types'
 
@@ -27,29 +27,40 @@ const priceMode = ref<PriceMode>('unit')
 const priceValue = ref('')
 const remark = ref('')
 
-// 回填期间抑制换算：open() 会改写输入方式，
-// 那时若被当成用户切换，刚回填的单价会被再除以一次重量。
+// 回填期间抑制换算：open() 会改写输入方式，那时不应被当成用户切换
 let restoring = false
 
-// 监听价格模式变化，自动转换价格
+// 单价的**精确值**（元/吨）——入库用它；输入框里显示的只是按输入方式取整后的值。
+// lastRenderedPrice 是「上次程序写入的显示值」：界面上的值仍等于它 → 用户没改过 → 换算沿用精确值，
+// 避免「显示取整 → 再乘回去」的漂移（打包价 500 → 显示 15.273 → 切回打包价变成 499.99）。
+let exactUnitPrice = 0
+let lastRenderedPrice = ''
+
+function currentWeight() {
+  return forVessel.value ? (invoiceData.value?.total_weight || 0) : (vehInfo.value?.weight || 0)
+}
+
+// 写入显示值并记下基准
+function setPriceDisplay(unitPrice: number, mode: PriceMode) {
+  exactUnitPrice = unitPrice
+  lastRenderedPrice = unitPriceToInput(unitPrice, currentWeight(), mode)
+  priceValue.value = lastRenderedPrice
+}
+
+// 当前输入框对应的单价精确值：没被改过就沿用精确值，改过则按当前方式解析用户输入
+function currentUnitPrice() {
+  if (String(priceValue.value ?? '') === lastRenderedPrice) {
+    return exactUnitPrice
+  }
+  return inputToUnitPrice(priceValue.value, currentWeight(), priceMode.value)
+}
+
+// 切换输入方式：从精确值重新渲染显示（绝不拿显示值来回乘除）
 watch(priceMode, (newMode, oldMode) => {
-  if (restoring || !priceValue.value || !oldMode)
+  if (restoring || !oldMode) {
     return
-
-  const currentValue = Number.parseFloat(priceValue.value)
-  if (isNaN(currentValue) || currentValue <= 0)
-    return
-
-  const weight = forVessel.value ? invoiceData.value?.total_weight || 1 : vehInfo.value?.weight || 1
-
-  if (newMode === 'unit') {
-    // 从打包价转为单价
-    priceValue.value = (currentValue / weight).toFixed(3)
   }
-  else {
-    // 从单价转为打包价
-    priceValue.value = (currentValue * weight).toFixed(2)
-  }
+  setPriceDisplay(currentUnitPrice(), newMode)
 }, { flush: 'sync' })
 
 function open(inv: any, isVessel: boolean, inner?: string) {
@@ -61,12 +72,14 @@ function open(inv: any, isVessel: boolean, inner?: string) {
   priceMode.value = 'unit'
   priceValue.value = ''
   remark.value = ''
+  exactUnitPrice = 0
+  lastRenderedPrice = ''
 
   if (forVessel.value) {
-    // 主运单：按上次的输入方式回显（vessel_price 存的是单价，打包价需换算回总价）
+    // 主运单：按上次的输入方式回显（vessel_price 存的是单价，打包价只是显示）
     priceMode.value = priceModeFromDb(inv.price_mode)
     remark.value = inv.price_remark || ''
-    priceValue.value = unitPriceToInput(inv.vessel_price || 0, inv.total_weight || 0, priceMode.value)
+    setPriceDisplay(inv.vessel_price || 0, priceMode.value)
   }
   else if (inner) {
     // 内部车辆
@@ -75,7 +88,7 @@ function open(inv: any, isVessel: boolean, inner?: string) {
       vehInfo.value = vehObj[inner]
       priceMode.value = priceModeFromDb(vehObj[inner].price_mode)
       remark.value = vehObj[inner].price_remark || ''
-      priceValue.value = unitPriceToInput(vehObj[inner].price || 0, vehObj[inner].weight || 0, priceMode.value)
+      setPriceDisplay(vehObj[inner].price || 0, priceMode.value)
     }
   }
 
@@ -96,59 +109,28 @@ async function handleConfirm() {
     return
   }
 
+  // 入库恒用单价的精确值：显示值是取整过的，不能拿它回算
+  const weight = currentWeight()
+  const unitPrice = price === -1 ? -1 : currentUnitPrice()
+
+  if (priceMode.value === 'bale' && !(weight > 0)) {
+    toast.warning('发运重量为 0，无法按打包价换算')
+    return
+  }
+
   try {
     saving.value = true
 
-    const priceData: any[] = []
-    let unitPrice = 0
-    let totalPrice = price
-
-    if (forVessel.value) {
-      // 主运单
-      const weight = invoiceData.value.total_weight
-
-      if (priceMode.value === 'unit') {
-        unitPrice = price
-        totalPrice = price * weight
-      }
-      else {
-        // 打包价 → 单价：与显示口径一致保留 3 位，否则会把浮点噪声（如 1600/30=53.333333333333336）写进库
-        unitPrice = Number((price / weight).toFixed(3))
-        totalPrice = price
-      }
-
-      priceData.push({
-        wno: invoiceData.value.waybill_no,
-        price: totalPrice,
-        inner: 0,
-        mode: priceModeToDb(priceMode.value),
-        unitPrice,
-        remark: remark.value,
-      })
-    }
-    else {
-      // 内部车辆
-      const weight = vehInfo.value.weight
-
-      if (priceMode.value === 'unit') {
-        unitPrice = price
-        totalPrice = price * weight
-      }
-      else {
-        // 同上：打包价 → 单价按 3 位取整
-        unitPrice = Number((price / weight).toFixed(3))
-        totalPrice = price
-      }
-
-      priceData.push({
-        wno: innerNo.value,
-        price: totalPrice,
-        inner: 1,
-        mode: priceModeToDb(priceMode.value),
-        unitPrice,
-        remark: remark.value,
-      })
-    }
+    // price 字段后端不读，仅作记录
+    const totalPrice = priceMode.value === 'bale' ? price : unitPrice * weight
+    const priceData: any[] = [{
+      wno: forVessel.value ? invoiceData.value.waybill_no : innerNo.value,
+      price: totalPrice,
+      inner: forVessel.value ? 0 : 1,
+      mode: priceModeToDb(priceMode.value),
+      unitPrice,
+      remark: remark.value,
+    }]
 
     await settleApi.updateVesselPrice({
       wnoList: [invoiceData.value.waybill_no],

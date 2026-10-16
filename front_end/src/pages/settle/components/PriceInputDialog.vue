@@ -4,6 +4,8 @@ import { toast } from 'vue-sonner'
 
 import { inputPrice } from '@/services/api/settle.api'
 
+import { inputToUnitPrice, unitPriceToInput } from '../price-mode'
+
 import type { PriceMode, SettleBill, SettleMode } from '../types'
 
 const props = defineProps<{
@@ -38,22 +40,42 @@ const priceLabel = computed(() => {
 // 记住每个提单上次保存时用的输入方式：库里只存单价（元/吨），重新打开时按它换算回打包价
 const savedModeMap = new Map<string, PriceMode>()
 
-// 用户切换输入方式时按发运重量换算价格。
-// 只在这里做换算——初始化回填不经过这里，否则刚回填的单价会被再换算一次。
+// 单价的**精确值**（元/吨）——保存用它；输入框里只是按输入方式取整后的显示值。
+// lastRenderedPrice 是「上次程序写入的显示值」：界面值仍等于它 → 用户没改过 → 换算沿用精确值，
+// 避免「显示取整 → 再乘回去」的漂移（打包价 500 → 显示 15.273 → 切回打包价变成 499.99）。
+let exactUnitPrice = 0
+let lastRenderedPrice = 0
+
+function billWeight() {
+  return props.bill.send_weight || 0
+}
+
+// 写入显示值并记下基准
+function setPriceDisplay(unitPrice: number, mode: PriceMode) {
+  const shown = unitPriceToInput(unitPrice, billWeight(), mode)
+  exactUnitPrice = unitPrice
+  lastRenderedPrice = Number(shown || 0)
+  priceValue.value = lastRenderedPrice
+}
+
+// 当前输入框对应的单价精确值：没被改过就沿用精确值，改过则按当前方式解析用户输入
+function currentUnitPrice(mode: PriceMode = priceMode.value) {
+  if (Number(priceValue.value) === lastRenderedPrice) {
+    return exactUnitPrice
+  }
+  return inputToUnitPrice(priceValue.value, billWeight(), mode)
+}
+
+// 用户切换输入方式：从精确值重新渲染显示（绝不拿显示值来回乘除）
 function changeMode(next: PriceMode) {
   if (next === priceMode.value) {
     return
   }
 
-  const weight = props.bill.send_weight
-  if (priceValue.value > 0 && weight > 0) {
-    priceValue.value
-      = next === 'bale'
-        ? Number((priceValue.value * weight).toFixed(2))
-        : Number((priceValue.value / weight).toFixed(2))
-  }
-
+  // 先按「切换前」的方式解析当前输入框的值，再改方式并重新渲染
+  const exact = currentUnitPrice(priceMode.value)
   priceMode.value = next
+  setPriceDisplay(exact, next)
 }
 
 // 初始化数据（immediate：弹窗可能在 open 已为 true 时挂载）
@@ -69,10 +91,7 @@ watch(
     const mode = savedModeMap.get(`${props.settleMode}:${props.bill._id}`) || 'unit'
 
     priceMode.value = mode
-    priceValue.value
-      = mode === 'bale' && unitPrice > 0 && props.bill.send_weight > 0
-        ? Number((unitPrice * props.bill.send_weight).toFixed(2))
-        : unitPrice
+    setPriceDisplay(unitPrice, mode)
     remark.value = props.bill.incoming_price_remark || ''
   },
   { immediate: true },
@@ -85,12 +104,8 @@ async function handleSave() {
     return
   }
 
-  let finalPrice = priceValue.value
-
-  // 如果是打包价模式，需要转换为单价
-  if (priceMode.value === 'bale' && finalPrice > 0) {
-    finalPrice = Number((finalPrice / props.bill.send_weight).toFixed(3))
-  }
+  // 入库恒用单价的精确值：显示值是取整过的，不能拿它回算
+  const finalPrice = Number(priceValue.value) === -1 ? -1 : currentUnitPrice()
 
   const data = [
     {
