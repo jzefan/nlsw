@@ -89,8 +89,9 @@
 - `attendance-requests.md` 三种申请的共用列表、时长口径、附件预览、考勤申述
 - `seal.md` 用章审批人配置与会签口径
 - `payroll-and-notice.md` 薪资费率、工资条发布与再发布、节日福利、薪资统计口径、小票·通知·移动端
-- `settle-vessel-price.md` 车船价 `vessel_price`/`veh_price` 恒为元/吨、`price_mode` 只记录入方式
-  不参与换算、接口车辆副本来自 Invoice 侧
+- `settle-vessel-price.md` 结算价格输入（客户/代收代付+车船，3 个带「打包价」的弹窗）：`vessel_price`/`veh_price` 恒为元/吨、
+  `price_mode` 只记录入方式不参与换算、**入库用精确值 / 显示才取整 / 切换方式从精确值重算**（换算共用 `pages/settle/price-mode.ts`）、
+  接口车辆副本来自 Invoice 侧
 - **免密码验证（复用在线会话回放接口）** → 技能 `live-session-api-replay`。最易忘：
   `connect.sid` = `s:<sid>.<HMAC-SHA256(sid, SESSION_SECRET)>`，**别写死 sid**；拦接口只按
   「端口 + pathname 谓词」（用 `**/xxx**` 会拦到 vite 的 `.vue` → 白屏）；写接口回放要带
